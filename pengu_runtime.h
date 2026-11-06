@@ -4505,6 +4505,7 @@ extern "C"
   void *pengu_c_filum_box_new(size_t size);
   void pengu_c_filum_box_free(void *p);
   int64_t pengu_c_filum_thread_start(void (*run)(void *), void *box, int *err);
+  int pengu_c_filum_thread_is_finished(int64_t id);
   int pengu_c_filum_thread_join(int64_t id, int *sys);
   int pengu_c_filum_thread_detach(int64_t id, int *sys);
   void pengu_c_filum_thread_abandon(int64_t id);
@@ -4583,6 +4584,8 @@ extern "C"
 
   /** Allocates the argument box passed to a coroutine. Panics on OOM. */
   void   *pengu_c_coro_box_new(size_t size);
+  /** Copies `size` bytes from `src` into a fresh box. */
+  void   *pengu_c_box_copy(const void *src, size_t size);
   /** Releases a box returned by pengu_c_coro_box_new(). */
   void    pengu_c_coro_box_free(void *box);
   /** Creates a suspended coroutine; takes ownership of `box`. Panics on OOM. */
@@ -4600,6 +4603,32 @@ extern "C"
   /** Debug helper: prints live coroutines and their last yield stack.
    *  Enable frame capture with PENGU_FIBER_TRACE=1 (psc debug sets it). */
   void    pengu_c_coro_dump(void);
+  /** Returns the running coroutine handle, or NULL outside a coroutine. */
+  void   *pengu_c_coro_current(void);
+
+  /* =========================================================================
+   * 22. Explicit Reactor (std.reactor)
+   *
+   * The C half moves readiness/work tokens only; the scheduling policy lives
+   * in std/reactor.pengu. Linux: epoll + eventfd. Other POSIX: poll + pipe.
+   * Windows: stub (new returns NULL, calls return -ENOSYS).
+   * ========================================================================= */
+
+  typedef struct PenguReactor PenguReactor;
+
+  PenguReactor *pengu_c_reactor_new(int workers);
+  int           pengu_c_reactor_is_owner(PenguReactor *r);
+  void          pengu_c_reactor_free(PenguReactor *r);
+  int           pengu_c_reactor_add(PenguReactor *r, int fd, int events, int64_t token);
+  int           pengu_c_reactor_del(PenguReactor *r, int fd);
+  int           pengu_c_reactor_wait(PenguReactor *r, int timeout_ms,
+                                     int64_t *tokens, int cap);
+  int           pengu_c_reactor_post(PenguReactor *r, int64_t task_id, int64_t token);
+  int           pengu_c_reactor_take(PenguReactor *r, int64_t *task_id, int64_t *token);
+  int64_t       pengu_c_reactor_now_ms(void);
+  int           pengu_c_reactor_offload(PenguReactor *r, void (*fn)(void *), void *ctx,
+                                        int64_t task_id, int64_t token);
+  void          pengu_c_reactor_wake(PenguReactor *r);
 
 
   /* =========================================================================

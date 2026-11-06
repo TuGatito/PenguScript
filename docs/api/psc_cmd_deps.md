@@ -20,6 +20,12 @@ _Undocumented._
 
  Raíz del proyecto o `""`.
 
+### `project_lib_dir`
+
+> **project_lib_dir**(base: string) -> string
+
+ `lib_dir` efectivo del proyecto.
+
 ### `fail`
 
 > **fail**(msg: string) -> int
@@ -34,7 +40,7 @@ _Undocumented._
 
 ### `sync`
 
-> **sync**(base: string, lib_dir: string, write_lock: bool, trusted: bool, exe: string, run_build: bool) -> int
+> **sync**(base: string, lib_dir: string, write_lock: bool, trusted: bool, exe: string, run_build: bool, force: bool) -> int
 
  Resuelve, instala y escribe lock.
 
@@ -49,6 +55,16 @@ _Undocumented._
 > **run_add**(args: list of string) -> int
 
  `psc add`.
+
+### `adopt_import_name`
+
+> **adopt_import_name**(base: string, lib_dir: string, old_name: string) -> maybe string
+
+ Si el paquete instalado declara `[project] import`, mueve su directorio
+ a `lib/<import>` y devuelve el nombre nuevo. Solo se usa cuando el usuario
+ no paso `--name`: asi `psc add <url-de-raylib-pengu>` queda importable como
+ `import raylib`. Devuelve `none` si no hay import, si el nombre es invalido
+ o si el destino ya existe.
 
 ### `derive_name`
 

@@ -26,9 +26,9 @@ _Undocumented._
 
  `true` si `s` contiene `p` (subcadena literal, sin regex).
 
-### `is_ignored_rel`
+### `is_native_lib_rel`
 
-> **is_ignored_rel**(rel: string) -> bool
+> **is_native_lib_rel**(rel: string) -> bool
 
  `true` si la ruta relativa cae dentro de un artefacto generado o de un
  repositorio (`.git`, `lib`, `build`).
@@ -37,11 +37,18 @@ _Undocumented._
  recursión (el `lib/` de un ejemplo contiene otra copia del paquete) y
  llena el disco; además nunca son parte del código de la dependencia.
 
+### `is_ignored_rel`
+
+> **is_ignored_rel**(rel: string, keep_lib: bool) -> bool
+
+_Undocumented._
+
 ### `copy_local`
 
-> **copy_local**(src: string, dst: string) -> bool
+> **copy_local**(src: string, dst: string, keep_lib: bool) -> bool
 
  Copia un árbol local a `dst` (elimina dst antes).
+ `keep_lib` conserva `lib/` (artefactos nativos) para vendor/frozen.
 
 ### `clone_git`
 

@@ -1,7 +1,7 @@
 # The Pengunic Manual
 
 How to write PenguScript that is safe, idiomatic and fast: the engineering
-manual for the language implemented by `psc` 0.34.0.
+manual for the language implemented by `psc` 0.35.0.
 
 It is the *practice* document of the documentation set:
 
@@ -102,6 +102,7 @@ Spanish: [PENGUNIC.es.md](PENGUNIC.es.md).
   - [13.5 Sharing rules](#135-sharing-rules)
   - [13.6 Testing concurrency](#136-testing-concurrency)
   - [13.7 Coroutines](#137-coroutines)
+  - [13.8 The reactor: scheduling is explicit](#138-the-reactor-scheduling-is-explicit)
 - [14. C interoperability, safely](#14-c-interoperability-safely)
   - [14.1 The boundary file](#141-the-boundary-file)
   - [14.2 Ownership across the boundary](#142-ownership-across-the-boundary)
@@ -317,7 +318,7 @@ binary. From a checkout:
 $ bash tools/build_bootstrap.sh     # builds build/psc-stage0 from the C bundle
 $ ./build/psc-stage0 build .        # self-hosts build/psc
 $ ./build/psc --version
-psc 0.34.0 (F13)
+psc 0.35.0 (F13)
 ```
 
 `build/psc` is the compiler you use from then on. `psc doctor` reports what it
@@ -1572,8 +1573,9 @@ concurrency test that passes once proves nothing: run it in a loop in CI.
 A coroutine is not a thread and not a promise: it is a function that can be
 suspended and resumed explicitly. `std.coro.start` creates it suspended,
 `resume` runs it to the next `yield` or until it returns, and `status` reports
-its state. There is no scheduler, no `async`/`await`, and no thread migration: if
-the owner does not resume it, it does not advance.
+its state. `std.coro` brings no scheduler and no `async`/`await` syntax, and
+there is no thread migration: if the owner does not resume it, it does not
+advance. The scheduling policy is explicit and lives in `std.reactor` (§13.8).
 
 ```pengu
 import std.coro
@@ -1607,9 +1609,70 @@ The same affinity that makes coroutines safe imposes the rules:
 
 Coroutines are the substrate for generators and lazy iterators, but PenguScript
 adds no generator syntax: the pattern is written with `resume` and `yield`, and
-values travel through `ref to` or the owner's state. `async` is out because the
-language has no capturing closures and does not want to turn every function into
-a hidden state machine.
+values travel through `ref to` or the owner's state. There is also no
+`async`/`await` keyword: the stdlib `*_async` variants are ordinary functions
+that suspend the current coroutine and require a reactor task. There is no
+function-coloring transform, no capturing closures, and no hidden generated
+state machine.
+
+### 13.8 The reactor: scheduling is explicit
+
+`std.reactor` is the scheduling policy, in user space. The program creates the
+loop, registers tasks and decides when they run:
+
+```pengu
+import std.reactor
+
+weave tick with loop as ref to reactor.EventLoop, n as ref to int into void:
+    calling loop.sleep_ms with 10
+
+weave main into int:
+    var loop as reactor.EventLoop is calling reactor.EventLoop.new
+    calling loop.spawn with tick, 0
+    calling loop.run
+    calling loop.close
+    return 0
+```
+
+`spawn` does not run the worker inline: it makes it ready for the next pass.
+`run` is the only place that calls `epoll_wait`/`poll` and resumes tasks.
+`park_read` and `park_write` park the current coroutine until the descriptor is
+ready; `sleep_ms` parks it on a timer; `offload` sends blocking work to the loop
+pool and `await_token` waits for it. `close` is called outside a coroutine,
+abandons suspended tasks and does not close user descriptors.
+
+**When to use it.** Network I/O, timers, many-connection servers and blocking
+work that must not stop everything else (files, libcurl). It is the right choice
+when the dominant cost is waiting, not computing.
+
+**When not to.** Pure CPU or real parallelism: use `std.filum` and its `Pool`.
+Do not use it to hide a blocking library you do not control: if there is no
+`*_async` variant, `offload` is the honest boundary and the cost is one pool
+thread per in-flight operation.
+
+**Rules the compiler cannot save you from:**
+
+* A loop belongs to the thread that created it. `new`, `spawn`, `run`, `stop` and
+  `close` run on that thread; a worker never touches the loop directly.
+* An `*_async` call only happens inside a loop task. Outside one it panics; it
+  never blocks silently.
+* Do not call `coro.yield` by hand inside a task: use `park_*`, `sleep_ms` or
+  `await_token` so the loop knows why it is suspended. A bare `yield` panics on
+  the next pass of `run`.
+* A task has at most one `offload` in flight. Wait for its token before starting
+  another; `job_free` releases the box when the completion is consumed.
+* Do not close a descriptor the loop still has registered; close the task or the
+  socket after `run` resumed it.
+* `close` does not close your sockets or files: that responsibility stays yours.
+* `std.filum` does not grow coroutine-suspending channels. Its `Mutex`, `Cond`,
+  `Chan*` and `Pool` are thread primitives; coroutine parking lives in the
+  reactor. To wait for a `Thread` from a task, use `Thread.is_finished` +
+  `reactor.await_thread`.
+
+**Anti-patterns.** One loop per request; `join` inside a worker; `Thread.sleep`
+to wait for I/O; two `offload`s and waiting for only one; closing the loop from
+inside a task; wrapping a blocking call in `spawn` and calling it "async" without
+the reactor.
 
 
 ## 14. C interoperability, safely
@@ -3092,10 +3155,13 @@ see (`E0045`).
 truncates, and `transmute`, which reinterprets bits.
 
 **Are there threads and coroutines?**
-Yes. 0.30.0 added first-class threads (`filum.start`, `join`, `detach`, `free`)
-and 0.31.0 adds `std.coro`: explicit stackful coroutines with `resume` and
-`yield` on the same thread. PenguScript does not promise a green-thread scheduler
-or `async`/`await`; the OS schedules threads and the owner resumes coroutines.
+Yes. 0.30.0 added first-class threads (`filum.start`, `join`, `detach`, `free`),
+0.31.0 added `std.coro` (explicit stackful coroutines with `resume` and `yield`
+on the same thread) and 0.35.0 adds `std.reactor`: an explicit `EventLoop` that
+calls `epoll_wait`/`poll` and resumes tasks. There is no `async`/`await` keyword
+and no hidden scheduler: you create the loop, `spawn` and call `run`. The stdlib
+`*_async` variants are functions that suspend the current coroutine and only
+work inside a loop task.
 
 **Why is `float` 32-bit?**
 It matches C's `float`; use `f64` when precision matters.

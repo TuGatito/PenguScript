@@ -1,0 +1,454 @@
+# std/reactor.pengu - Explicit event loop (reactor) policy in user space
+#
+# The reactor is the scheduling policy of the coroutine ecosystem. It owns an
+# epoll/poll set, a monotonic clock, a thread pool for blocking work and the
+# table of coroutines it is allowed to resume. Nothing here is implicit: a
+# coroutine parks with `park_read`, `park_write`, `sleep_ms` or `await_token`,
+# and only `run` resumes it.
+#
+# Layers: std.coro (stackful coroutines) <- std.filum (threads) <- std.reactor
+# <- std.net / std.archivum / std.petitio. std.filum never imports this module;
+# its Mutex/Cond/Pool stay thread primitives.
+
+import std.coro
+import std.filum
+import std.spark
+
+## Revision of the `std.reactor` API.
+const REACTOR_VERSION as string is "1.0.0"
+
+# Task states. `ready` is a task that may be resumed in this pass; `fd` waits
+# for readiness; `timer` sleeps; `offload` waits for a pool completion.
+const TASK_READY as int is 0
+const TASK_FD as int is 1
+const TASK_TIMER as int is 2
+const TASK_OFFLOAD as int is 3
+const TASK_NEW as int is 4
+
+## One coroutine spawned on a loop.
+rune Task:
+    co as coro.Coroutine
+    token as i64
+    state as int
+    waiting as i64
+    fd as int
+    events as int
+    pending as int
+    done as bool
+    job_box as ref to void
+    job_token as i64
+    job_free as ref to weave with box as ref to void into void
+    arg_box as ref to void
+
+## A pending `sleep_ms`.
+rune Timer:
+    token as i64
+    task as i64
+    deadline_ms as int
+
+## Argument bundle passed to the coroutine trampoline. The typed worker is
+## erased to `ref to void`: the loop boxes a copy of the argument and the
+## worker receives a `ref to A` to that copy. This keeps the trampoline
+## non-generic, so a spawn never asks the compiler to instantiate a generic
+## nominal inside another generic body.
+rune SpawnJob:
+    worker as ref to weave with loop as ref to EventLoop, a as ref to void into void
+    loop as ref to EventLoop
+    arg as ref to void
+
+## A reactor with its own epoll/poll set and worker pool.
+rune EventLoop:
+    _handle as opaque
+    tasks as list of Task
+    timers as list of Timer
+    next_token as i64
+    stopped as bool
+    running as bool
+    closed as bool
+
+# ----------------------------------------------------------------------------
+# C declarations
+# ----------------------------------------------------------------------------
+
+declare pengu_c_reactor_new with workers as int into ref to void
+declare pengu_c_reactor_is_owner with r as ref to void into int
+declare pengu_c_reactor_free with r as ref to void into void
+declare pengu_c_reactor_add with r as ref to void, fd as int, events as int, token as i64 into int
+declare pengu_c_reactor_del with r as ref to void, fd as int into int
+declare pengu_c_reactor_wait with r as ref to void, timeout_ms as int, tokens as ref to i64, cap as int into int
+declare pengu_c_reactor_post with r as ref to void, task_id as i64, token as i64 into int
+declare pengu_c_reactor_take with r as ref to void, task_id as ref to i64, token as ref to i64 into int
+declare pengu_c_reactor_now_ms into int
+declare pengu_c_reactor_offload with r as ref to void, fn as ref to weave with ctx as ref to void into void, ctx as ref to void, task_id as i64, token as i64 into int
+declare pengu_c_reactor_wake with r as ref to void into void
+
+declare pengu_c_box_copy with src as ref to void, size as i64 into ref to void
+declare pengu_c_coro_box_new with size as i64 into ref to void
+declare pengu_c_coro_box_free with box as ref to void into void
+declare pengu_c_coro_new with run as ref to weave with raw as ref to void into void, box as ref to void into ref to void
+
+weave _kick with raw as ref to void into void:
+    var job as ref to SpawnJob is transmute raw to ref to SpawnJob
+    calling job->worker with job->loop, job->arg
+
+enchanting EventLoop:
+    # ----------------------------------------------------------------------------
+    # Construction and lifetime
+    # ----------------------------------------------------------------------------
+
+    ## Creates a loop. `workers` is the size of the offload pool (0 = CPU count).
+    ## The loop belongs to the thread that creates it.
+    weave ritual new with workers as int is 0 into EventLoop:
+        var h as ref to void is calling pengu_c_reactor_new with workers
+        if h == null:
+            calling spark.panic with "reactor: could not create the event loop"
+        return with _handle is h, tasks is list of Task, timers is list of Timer, next_token is 1, stopped is false, running is false, closed is false
+
+    ## Stops the loop after the current resume. Cooperative: call it from a task.
+    weave stop into void:
+        var owner as int is calling pengu_c_reactor_is_owner with self->_handle
+        if owner == 0:
+            calling spark.panic with "reactor.stop: called from a thread that does not own the loop"
+        set self->stopped is true
+
+    ## Whether `stop` was requested.
+    weave is_stopped into bool:
+        return self->stopped
+
+    ## Destroys the loop. Must run outside a coroutine and on the owner thread.
+    ## Suspended tasks are abandoned, pending offload boxes are released and the
+    ## worker pool is joined. Idempotent. User file descriptors are not closed.
+    weave close into void:
+        if self->closed:
+            return
+        if calling coro.is_running:
+            calling spark.panic with "reactor.close: cannot close a loop from inside a coroutine"
+        var owner as int is calling pengu_c_reactor_is_owner with self->_handle
+        if owner == 0:
+            calling spark.panic with "reactor.close: called from a thread that does not own the loop"
+        set self->closed is true
+        var i as int is 0
+        while i < self->tasks.len:
+            var t as Task is (self->tasks) at i
+            if t.job_box != null:
+                calling t.job_free with t.job_box
+            if t.arg_box != null:
+                calling pengu_c_coro_box_free with t.arg_box
+                set t.arg_box is null
+            calling t.co.abandon
+            set i is i + 1
+        calling pengu_c_reactor_free with self->_handle
+        banish self->tasks
+        banish self->timers
+        set self->_handle is null
+
+    ## Number of pool completions already harvested but not consumed.
+    weave pending into int:
+        var i as int is 0
+        var n as int is 0
+        while i < self->tasks.len:
+            var t as Task is (self->tasks) at i
+            set n is n + t.pending
+            set i is i + 1
+        return n
+
+    # ----------------------------------------------------------------------------
+    # Task table
+    # ----------------------------------------------------------------------------
+
+    weave _find_task with token as i64 into int:
+        var i as int is 0
+        while i < self->tasks.len:
+            var t as Task is (self->tasks) at i
+            if t.token == token:
+                return i
+            set i is i + 1
+        return -1
+
+    weave _find_task_by_co with co as coro.Coroutine into int:
+        var i as int is 0
+        while i < self->tasks.len:
+            var t as Task is (self->tasks) at i
+            if t.co._ptr == co._ptr:
+                return i
+            set i is i + 1
+        return -1
+
+    weave _remove_task with index as int into void:
+        var last as int is self->tasks.len - 1
+        if index < last:
+            set self->tasks at index is ((self->tasks) at last)
+        calling self->tasks.pop
+
+    weave _remove_timer with index as int into void:
+        var last as int is self->timers.len - 1
+        if index < last:
+            set self->timers at index is ((self->timers) at last)
+        calling self->timers.pop
+
+    # ----------------------------------------------------------------------------
+    # Spawning
+    # ----------------------------------------------------------------------------
+
+    ## Spawns `worker` as a coroutine on this loop. The worker receives the loop
+    ## first, then `arg`. Returns the task id. The task starts in the next pass
+    ## of `run`, never inline.
+    ## Spawns `worker` as a coroutine on this loop. The worker receives the loop
+    ## and a `ref to A` to a loop-owned copy of `arg`; the copy lives while the
+    ## worker runs. Returns the task id.
+    weave spawn shard A with worker as ref to weave with loop as ref to EventLoop, a as ref to A into void, arg as A into i64:
+        if self->closed:
+            calling spark.panic with "reactor.spawn: the loop is closed"
+        var owner as int is calling pengu_c_reactor_is_owner with self->_handle
+        if owner == 0:
+            calling spark.panic with "reactor.spawn: called from a thread that does not own the loop"
+        var id as i64 is self->next_token
+        set self->next_token is id + 1
+        var argbox as ref to void is calling pengu_c_box_copy with (sigil of arg), (size of A)
+        var erased as ref to weave with loop as ref to EventLoop, a as ref to void into void is transmute worker to ref to weave with loop as ref to EventLoop, a as ref to void into void
+        var raw as ref to void is calling pengu_c_coro_box_new with (size of SpawnJob)
+        var job as ref to SpawnJob is transmute raw to ref to SpawnJob
+        set job->worker is erased
+        set job->loop is self
+        set job->arg is argbox
+        var coraw as ref to void is calling pengu_c_coro_new with _kick, raw
+        var co as coro.Coroutine is calling coro.from_raw with coraw
+        var t as Task is with co is co, token is id, state is TASK_NEW, waiting is 0, fd is -1, events is 0, pending is 0, done is false, job_box is null, job_token is 0, job_free is null, arg_box is argbox
+        calling self->tasks.push with t
+        return id
+
+    # ----------------------------------------------------------------------------
+    # Parking and completion
+    # ----------------------------------------------------------------------------
+
+    ## Parks the current coroutine until `fd` is readable. Returns 0 on success or
+    ## `-errno` if the registration failed.
+    weave park_read with fd as int into int:
+        return calling self->_park with fd, 1
+
+    ## Parks the current coroutine until `fd` is writable.
+    weave park_write with fd as int into int:
+        return calling self->_park with fd, 2
+
+    weave _park with fd as int, events as int into int:
+        var cur as coro.Coroutine is calling coro.current
+        var idx as int is calling self->_find_task_by_co with cur
+        if idx < 0:
+            calling spark.panic with "reactor: the running coroutine does not belong to this loop"
+        var t as Task is (self->tasks) at idx
+        var rc as int is calling pengu_c_reactor_add with self->_handle, fd, events, t.token
+        if rc != 0:
+            return rc
+        set t.state is TASK_FD
+        set t.fd is fd
+        set t.events is events
+        set self->tasks at idx is t
+        calling coro.yield
+        return 0
+
+    ## Suspends the current task for at least `ms` milliseconds.
+    weave sleep_ms with ms as int into void:
+        if ms <= 0:
+            calling coro.yield
+            return
+        var cur as coro.Coroutine is calling coro.current
+        var idx as int is calling self->_find_task_by_co with cur
+        if idx < 0:
+            calling spark.panic with "reactor.sleep_ms: the running coroutine does not belong to this loop"
+        var t as Task is (self->tasks) at idx
+        var timer_token as i64 is self->next_token
+        set self->next_token is timer_token + 1
+        var now as int is calling pengu_c_reactor_now_ms
+        var timer as Timer is with token is timer_token, task is t.token, deadline_ms is now + ms
+        calling self->timers.push with timer
+        set t.state is TASK_TIMER
+        set t.waiting is timer_token
+        set self->tasks at idx is t
+        calling coro.yield
+
+    ## Waits for the completion of the offload whose token is `token`.
+    weave await_token with token as i64 into void:
+        var cur as coro.Coroutine is calling coro.current
+        var idx as int is calling self->_find_task_by_co with cur
+        if idx < 0:
+            calling spark.panic with "reactor.await_token: the running coroutine does not belong to this loop"
+        var t as Task is (self->tasks) at idx
+        if t.job_box == null:
+            calling spark.panic with "reactor.await_token: no offload is pending on this task"
+        if t.job_token != token:
+            calling spark.panic with "reactor.await_token: token does not belong to this task"
+        if t.pending > 0:
+            set t.pending is t.pending - 1
+            var box as ref to void is t.job_box
+            var jf as ref to weave with box as ref to void into void is t.job_free
+            set t.job_box is null
+            set t.job_token is 0
+            set t.job_free is null
+            set self->tasks at idx is t
+            calling jf with box
+            return
+        set t.waiting is token
+        set t.state is TASK_OFFLOAD
+        set self->tasks at idx is t
+        calling coro.yield
+        var idx2 as int is calling self->_find_task_by_co with cur
+        if idx2 < 0:
+            calling spark.panic with "reactor.await_token: task disappeared while waiting"
+        var t2 as Task is (self->tasks) at idx2
+        if t2.job_box != null:
+            var box2 as ref to void is t2.job_box
+            var jf2 as ref to weave with box as ref to void into void is t2.job_free
+            set t2.job_box is null
+            set t2.job_token is 0
+            set t2.job_free is null
+            set self->tasks at idx2 is t2
+            calling jf2 with box2
+
+    ## Sends `fn(ctx)` to the loop's pool. Returns the completion token to pass to
+    ## `await_token`. One offload can be in flight per task. `job_free` releases
+    ## `ctx` after the completion is consumed.
+    weave offload with fn as ref to weave with ctx as ref to void into void, job_free as ref to weave with box as ref to void into void, ctx as ref to void into i64:
+        var cur as coro.Coroutine is calling coro.current
+        var idx as int is calling self->_find_task_by_co with cur
+        if idx < 0:
+            calling spark.panic with "reactor.offload: the running coroutine does not belong to this loop"
+        var t as Task is (self->tasks) at idx
+        if t.job_box != null:
+            calling spark.panic with "reactor.offload: this task already has an offload in flight"
+        var token as i64 is self->next_token
+        set self->next_token is token + 1
+        var rc as int is calling pengu_c_reactor_offload with self->_handle, fn, ctx, t.token, token
+        if rc != 0:
+            calling spark.panic with "reactor.offload: the pool rejected the job"
+        set t.job_box is ctx
+        set t.job_token is token
+        set t.job_free is job_free
+        set self->tasks at idx is t
+        return token
+
+    ## Waits for a `std.filum.Thread` without blocking the loop.
+    weave await_thread with t as ref to filum.Thread into void:
+        while not calling filum.is_finished with t:
+            calling self.sleep_ms with 1
+
+    # ----------------------------------------------------------------------------
+    # The loop
+    # ----------------------------------------------------------------------------
+
+    ## Runs until no tasks and no timers remain, or until `stop`. Returns the
+    ## number of live tasks at exit.
+    weave run into int:
+        if self->closed:
+            calling spark.panic with "reactor.run: the loop is closed"
+        if self->running:
+            calling spark.panic with "reactor.run: the loop is already running"
+        var owner as int is calling pengu_c_reactor_is_owner with self->_handle
+        if owner == 0:
+            calling spark.panic with "reactor.run: called from a thread that does not own the loop"
+        set self->running is true
+        while (self->tasks.len > 0 or self->timers.len > 0) and not self->stopped:
+            var ready as list of i64 is list of i64
+            # 1. Completions posted by the pool.
+            var got as int is 1
+            while got == 1:
+                var task_id as i64 is 0
+                var token as i64 is 0
+                set got is calling pengu_c_reactor_take with self->_handle, (sigil of task_id), (sigil of token)
+                if got == 1:
+                    var idx as int is calling self->_find_task with task_id
+                    if idx >= 0:
+                        var t as Task is (self->tasks) at idx
+                        if t.waiting == token:
+                            set t.state is TASK_READY
+                            set t.waiting is 0
+                            set self->tasks at idx is t
+                            calling ready.push with task_id
+                        else:
+                            set t.pending is t.pending + 1
+                            set self->tasks at idx is t
+            # 2. Newly spawned tasks.
+            var i as int is 0
+            while i < self->tasks.len:
+                var t as Task is (self->tasks) at i
+                if t.state == TASK_NEW:
+                    set t.state is TASK_READY
+                    set self->tasks at i is t
+                    calling ready.push with t.token
+                set i is i + 1
+            # 3. Due timers.
+            var now as int is calling pengu_c_reactor_now_ms
+            var ti as int is 0
+            while ti < self->timers.len:
+                var timer as Timer is (self->timers) at ti
+                if timer.deadline_ms <= now:
+                    var tidx as int is calling self->_find_task with timer.task
+                    if tidx >= 0:
+                        var t as Task is (self->tasks) at tidx
+                        if t.waiting == timer.token:
+                            set t.state is TASK_READY
+                            set t.waiting is 0
+                            set self->tasks at tidx is t
+                            calling ready.push with timer.task
+                    calling self->_remove_timer with ti
+                else:
+                    set ti is ti + 1
+            # 4. Wait for readiness only if there is nothing to resume now.
+            if ready.len == 0:
+                var timeout as int is -1
+                if self->timers.len > 0:
+                    var first as Timer is (self->timers) at 0
+                    var min_deadline as int is first.deadline_ms
+                    var k as int is 1
+                    while k < self->timers.len:
+                        var tm as Timer is (self->timers) at k
+                        if tm.deadline_ms < min_deadline:
+                            set min_deadline is tm.deadline_ms
+                        set k is k + 1
+                    set timeout is min_deadline - calling pengu_c_reactor_now_ms
+                    if timeout < 0:
+                        set timeout is 0
+                var tok as i64 is 0
+                var n as int is calling pengu_c_reactor_wait with self->_handle, timeout, (sigil of tok), 1
+                if n < 0:
+                    calling spark.panic with "reactor.run: the event loop wait failed"
+                if n > 0:
+                    var idx as int is calling self->_find_task with tok
+                    if idx >= 0:
+                        var t as Task is (self->tasks) at idx
+                        if t.fd >= 0:
+                            calling pengu_c_reactor_del with self->_handle, t.fd
+                        set t.state is TASK_READY
+                        set t.fd is -1
+                        set t.events is 0
+                        set self->tasks at idx is t
+                        calling ready.push with tok
+            # 5. Resume a snapshot. Tasks spawned by a resumed task run next pass.
+            var ri as int is 0
+            while ri < ready.len:
+                var id as i64 is ready at ri
+                var idx as int is calling self->_find_task with id
+                if idx >= 0:
+                    var t as Task is (self->tasks) at idx
+                    var co as coro.Coroutine is t.co
+                    var st as coro.CoroutineState is calling co.resume
+                    var idx2 as int is calling self->_find_task with id
+                    if st == coro.CoroutineState.finished:
+                        if idx2 >= 0:
+                            var t2 as Task is (self->tasks) at idx2
+                            if t2.job_box != null:
+                                calling spark.panic with "reactor.run: task finished with an offload in flight"
+                            if t2.arg_box != null:
+                                calling pengu_c_coro_box_free with t2.arg_box
+                                set t2.arg_box is null
+                            calling co.free
+                            calling self->_remove_task with idx2
+                    else:
+                        if idx2 >= 0:
+                            var t2 as Task is (self->tasks) at idx2
+                            if t2.state == TASK_READY:
+                                calling spark.panic with "reactor.run: task yielded without parking (use reactor.park_* or sleep_ms)"
+                set ri is ri + 1
+                if self->stopped:
+                    break
+        set self->running is false
+        return self->tasks.len

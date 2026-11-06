@@ -26,6 +26,11 @@ if [ -x tests/regress_threads.sh ]; then
     fail=$((fail+1))
   fi
 fi
+if [ -x tests/regress_coros_asan.sh ]; then
+  if ! tests/regress_coros_asan.sh; then
+    fail=$((fail+1))
+  fi
+fi
 if [ "$fail" -ne 0 ]; then
   echo "$fail of $count test file(s) failed"
   exit 1

@@ -1,0 +1,18 @@
+# fetch_many_async builds one multi job; an empty batch is a no-op.
+import std.reactor
+import std.petitio
+import std.spark
+
+weave worker with loop as ref to reactor.EventLoop, n as ref to int into void:
+    var reqs as list of petitio.Request is list of petitio.Request
+    var out as list of result of petitio.Response to petitio.HttpError is calling petitio.fetch_many_async with loop, reqs
+    calling spark.println with "empty"
+    banish out
+    banish reqs
+
+weave main into int:
+    var loop as reactor.EventLoop is calling reactor.EventLoop.new
+    calling loop.spawn with worker, 0
+    calling loop.run
+    calling loop.close
+    return 0

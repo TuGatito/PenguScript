@@ -177,6 +177,12 @@ _Undocumented._
 
 _Undocumented._
 
+### `pengu_c_filum_thread_is_finished`
+
+> **pengu_c_filum_thread_is_finished**(id: i64) -> int
+
+_Undocumented._
+
 ### `pengu_c_filum_thread_join`
 
 > **pengu_c_filum_thread_join**(id: i64, sys: ref to int) -> int
@@ -862,6 +868,13 @@ _Undocumented._
 > **is_valid**(t: ref to Thread) -> bool
 
  True while the handle still refers to a thread the runtime knows about.
+
+### `is_finished`
+
+> **is_finished**(t: ref to Thread) -> bool
+
+ Whether the thread has finished. Does not consume the handle; safe to poll
+ from a reactor task with `reactor.await_thread`.
 
 ### `SpawnBox0`
 

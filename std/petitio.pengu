@@ -28,6 +28,7 @@
 ## ```pengu
 ## import std.petitio
 ## import std.spark
+import std.reactor
 ##
 ## weave main into int:
 ##     var r as result of Response to HttpError is calling petitio.get with "https://httpbin.org/get"
@@ -133,7 +134,7 @@ import std.spark
 # ----------------------------------------------------------------------------
 
 ## Petitio module version (the stdlib release that ships it).
-const PETITIO_VERSION as string is "2.14.0"
+const PETITIO_VERSION as string is "2.15.0"
 
 ## Redirect limit used by `Request.new` and by the one-shot helpers, matching
 ## Python's `requests`.
@@ -143,7 +144,7 @@ const PETITIO_DEFAULT_MAX_REDIRECTS as int is 30
 const PETITIO_DEFAULT_TIMEOUT_SEC as f64 is 0.0
 
 ## `User-Agent` sent when the request does not set one.
-const PETITIO_DEFAULT_USER_AGENT as string is "petitio/2.14.0"
+const PETITIO_DEFAULT_USER_AGENT as string is "petitio/2.15.0"
 
 ## Content type `json_body` installs when the request has not set one.
 const PETITIO_JSON_CONTENT_TYPE as string is "application/json"
@@ -1990,6 +1991,44 @@ enchanting Session:
         calling req.form_body with fields
         return calling self.request with (sigil of req)
 
+    ## Async version of `request`: the blocking call runs on the loop pool and
+    ## the cookie merge happens back on the loop thread.
+    weave request_async with req as ref to Request, loop as ref to reactor.EventLoop into result of Response to HttpError:
+        var empty as result of Response to HttpError is calling err_of with (with HttpOutOfMemory is 0)
+        var job as SessionJob is with sess is self, req is req, out is empty
+        var token as i64 is calling loop.offload with _petitio_session_worker, _petitio_async_noop, (sigil of job)
+        calling loop.await_token with token
+        if not job.out.is_ok:
+            return job.out
+        var resp as Response is job.out.value
+        for name in resp.cookies:
+            var key as string is calling _copy with name
+            var value as string is calling _copy with (calling resp.cookies.get with name)
+            calling _put_owned with (sigil of self->_cookies), key, value
+        for name in resp.cleared_cookies:
+            calling _remove_owned with (sigil of self->_cookies), name
+        return job.out
+
+    ## `GET url` through the session, without blocking the loop.
+    weave get_async with url as string, loop as ref to reactor.EventLoop into result of Response to HttpError:
+        var req as Request is calling Request.new with "GET", url
+        defer banish req
+        return calling self.request_async with (sigil of req), loop
+
+    ## `POST url` with a JSON body, through the session, without blocking.
+    weave post_json_async with url as string, v as json.JsonValue, loop as ref to reactor.EventLoop into result of Response to HttpError:
+        var req as Request is calling Request.new with "POST", url
+        defer banish req
+        calling req.json_body with v
+        return calling self.request_async with (sigil of req), loop
+
+    ## `POST url` with a form body, through the session, without blocking.
+    weave post_form_async with url as string, fields as map of string to string, loop as ref to reactor.EventLoop into result of Response to HttpError:
+        var req as Request is calling Request.new with "POST", url
+        defer banish req
+        calling req.form_body with fields
+        return calling self.request_async with (sigil of req), loop
+
 # ----------------------------------------------------------------------------
 # One-shot helpers (the `requests.get` / `requests.post` shape)
 # ----------------------------------------------------------------------------
@@ -2485,3 +2524,85 @@ weave _empty_response into Response:
         cookies is cookies
         cleared_cookies is cleared
     return response
+
+# ----------------------------------------------------------------------------
+# Async variants (reactor). The blocking libcurl call runs on a pool thread;
+# the request and its output stay on the suspended task's stack.
+# ----------------------------------------------------------------------------
+
+rune SendJob:
+    req as ref to Request
+    out as result of Response to HttpError
+
+rune SendFileJob:
+    req as ref to Request
+    path as string
+    out as result of Response to HttpError
+
+rune FetchManyJob:
+    requests as list of Request
+    out as list of result of Response to HttpError
+
+rune SessionJob:
+    sess as ref to Session
+    req as ref to Request
+    out as result of Response to HttpError
+
+weave _petitio_async_noop with box as ref to void into void:
+    return
+
+weave _petitio_send_worker with ctx as ref to void into void:
+    var j as ref to SendJob is transmute ctx to ref to SendJob
+    set j->out is calling j->req.send
+
+weave _petitio_send_file_worker with ctx as ref to void into void:
+    var j as ref to SendFileJob is transmute ctx to ref to SendFileJob
+    set j->out is calling j->req.send_to_file with j->path
+
+weave _petitio_fetch_many_worker with ctx as ref to void into void:
+    var j as ref to FetchManyJob is transmute ctx to ref to FetchManyJob
+    set j->out is calling fetch_many with j->requests
+
+weave _petitio_session_worker with ctx as ref to void into void:
+    var j as ref to SessionJob is transmute ctx to ref to SessionJob
+    set j->out is calling _perform with j->req, (sigil of j->sess->_default_headers), (sigil of j->sess->_cookies)
+
+## Async `Request.send`: suspends the calling reactor task.
+weave send_async with self as ref to Request, loop as ref to reactor.EventLoop into result of Response to HttpError:
+    var empty as result of Response to HttpError is calling err_of with (with HttpOutOfMemory is 0)
+    var job as SendJob is with req is self, out is empty
+    var token as i64 is calling loop.offload with _petitio_send_worker, _petitio_async_noop, (sigil of job)
+    calling loop.await_token with token
+    return job.out
+
+## Async `Request.send_to_file`.
+weave send_to_file_async with self as ref to Request, loop as ref to reactor.EventLoop, path as string into result of Response to HttpError:
+    var empty as result of Response to HttpError is calling err_of with (with HttpOutOfMemory is 0)
+    var job as SendFileJob is with req is self, path is path, out is empty
+    var token as i64 is calling loop.offload with _petitio_send_file_worker, _petitio_async_noop, (sigil of job)
+    calling loop.await_token with token
+    return job.out
+
+## Builds a `Request` through the module, avoiding an ambiguous qualified
+## `Request.new` call from outside petitio.
+weave request_new with method as string, url as string into Request:
+    return calling Request.new with method, url
+
+## Builds a `Session` through the module (avoids the qualified `Session.new`
+## ambiguity from outside petitio).
+weave session_new into Session:
+    return calling Session.new
+
+## Async one-shot GET.
+weave get_async with url as string, loop as ref to reactor.EventLoop into result of Response to HttpError:
+    var req as Request is calling Request.new with "GET", url
+    defer banish req
+    return calling send_async with (sigil of req), loop
+
+## Async `fetch_many`: one pool thread drives libcurl's multi engine.
+weave fetch_many_async with loop as ref to reactor.EventLoop, requests as list of Request into list of result of Response to HttpError:
+    var empty as list of result of Response to HttpError is list of result of Response to HttpError
+    var job as FetchManyJob is with requests is requests, out is empty
+    var token as i64 is calling loop.offload with _petitio_fetch_many_worker, _petitio_async_noop, (sigil of job)
+    calling loop.await_token with token
+    return job.out

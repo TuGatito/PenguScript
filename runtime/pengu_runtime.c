@@ -413,6 +413,23 @@ int pengu_c_filum_thread_join(int64_t id, int* sys) {
     return PENGU_THREAD_ERR_OK;
 }
 
+int pengu_c_filum_thread_is_finished(int64_t id) {
+    PenguThread* t = pengu_thread_lookup(id);
+    if (!t) return 1;
+    int done;
+#if PENGU_WINDOWS
+    EnterCriticalSection(&t->lock);
+    done = t->finished;
+    LeaveCriticalSection(&t->lock);
+#else
+    pthread_mutex_lock(&t->lock);
+    done = t->finished;
+    pthread_mutex_unlock(&t->lock);
+#endif
+    pengu_thread_release(t);
+    return done;
+}
+
 int pengu_c_filum_thread_detach(int64_t id, int* sys) {
     if (sys) *sys = 0;
     PenguThread* t = pengu_thread_take(id);

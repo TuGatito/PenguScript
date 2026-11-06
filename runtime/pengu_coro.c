@@ -255,6 +255,14 @@ void pengu_c_coro_box_free(void *box) {
     free(box);
 }
 
+void *pengu_c_box_copy(const void *src, size_t size) {
+    void *p = pengu_c_coro_box_new(size);
+    if (src != NULL && size > 0) {
+        memcpy(p, src, size);
+    }
+    return p;
+}
+
 void *pengu_c_coro_new(void (*run)(void *), void *box) {
     PenguCoro *h = pengu_coro_slot_alloc();
     if (h == NULL) {
@@ -385,6 +393,12 @@ void pengu_c_coro_free(void *handle) {
         h->box = NULL;
     }
     pengu_coro_slot_free(h);
+}
+
+void *pengu_c_coro_current(void) {
+    mco_coro *co = mco_running();
+    if (co == NULL) return NULL;
+    return mco_get_user_data(co);
 }
 
 void pengu_c_coro_abandon(void *handle) {

@@ -33,96 +33,6 @@ here, and exposes every knob documented below. See `docs/PETITIO.md`
 import std.petitio
 import std.spark
 
-weave main into int:
-    var r as result of Response to HttpError is calling petitio.get with "https://httpbin.org/get"
-    defer banish r                       # the result owns the payload
-    if not r.is_ok:
-        var failure as HttpError is calling petitio.take_error with (sigil of r)
-        var why as string is calling failure.message
-        calling spark.println with why
-        banish why
-        banish failure
-        return 1
-    var resp as Response is calling petitio.take_response with (sigil of r)
-    defer banish resp
-    var body as string is calling resp.text
-    calling spark.println with body
-    banish body
-    calling spark.println_int with resp.status
-    return 0
-```
-
-## Ownership (read this once)
-- `Request` owns its URL, headers, body, auth strings and multipart parts.
-  `banish req` releases all of them (`Request derive Nexus`).
-- `Response` owns its body, URL, headers and cookies. `banish resp` releases
-  all of them, including every string inside the two maps.
-- `Session` owns its default headers and cookies. `banish session` releases
-  them.
-- A `result of Response to HttpError` owns its payload: `banish r` releases
-  the `Response` (or the `HttpError`) the box points at. `r.value` and
-  `r.error` hand out a **copy**, so releasing both the copy *and* the result
-  frees the same buffers twice. Either borrow through `r.value` / `r.error`
-  and release only the result (`defer banish r`), or move the payload out
-  with `take_response` / `take_error` and then release both independently.
-  Never `banish` a payload you obtained with `r.value` / `r.error`.
-- Every string getter (`Response.text`, `Response.header`, `HttpError.message`)
-  returns an **owned** copy. `banish` it when done. `Response.header` returns
-  `""` for an absent header; use `Response.has_header` when an empty header
-  value must be told apart from a missing one (a `maybe string` would wrap an
-  owned payload in a box the compiler cannot move out safely).
-
-## Errors
-Every network operation returns `result ... to HttpError`; none of them
-panic on a transport failure. Malformed *program input* to a builder
-(`Request.new` with a method containing a space or a URL with a control byte,
-`Request.header` with CR, LF or NUL or ':' in the name, `Request.set_cookie`
-with ';' in the value, `Request.auth_*`/`proxy`/`multipart_*` with a control
-byte, `Request.http_version` with `Http3`) is a bug in the caller and panics
-with a message naming the offending value — validate untrusted data before you build
-the request (§14.40–14.42 of the Pengunic guide). `multipart_file` is the
-exception: it reports `false` instead of panicking because a missing file is
-a runtime condition, not a bug.
-
-## Feature matrix
-| Feature | Supported |
-|---|---|
-| GET / POST / PUT / DELETE / HEAD / PATCH / OPTIONS, custom methods | ✅ |
-| Request headers (case-insensitive, lower-cased in the maps) | ✅ |
-| JSON body (`json_body`) | ✅ |
-| form-urlencoded body (`form_body`) | ✅ |
-| multipart/form-data, in memory and from a file | ✅ |
-| Query strings (`build_query_string`, `with_query`) | ✅ |
-| URL parsing (`parse_url`) and percent-coding (`url_encode`/`url_decode`) | ✅ |
-| Total and connect timeouts | ✅ |
-| Redirect following with a limit, or none | ✅ |
-| TLS verification toggle (`insecure`) | ✅ |
-| Basic / Digest / negotiated authentication, Bearer tokens | ✅ |
-| HTTP and SOCKS5 proxies | ✅ |
-| HTTP/1.0, HTTP/1.1, HTTP/2 over ALPN, HTTP/2 prior knowledge | ✅ |
-| Cookies (`Session`) | ✅ name/value, `Max-Age` and `Expires` expiry |
-| Cookie files (Netscape format) | ✅ `load_cookies_from_file` / `save_cookies_to_file` |
-| Response body cap (`max_body_bytes`) | ✅ |
-| Streaming downloads to a file or a callback | ✅ `send_to_file` / `send_stream` |
-| Concurrent requests on one thread | ✅ `fetch_many` (libcurl-multi) |
-| HTTP/3 | ❌ reported only; requesting it panics (needs a QUIC-enabled libcurl) |
-| Connection-pool controls, streaming uploads, async/await | ❌ out of scope |
-
-## Complexity
-| Operation | Cost |
-|---|---|
-| `Request.send` / `Session.request` | network-bound; body + headers copied once |
-| `url_encode` / `url_decode` | O(n) |
-| `build_query_string` | O(n log n) for n parameters (keys are sorted) |
-| `parse_url` | O(n) |
-| `Response.json` | O(body size) |
-| `send_to_file` / `send_stream` | network-bound; one chunk copy, no body buffer |
-| `fetch_many` | network-bound; one thread, transfers multiplexed |
-
-## Versioning
-`PETITIO_VERSION` follows the stdlib versioning policy (LANGUAGE.md §19.0):
-the stdlib release that ships this module.
-
 ---
 
 ### `PETITIO_VERSION`
@@ -1257,6 +1167,31 @@ _Undocumented._
 
  `POST url` with a form-urlencoded body, through the session.
 
+### `request_async`
+
+> **request_async**(req: ref to Request, loop: ref to EventLoop) -> result of Response to HttpError
+
+ Async version of `request`: the blocking call runs on the loop pool and
+ the cookie merge happens back on the loop thread.
+
+### `get_async`
+
+> **get_async**(url: string, loop: ref to EventLoop) -> result of Response to HttpError
+
+ `GET url` through the session, without blocking the loop.
+
+### `post_json_async`
+
+> **post_json_async**(url: string, v: JsonValue, loop: ref to EventLoop) -> result of Response to HttpError
+
+ `POST url` with a JSON body, through the session, without blocking.
+
+### `post_form_async`
+
+> **post_form_async**(url: string, fields: map of string to string, loop: ref to EventLoop) -> result of Response to HttpError
+
+ `POST url` with a form body, through the session, without blocking.
+
 ### `head`
 
 > **head**(url: string) -> result of Response to HttpError
@@ -1525,4 +1460,115 @@ _Undocumented._
 > **_empty_response**() -> Response
 
  A zeroed `Response`, used by the move tests.
+
+### `SendJob`
+
+> rune SendJob
+
+```pengu
+    req as ref to Request
+    out as result of Response to HttpError
+```
+
+ ----------------------------------------------------------------------------
+ Async variants (reactor). The blocking libcurl call runs on a pool thread;
+ the request and its output stay on the suspended task's stack.
+ ----------------------------------------------------------------------------
+
+### `SendFileJob`
+
+> rune SendFileJob
+
+```pengu
+    req as ref to Request
+    path as string
+    out as result of Response to HttpError
+```
+
+_Undocumented._
+
+### `FetchManyJob`
+
+> rune FetchManyJob
+
+```pengu
+    requests as list of Request
+    out as list of result of Response to HttpError
+```
+
+_Undocumented._
+
+### `SessionJob`
+
+> rune SessionJob
+
+```pengu
+    sess as ref to Session
+    req as ref to Request
+    out as result of Response to HttpError
+```
+
+_Undocumented._
+
+### `_petitio_async_noop`
+
+> **_petitio_async_noop**(box: ref to void) -> void
+
+_Undocumented._
+
+### `_petitio_send_worker`
+
+> **_petitio_send_worker**(ctx: ref to void) -> void
+
+_Undocumented._
+
+### `_petitio_send_file_worker`
+
+> **_petitio_send_file_worker**(ctx: ref to void) -> void
+
+_Undocumented._
+
+### `_petitio_fetch_many_worker`
+
+> **_petitio_fetch_many_worker**(ctx: ref to void) -> void
+
+_Undocumented._
+
+### `_petitio_session_worker`
+
+> **_petitio_session_worker**(ctx: ref to void) -> void
+
+_Undocumented._
+
+### `send_async`
+
+> **send_async**(self: ref to Request, loop: ref to EventLoop) -> result of Response to HttpError
+
+ Async `Request.send`: suspends the calling reactor task.
+
+### `send_to_file_async`
+
+> **send_to_file_async**(self: ref to Request, loop: ref to EventLoop, path: string) -> result of Response to HttpError
+
+ Async `Request.send_to_file`.
+
+### `request_new`
+
+> **request_new**(method: string, url: string) -> Request
+
+ Builds a `Request` through the module, avoiding an ambiguous qualified
+ `Request.new` call from outside petitio.
+
+### `session_new`
+
+> **session_new**() -> Session
+
+ Builds a `Session` through the module (avoids the qualified `Session.new`
+ ambiguity from outside petitio).
+
+### `fetch_many_async`
+
+> **fetch_many_async**(loop: ref to EventLoop, requests: list of Request) -> list of result of Response to HttpError
+
+ Async `fetch_many`: one pool thread drives libcurl's multi engine.
 

@@ -1,0 +1,45 @@
+# Reactor + std.petitio async: the blocking libcurl call runs on the loop pool.
+import std.reactor
+import std.net
+import std.petitio
+import std.spark
+
+weave server with loop as ref to reactor.EventLoop, srv as ref to net.Socket into void:
+    var nb as int is calling net.set_nonblocking with srv
+    var ar as result of net.Socket to string is calling net.accept_async with loop, srv
+    if ar.is_ok:
+        var c as net.Socket is ar.value
+        var req as string is calling net.read_async with loop, (sigil of c), 4096
+        var body as string is "hola desde petitio"
+        var head as string is "HTTP/1.1 200 OK\r\nContent-Length: 18\r\nConnection: close\r\n\r\n"
+        var w as int is calling net.write_async with loop, (sigil of c), head + body
+        calling net.close with (sigil of c)
+
+weave client with loop as ref to reactor.EventLoop, port as ref to int into void:
+    var url as string is "http://127.0.0.1:39019/"
+    var r as result of petitio.Response to petitio.HttpError is calling petitio.get_async with url, loop
+    if r.is_ok:
+        var resp as petitio.Response is r.value
+        var body as string is calling resp.text
+        calling spark.println with body
+        banish body
+    else:
+        var e as petitio.HttpError is r.error
+        var why as string is calling e.message
+        calling spark.println with why
+        banish why
+    banish url
+
+weave main into int:
+    var lr as result of net.Socket to string is calling net.listen with "127.0.0.1", 39019
+    if not lr.is_ok:
+        calling spark.println with "listen failed"
+        return 1
+    var srv as net.Socket is lr.value
+    var loop as reactor.EventLoop is calling reactor.EventLoop.new with 2
+    calling loop.spawn with server, srv
+    calling loop.spawn with client, 39019
+    calling loop.run
+    calling loop.close
+    calling net.close with (sigil of srv)
+    return 0

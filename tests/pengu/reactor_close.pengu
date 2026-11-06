@@ -1,0 +1,20 @@
+# close abandons a suspended task and releases its spawn argument box.
+import std.reactor
+import std.spark
+
+weave long with loop as ref to reactor.EventLoop, n as ref to int into void:
+    calling loop.sleep_ms with 1000
+    calling spark.println with "late"
+
+weave stopper with loop as ref to reactor.EventLoop, n as ref to int into void:
+    calling loop.sleep_ms with 10
+    calling loop.stop
+
+weave main into int:
+    var loop as reactor.EventLoop is calling reactor.EventLoop.new
+    calling loop.spawn with long, 7
+    calling loop.spawn with stopper, 0
+    calling loop.run
+    calling loop.close
+    calling spark.println with "closed"
+    return 0

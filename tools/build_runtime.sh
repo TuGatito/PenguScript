@@ -36,6 +36,12 @@ done
   -c "$ROOT/runtime/pengu_coro.c" -o "$OBJ/pengu_coro.o"
 OBJS+=("$OBJ/pengu_coro.o")
 
+# Explicit user-space reactor for std.reactor.  Windows has a stub inside the
+# file; POSIX builds epoll (Linux) or poll (other POSIX).
+"$CC" "${FLAGS[@]}" -Wall -Wextra ${WERROR[@]+"${WERROR[@]}"} \
+  -c "$ROOT/runtime/pengu_reactor.c" -o "$OBJ/pengu_reactor.o"
+OBJS+=("$OBJ/pengu_reactor.o")
+
 # SDS is compiled into libpengu_runtime.a on purpose: every existing project
 # already links -lpengu_runtime, so no manifest or link-order change is needed.
 "$CC" -O2 -std=c99 -Wall -Wextra ${WERROR[@]+"${WERROR[@]}"} -I"$ROOT/std_c/sds" \

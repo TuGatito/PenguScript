@@ -32,15 +32,17 @@ _Undocumented._
 
 ### `ensure`
 
-> **ensure**(base: string, lib_dir: string, d: Dependency, parent: string) -> maybe Package
+> **ensure**(base: string, lib_dir: string, d: Dependency, parent: string, origin: string, force: bool, locked: bool) -> maybe Package
 
  Asegura/instala y crea el paquete.
 
 ### `resolve`
 
-> **resolve**(base: string, lib_dir: string, deps: list of Dependency) -> Graph
+> **resolve**(base: string, lib_dir: string, deps: list of Dependency, force: bool, locked: bool) -> Graph
 
  Resuelve el grafo desde dependencias directas.
+
+ `force` reinstala cada paquete (usado por `psc update`/`upgrade`).
 
 ### `free`
 

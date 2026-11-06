@@ -108,6 +108,10 @@ weave compatible with t as ref to types.SemaTypeTable, a as int, b as int into b
     if ta.kind == tk.SemaTypeKind.TkRange:
         return tb.kind == tk.SemaTypeKind.TkRange and (calling compatible with t, ta.a, tb.a)
     if ta.kind == tk.SemaTypeKind.TkFn:
+        if tb.kind == tk.SemaTypeKind.TkRef:
+            var ftb as tk.SemaType is calling types.at with t, tb.a
+            if ftb.kind == tk.SemaTypeKind.TkFn:
+                return calling fn_compatible with t, ta, ftb
         return calling fn_compatible with t, ta, tb
     if ta.kind == tk.SemaTypeKind.TkRune or ta.kind == tk.SemaTypeKind.TkEcho or ta.kind == tk.SemaTypeKind.TkOmen:
         return calling nominal_compatible with t, ta, tb

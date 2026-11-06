@@ -2,6 +2,65 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.35.0] — 2026-11-06 — Reactor explícito y E/S asíncrona
+
+`std.reactor` nace como política de planificación en espacio de usuario y
+`std.net`, `std.archivum` y `std.petitio` ganan variantes `*_async`. No hay
+`async`/`await` ni un scheduler escondido: el loop se crea, se arranca con
+`spawn` y se ejecuta con `run`.
+
+### Añadido
+
+- `std.reactor` 1.0.0: `EventLoop` sobre `std.coro` con `spawn`, `run`, `stop`,
+  `close`, `park_read`, `park_write`, `sleep_ms`, `offload`, `await_token`,
+  `await_thread` y `pending`. El backend usa epoll en Linux y poll en el resto
+  de POSIX; Windows devuelve `-ENOSYS` de forma documentada.
+- `std.coro`: `current`, `is_running` y `from_raw`; el arranque del reactor usa
+  el primitivo C directamente para no exponer una caja genérica anidada.
+- `std.net` 3.1.0: `set_nonblocking`, `is_nonblocking`, `would_block`,
+  `local_port`, `accept_async`, `connect_async`, `read_async`,
+  `read_exact_async` y `write_async`. Los sockets pasan a ser no bloqueantes
+  explícitamente; los `*_async` hacen panic sobre un socket bloqueante y el DNS
+  de `connect_async` sigue siendo bloqueante.
+- `std.archivum` 2.15.0: variantes async de leer/escribir/borrar/crear/recorrer/
+  copiar/tamaño, con offload al pool del loop y cajas de pila concretas.
+- `std.petitio` 2.15.0: `send_async`, `send_to_file_async`, `fetch_many_async`
+  (un solo job para todo el lote), `request_new`, `get_async` y las variantes
+  async de `Session` (`request_async`, `get_async`, `post_json_async`,
+  `post_form_async`).
+- `std.filum` 3.1.0: `Thread.is_finished`; no se añaden canales que suspendan
+  corrutinas.
+- `pengu_runtime.h` §21/§22: `pengu_c_coro_current` y la API de
+  `PenguReactor`; `runtime/pengu_reactor.c` con pool propio, completions
+  thread-safe y reloj monotónico.
+
+### Corregido
+
+- `size of`/`align of`/`transmute` dentro de cuerpos genéricos instancian los
+  nominales con los argumentos sustituidos (B1). Antes, `coro.start` y
+  `filum.start` con dos tipos de argumento escribían 16 bytes sobre una caja de
+  16 y provocaban un heap-buffer-overflow.
+- Asignar un weave a un campo `ref to weave` ya no emite `(*(campo)) = weave`
+  (B2).
+- `tools/bump_version.sh` actualiza `src/psc/pkg/lock.pengu` (B3).
+- La regresión ASAN de corrutinas cubre varios tipos de argumento y ya no
+  enlaza `pengu_coro.c` dos veces (B4/B5).
+
+### Documentación
+
+- `docs/LANGUAGE.md`/`.es.md` §14.2: corrutinas, traducción a C (minicoro, pila
+  de 64 KiB, arena, TLS de dueño) y reactor explícito.
+- `docs/PENGUNIC.md`/`.es.md` §13.7/§13.8: guía de uso, reglas, anti-patrones y
+  FAQ.
+- `docs/STDLIB.md`/`.es.md`: 69 módulos, `std.reactor`, variantes async y
+  contrato de no bloqueo.
+
+### Pruebas
+
+- `reactor_basic`, `reactor_net`, `reactor_archivum`, `petitio_async`,
+  `coro_multi_type`, `filum_multi_type`, `fn_field_assign` y la regresión ASAN
+  multi-tipo.
+
 ## [0.34.0] — 2026-11-05 — Dependencias y bindings listos para producción
 
 Reescritura de la ruta `psc add`/`psc update`/`psc vendor` y del contrato de

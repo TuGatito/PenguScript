@@ -254,7 +254,7 @@ weave emit_expr with c as ref to context.CgContext, node as int into string:
         var tmty as int is calling node_type with c, node
         if tmty <= 0:
             var tmtn as int is calling astutil.node_child with ast, node, 1
-            set tmty is calling tast.from_ast with c, m, tmtn
+            set tmty is calling tast.type_from_ast_subst with c, m, tmtn
         if tmty <= 0:
             return tmvn
         var tmct as string is calling ctype.c_type with (sigil of c->names), tmty
@@ -262,7 +262,7 @@ weave emit_expr with c as ref to context.CgContext, node as int into string:
         return "(({tmct})({tmvn}))"
     if k == pskind.NodeKind.NdSizeOf:
         var stn as int is calling astutil.node_child with ast, node, 0
-        var sty as int is calling tast.from_ast with c, m, stn
+        var sty as int is calling tast.type_from_ast_subst with c, m, stn
         if sty >= 0:
             var sct as string is calling ctype.c_type with (sigil of c->names), sty
             defer banish sct
@@ -270,7 +270,7 @@ weave emit_expr with c as ref to context.CgContext, node as int into string:
         return "((size_t)sizeof(void*))"
     if k == pskind.NodeKind.NdAlignOf:
         var atn as int is calling astutil.node_child with ast, node, 0
-        var aty as int is calling tast.from_ast with c, m, atn
+        var aty as int is calling tast.type_from_ast_subst with c, m, atn
         if aty >= 0:
             var act as string is calling ctype.c_type with (sigil of c->names), aty
             defer banish act

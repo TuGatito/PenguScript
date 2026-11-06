@@ -1,0 +1,16 @@
+# Assigning a named weave to a `ref to weave` field used to emit
+# `(*(obj.f)) = f;` (invalid C). Regression for the TkFn/TkRef compatibility.
+import std.spark
+
+rune Handler:
+    f as ref to weave with n as int into void
+
+weave hi with n as int into void:
+    calling spark.println with (n to string)
+
+weave main into int:
+    var h as Handler is with f is hi
+    var p as ref to Handler is sigil of h
+    set p->f is hi
+    calling p->f with 3
+    return 0

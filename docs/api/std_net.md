@@ -12,8 +12,7 @@ operations, so no heap object hides behind the handle.
 ## Example
 ```pengu
 import std.net
-import std.io
-
+##
 weave main into int:
     let server as result of net.Socket to string is calling net.listen with "127.0.0.1", 0
     if server is ok:
@@ -39,6 +38,9 @@ resource release and is idempotent.
   to compile; the LSP stdio transport is the portable path.
 - **Blocking by design.** The server loop is one connection per thread or one
   blocking read; the LSP does not need non-blocking I/O for its framing.
+- **Explicit async.** `*_async` variants take a `std.reactor.EventLoop` and
+  suspend the current task on the loop's epoll/poll set. They require a
+  non-blocking socket (call `set_nonblocking` first) and panic otherwise.
 - **Descriptors are `i64`.** A Windows `SOCKET` is pointer-sized, so a 32-bit
   `int` would truncate it.  `i64` keeps the ABI correct on every platform.
 - **Negative errno.** The C bridge returns `-errno`; the wrappers turn that
@@ -60,8 +62,7 @@ resource release and is idempotent.
  ## Example
  ```pengu
  import std.net
- import std.io
-
+ ##
  weave main into int:
      let server as result of net.Socket to string is calling net.listen with "127.0.0.1", 0
      if server is ok:
@@ -87,6 +88,9 @@ resource release and is idempotent.
    to compile; the LSP stdio transport is the portable path.
  - **Blocking by design.** The server loop is one connection per thread or one
    blocking read; the LSP does not need non-blocking I/O for its framing.
+ - **Explicit async.** `*_async` variants take a `std.reactor.EventLoop` and
+   suspend the current task on the loop's epoll/poll set. They require a
+   non-blocking socket (call `set_nonblocking` first) and panic otherwise.
  - **Descriptors are `i64`.** A Windows `SOCKET` is pointer-sized, so a 32-bit
    `int` would truncate it.  `i64` keeps the ABI correct on every platform.
  - **Negative errno.** The C bridge returns `-errno`; the wrappers turn that
@@ -177,6 +181,64 @@ _Undocumented._
 
  Returns the number of bytes written, or a negative value on error.
 
+### `set_nonblocking`
+
+> **set_nonblocking**(s: ref to Socket) -> int
+
+ Puts `s` in non-blocking mode. Returns 0 or `-errno`.
+
+### `would_block`
+
+> **would_block**() -> int
+
+ The platform's `EAGAIN`/`EWOULDBLOCK` value. Compare bridge results with
+ `0 - net.would_block()` instead of hard-coding a number.
+
+### `is_nonblocking`
+
+> **is_nonblocking**(s: ref to Socket) -> bool
+
+ Whether `s` is currently non-blocking.
+
+### `local_port`
+
+> **local_port**(s: ref to Socket) -> int
+
+ Local port of `s` (useful after binding port 0). Returns 0 on error.
+
+### `accept_async`
+
+> **accept_async**(loop: ref to EventLoop, s: ref to Socket) -> result of Socket to string
+
+ Accepts one connection without blocking the reactor task. The accepted
+ socket is put in non-blocking mode.
+
+### `connect_async`
+
+> **connect_async**(loop: ref to EventLoop, host: string, port: int) -> result of Socket to string
+
+ Connects without blocking the reactor task. DNS resolution is still done by
+ the resolver in this call (documented limitation). The returned socket is
+ non-blocking.
+
+### `read_async`
+
+> **read_async**(loop: ref to EventLoop, s: ref to Socket, max_bytes: int) -> string
+
+ Reads up to `max_bytes` on the loop. Returns an owned string (empty on EOF).
+
+### `read_exact_async`
+
+> **read_exact_async**(loop: ref to EventLoop, s: ref to Socket, n: int) -> maybe string
+
+ Reads exactly `n` bytes on the loop.
+
+### `write_async`
+
+> **write_async**(loop: ref to EventLoop, s: ref to Socket, data: string) -> int
+
+ Writes every byte of `data` on the loop. Returns bytes written or `-errno`.
+
 ### `_net_listen`
 
 > **_net_listen**(host: string, port: int) -> i64
@@ -218,6 +280,60 @@ _Undocumented._
 ### `_net_close`
 
 > **_net_close**(fd: i64) -> void
+
+_Undocumented._
+
+### `_net_set_nonblocking`
+
+> **_net_set_nonblocking**(fd: i64) -> int
+
+_Undocumented._
+
+### `_net_is_nonblocking`
+
+> **_net_is_nonblocking**(fd: i64) -> int
+
+_Undocumented._
+
+### `_net_would_block`
+
+> **_net_would_block**() -> int
+
+_Undocumented._
+
+### `_net_accept_nb`
+
+> **_net_accept_nb**(fd: i64) -> i64
+
+_Undocumented._
+
+### `_net_connect_start`
+
+> **_net_connect_start**(host: string, port: int, out_fd: ref to i64) -> int
+
+_Undocumented._
+
+### `_net_so_error`
+
+> **_net_so_error**(fd: i64) -> int
+
+_Undocumented._
+
+### `_net_read_nb`
+
+> **_net_read_nb**(fd: i64, max_bytes: int, out: ref to string) -> int
+
+_Undocumented._
+
+### `_net_write_nb`
+
+> **_net_write_nb**(fd: i64, data: string, offset: int) -> int
+
+_Undocumented._
+
+### `_net_local_port`
+
+> **_net_local_port**(fd: i64) -> int
 
 _Undocumented._
 

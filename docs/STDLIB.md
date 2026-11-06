@@ -1,6 +1,6 @@
 # The PenguScript Standard Library
 
-All 68 modules of `std/` in `psc` 0.34.0: what each one is for, when to reach for
+All 69 modules of `std/` in `psc` 0.35.0: what each one is for, when to reach for
 it, when to reach for something else, and where its generated API lives.
 
 It is the *catalogue* document of the documentation set:
@@ -62,7 +62,7 @@ own `##` comments by `psc doc --include-std`.
   - [`std.rites` — the operating system](#stdrites-the-operating-system)
   - [`std.invoke` — typed command-line parsing](#stdinvoke-typed-command-line-parsing)
   - [`std.io` — byte-exact standard I/O](#stdio-byte-exact-standard-io)
-  - [`std.net` — blocking TCP sockets](#stdnet-blocking-tcp-sockets)
+  - [`std.net` — TCP sockets](#stdnet-tcp-sockets)
   - [`std.chronicle` — clocks and calendars](#stdchronicle-clocks-and-calendars)
   - [`std.chrono` — instants and durations (vaqt)](#stdchrono-instants-and-durations-vaqt)
   - [`std.whisper` — leveled logging](#stdwhisper-leveled-logging)
@@ -72,6 +72,7 @@ own `##` comments by `psc doc --include-std`.
 - [9. Concurrency](#9-concurrency)
   - [`std.filum` — threads and synchronization](#stdfilum-threads-and-synchronization)
   - [`std.coro` — stackful coroutines](#stdcoro-stackful-coroutines)
+  - [`std.reactor` — explicit event loop](#stdreactor-explicit-event-loop)
 - [10. Network services](#10-network-services)
   - [`std.petitio` — HTTP client](#stdpetitio-http-client)
   - [`std.jsonrpc` — JSON-RPC 2.0](#stdjsonrpc-json-rpc-20)
@@ -106,7 +107,7 @@ own `##` comments by `psc doc --include-std`.
 - [Appendix C — Naming conventions in the standard library](#appendix-c-naming-conventions-in-the-standard-library)
 <!-- /toc -->
 
-Every module that ships with `psc` 0.34.0: what it is for, when to reach for
+Every module that ships with `psc` 0.35.0: what it is for, when to reach for
 it, and where its generated API lives.
 
 ## 0. How to use this catalogue
@@ -132,7 +133,7 @@ Every entry has the same shape:
 **API** [link to the generated page] · [source]
 ```
 
-**Version.** This catalogue describes `psc` 0.34.0 and the `std/` tree in the
+**Version.** This catalogue describes `psc` 0.35.0 and the `std/` tree in the
 same commit. A module version constant (`TRIAL_VERSION`, `CARMEN_VERSION`, …)
 is the module's own API version, not the compiler's.
 
@@ -232,7 +233,7 @@ may bring a native dependency.
 | compiler-style errors | `std.diagnostic` | ad-hoc strings |
 | tests | `std.ward` + `std.trial` | `assert` from `spark` |
 | mutexes, atomics, channels | `std.filum` | — |
-| cooperative coroutines | `std.coro` | threads + state |
+| cooperative coroutines | `std.coro` + `std.reactor` | threads + state |
 | call a C library | `std.ffi` | `antiquus` everywhere |
 | call a function by name at runtime | `std.ffi_call` | `dynlib` alone |
 | load a `.so`/`.dll` | `std.dynlib` | — |
@@ -697,10 +698,14 @@ are a category error. Use `std.json`, a DOM, or a validator.
 ### `std.archivum` — the file system
 
 **Use it when** you read, write, inspect or walk files: `read_text`,
-`read_bytes`, `write_text`, `append_text`, `exists`, `is_file`, `is_dir`,
-`file_size`, `create_dir`, `delete_file`, `copy_file`, `copy_tree`,
+`read_bytes`, `write_text`, `append_file`, `delete_file`, `exists`, `is_file`, `is_dir`,
+`file_size`, `create_dir`, `remove_dir`, `read_dir`, `copy_file`, `copy_tree`,
 `find_files`, `find_dirs`, `glob`, `dir_size`, and the `*_result` variants that
-say *why* an operation failed.
+say *why* an operation failed. Inside a `std.reactor` worker,
+`read_text_async`, `write_text_async`, `read_bytes_async`, `write_bytes_async`,
+`append_file_async`, `delete_file_async`, `exists_async`, `create_dir_async`,
+`remove_dir_async`, `read_dir_async`, `copy_file_async` and `file_size_async`
+run the work on the loop pool without blocking the other tasks.
 
 **Avoid it when** the operation is about a path, not the file system: that is
 `std.compass`, which is pure and testable.
@@ -761,7 +766,7 @@ defaults and usage.
 
 **API** [`api/std_io.md`](api/std_io.md) · [source](../std/io.pengu)
 
-### `std.net` — blocking TCP sockets
+### `std.net` — TCP sockets
 
 **Use it when** you implement a server or client protocol over TCP: `listen`,
 `accept`, `connect`, `read`, `read_exact`, `write`, `close`, `is_open`, over a
@@ -770,7 +775,18 @@ plain `Socket` rune holding the descriptor.
 **Avoid it when** you speak HTTP: `std.petitio` (client) or a purpose-built
 server. Re-implementing HTTP framing is how bugs get shipped.
 
-**Highlights** `listen`, `accept`, `connect`, `read_exact`, `write`.
+Inside a `std.reactor` worker, `accept_async`, `connect_async`, `read_async`,
+`read_exact_async` and `write_async` have the same return types as their
+synchronous counterparts and suspend the coroutine until the descriptor is
+ready. The sockets must be non-blocking: `set_nonblocking` marks them,
+`is_nonblocking` reports it, and `accept_async` / `connect_async` return
+non-blocking sockets. A `*_async` call that receives a blocking socket panics
+instead of silently blocking the loop. `connect_async` resolves DNS
+blockingly (documented limitation); `local_port` returns a listener's ephemeral
+port.
+
+**Highlights** `listen`, `accept`, `connect`, `read_exact`, `write`,
+`accept_async`, `read_async`, `write_async`.
 
 **API** [`api/std_net.md`](api/std_net.md) · [source](../std/net.pengu)
 
@@ -869,10 +885,12 @@ TLS (`Tls`, `tls_set`, `tls_get`), a worker `Pool` (`submit`, `wait`, `free`),
 `recv` → `maybe`.
 
 **Avoid it when** you need a result back from the worker: `Thread` is
-`into void` in 0.31.0. Send the result through a channel or a shared structure;
-tyed thread results are planned for 0.30.1.
+`into void`; send the result through a channel or a shared structure. To wait
+without blocking a reactor task, use `Thread.is_finished` and
+`reactor.await_thread`; `std.filum` has no coroutine-suspending channels (those
+belong to `std.coro`/`std.reactor`).
 
-**Highlights** `start`, `Thread.join`, `@shared`, `Tls`, `Pool`,
+**Highlights** `start`, `Thread.join`, `Thread.is_finished`, `@shared`, `Tls`, `Pool`,
 `parallel_for`, `Mutex`, `chan_int`.
 
 **API** [`api/std_filum.md`](api/std_filum.md) · [source](../std/filum.pengu)
@@ -905,7 +923,10 @@ weave main into int:
 state without running; `yield` suspends the current coroutine; `free` releases a
 finished one and `abandon` discards a suspended one. The coroutine lives on the
 thread that created it, so a `ref to T` does not need `@shared`. The stack is
-64 KiB and recycled from an arena; there is no scheduler and no `async`/`await`.
+64 KiB and recycled from an arena. `std.coro` has no scheduler: the scheduling
+policy is explicit and lives in `std.reactor` (`EventLoop`); there is also no
+`async`/`await` syntax. The stdlib `*_async` variants are ordinary functions
+that suspend the current coroutine and must be called from a loop task.
 
 **Avoid it when** you need real parallelism (use `std.filum`), or when the work
 must outlive its owner. It is not available on wasm: it needs Emscripten
@@ -916,7 +937,46 @@ fibers/Asyncify.
 
 **API** [`api/std_coro.md`](api/std_coro.md) · [source](../std/coro.pengu)
 
+### `std.reactor` — explicit event loop
+
+**Use it when** you coordinate I/O and blocking work without one thread per
+task: `EventLoop.new`, `spawn`, `run`, `stop`, `close`, `park_read`,
+`park_write`, `sleep_ms`, `await_token`, `offload` and `await_thread`. The
+worker receives the loop and a `ref to A` to a loop-owned copy of its argument:
+
+```pengu
+import std.reactor
+
+weave worker with loop as ref to reactor.EventLoop, n as ref to int into void:
+    calling loop.sleep_ms with 10
+
+weave main into int:
+    var loop as reactor.EventLoop is calling reactor.EventLoop.new
+    calling loop.spawn with worker, 0
+    calling loop.run
+    calling loop.close
+    return 0
+```
+
+The loop is explicit: `run` calls `epoll_wait`/`poll`, wakes ready tasks and
+`resume`s them; there is no hidden scheduler or implicit `await`. `spawn` does
+not run the worker inline: it starts on the next pass. `offload` sends blocking
+work to the loop pool and returns a token consumed by `await_token`; a task can
+have only one offload in flight. `close` must be called outside a coroutine,
+abandons suspended tasks and does not close user descriptors.
+`new`/`spawn`/`run`/`stop`/`close` belong to the owner thread.
+
+**Avoid it when** the work is pure CPU (use `std.filum` and its `Pool`) or the
+protocol is HTTP (`std.petitio`). On Windows the reactor is a documented stub:
+it returns an error instead of pretending to work.
+
+**Highlights** `EventLoop.new`, `spawn`, `run`, `park_read`, `sleep_ms`,
+`offload`, `await_token`.
+
+**API** [`api/std_reactor.md`](api/std_reactor.md) · [source](../std/reactor.pengu)
+
 ## 10. Network services
+
 
 ### `std.petitio` — HTTP client
 
@@ -928,7 +988,15 @@ multipart, query strings, cookies, timeouts, auth (`auth_basic`, `auth_bearer`,
 **Avoid it when** the transport is not HTTP (raw TCP: `std.net`) or the client
 must live in the browser (`std.web.http`, which uses `fetch`).
 
-**Highlights** `get`, `post`, `Request`, `Response`, `HttpError`, `auth_bearer`.
+Inside a `std.reactor` worker, `get_async`, `send_async`,
+`send_to_file_async` and `fetch_many_async` run the blocking libcurl call on the
+loop pool and suspend the coroutine; `fetch_many_async` uses one job for the
+whole batch. `Session` also has `request_async`, `get_async`, `post_json_async`
+and `post_form_async`, which merge cookies back on the loop thread. `Request`
+values do not cross threads: they are built and consumed on the loop thread.
+
+**Highlights** `get`, `post`, `Request`, `Response`, `HttpError`, `auth_bearer`,
+`get_async`, `fetch_many_async`, `Session.get_async`.
 
 **API** [`api/std_petitio.md`](api/std_petitio.md) · [source](../std/petitio.pengu)
 
@@ -1272,7 +1340,7 @@ Importing the `.d` file directly skips all of that.
 
 ## 14. The complete index
 
-All 68 modules, alphabetically. The layer matches section 1; the API column goes
+All 69 modules, alphabetically. The layer matches section 1; the API column goes
 to the page generated by `psc doc --include-std`.
 
 | Module | Layer | What it gives you | API |
@@ -1295,8 +1363,9 @@ to the page generated by `psc doc --include-std`.
 | `std.dynlib` | Interop | `dlopen`/`LoadLibrary` plugin loading | [`std_dynlib`](api/std_dynlib.md) |
 | `std.ffi` | Interop | C string, buffer and pointer conversions | [`std_ffi`](api/std_ffi.md) |
 | `std.ffi_call` | Interop | libffi dynamic calls (optional) | [`std_ffi_call`](api/std_ffi_call.md) |
-| `std.filum` | Concurrency | `Mutex`, `WaitGroup`, `Once`, `Cond`, atomics, channels | [`std_filum`](api/std_filum.md) |
-| `std.coro` | Concurrency | `Coroutine`, `start`, `resume`, `yield`, `abandon` | [`std_coro`](api/std_coro.md) |
+| `std.filum` | Concurrency | threads, `Mutex`, `WaitGroup`, `Once`, `Cond`, atomics, channels | [`std_filum`](api/std_filum.md) |
+| `std.coro` | Concurrency | `Coroutine`, `start`, `resume`, `yield`, `current`, `abandon` | [`std_coro`](api/std_coro.md) |
+| `std.reactor` | Concurrency | `EventLoop`, `spawn`, `run`, `park_*`, `offload` | [`std_reactor`](api/std_reactor.md) |
 | `std.fractio` | Numbers | float methods: `sqrt`, `pow`, trigonometry | [`std_fractio`](api/std_fractio.md) |
 | `std.functor` | Core | `Fn0`–`Fn3`: function pointer plus context | [`std_functor`](api/std_functor.md) |
 | `std.integrum` | Numbers | integer methods: gcd, primes, bits, radix | [`std_integrum`](api/std_integrum.md) |
@@ -1311,7 +1380,7 @@ to the page generated by `psc doc --include-std`.
 | `std.loom` | Collections | safe list algorithms returning `maybe`/`list` | [`std_loom`](api/std_loom.md) |
 | `std.lot` | Numbers | PCG32 randomness, distributions, sampling | [`std_lot`](api/std_lot.md) |
 | `std.memoria` | Core | raw heap blocks: `alloc`, `copy`, `resize_array` | [`std_memoria`](api/std_memoria.md) |
-| `std.net` | System | blocking TCP sockets | [`std_net`](api/std_net.md) |
+| `std.net` | System | TCP sockets and `*_async` variants | [`std_net`](api/std_net.md) |
 | `std.numerus` | Numbers | numeric methods over the `Num` concept | [`std_numerus`](api/std_numerus.md) |
 | `std.oracle` | Core | `maybe`/`result` toolbox | [`std_oracle`](api/std_oracle.md) |
 | `std.ordinal` | Collections | `LinkedList`, `OrderedMap`/`OrderedSet`, `UnorderedSet` | [`std_ordinal`](api/std_ordinal.md) |

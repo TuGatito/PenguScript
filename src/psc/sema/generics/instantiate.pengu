@@ -198,6 +198,47 @@ weave subst_deep with s as ref to symbols.SemaSymbols, id as int, subst as map o
         return calling types.tuple_of with t, ids
     return calling subst_type with t, id, (sigil of subst)
 
+## Whether `id` mentions the type parameter `name` anywhere inside it.
+##
+## This guards inference against self-referential bindings such as `A := Job of A`,
+## which happens when a generic worker value is unified before its argument.
+weave type_mentions_param with s as ref to symbols.SemaSymbols, id as int, name as int into bool:
+    if id <= 0:
+        return false
+    var t as ref to types.SemaTypeTable is s->types
+    var ty as tk.SemaType is calling types.at with t, id
+    if ty.kind == tk.SemaTypeKind.TkTypeParam:
+        return ty.name == name
+    if ty.kind == tk.SemaTypeKind.TkRef or ty.kind == tk.SemaTypeKind.TkFrozen or ty.kind == tk.SemaTypeKind.TkArray or ty.kind == tk.SemaTypeKind.TkList or ty.kind == tk.SemaTypeKind.TkSlice or ty.kind == tk.SemaTypeKind.TkMany or ty.kind == tk.SemaTypeKind.TkMaybe or ty.kind == tk.SemaTypeKind.TkRange:
+        return calling type_mentions_param with s, ty.a, name
+    if ty.kind == tk.SemaTypeKind.TkMap or ty.kind == tk.SemaTypeKind.TkResult:
+        return (calling type_mentions_param with s, ty.a, name) or (calling type_mentions_param with s, ty.b, name)
+    if ty.kind == tk.SemaTypeKind.TkTuple:
+        var i as int is 0
+        while i < ty.count:
+            if calling type_mentions_param with s, (t->type_children at (ty.first + i)), name:
+                return true
+            set i is i + 1
+        return false
+    if ty.kind == tk.SemaTypeKind.TkFn:
+        var fi as types.SemaFnInfo is (t->fn_infos at ty.a)
+        var pi as int is 0
+        while pi < fi.params_count:
+            var fp as types.SemaFnParam is (t->fn_params at (fi.params_first + pi))
+            if calling type_mentions_param with s, fp.type, name:
+                return true
+            set pi is pi + 1
+        return calling type_mentions_param with s, fi.return_type, name
+    var ii as int is calling symbols.instance_for_type with s, id
+    if ii >= 0:
+        var inst as sym.SemaInstance is (s->instances at ii)
+        var ai as int is 0
+        while ai < inst.args_count:
+            if calling type_mentions_param with s, (s->instance_args at (inst.args_first + ai)), name:
+                return true
+            set ai is ai + 1
+    return false
+
 ## Unifica un tipo formal con uno actual y anota los type params por nombre.
 ##
 ## Es la mitad "inferencia" de la instanciación: dado `list of T` y `list of
@@ -216,7 +257,8 @@ weave unify_param with s as ref to symbols.SemaSymbols, formal as int, actual as
     var at as tk.SemaType is calling types.at with t, actual
     if ft.kind == tk.SemaTypeKind.TkTypeParam:
         if not (calling subst.has with ft.name):
-            calling subst.put with ft.name, actual
+            if not (calling type_mentions_param with s, actual, ft.name):
+                calling subst.put with ft.name, actual
         return
     if at.kind == tk.SemaTypeKind.TkAny or at.kind == tk.SemaTypeKind.TkError:
         return

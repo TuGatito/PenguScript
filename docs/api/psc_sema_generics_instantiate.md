@@ -62,6 +62,15 @@ El compilador sigue siendo explícito: no hay sustitución perezosa en F4.
  ## Memoria
  Puede crear tipos/instancias internados; no posee strings.
 
+### `type_mentions_param`
+
+> **type_mentions_param**(s: ref to SemaSymbols, id: int, name: int) -> bool
+
+ Whether `id` mentions the type parameter `name` anywhere inside it.
+
+ This guards inference against self-referential bindings such as `A := Job of A`,
+ which happens when a generic worker value is unified before its argument.
+
 ### `unify_param`
 
 > **unify_param**(s: ref to SemaSymbols, formal: int, actual: int, subst: ref to map of int to int) -> void

@@ -1,0 +1,19 @@
+# Two coroutine instantiations with different argument types must not share a
+# box layout. Regression for the `size of` bug in generic bodies.
+import std.coro
+import std.spark
+
+weave say_str with s as string into void:
+    calling spark.println with s
+
+weave say_int with n as int into void:
+    calling spark.println with (n to string)
+
+weave main into int:
+    var a as coro.Coroutine is calling coro.start with say_str, "alpha"
+    var b as coro.Coroutine is calling coro.start with say_int, 42
+    calling a.resume
+    calling b.resume
+    calling a.free
+    calling b.free
+    return 0

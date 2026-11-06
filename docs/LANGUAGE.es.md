@@ -1,7 +1,7 @@
 # Referencia del lenguaje PenguScript
 
 PenguScript es un lenguaje pequeño y de tipado estático que compila a C. Esta
-referencia documenta el lenguaje tal como lo implementa `psc` 0.34.0: cada
+referencia documenta el lenguaje tal como lo implementa `psc` 0.35.0: cada
 construcción, su semántica y el C al que se reduce.
 
 Es el documento de *lenguaje* del conjunto de documentación:
@@ -142,7 +142,7 @@ rasgos que necesitan su propia sección (genéricos, memoria, interop).
   diagnóstico son exhaustivos; la prosa no lo es — [PENGUNIC.es.md](PENGUNIC.es.md)
   cubre *cómo usar* el lenguaje y [STDLIB.es.md](STDLIB.es.md) cubre la
   biblioteca estándar.
-* Versión: `psc` 0.34.0. La versión de ABI que espera el C generado es 3.
+* Versión: `psc` 0.35.0. La versión de ABI que espera el C generado es 3.
 
 ## 1. Estructura léxica
 
@@ -1880,9 +1880,40 @@ recuperables.
 
 La pila por defecto es de 64 KiB (arena compartida y reciclada); un `ref to T`
 no requiere `@shared` porque no cruza hilos, y un `string`/`list`/`map` se mueve
-al worker. No hay planificador, `async`/`await`, cancelación ni valores de
-retorno por `yield`: el control es explícito y los datos viajan por `ref to` o
-por el estado compartido del dueño. En wasm `std.coro` no está disponible.
+al worker. No hay planificador automático, sintaxis `async`/`await`,
+cancelación ni valores de retorno por `yield`: el control es explícito y los
+datos viajan por `ref to` o por el estado compartido del dueño. La política de
+planificación es un objeto de usuario, `std.reactor.EventLoop`, que se crea,
+se arranca con `spawn` y se ejecuta con `run`; `std.coro` por sí solo nunca
+reanuda nada por su cuenta:
+
+```pengu
+import std.reactor
+
+weave worker with loop as ref to reactor.EventLoop, n as ref to int into void:
+    calling loop.sleep_ms with 10
+
+weave main into int:
+    var loop as reactor.EventLoop is calling reactor.EventLoop.new
+    calling loop.spawn with worker, 0
+    calling loop.run          # epoll_wait/poll + resume de las tareas listas
+    calling loop.close
+    return 0
+```
+
+Las variantes `*_async` de `std.net`, `std.archivum` y `std.petitio` son
+funciones normales con los mismos tipos de retorno que sus hermanas síncronas:
+suspenden la corrutina actual y deben llamarse desde una tarea del loop; fuera
+de él hacen panic. No hay transformación de color de función ni máquina de
+estados escondida.
+
+**Traducción a C.** Cada `Coroutine` envuelve un `mco_desc` de minicoro
+(`runtime/pengu_coro.c`): `pengu_c_coro_new` reserva la caja de argumentos y la
+pila de 64 KiB desde una arena con free-list por hilo; `resume` comprueba que
+el hilo actual es el dueño (TLS) y llama `mco_resume`; `yield` llama
+`mco_yield`. El contrato de propiedad se resuelve en Pengunic, antes de emitir
+C; el runtime conserva el diagnóstico de hilo incorrecto y de pila agotada. En
+wasm `std.coro` no está disponible.
 
 `@coroutine` marca la función que arranca la tarea (la implementación de
 `std.coro.start`); si escribes tu propio arrancador, replica el contrato:

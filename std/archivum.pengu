@@ -10,6 +10,7 @@
 ## ```pengu
 ## import std.archivum
 ## import std.spark
+import std.reactor
 ##
 ## weave main into int:
 ##     let path as string is "/tmp/archivum_demo.txt"
@@ -49,7 +50,177 @@
 ##   filesystem methods to `compass.Path`; it delegates through `self->raw` and
 ##   never touches `std/compass.pengu`.
 ## - **Internal tests without `std.ward`** (`ward` would create an import cycle):
-##   the `# --- Tests ---` section uses a private harness on top of `spark.panic`.
+##   the `
+# ----------------------------------------------------------------------------
+# Async variants (reactor). Each one offloads the existing blocking weave to the
+# loop's pool; the job lives on the suspended coroutine's stack, so the worker
+# borrows its inputs safely and the caller moves the result out after the wait.
+# ----------------------------------------------------------------------------
+
+rune ReadJob:
+    path as string
+    out as maybe string
+
+rune WriteJob:
+    path as string
+    content as string
+    out as bool
+
+rune BoolPathJob:
+    path as string
+    flag as bool
+    out as bool
+
+rune CopyJob:
+    src as string
+    dst as string
+    overwrite as bool
+    out as bool
+
+rune ReadDirJob:
+    path as string
+    out as maybe list of string
+
+rune SizeJob:
+    path as string
+    out as maybe int
+
+weave _arch_async_noop with box as ref to void into void:
+    return
+
+weave _arch_read_text_worker with ctx as ref to void into void:
+    var j as ref to ReadJob is transmute ctx to ref to ReadJob
+    set j->out is calling read_text with j->path
+
+weave _arch_read_bytes_worker with ctx as ref to void into void:
+    var j as ref to ReadJob is transmute ctx to ref to ReadJob
+    set j->out is calling read_bytes with j->path
+
+weave _arch_write_text_worker with ctx as ref to void into void:
+    var j as ref to WriteJob is transmute ctx to ref to WriteJob
+    set j->out is calling write_text with j->path, j->content
+
+weave _arch_write_bytes_worker with ctx as ref to void into void:
+    var j as ref to WriteJob is transmute ctx to ref to WriteJob
+    set j->out is calling write_bytes with j->path, j->content
+
+weave _arch_append_file_worker with ctx as ref to void into void:
+    var j as ref to WriteJob is transmute ctx to ref to WriteJob
+    set j->out is calling append_file with j->path, j->content
+
+weave _arch_delete_file_worker with ctx as ref to void into void:
+    var j as ref to BoolPathJob is transmute ctx to ref to BoolPathJob
+    set j->out is calling delete_file with j->path
+
+weave _arch_exists_worker with ctx as ref to void into void:
+    var j as ref to BoolPathJob is transmute ctx to ref to BoolPathJob
+    set j->out is calling exists with j->path
+
+weave _arch_create_dir_worker with ctx as ref to void into void:
+    var j as ref to BoolPathJob is transmute ctx to ref to BoolPathJob
+    set j->out is calling create_dir with j->path, j->flag
+
+weave _arch_remove_dir_worker with ctx as ref to void into void:
+    var j as ref to BoolPathJob is transmute ctx to ref to BoolPathJob
+    set j->out is calling remove_dir with j->path, j->flag
+
+weave _arch_copy_file_worker with ctx as ref to void into void:
+    var j as ref to CopyJob is transmute ctx to ref to CopyJob
+    set j->out is calling copy_file with j->src, j->dst, j->overwrite
+
+weave _arch_read_dir_worker with ctx as ref to void into void:
+    var j as ref to ReadDirJob is transmute ctx to ref to ReadDirJob
+    set j->out is calling read_dir with j->path
+
+weave _arch_file_size_worker with ctx as ref to void into void:
+    var j as ref to SizeJob is transmute ctx to ref to SizeJob
+    set j->out is calling file_size with j->path
+
+## Async `read_text`: suspends the calling reactor task while a pool thread reads.
+weave read_text_async with loop as ref to reactor.EventLoop, path as string into maybe string:
+    var job as ReadJob is with path is path, out is maybe none
+    var token as i64 is calling loop.offload with _arch_read_text_worker, _arch_async_noop, (sigil of job)
+    calling loop.await_token with token
+    return job.out
+
+## Async `read_bytes`.
+weave read_bytes_async with loop as ref to reactor.EventLoop, path as string into maybe string:
+    var job as ReadJob is with path is path, out is maybe none
+    var token as i64 is calling loop.offload with _arch_read_bytes_worker, _arch_async_noop, (sigil of job)
+    calling loop.await_token with token
+    return job.out
+
+## Async `write_text`.
+weave write_text_async with loop as ref to reactor.EventLoop, path as string, content as string into bool:
+    var job as WriteJob is with path is path, content is content, out is false
+    var token as i64 is calling loop.offload with _arch_write_text_worker, _arch_async_noop, (sigil of job)
+    calling loop.await_token with token
+    return job.out
+
+## Async `write_bytes`.
+weave write_bytes_async with loop as ref to reactor.EventLoop, path as string, data as string into bool:
+    var job as WriteJob is with path is path, content is data, out is false
+    var token as i64 is calling loop.offload with _arch_write_bytes_worker, _arch_async_noop, (sigil of job)
+    calling loop.await_token with token
+    return job.out
+
+## Async `append_file`.
+weave append_file_async with loop as ref to reactor.EventLoop, path as string, content as string into bool:
+    var job as WriteJob is with path is path, content is content, out is false
+    var token as i64 is calling loop.offload with _arch_append_file_worker, _arch_async_noop, (sigil of job)
+    calling loop.await_token with token
+    return job.out
+
+## Async `delete_file`.
+weave delete_file_async with loop as ref to reactor.EventLoop, path as string into bool:
+    var job as BoolPathJob is with path is path, flag is false, out is false
+    var token as i64 is calling loop.offload with _arch_delete_file_worker, _arch_async_noop, (sigil of job)
+    calling loop.await_token with token
+    return job.out
+
+## Async `exists`.
+weave exists_async with loop as ref to reactor.EventLoop, path as string into bool:
+    var job as BoolPathJob is with path is path, flag is false, out is false
+    var token as i64 is calling loop.offload with _arch_exists_worker, _arch_async_noop, (sigil of job)
+    calling loop.await_token with token
+    return job.out
+
+## Async `create_dir`.
+weave create_dir_async with loop as ref to reactor.EventLoop, path as string, parents as bool is false into bool:
+    var job as BoolPathJob is with path is path, flag is parents, out is false
+    var token as i64 is calling loop.offload with _arch_create_dir_worker, _arch_async_noop, (sigil of job)
+    calling loop.await_token with token
+    return job.out
+
+## Async `remove_dir`.
+weave remove_dir_async with loop as ref to reactor.EventLoop, path as string, recursive as bool is false into bool:
+    var job as BoolPathJob is with path is path, flag is recursive, out is false
+    var token as i64 is calling loop.offload with _arch_remove_dir_worker, _arch_async_noop, (sigil of job)
+    calling loop.await_token with token
+    return job.out
+
+## Async `copy_file`.
+weave copy_file_async with loop as ref to reactor.EventLoop, src as string, dst as string, overwrite as bool is false into bool:
+    var job as CopyJob is with src is src, dst is dst, overwrite is overwrite, out is false
+    var token as i64 is calling loop.offload with _arch_copy_file_worker, _arch_async_noop, (sigil of job)
+    calling loop.await_token with token
+    return job.out
+
+## Async `read_dir`.
+weave read_dir_async with loop as ref to reactor.EventLoop, path as string into maybe list of string:
+    var job as ReadDirJob is with path is path, out is maybe none
+    var token as i64 is calling loop.offload with _arch_read_dir_worker, _arch_async_noop, (sigil of job)
+    calling loop.await_token with token
+    return job.out
+
+## Async `file_size`.
+weave file_size_async with loop as ref to reactor.EventLoop, path as string into maybe int:
+    var job as SizeJob is with path is path, out is maybe none
+    var token as i64 is calling loop.offload with _arch_file_size_worker, _arch_async_noop, (sigil of job)
+    calling loop.await_token with token
+    return job.out
+
+# --- Tests ---` section uses a private harness on top of `spark.panic`.
 ##
 ## ## Migration
 ##
@@ -77,7 +248,7 @@ import std.rites
 # ----------------------------------------------------------------------------
 
 ## Module version identifier for std.archivum.
-const ARCHIVUM_VERSION as string is "2.14.0"
+const ARCHIVUM_VERSION as string is "2.15.0"
 
 # ----------------------------------------------------------------------------
 # External C Runtime Declarations
@@ -2176,8 +2347,8 @@ weave _arch_base with name as string into string:
     banish pid_text
     return base
 
-test "ARCHIVUM_VERSION is 2.14.0":
-    calling _arch_expect_str with ARCHIVUM_VERSION, "2.14.0", "version"
+test "ARCHIVUM_VERSION is 2.15.0":
+    calling _arch_expect_str with ARCHIVUM_VERSION, "2.15.0", "version"
 
 test "write_file then read_file round-trips the content":
     let base as string is calling _arch_fresh_dir with (calling _arch_base with "roundtrip")

@@ -1,0 +1,22 @@
+# Reactor + std.archivum async: file work is offloaded to the loop pool.
+import std.reactor
+import std.archivum
+import std.spark
+
+weave worker with loop as ref to reactor.EventLoop, n as ref to int into void:
+    var ok as bool is calling archivum.write_text_async with loop, "/tmp/pengu_reactor_archivum.txt", "hola"
+    var t as maybe string is calling archivum.read_text_async with loop, "/tmp/pengu_reactor_archivum.txt"
+    if ok:
+        calling spark.println with "wrote"
+    if t.is_present:
+        calling spark.println with (t.value)
+    var gone as bool is calling archivum.delete_file_async with loop, "/tmp/pengu_reactor_archivum.txt"
+    if not gone:
+        calling spark.println with "delete failed"
+
+weave main into int:
+    var loop as reactor.EventLoop is calling reactor.EventLoop.new with 2
+    calling loop.spawn with worker, 0
+    calling loop.run
+    calling loop.close
+    return 0

@@ -17,6 +17,7 @@ files=(
     release.toml
     src/main.pengu
     src/psc/lsp/server.pengu
+    src/psc/pkg/lock.pengu
     vscode-extension/README.md
     docs/README.md
     docs/LANGUAGE.md

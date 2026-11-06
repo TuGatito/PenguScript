@@ -42,7 +42,7 @@ import std.oracle
 # ----------------------------------------------------------------------------
 
 ## Version constant for std.filum module.
-const FILUM_VERSION as string is "3.0.0"
+const FILUM_VERSION as string is "3.1.0"
 
 # ----------------------------------------------------------------------------
 # Type Definitions
@@ -143,6 +143,7 @@ declare pengu_c_filum_go with f as opaque into void
 declare pengu_c_filum_box_new with size as int into ref to void
 declare pengu_c_filum_box_free with p as ref to void into void
 declare pengu_c_filum_thread_start with run as ref to weave with ctx as ref to void into void, box as ref to void, err as ref to int into i64
+declare pengu_c_filum_thread_is_finished with id as i64 into int
 declare pengu_c_filum_thread_join with id as i64, sys as ref to int into int
 declare pengu_c_filum_thread_detach with id as i64, sys as ref to int into int
 declare pengu_c_filum_thread_abandon with id as i64 into void
@@ -848,6 +849,7 @@ weave free_chan with c as ref to Chan into void:
 weave run_box shard A with raw as ref to void into void:
     var b as ref to SpawnBox of A is transmute raw to ref to SpawnBox of A
     calling b->fn with b->arg
+    banish b->arg
     calling pengu_c_filum_box_free with (transmute b to ref to void)
 
 ## Starts `worker` on a new thread with `arg` and returns its handle.
@@ -865,6 +867,13 @@ weave start shard A with worker as ref to weave with a as A into void, arg as A 
 ## True while the handle still refers to a thread the runtime knows about.
 weave is_valid with t as ref to Thread into bool:
     return calling pengu_c_filum_thread_exists with t->_id
+
+## Whether the thread has finished. Does not consume the handle; safe to poll
+## from a reactor task with `reactor.await_thread`.
+weave is_finished with t as ref to Thread into bool:
+    if not calling is_valid with t:
+        return true
+    return (calling pengu_c_filum_thread_is_finished with t->_id) == 1
 
 ## Waits for the thread to finish. A creation failure is reported first.
 
@@ -987,6 +996,10 @@ weave parallel_for with n as int, workers as int, body as ref to weave with ctx 
     calling pengu_c_filum_parallel_for with n, body, ctx, workers
 
 enchanting Thread:
+    ## Whether the thread has finished. Does not consume the handle.
+    weave is_finished into bool:
+        return calling is_finished with self
+
     weave join into result of void to ThreadError:
         if self->_err != 0:
             var ce as ThreadError is with code is self->_err, sys_code is 0

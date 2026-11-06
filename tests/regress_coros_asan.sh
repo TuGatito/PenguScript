@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Ejecuta una corrutina bajo AddressSanitizer. Se salta si no hay gcc/ASAN.
+# Runs the coroutine/thread regression programs under AddressSanitizer.
+# Skips when gcc or ASAN is unavailable.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PSC="${PSC:-$ROOT/build/psc}"
@@ -10,16 +11,20 @@ if ! echo 'int main(void){return 0;}' | gcc -fsanitize=address -x c - -o /dev/nu
 fi
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-"$PSC" emit-c "$ROOT/tests/pengu/coro_args.pengu" >"$TMP/coro.c" || exit 1
-if ! gcc -fsanitize=address -g -O1 -I"$ROOT" -I"$ROOT/build/include" -I"$ROOT/std_c/minicoro" \
-    "$TMP/coro.c" "$ROOT/runtime/pengu_coro.c" "$ROOT/build/lib/libpengu_runtime.a" \
-    -lm -lpthread -ldl -o "$TMP/coro_asan"; then
-    echo "SKIP coro asan: link failed"
-    exit 0
-fi
-if ! ASAN_OPTIONS="detect_leaks=1 exitcode=66" "$TMP/coro_asan" >"$TMP/out" 2>&1; then
-    echo "FAIL coro asan"
-    cat "$TMP/out"
-    exit 1
-fi
+for name in coro_args coro_multi_type filum_multi_type; do
+    src="$ROOT/tests/pengu/$name.pengu"
+    [ -f "$src" ] || continue
+    "$PSC" emit-c "$src" >"$TMP/$name.c" || exit 1
+    if ! gcc -fsanitize=address -g -O1 -I"$ROOT" -I"$ROOT/build/include" -I"$ROOT/std_c/minicoro" \
+        "$TMP/$name.c" "$ROOT/build/lib/libpengu_runtime.a" \
+        -lm -lpthread -ldl -o "$TMP/$name.asan"; then
+        echo "SKIP coro asan: link failed ($name)"
+        exit 0
+    fi
+    if ! ASAN_OPTIONS="detect_leaks=1 exitcode=66" "$TMP/$name.asan" >"$TMP/$name.out" 2>&1; then
+        echo "FAIL coro asan: $name"
+        cat "$TMP/$name.out"
+        exit 1
+    fi
+done
 echo "OK coro asan"

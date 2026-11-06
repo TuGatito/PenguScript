@@ -1,6 +1,6 @@
 # La biblioteca estándar de PenguScript
 
-Los 68 módulos de `std/` en `psc` 0.34.0: para qué sirve cada uno, cuándo
+Los 69 módulos de `std/` en `psc` 0.35.0: para qué sirve cada uno, cuándo
 usarlo, cuándo usar otro y dónde vive su API generada.
 
 Es el documento *catálogo* del conjunto de documentación:
@@ -62,7 +62,7 @@ comentarios `##` del propio módulo por `psc doc --include-std`.
   - [`std.rites` — el sistema operativo](#stdrites-el-sistema-operativo)
   - [`std.invoke` — parseo tipado de línea de comandos](#stdinvoke-parseo-tipado-de-línea-de-comandos)
   - [`std.io` — E/S estándar exacta en bytes](#stdio-es-estándar-exacta-en-bytes)
-  - [`std.net` — sockets TCP bloqueantes](#stdnet-sockets-tcp-bloqueantes)
+  - [`std.net` — sockets TCP](#stdnet-sockets-tcp)
   - [`std.chronicle` — relojes y calendarios](#stdchronicle-relojes-y-calendarios)
   - [`std.chrono` — instantes y duraciones (vaqt)](#stdchrono-instantes-y-duraciones-vaqt)
   - [`std.whisper` — logging por niveles](#stdwhisper-logging-por-niveles)
@@ -72,6 +72,7 @@ comentarios `##` del propio módulo por `psc doc --include-std`.
 - [9. Concurrencia](#9-concurrencia)
   - [`std.filum` — hilos y sincronización](#stdfilum-hilos-y-sincronización)
   - [`std.coro` — corrutinas stackful](#stdcoro-corrutinas-stackful)
+  - [`std.reactor` — reactor explícito (event loop)](#stdreactor-reactor-explícito-event-loop)
 - [10. Servicios de red](#10-servicios-de-red)
   - [`std.petitio` — cliente HTTP](#stdpetitio-cliente-http)
   - [`std.jsonrpc` — JSON-RPC 2.0](#stdjsonrpc-json-rpc-20)
@@ -106,7 +107,7 @@ comentarios `##` del propio módulo por `psc doc --include-std`.
 - [Apéndice C — Convenciones de nombres en la biblioteca estándar](#apéndice-c-convenciones-de-nombres-en-la-biblioteca-estándar)
 <!-- /toc -->
 
-Todos los módulos que vienen con `psc` 0.34.0: para qué sirven, cuándo usarlos y
+Todos los módulos que vienen con `psc` 0.35.0: para qué sirven, cuándo usarlos y
 dónde vive la API generada de cada uno.
 
 ## 0. Cómo usar este catálogo
@@ -132,7 +133,7 @@ Cada entrada tiene la misma forma:
 **API** [enlace a la página generada] · [fuente]
 ```
 
-**Versión.** Este catálogo describe `psc` 0.34.0 y el árbol `std/` del mismo
+**Versión.** Este catálogo describe `psc` 0.35.0 y el árbol `std/` del mismo
 commit. La constante de versión de un módulo (`TRIAL_VERSION`, `CARMEN_VERSION`,
 …) es la versión propia de su API, no la del compilador.
 
@@ -223,7 +224,7 @@ puede traer una dependencia nativa.
 | entorno, argv, exec | `std.rites` | `getenv` por FFI |
 | flags de CLI tipados | `std.invoke` | parsear `argv` a mano |
 | leer exactamente N bytes | `std.io` | `std.spark.input` |
-| sockets TCP | `std.net` | FFI a `socket()` |
+| sockets TCP y E/S asíncrona | `std.net` + `std.reactor` | FFI a `socket()` |
 | cliente HTTP | `std.petitio` | `net` + HTTP a mano |
 | JSON-RPC 2.0 | `std.jsonrpc` | framing a mano |
 | hora y fechas | `std.chronicle` | `time()` por FFI |
@@ -233,7 +234,7 @@ puede traer una dependencia nativa.
 | errores estilo compilador | `std.diagnostic` | strings ad hoc |
 | tests | `std.ward` + `std.trial` | `assert` de `spark` |
 | mutex, atómicos, canales | `std.filum` | — |
-| corrutinas cooperativas | `std.coro` | hilos + estado |
+| corrutinas cooperativas | `std.coro` + `std.reactor` | hilos + estado |
 | llamar a una librería C | `std.ffi` | `antiquus` por todas partes |
 | llamar a una función por nombre en runtime | `std.ffi_call` | `dynlib` solo |
 | cargar un `.so`/`.dll` | `std.dynlib` | — |
@@ -707,10 +708,15 @@ email es un error de categoría. Usa `std.json`, un DOM o un validador.
 ### `std.archivum` — el sistema de archivos
 
 **Úsalo cuando** leas, escribas, inspecciones o recorras archivos: `read_text`,
-`read_bytes`, `write_text`, `append_text`, `exists`, `is_file`, `is_dir`,
-`file_size`, `create_dir`, `delete_file`, `copy_file`, `copy_tree`,
+`read_bytes`, `write_text`, `append_file`, `delete_file`, `exists`, `is_file`, `is_dir`,
+`file_size`, `create_dir`, `remove_dir`, `read_dir`, `copy_file`, `copy_tree`,
 `find_files`, `find_dirs`, `glob`, `dir_size`, y las variantes `*_result` que
-dicen *por qué* falló una operación.
+dicen *por qué* falló una operación. Dentro de un worker de `std.reactor`, las
+variantes `read_text_async`, `write_text_async`, `read_bytes_async`,
+`write_bytes_async`, `append_file_async`, `delete_file_async`, `exists_async`,
+`create_dir_async`, `remove_dir_async`, `read_dir_async`, `copy_file_async` y
+`file_size_async` hacen el trabajo en el pool del loop sin bloquear las demás
+tareas.
 
 **Evítalo cuando** la operación sea sobre una ruta, no sobre el sistema de
 archivos: eso es `std.compass`, que es puro y testeable.
@@ -771,11 +777,21 @@ flags, valores por defecto y usage.
 
 **API** [`api/std_io.md`](api/std_io.md) · [fuente](../std/io.pengu)
 
-### `std.net` — sockets TCP bloqueantes
+### `std.net` — sockets TCP
 
 **Úsalo cuando** implementes un protocolo de servidor o cliente sobre TCP:
 `listen`, `accept`, `connect`, `read`, `read_exact`, `write`, `close`,
 `is_open`, sobre un rune `Socket` que guarda el descriptor.
+
+Dentro de un worker de `std.reactor`, `accept_async`, `connect_async`,
+`read_async`, `read_exact_async` y `write_async` tienen los mismos tipos de
+retorno que sus versiones síncronas y suspenden la corrutina hasta que el
+descriptor está listo. Los sockets que usan deben ser no bloqueantes:
+`set_nonblocking` lo marca, `is_nonblocking` lo consulta y `accept_async` /
+`connect_async` devuelven sockets ya no bloqueantes. Si un `*_async` recibe un
+socket bloqueante, hace panic en vez de bloquear el loop en silencio.
+`connect_async` resuelve el DNS de forma bloqueante (limitación documentada);
+`local_port` devuelve el puerto efímero de un listener.
 
 **Evítalo cuando** hables HTTP: `std.petitio` (cliente) o un servidor hecho a
 propósito. Reimplementar el framing de HTTP es como se envían bugs a
@@ -883,10 +899,12 @@ Siguen disponibles TLS (`Tls`, `tls_set`, `tls_get`), un `Pool` de workers
 `recv` → `maybe`.
 
 **Evítalo cuando** necesites un resultado de vuelta del worker: `Thread` es
-`into void` en 0.31.0. Envía el resultado por un canal o una estructura
-compartida; los resultados tipados llegan en 0.30.1.
+`into void`; envía el resultado por un canal o una estructura compartida. Para
+esperar sin bloquear una tarea del reactor, usa `Thread.is_finished` y
+`reactor.await_thread`; `std.filum` no tiene canales que suspendan corrutinas
+(esos canales pertenecen a `std.coro`/`std.reactor`).
 
-**Destacados** `start`, `Thread.join`, `@shared`, `Tls`, `Pool`,
+**Destacados** `start`, `Thread.join`, `Thread.is_finished`, `@shared`, `Tls`, `Pool`,
 `parallel_for`, `Mutex`, `chan_int`.
 
 **API** [`api/std_filum.md`](api/std_filum.md) · [fuente](../std/filum.pengu)
@@ -919,7 +937,11 @@ weave main into int:
 estado sin ejecutar; `yield` suspende la corrutina actual; `free` libera una
 terminada y `abandon` descarta una suspendida. La corrutina vive en el hilo que
 la creó, así que un `ref to T` no necesita `@shared`. La pila es de 64 KiB y se
-recicla en una arena; no hay planificador ni `async`/`await`.
+recicla en una arena. `std.coro` no trae planificador: la política de
+planificación es explícita y vive en `std.reactor` (`EventLoop`); tampoco hay
+sintaxis `async`/`await`. Las variantes `*_async` de la stdlib son funciones
+normales que suspenden la corrutina actual y deben llamarse desde una tarea del
+loop.
 
 **Evítalo cuando** necesites paralelismo real (usa `std.filum`), o cuando el
 trabajo deba sobrevivir a su dueño. En wasm no está disponible: requiere
@@ -930,7 +952,47 @@ Emscripten fibers/Asyncify.
 
 **API** [`api/std_coro.md`](api/std_coro.md) · [fuente](../std/coro.pengu)
 
+### `std.reactor` — reactor explícito (event loop)
+
+**Úsalo cuando** coordines E/S y trabajo bloqueante sin un hilo por tarea:
+`EventLoop.new`, `spawn`, `run`, `stop`, `close`, `park_read`, `park_write`,
+`sleep_ms`, `await_token`, `offload` y `await_thread`. El worker recibe el loop y
+un `ref to A` a una copia propia de su argumento:
+
+```pengu
+import std.reactor
+
+weave worker with loop as ref to reactor.EventLoop, n as ref to int into void:
+    calling loop.sleep_ms with 10
+
+weave main into int:
+    var loop as reactor.EventLoop is calling reactor.EventLoop.new
+    calling loop.spawn with worker, 0
+    calling loop.run
+    calling loop.close
+    return 0
+```
+
+El loop es explícito: `run` llama a `epoll_wait`/`poll`, despierta las tareas
+listas y hace `resume`; no hay scheduler escondido ni `await` implícito.
+`spawn` no ejecuta el worker en línea: la tarea arranca en la siguiente pasada.
+`offload` manda trabajo bloqueante al pool del loop y devuelve un token que se
+espera con `await_token`; una tarea solo puede tener un offload en vuelo.
+`close` debe llamarse fuera de una corrutina, abandona las tareas suspendidas y
+no cierra los descriptores del usuario. `new`/`spawn`/`run`/`stop`/`close`
+pertenecen al hilo dueño.
+
+**Evítalo cuando** el trabajo sea CPU pura (usa `std.filum` y su `Pool`) o el
+protocolo sea HTTP (`std.petitio`). En Windows el reactor es un stub
+documentado: devuelve error en vez de fingir que funciona.
+
+**Destacados** `EventLoop.new`, `spawn`, `run`, `park_read`, `sleep_ms`,
+`offload`, `await_token`.
+
+**API** [`api/std_reactor.md`](api/std_reactor.md) · [fuente](../std/reactor.pengu)
+
 ## 10. Servicios de red
+
 
 ### `std.petitio` — cliente HTTP
 
@@ -942,7 +1004,16 @@ formulario, multipart, query strings, cookies, timeouts, auth (`auth_basic`,
 **Evítalo cuando** el transporte no sea HTTP (TCP crudo: `std.net`) o el cliente
 deba vivir en el navegador (`std.web.http`, que usa `fetch`).
 
-**Destacados** `get`, `post`, `Request`, `Response`, `HttpError`, `auth_bearer`.
+Dentro de un worker de `std.reactor`, `get_async`, `send_async`,
+`send_to_file_async` y `fetch_many_async` ejecutan la llamada bloqueante de
+libcurl en el pool del loop y suspenden la corrutina; `fetch_many_async` usa un
+solo job para todo el lote. `Session` añade `request_async`, `get_async`,
+`post_json_async` y `post_form_async`, que fusionan las cookies de vuelta en el
+hilo del loop. Los `Request` no cruzan hilos: se construyen y se consumen en el
+hilo del loop.
+
+**Destacados** `get`, `post`, `Request`, `Response`, `HttpError`, `auth_bearer`,
+`get_async`, `fetch_many_async`, `Session.get_async`.
 
 **API** [`api/std_petitio.md`](api/std_petitio.md) · [fuente](../std/petitio.pengu)
 
@@ -1293,7 +1364,7 @@ reglas de propiedad. Importar el `.d` directamente se salta todo eso.
 
 ## 14. El índice completo
 
-Los 68 módulos, en orden alfabético. La capa coincide con la sección 1; la
+Los 69 módulos, en orden alfabético. La capa coincide con la sección 1; la
 columna API lleva a la página generada por `psc doc --include-std`.
 
 | Módulo | Capa | Qué te da | API |
@@ -1316,8 +1387,9 @@ columna API lleva a la página generada por `psc doc --include-std`.
 | `std.dynlib` | Interop | carga de plugins con `dlopen`/`LoadLibrary` | [`std_dynlib`](api/std_dynlib.md) |
 | `std.ffi` | Interop | conversiones de strings, búferes y punteros de C | [`std_ffi`](api/std_ffi.md) |
 | `std.ffi_call` | Interop | llamadas dinámicas con libffi (opcional) | [`std_ffi_call`](api/std_ffi_call.md) |
-| `std.filum` | Concurrencia | `Mutex`, `WaitGroup`, `Once`, `Cond`, atómicos, canales | [`std_filum`](api/std_filum.md) |
-| `std.coro` | Concurrencia | `Coroutine`, `start`, `resume`, `yield`, `abandon` | [`std_coro`](api/std_coro.md) |
+| `std.filum` | Concurrencia | hilos, `Mutex`, `WaitGroup`, `Once`, `Cond`, atómicos, canales | [`std_filum`](api/std_filum.md) |
+| `std.coro` | Concurrencia | `Coroutine`, `start`, `resume`, `yield`, `current`, `abandon` | [`std_coro`](api/std_coro.md) |
+| `std.reactor` | Concurrencia | `EventLoop`, `spawn`, `run`, `park_*`, `offload` | [`std_reactor`](api/std_reactor.md) |
 | `std.fractio` | Números | métodos de float: `sqrt`, `pow`, trigonometría | [`std_fractio`](api/std_fractio.md) |
 | `std.functor` | Núcleo | `Fn0`–`Fn3`: puntero a función más contexto | [`std_functor`](api/std_functor.md) |
 | `std.integrum` | Números | métodos de enteros: gcd, primos, bits, base | [`std_integrum`](api/std_integrum.md) |
@@ -1332,7 +1404,7 @@ columna API lleva a la página generada por `psc doc --include-std`.
 | `std.loom` | Colecciones | algoritmos de listas seguros que devuelven `maybe`/`list` | [`std_loom`](api/std_loom.md) |
 | `std.lot` | Números | aleatoriedad PCG32, distribuciones, muestreo | [`std_lot`](api/std_lot.md) |
 | `std.memoria` | Núcleo | bloques crudos del heap: `alloc`, `copy`, `resize_array` | [`std_memoria`](api/std_memoria.md) |
-| `std.net` | Sistema | sockets TCP bloqueantes | [`std_net`](api/std_net.md) |
+| `std.net` | Sistema | sockets TCP y variantes `*_async` | [`std_net`](api/std_net.md) |
 | `std.numerus` | Números | métodos numéricos sobre el concepto `Num` | [`std_numerus`](api/std_numerus.md) |
 | `std.oracle` | Núcleo | caja de herramientas `maybe`/`result` | [`std_oracle`](api/std_oracle.md) |
 | `std.ordinal` | Colecciones | `LinkedList`, `OrderedMap`/`OrderedSet`, `UnorderedSet` | [`std_ordinal`](api/std_ordinal.md) |

@@ -97,6 +97,12 @@ _Undocumented._
 
 _Undocumented._
 
+### `pengu_c_coro_current`
+
+> **pengu_c_coro_current**() -> ref to void
+
+_Undocumented._
+
 ### `run_box`
 
 > **run_box**(raw: ref to void) -> void
@@ -122,6 +128,25 @@ _Undocumented._
 > **start0**(worker: ref to weave with  into void) -> Coroutine
 
 _Undocumented._
+
+### `from_raw`
+
+> **from_raw**(raw: ref to void) -> Coroutine
+
+ Wraps a raw handle produced by `pengu_c_coro_new`. Internal to the runtime
+ ecosystem: `std.reactor` starts its trampoline without the generic box.
+
+### `current`
+
+> **current**() -> Coroutine
+
+ The coroutine running on this thread. Panics outside a coroutine.
+
+### `is_running`
+
+> **is_running**() -> bool
+
+ Whether this thread is currently inside a coroutine. No panic.
 
 ### `yield`
 

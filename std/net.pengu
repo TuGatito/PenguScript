@@ -8,8 +8,7 @@
 ## ## Example
 ## ```pengu
 ## import std.net
-## import std.io
-##
+## ##
 ## weave main into int:
 ##     let server as result of net.Socket to string is calling net.listen with "127.0.0.1", 0
 ##     if server is ok:
@@ -35,12 +34,17 @@
 ##   to compile; the LSP stdio transport is the portable path.
 ## - **Blocking by design.** The server loop is one connection per thread or one
 ##   blocking read; the LSP does not need non-blocking I/O for its framing.
+## - **Explicit async.** `*_async` variants take a `std.reactor.EventLoop` and
+##   suspend the current task on the loop's epoll/poll set. They require a
+##   non-blocking socket (call `set_nonblocking` first) and panic otherwise.
 ## - **Descriptors are `i64`.** A Windows `SOCKET` is pointer-sized, so a 32-bit
 ##   `int` would truncate it.  `i64` keeps the ABI correct on every platform.
 ## - **Negative errno.** The C bridge returns `-errno`; the wrappers turn that
 ##   into a human-readable `err(...)` string with `strerror`.
 
-const NET_VERSION as string is "3.0.3"
+const NET_VERSION as string is "3.1.0"
+
+import std.reactor
 
 
 when os == "windows":
@@ -50,6 +54,8 @@ else:
     include "netdb.h"
     include "unistd.h"
     include "errno.h"
+    include "fcntl.h"
+    include "sys/ioctl.h"
 
 # ----------------------------------------------------------------------------
 # Socket handle
@@ -139,6 +145,119 @@ weave read_exact with s as ref to Socket, n as int into maybe string:
 ## Returns the number of bytes written, or a negative value on error.
 weave write with s as ref to Socket, data as string into int:
     return calling _net_write with s->fd , data
+
+# ----------------------------------------------------------------------------
+# Non-blocking mode and explicit async operations
+# ----------------------------------------------------------------------------
+
+## Puts `s` in non-blocking mode. Returns 0 or `-errno`.
+weave set_nonblocking with s as ref to Socket into int:
+    return calling _net_set_nonblocking with s->fd
+
+## The platform's `EAGAIN`/`EWOULDBLOCK` value. Compare bridge results with
+## `0 - net.would_block()` instead of hard-coding a number.
+weave would_block into int:
+    return calling _net_would_block
+
+## Whether `s` is currently non-blocking.
+weave is_nonblocking with s as ref to Socket into bool:
+    return (calling _net_is_nonblocking with s->fd) == 1
+
+## Local port of `s` (useful after binding port 0). Returns 0 on error.
+weave local_port with s as ref to Socket into int:
+    return calling _net_local_port with s->fd
+
+## Accepts one connection without blocking the reactor task. The accepted
+## socket is put in non-blocking mode.
+weave accept_async with loop as ref to reactor.EventLoop, s as ref to Socket into result of Socket to string:
+    if not calling is_nonblocking with s:
+        calling spark.panic with "net.accept_async: listener must be non-blocking (call set_nonblocking)"
+    var wb as int is 0 - calling _net_would_block
+    while true:
+        var fd as i64 is calling _net_accept_nb with s->fd
+        if fd >= 0:
+            return calling ok_of with (with fd is fd)
+        if fd != wb:
+            let msg as string is calling _net_error_text with (0 - fd to int)
+            return calling err_of with msg
+        calling loop.park_read with (s->fd to int)
+
+## Connects without blocking the reactor task. DNS resolution is still done by
+## the resolver in this call (documented limitation). The returned socket is
+## non-blocking.
+weave connect_async with loop as ref to reactor.EventLoop, host as string, port as int into result of Socket to string:
+    var fd as i64 is 0
+    var rc as int is calling _net_connect_start with host, port, (sigil of fd)
+    if rc == 0:
+        return calling ok_of with (with fd is fd)
+    if rc != 1:
+        let msg as string is calling _net_error_text with (0 - rc)
+        return calling err_of with msg
+    var s as Socket is with fd is fd
+    calling loop.park_write with (fd to int)
+    var err as int is calling _net_so_error with fd
+    if err != 0:
+        calling _net_close with fd
+        let msg2 as string is calling _net_error_text with err
+        return calling err_of with msg2
+    return calling ok_of with s
+
+## Reads up to `max_bytes` on the loop. Returns an owned string (empty on EOF).
+weave read_async with loop as ref to reactor.EventLoop, s as ref to Socket, max_bytes as int into string:
+    if not calling is_nonblocking with s:
+        calling spark.panic with "net.read_async: socket must be non-blocking (call set_nonblocking)"
+    var wb as int is 0 - calling _net_would_block
+    while true:
+        var out as string is ""
+        var rc as int is calling _net_read_nb with s->fd, max_bytes, (sigil of out)
+        if rc >= 0:
+            return out
+        if rc != wb:
+            banish out
+            return ""
+        banish out
+        calling loop.park_read with (s->fd to int)
+
+## Reads exactly `n` bytes on the loop.
+weave read_exact_async with loop as ref to reactor.EventLoop, s as ref to Socket, n as int into maybe string:
+    if not calling is_nonblocking with s:
+        calling spark.panic with "net.read_exact_async: socket must be non-blocking (call set_nonblocking)"
+    var acc as string is ""
+    while (acc.len < n):
+        var wb as int is 0 - calling _net_would_block
+        var out as string is ""
+        var rc as int is calling _net_read_nb with s->fd, n - acc.len, (sigil of out)
+        if rc == 0:
+            banish acc
+            banish out
+            return maybe none
+        if rc > 0:
+            set acc is acc + out
+            banish out
+        else:
+            banish out
+            if rc != wb:
+                banish acc
+                return maybe none
+            calling loop.park_read with (s->fd to int)
+    return some acc
+
+## Writes every byte of `data` on the loop. Returns bytes written or `-errno`.
+weave write_async with loop as ref to reactor.EventLoop, s as ref to Socket, data as string into int:
+    if not calling is_nonblocking with s:
+        calling spark.panic with "net.write_async: socket must be non-blocking (call set_nonblocking)"
+    var wb as int is 0 - calling _net_would_block
+    var off as int is 0
+    while off < data.len:
+        var rc as int is calling _net_write_nb with s->fd, data, off
+        if rc > 0:
+            set off is off + rc
+        else:
+            if rc == wb:
+                calling loop.park_write with (s->fd to int)
+            else:
+                return rc
+    return off
 
 # ----------------------------------------------------------------------------
 # POSIX C bridges
@@ -331,5 +450,157 @@ antiquus _net_close with fd as i64 into void:
 #else
 if (fd >= 0)
 close((int)fd);
+#endif
+"""
+
+antiquus _net_set_nonblocking with fd as i64 into int:
+    r"""
+#if defined(_WIN32)
+(void)fd;
+return -1;
+#else
+int f = (int)fd;
+int flags = fcntl(f, F_GETFL, 0);
+if (flags < 0) return -errno;
+if (fcntl(f, F_SETFL, flags | O_NONBLOCK) < 0) return -errno;
+return 0;
+#endif
+"""
+
+antiquus _net_is_nonblocking with fd as i64 into int:
+    r"""
+#if defined(_WIN32)
+(void)fd;
+return 0;
+#else
+int flags = fcntl((int)fd, F_GETFL, 0);
+if (flags < 0) return 0;
+return (flags & O_NONBLOCK) ? 1 : 0;
+#endif
+"""
+
+antiquus _net_would_block into int:
+    r"""
+#if defined(_WIN32)
+return WSAEWOULDBLOCK;
+#else
+return EAGAIN;
+#endif
+"""
+
+antiquus _net_accept_nb with fd as i64 into i64:
+    r"""
+#if defined(_WIN32)
+(void)fd;
+return -1;
+#else
+int c = accept((int)fd, NULL, NULL);
+if (c < 0) return (errno == EAGAIN || errno == EWOULDBLOCK) ? -EAGAIN : -errno;
+int flags = fcntl(c, F_GETFL, 0);
+if (flags >= 0) fcntl(c, F_SETFL, flags | O_NONBLOCK);
+return (int64_t)c;
+#endif
+"""
+
+antiquus _net_connect_start with host as string, port as int, out_fd as ref to i64 into int:
+    r"""
+#if defined(_WIN32)
+(void)host; (void)port; (void)out_fd;
+return -1;
+#else
+char portbuf[16];
+snprintf(portbuf, sizeof(portbuf), "%d", port);
+char *hostbuf = (char *)malloc((size_t)host.len + 1);
+if (!hostbuf) return -ENOMEM;
+memcpy(hostbuf, host.data ? host.data : "", (size_t)host.len);
+hostbuf[host.len] = '\0';
+struct addrinfo hints;
+struct addrinfo *res = NULL;
+memset(&hints, 0, sizeof(hints));
+hints.ai_family = AF_UNSPEC;
+hints.ai_socktype = SOCK_STREAM;
+int gai = getaddrinfo(hostbuf, portbuf, &hints, &res);
+free(hostbuf);
+if (gai != 0) return -EINVAL;
+int fd = -1;
+for (struct addrinfo *ai = res; ai; ai = ai->ai_next) {
+    fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+    if (fd < 0) continue;
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags >= 0) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+    if (connect(fd, ai->ai_addr, ai->ai_addrlen) == 0) {
+        freeaddrinfo(res);
+        *out_fd = (int64_t)fd;
+        return 0;
+    }
+    if (errno == EINPROGRESS) {
+        freeaddrinfo(res);
+        *out_fd = (int64_t)fd;
+        return 1;
+    }
+    close(fd);
+}
+freeaddrinfo(res);
+return -errno;
+#endif
+"""
+
+antiquus _net_so_error with fd as i64 into int:
+    r"""
+#if defined(_WIN32)
+(void)fd;
+return -1;
+#else
+int err = 0;
+socklen_t len = sizeof(err);
+if (getsockopt((int)fd, SOL_SOCKET, SO_ERROR, &err, &len) < 0) return errno;
+return err;
+#endif
+"""
+
+antiquus _net_read_nb with fd as i64, max_bytes as int, out as ref to string into int:
+    r"""
+#if defined(_WIN32)
+(void)fd; (void)max_bytes; (void)out;
+return -1;
+#else
+char buf[65536];
+int cap = max_bytes;
+if (cap <= 0) cap = 1;
+if (cap > (int)sizeof(buf)) cap = (int)sizeof(buf);
+ssize_t n = recv((int)fd, buf, (size_t)cap, 0);
+if (n < 0) return (errno == EAGAIN || errno == EWOULDBLOCK) ? -EAGAIN : -errno;
+if (n == 0) return 0;
+*out = pengu_string_from_cstr_len(buf, (int)n);
+return 1;
+#endif
+"""
+
+antiquus _net_write_nb with fd as i64, data as string, offset as int into int:
+    r"""
+#if defined(_WIN32)
+(void)fd; (void)data; (void)offset;
+return -1;
+#else
+int off = offset;
+if (off < 0 || off >= data.len) return 0;
+ssize_t n = send((int)fd, data.data + off, (size_t)(data.len - off), 0);
+if (n < 0) return (errno == EAGAIN || errno == EWOULDBLOCK) ? -EAGAIN : -errno;
+return (int)n;
+#endif
+"""
+
+antiquus _net_local_port with fd as i64 into int:
+    r"""
+#if defined(_WIN32)
+(void)fd;
+return 0;
+#else
+struct sockaddr_storage ss;
+socklen_t len = sizeof(ss);
+if (getsockname((int)fd, (struct sockaddr *)&ss, &len) != 0) return 0;
+if (ss.ss_family == AF_INET) return ntohs(((struct sockaddr_in *)&ss)->sin_port);
+if (ss.ss_family == AF_INET6) return ntohs(((struct sockaddr_in6 *)&ss)->sin6_port);
+return 0;
 #endif
 """

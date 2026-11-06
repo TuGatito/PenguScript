@@ -4,6 +4,8 @@
 # created it. It is suspended at `coro.yield` and resumed by the owner with
 # `resume`. There is no scheduler, no implicit switch and no thread migration:
 # if you need parallelism, use std.filum.
+
+import std.spark
 #
 # Memory: the handle owns a slot from the runtime arena. `free` releases a
 # finished coroutine; `abandon` discards a suspended one and frees its argument
@@ -44,6 +46,7 @@ declare pengu_c_coro_yield into void
 declare pengu_c_coro_status with handle as ref to void into int
 declare pengu_c_coro_free with handle as ref to void into void
 declare pengu_c_coro_abandon with handle as ref to void into void
+declare pengu_c_coro_current into ref to void
 
 # ----------------------------------------------------------------------------
 # Helpers
@@ -52,6 +55,7 @@ declare pengu_c_coro_abandon with handle as ref to void into void
 weave run_box shard A with raw as ref to void into void:
     var b as ref to CoroBox of A is transmute raw to ref to CoroBox of A
     calling b->fn with b->arg
+    banish b->arg
 
 weave run_box0 with raw as ref to void into void:
     var b as ref to CoroBox0 is transmute raw to ref to CoroBox0
@@ -76,6 +80,23 @@ weave start0 with worker as ref to weave into void into Coroutine:
     set b->fn is worker
     var run as ref to weave with raw as ref to void into void is run_box0
     return with _ptr is calling pengu_c_coro_new with run, raw
+
+## Wraps a raw handle produced by `pengu_c_coro_new`. Internal to the runtime
+## ecosystem: `std.reactor` starts its trampoline without the generic box.
+weave from_raw with raw as ref to void into Coroutine:
+    return with _ptr is raw
+
+## The coroutine running on this thread. Panics outside a coroutine.
+weave current into Coroutine:
+    var p as ref to void is calling pengu_c_coro_current
+    if p == null:
+        calling spark.panic with "coro.current: no coroutine is running"
+    return with _ptr is p
+
+## Whether this thread is currently inside a coroutine. No panic.
+weave is_running into bool:
+    var p as ref to void is calling pengu_c_coro_current
+    return p != null
 
 ## Suspends the current coroutine until its owner calls `resume`. Calling
 ## `yield` outside a coroutine is a runtime panic.

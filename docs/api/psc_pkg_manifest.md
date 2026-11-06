@@ -30,6 +30,35 @@ explícitamente; no hay parser YAML/JSON de manifiesto.
 
 _Undocumented._
 
+### `Layout`
+
+> rune Layout
+
+```pengu
+    src_dir as string
+    include_dir as string
+    lib_dir as string
+    import_name as string
+```
+
+ Layout declarado por un paquete (consumidor o dependencia).
+
+ Los defaults conservan el layout histórico (`src`, `include`, `lib`).
+
+### `load_layout`
+
+> **load_layout**(dir: string) -> Layout
+
+ Lee `[build]`/`[project] import` de `<dir>/pengu.toml`.
+
+ Devuelve defaults si el manifiesto no existe o no es TOML válido.
+
+### `free_layout`
+
+> **free_layout**(l: ref to Layout) -> void
+
+ Libera un layout.
+
 ### `find_root`
 
 > **find_root**(start: string) -> string

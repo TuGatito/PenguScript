@@ -15,61 +15,271 @@ report *why* an operation failed) and the recursive helpers (`copy_tree`,
 import std.archivum
 import std.spark
 
-weave main into int:
-    let path as string is "/tmp/archivum_demo.txt"
-    if calling archivum.write_file with path, "hello\nworld\n":
-        let text as maybe string is calling archivum.read_file with path
-        if text.is_present:
-            calling spark.println with text.value
-    calling archivum.delete_file with path
-    return 0
+---
+
+### `ReadJob`
+
+> rune ReadJob
+
+```pengu
+    path as string
+    out as maybe string
 ```
 
-## Memory
-A `string` is a value: inputs are borrowed and never banished by this module.
-Every returned `string`, `list`, `map` and `result` payload is freshly
-allocated and owned by the caller, so release it with `banish` (and the
-elements of a returned `list of string` individually) when it is no longer
-needed. The `result` variants rebuild their container instead of returning a
-parameter: `calling ok_of with v` / `calling err_of with e`.
 
-## Design notes
-- **Two answers per question.** The `maybe`/`bool` weaves answer "is it
-  there?" and stay the right tool for that. The `*_result` weaves answer "it
-  failed, and why", with `IoError` as the error type; they are built with
-  `calling ok_of` / `calling err_of`.
-- **No `+` on strings** (E0005): every composition uses `"{expr}"`
-  interpolation, including the byte-count loops.
-- **Directory entry names only.** `read_dir` mirrors the runtime primitive and
-  returns bare names; `read_dir_full` is the convenience weave that joins each
-  entry with the directory with `std.compass.join`.
-- **Recursion is explicit.** `copy_tree`, `walk`, `find_dirs`,
-  `list_files_recursive` and `dir_size` keep their own stack/list instead of
-  calling themselves, which keeps the generated C flat.
-- **Permissions are checked through `metadata`.** `is_readable`/`is_writable`
-  require `exists and is_file` and then inspect the POSIX mode bits reported by
-  `permissions` (read: `0400 | 0040 | 0004`, write: `0200 | 0020 | 0002`).
-- **External `enchanting`.** The optional `enchanting compass.Path` block adds
-  filesystem methods to `compass.Path`; it delegates through `self->raw` and
-  never touches `std/compass.pengu`.
-- **Internal tests without `std.ward`** (`ward` would create an import cycle):
-  the `# --- Tests ---` section uses a private harness on top of `spark.panic`.
+ weave main into int:
+     let path as string is "/tmp/archivum_demo.txt"
+     if calling archivum.write_file with path, "hello\nworld\n":
+         let text as maybe string is calling archivum.read_file with path
+         if text.is_present:
+             calling spark.println with text.value
+     calling archivum.delete_file with path
+     return 0
+ ```
 
-## Migration
+ ## Memory
+ A `string` is a value: inputs are borrowed and never banished by this module.
+ Every returned `string`, `list`, `map` and `result` payload is freshly
+ allocated and owned by the caller, so release it with `banish` (and the
+ elements of a returned `list of string` individually) when it is no longer
+ needed. The `result` variants rebuild their container instead of returning a
+ parameter: `calling ok_of with v` / `calling err_of with e`.
 
-`2.0.0` → `2.1.0` is additive: no symbol was removed, renamed or given new
-bounds/behaviour.
+ ## Design notes
+ - **Two answers per question.** The `maybe`/`bool` weaves answer "is it
+   there?" and stay the right tool for that. The `*_result` weaves answer "it
+   failed, and why", with `IoError` as the error type; they are built with
+   `calling ok_of` / `calling err_of`.
+ - **No `+` on strings** (E0005): every composition uses `"{expr}"`
+   interpolation, including the byte-count loops.
+ - **Directory entry names only.** `read_dir` mirrors the runtime primitive and
+   returns bare names; `read_dir_full` is the convenience weave that joins each
+   entry with the directory with `std.compass.join`.
+ - **Recursion is explicit.** `copy_tree`, `walk`, `find_dirs`,
+   `list_files_recursive` and `dir_size` keep their own stack/list instead of
+   calling themselves, which keeps the generated C flat.
+ - **Permissions are checked through `metadata`.** `is_readable`/`is_writable`
+   require `exists and is_file` and then inspect the POSIX mode bits reported by
+   `permissions` (read: `0400 | 0040 | 0004`, write: `0200 | 0020 | 0002`).
+ - **External `enchanting`.** The optional `enchanting compass.Path` block adds
+   filesystem methods to `compass.Path`; it delegates through `self->raw` and
+   never touches `std/compass.pengu`.
+ - **Internal tests without `std.ward`** (`ward` would create an import cycle):
+   the `
+ ----------------------------------------------------------------------------
+ Async variants (reactor). Each one offloads the existing blocking weave to the
+ loop's pool; the job lives on the suspended coroutine's stack, so the worker
+ borrows its inputs safely and the caller moves the result out after the wait.
+ ----------------------------------------------------------------------------
 
-| Added | Purpose |
-|---|---|
-| `read_text` / `write_text` | explicit aliases of `read_file` / `write_file` |
-| `read_last_n_lines` | tail of a file, complementing `read_first_n_lines` |
-| `read_dir_full` | `read_dir` entries already joined with the directory |
-| `is_readable` / `is_writable` | existence + regular file + mode check |
-| `read_lines_result`, `write_lines_result`, `read_dir_result`, `create_dir_result`, `remove_dir_result`, `copy_file_result`, `copy_tree_result`, `append_lines_result`, `touch_result`, `symlink_result`, `metadata_result` | `result of T to IoError` variants of the weaves above |
-| `enchanting compass.Path` | `read_text`, `write_text`, `read_lines`, `append_text`, `delete`, `mkdir`, `rmdir`, `iter_dir`, `stat` |
+### `WriteJob`
 
----
+> rune WriteJob
+
+```pengu
+    path as string
+    content as string
+    out as bool
+```
+
+_Undocumented._
+
+### `BoolPathJob`
+
+> rune BoolPathJob
+
+```pengu
+    path as string
+    flag as bool
+    out as bool
+```
+
+_Undocumented._
+
+### `CopyJob`
+
+> rune CopyJob
+
+```pengu
+    src as string
+    dst as string
+    overwrite as bool
+    out as bool
+```
+
+_Undocumented._
+
+### `ReadDirJob`
+
+> rune ReadDirJob
+
+```pengu
+    path as string
+    out as maybe list of string
+```
+
+_Undocumented._
+
+### `SizeJob`
+
+> rune SizeJob
+
+```pengu
+    path as string
+    out as maybe int
+```
+
+_Undocumented._
+
+### `_arch_async_noop`
+
+> **_arch_async_noop**(box: ref to void) -> void
+
+_Undocumented._
+
+### `_arch_read_text_worker`
+
+> **_arch_read_text_worker**(ctx: ref to void) -> void
+
+_Undocumented._
+
+### `_arch_read_bytes_worker`
+
+> **_arch_read_bytes_worker**(ctx: ref to void) -> void
+
+_Undocumented._
+
+### `_arch_write_text_worker`
+
+> **_arch_write_text_worker**(ctx: ref to void) -> void
+
+_Undocumented._
+
+### `_arch_write_bytes_worker`
+
+> **_arch_write_bytes_worker**(ctx: ref to void) -> void
+
+_Undocumented._
+
+### `_arch_append_file_worker`
+
+> **_arch_append_file_worker**(ctx: ref to void) -> void
+
+_Undocumented._
+
+### `_arch_delete_file_worker`
+
+> **_arch_delete_file_worker**(ctx: ref to void) -> void
+
+_Undocumented._
+
+### `_arch_exists_worker`
+
+> **_arch_exists_worker**(ctx: ref to void) -> void
+
+_Undocumented._
+
+### `_arch_create_dir_worker`
+
+> **_arch_create_dir_worker**(ctx: ref to void) -> void
+
+_Undocumented._
+
+### `_arch_remove_dir_worker`
+
+> **_arch_remove_dir_worker**(ctx: ref to void) -> void
+
+_Undocumented._
+
+### `_arch_copy_file_worker`
+
+> **_arch_copy_file_worker**(ctx: ref to void) -> void
+
+_Undocumented._
+
+### `_arch_read_dir_worker`
+
+> **_arch_read_dir_worker**(ctx: ref to void) -> void
+
+_Undocumented._
+
+### `_arch_file_size_worker`
+
+> **_arch_file_size_worker**(ctx: ref to void) -> void
+
+_Undocumented._
+
+### `read_text_async`
+
+> **read_text_async**(loop: ref to EventLoop, path: string) -> maybe string
+
+ Async `read_text`: suspends the calling reactor task while a pool thread reads.
+
+### `read_bytes_async`
+
+> **read_bytes_async**(loop: ref to EventLoop, path: string) -> maybe string
+
+ Async `read_bytes`.
+
+### `write_text_async`
+
+> **write_text_async**(loop: ref to EventLoop, path: string, content: string) -> bool
+
+ Async `write_text`.
+
+### `write_bytes_async`
+
+> **write_bytes_async**(loop: ref to EventLoop, path: string, data: string) -> bool
+
+ Async `write_bytes`.
+
+### `append_file_async`
+
+> **append_file_async**(loop: ref to EventLoop, path: string, content: string) -> bool
+
+ Async `append_file`.
+
+### `delete_file_async`
+
+> **delete_file_async**(loop: ref to EventLoop, path: string) -> bool
+
+ Async `delete_file`.
+
+### `exists_async`
+
+> **exists_async**(loop: ref to EventLoop, path: string) -> bool
+
+ Async `exists`.
+
+### `create_dir_async`
+
+> **create_dir_async**(loop: ref to EventLoop, path: string, parents: bool) -> bool
+
+ Async `create_dir`.
+
+### `remove_dir_async`
+
+> **remove_dir_async**(loop: ref to EventLoop, path: string, recursive: bool) -> bool
+
+ Async `remove_dir`.
+
+### `copy_file_async`
+
+> **copy_file_async**(loop: ref to EventLoop, src: string, dst: string, overwrite: bool) -> bool
+
+ Async `copy_file`.
+
+### `read_dir_async`
+
+> **read_dir_async**(loop: ref to EventLoop, path: string) -> maybe list of string
+
+ Async `read_dir`.
+
+### `file_size_async`
+
+> **file_size_async**(loop: ref to EventLoop, path: string) -> maybe int
+
+ Async `file_size`.
 
 ### `ARCHIVUM_VERSION`
 
@@ -1757,9 +1967,9 @@ bounds/behaviour.
 
  Builds the unique test directory `/tmp/pengu_arch_test_<pid>_<name>`.
 
-### `"ARCHIVUM_VERSION is 2.14.0"`
+### `"ARCHIVUM_VERSION is 2.15.0"`
 
-> test "ARCHIVUM_VERSION is 2.14.0"
+> test "ARCHIVUM_VERSION is 2.15.0"
 
 _Undocumented._
 

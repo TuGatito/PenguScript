@@ -42,7 +42,7 @@ regenerates them and fails if the committed tree is stale.
 | [SANITIZERS.md](SANITIZERS.md) | ASan, UBSan and TSan profiles. |
 | [DEBUGGER.md](DEBUGGER.md) | `psc debug`, DWARF, breakpoints and fiber backtraces. |
 | [psc/](psc/) | Compiler internals: AST, semantic analysis, codegen, modules. |
-| [psc/AUDITORIA_0.34.0.md](psc/AUDITORIA_0.34.0.md) | Audit and phased plan for 0.33 (Spanish). |
+| [psc/AUDITORIA_0.33.0.md](psc/AUDITORIA_0.33.0.md) | Audit and phased plan for 0.33 (Spanish). |
 | [psc/F7_MULTITU.md](psc/F7_MULTITU.md) | F7 implementation plan: per-module codegen units and parallel `cc`. |
 
 ## Keeping the docs honest
@@ -62,7 +62,7 @@ compiled.
 
 ## Versioning
 
-The documents state the `psc` version they describe (currently **0.34.0**).
+The documents state the `psc` version they describe (currently **0.35.0**).
 When the language changes, the same pull request updates:
 
 1. the reference (`LANGUAGE.md` + `.es.md`),

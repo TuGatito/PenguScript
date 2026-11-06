@@ -1,7 +1,7 @@
 # PenguScript Language Reference
 
 PenguScript is a small, statically typed language that compiles to C. This
-reference documents the language as implemented by `psc` 0.34.0: every
+reference documents the language as implemented by `psc` 0.35.0: every
 construct, its semantics, and the C it lowers to.
 
 It is the *language* document of the documentation set:
@@ -140,7 +140,7 @@ own section (generics, memory, interop).
 * The keyword lists, type mappings and diagnostic codes are exhaustive; the
   prose is not — [PENGUNIC.md](PENGUNIC.md) covers *how to use* the language and
   [STDLIB.md](STDLIB.md) covers the standard library.
-* Version: `psc` 0.34.0. The ABI version the generated C expects is 3.
+* Version: `psc` 0.35.0. The ABI version the generated C expects is 3.
 
 ## 1. Lexical structure
 
@@ -1843,9 +1843,40 @@ recoverable error.
 
 The default stack is 64 KiB (shared, recycled arena); a `ref to T` does not
 require `@shared` because it never crosses threads, and a `string`/`list`/`map`
-moves into the worker. There is no scheduler, `async`/`await`, cancellation or
-value passing through `yield`: control is explicit and data travels through
-`ref to` or the owner's shared state. `std.coro` is not available on wasm.
+moves into the worker. There is no automatic scheduler, `async`/`await`
+syntax, cancellation or value passing through `yield`: control is explicit and
+data travels through `ref to` or the owner's shared state. The scheduling
+policy is a user-space object, `std.reactor.EventLoop`, created explicitly,
+started with `spawn` and run with `run`; `std.coro` alone never resumes
+anything on its own:
+
+```pengu
+import std.reactor
+
+weave worker with loop as ref to reactor.EventLoop, n as ref to int into void:
+    calling loop.sleep_ms with 10
+
+weave main into int:
+    var loop as reactor.EventLoop is calling reactor.EventLoop.new
+    calling loop.spawn with worker, 0
+    calling loop.run          # epoll_wait/poll + resume of ready tasks
+    calling loop.close
+    return 0
+```
+
+The `*_async` variants in `std.net`, `std.archivum` and `std.petitio` are
+ordinary functions with the same return types as their synchronous siblings:
+they suspend the current coroutine and must be called from a loop task; outside
+one they panic. There is no function-coloring transformation and no hidden
+state machine.
+
+**Translation to C.** Each `Coroutine` wraps a minicoro `mco_desc`
+(`runtime/pengu_coro.c`): `pengu_c_coro_new` allocates the argument box and the
+64 KiB stack from a per-thread arena with a free-list; `resume` checks that the
+current thread is the owner (TLS) and calls `mco_resume`; `yield` calls
+`mco_yield`. The ownership contract is enforced in Pengunic before C is
+emitted; the runtime keeps the wrong-thread and stack-exhaustion diagnostics.
+`std.coro` is not available on wasm.
 
 `@coroutine` marks the function that starts the task (the implementation of
 `std.coro.start`); if you write your own starter, mirror the contract: first

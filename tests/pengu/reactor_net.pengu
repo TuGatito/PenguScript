@@ -1,0 +1,37 @@
+# Reactor + std.net async: accept/read/write on a non-blocking socket.
+import std.reactor
+import std.net
+import std.spark
+
+weave server with loop as ref to reactor.EventLoop, srv as ref to net.Socket into void:
+    var nb as int is calling net.set_nonblocking with srv
+    var ar as result of net.Socket to string is calling net.accept_async with loop, srv
+    if ar.is_ok:
+        var c as net.Socket is ar.value
+        var data as string is calling net.read_async with loop, (sigil of c), 64
+        var w as int is calling net.write_async with loop, (sigil of c), "pong"
+        calling net.close with (sigil of c)
+        calling spark.println with data
+
+weave client with loop as ref to reactor.EventLoop, port as ref to int into void:
+    var cr as result of net.Socket to string is calling net.connect_async with loop, "127.0.0.1", (essence of port)
+    if cr.is_ok:
+        var c as net.Socket is cr.value
+        var w as int is calling net.write_async with loop, (sigil of c), "ping"
+        var got as string is calling net.read_async with loop, (sigil of c), 64
+        calling spark.println with got
+        calling net.close with (sigil of c)
+
+weave main into int:
+    var lr as result of net.Socket to string is calling net.listen with "127.0.0.1", 39018
+    if not lr.is_ok:
+        calling spark.println with "listen failed"
+        return 1
+    var srv as net.Socket is lr.value
+    var loop as reactor.EventLoop is calling reactor.EventLoop.new
+    calling loop.spawn with server, srv
+    calling loop.spawn with client, 39018
+    calling loop.run
+    calling loop.close
+    calling net.close with (sigil of srv)
+    return 0

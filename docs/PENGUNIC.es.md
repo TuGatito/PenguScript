@@ -1,7 +1,7 @@
 # El Manual Pengunic
 
 Cómo escribir PenguScript seguro, idiomático y rápido: el manual de ingeniería
-del lenguaje que implementa `psc` 0.34.0.
+del lenguaje que implementa `psc` 0.35.0.
 
 Es el documento de *práctica* del conjunto de documentación:
 
@@ -102,6 +102,7 @@ English: [PENGUNIC.md](PENGUNIC.md).
   - [13.5 Reglas para compartir](#135-reglas-para-compartir)
   - [13.6 Testear concurrencia](#136-testear-concurrencia)
   - [13.7 Corrutinas](#137-corrutinas)
+  - [13.8 El reactor: planificar es explícito](#138-el-reactor-planificar-es-explícito)
 - [14. Interoperabilidad con C, con seguridad](#14-interoperabilidad-con-c-con-seguridad)
   - [14.1 El archivo de frontera](#141-el-archivo-de-frontera)
   - [14.2 Propiedad a través de la frontera](#142-propiedad-a-través-de-la-frontera)
@@ -320,7 +321,7 @@ binario `psc`. Desde un checkout:
 $ bash tools/build_bootstrap.sh     # builds build/psc-stage0 from the C bundle
 $ ./build/psc-stage0 build .        # self-hosts build/psc
 $ ./build/psc --version
-psc 0.34.0 (F13)
+psc 0.35.0 (F13)
 ```
 
 A partir de ahí usas `build/psc`. `psc doctor` informa de lo que encontró: el
@@ -1586,8 +1587,10 @@ de concurrencia que pasa una vez no demuestra nada: ejecútalo en bucle en CI.
 Una corrutina no es un hilo ni una promesa: es una función que se puede
 suspender y reanudar explícitamente. `std.coro.start` la crea suspendida,
 `resume` la ejecuta hasta el siguiente `yield` o hasta que retorne, y `status`
-dice en qué estado está. No hay planificador, ni `async`/`await`, ni migración
-de hilo: si el dueño no la reanuda, no avanza.
+dice en qué estado está. `std.coro` no trae planificador ni sintaxis
+`async`/`await`, y no hay migración de hilo: si el dueño no la reanuda, no
+avanza. La política de planificación es explícita y vive en `std.reactor`
+(§13.8).
 
 ```pengu
 import std.coro
@@ -1621,9 +1624,72 @@ La misma afinidad que hace seguras las corrutinas impone sus reglas:
 
 Las corrutinas son la base para generadores e iteradores perezosos, pero
 PenguScript no añade sintaxis de generador: el patrón se escribe con `resume` y
-`yield`, y los valores viajan por `ref to` o por el estado del dueño. `async`
-queda fuera porque el lenguaje no tiene closures con captura y no quiere
-convertir cada función en una máquina de estados oculta.
+`yield`, y los valores viajan por `ref to` o por el estado del dueño. Tampoco
+hay `async`/`await` como palabras clave: las variantes `*_async` de la stdlib
+son funciones normales que suspenden la corrutina actual y exigen estar dentro
+de una tarea del reactor. No hay transformación de color de función, ni
+closures con captura, ni una máquina de estados generada a escondidas.
+
+### 13.8 El reactor: planificar es explícito
+
+`std.reactor` es la política de planificación, en espacio de usuario. El
+programa crea el loop, registra tareas y decide cuándo ejecutarlas:
+
+```pengu
+import std.reactor
+
+weave tick with loop as ref to reactor.EventLoop, n as ref to int into void:
+    calling loop.sleep_ms with 10
+
+weave main into int:
+    var loop as reactor.EventLoop is calling reactor.EventLoop.new
+    calling loop.spawn with tick, 0
+    calling loop.run
+    calling loop.close
+    return 0
+```
+
+`spawn` no ejecuta el worker en línea: lo deja listo para la siguiente pasada.
+`run` es el único que hace `epoll_wait`/`poll` y reanuda tareas. `park_read` y
+`park_write` estacionan la corrutina actual hasta que el descriptor esté listo;
+`sleep_ms` la estaciona con un temporizador; `offload` manda trabajo bloqueante
+al pool del loop y `await_token` espera su finalización. `close` se llama fuera
+de una corrutina, abandona las suspendidas y no cierra los descriptores del
+usuario.
+
+**Cuándo usarlo.** E/S de red, timers, servidores con muchas conexiones y
+trabajo bloqueante que no quieres que pare el resto (ficheros, libcurl). Es la
+opción correcta cuando el coste dominante es esperar, no calcular.
+
+**Cuándo no usarlo.** CPU pura o paralelismo real: usa `std.filum` y su `Pool`.
+Tampoco lo uses para esconder una librería bloqueante que no controlas: si no
+hay una variante `*_async`, el `offload` es la frontera honesta y el coste es un
+hilo del pool por operación en vuelo.
+
+**Reglas que el compilador no puede salvarte:**
+
+* Un loop pertenece al hilo que lo creó. `new`, `spawn`, `run`, `stop` y
+  `close` se llaman desde ese hilo; un worker nunca toca el loop directamente.
+* Un `*_async` solo se llama dentro de una tarea del loop. Fuera de ella es un
+  panic, no un bloqueo silencioso.
+* No llames `coro.yield` a mano dentro de una tarea: usa `park_*`, `sleep_ms` o
+  `await_token` para que el loop sepa por qué está suspendida. Un `yield` suelto
+  es un panic en la siguiente pasada de `run`.
+* Una tarea tiene como mucho un `offload` en vuelo. Espera su token antes de
+  lanzar el siguiente; el `job_free` libera la caja al consumir la completion.
+* No cierres un descriptor que el loop todavía tiene registrado; cierra la
+  tarea o el socket después de que `run` la haya reanudado.
+* `close` no cierra tus sockets ni tus ficheros: esa responsabilidad sigue
+  siendo tuya.
+* `std.filum` no gana canales que suspendan corrutinas. Sus `Mutex`, `Cond`,
+  `Chan*` y `Pool` son primitivas de hilo; el estacionamiento de corrutinas vive
+  en el reactor. Si necesitas esperar un `Thread` desde una tarea, usa
+  `Thread.is_finished` + `reactor.await_thread`.
+
+**Anti-patrones.** Crear un loop por petición; hacer `join` de un hilo dentro de
+un worker; usar `Thread.sleep` para esperar E/S; lanzar dos `offload` y esperar
+solo uno; cerrar el loop desde dentro de una tarea; o envolver una operación
+bloqueante en `spawn` y llamarla "async" sin pasar por el reactor.
 
 
 ## 14. Interoperabilidad con C, con seguridad
@@ -3129,10 +3195,12 @@ trunca, y `transmute`, que reinterpreta bits.
 
 **¿Hay hilos y corrutinas?**
 Sí. 0.30.0 añadió hilos de primera clase (`filum.start`, `join`, `detach`,
-`free`) y 0.31.0 añade `std.coro`: corrutinas stackful explícitas con `resume` y
-`yield`, en el mismo hilo. PenguScript no promete un planificador de green
-threads ni `async`/`await`; el hilo lo planifica el sistema y la corrutina la
-reanuda su dueño.
+`free`), 0.31.0 añadió `std.coro` (corrutinas stackful explícitas con `resume` y
+`yield`, en el mismo hilo) y 0.35.0 añade `std.reactor`: un `EventLoop` explícito
+que hace `epoll_wait`/`poll` y reanuda las tareas. No hay `async`/`await` como
+palabras clave ni un planificador escondido: tú creas el loop, haces `spawn` y
+llamas `run`. Las variantes `*_async` de la stdlib son funciones que suspenden la
+corrutina actual y solo funcionan dentro de una tarea del loop.
 
 **¿Por qué `float` es de 32 bits?**
 Porque coincide con el `float` de C; usa `f64` cuando importe la precisión.

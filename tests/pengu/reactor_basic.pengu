@@ -1,0 +1,43 @@
+# Reactor: spawn, sleep and offload. The loop resumes only what it owns.
+import std.reactor
+import std.spark
+import std.filum
+
+rune AddJob:
+    value as int
+    out as int
+
+weave add_worker with ctx as ref to void into void:
+    var job as ref to AddJob is transmute ctx to ref to AddJob
+    set job->out is job->value + 1
+
+weave sleeper with loop as ref to reactor.EventLoop, n as ref to int into void:
+    calling loop.sleep_ms with 10
+    calling spark.println with "slept"
+
+weave offloader with loop as ref to reactor.EventLoop, n as ref to int into void:
+    var job as AddJob is with value is 41, out is 0
+    var token as i64 is calling loop.offload with add_worker, _noop, (sigil of job)
+    calling loop.await_token with token
+    calling spark.println with (job.out to string)
+
+weave _noop with box as ref to void into void:
+    return
+
+weave idle into void:
+    return
+
+weave waiter with loop as ref to reactor.EventLoop, n as ref to int into void:
+    var th as filum.Thread is calling filum.start0 with idle
+    calling loop.await_thread with (sigil of th)
+    calling th.join
+    calling spark.println with "joined"
+
+weave main into int:
+    var loop as reactor.EventLoop is calling reactor.EventLoop.new with 2
+    calling loop.spawn with sleeper, 0
+    calling loop.spawn with offloader, 0
+    calling loop.spawn with waiter, 0
+    calling loop.run
+    calling loop.close
+    return 0
