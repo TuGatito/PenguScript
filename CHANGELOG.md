@@ -2,6 +2,66 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.34.0] — 2026-11-05 — Dependencias y bindings listos para producción
+
+Reescritura de la ruta `psc add`/`psc update`/`psc vendor` y del contrato de
+librerías nativas. Las dos librerías de referencia (`raylib-pengu` y
+`PenguScript-WebUI`) se instalan desde un checkout limpio con `psc add --trust`
+y compilan sin symlinks ni `-L` manual.
+
+### Añadido
+
+- `[project] import` en `pengu.toml`: si `psc add` no recibe `--name`, instala
+  la dependencia en `lib/<import>` y la registra con ese nombre. Un repo
+  `raylib-pengu` con `import = "raylib"` queda como `import raylib`.
+- El driver respeta `[build] src_dir`, `include_dir` y `lib_dir` del paquete:
+  añade el primero a módulos, el segundo a `-I` y el tercero a `-L`. Los
+  archivos `.a/.so/.dylib/.dll/.lib` del paquete se enlazan solos.
+- `psc add` transaccional: staging en `.psc-stage-<name>`, validación de
+  versión/constraint, limpieza en error y rollback del manifiesto; un paquete
+  nuevo no queda a medias.
+- `build.pengu` se ejecuta para todas las dependencias (no sólo la directa) y
+  sólo con `--trust`/`PENGU_TRUST_ALL`; un exit distinto de cero aborta el
+  `add`/`update`. `--rebuild` fuerza la ejecución.
+- `pengu.lock` schema 2 con `target`, `generated_by` y SHA-256; se siguen
+  leyendo locks viejos con `targets = [...]`. `--locked`/`--frozen` validan
+  versión, commit, SHA-256, constraint y paquetes extra.
+- `psc vendor` conserva los archivos nativos de `lib/`; `--frozen` restaura
+  dependencias con sus `.a` sin red.
+- `psc upgrade --trust` reconstruye; `psc update --trust` reinstala y ejecuta
+  los builds.
+- URLs git genéricas (GitHub, GitLab, Codeberg, self-hosted), `#ref`,
+  `/-/tree/<ref>` y `file://`; GitLab funciona sin código específico.
+- `psc init` acepta rutas absolutas y `.`/`..`, usa el basename como nombre,
+  ignora `output_name` inválido y genera `.gitignore` con `build/` y `lib/`.
+- `psc init --template=cbind` crea `include/<name>.h`, `c/<name>.c` y una
+  declaración que incluye la cabecera.
+
+### Corregido
+
+- Doble free al liberar `tag`/`branch` prestados en `install.pengu` (provocaba
+  `free(): chunks in smallbin corrupted` y SIGABRT 134 tras un checkout
+  fallido).
+- Un checkout fallido deja el paquete a medias; ahora se limpia el staging.
+- `psc remove` elimina también secciones `[dependencies.<name>]`.
+- `psc update` no reinstalaba ni reconstruía; `psc verify` no validaba
+  constraints; `psc add` dejaba el manifiesto sucio al fallar.
+- Paths locales relativos se resuelven contra el cwd (no contra la raíz) y las
+  dependencias transitivas relativas contra el repo del padre.
+- `tree_hash` ya no incluye `lib/` ni `.psc-stage-*`, así que los artefactos
+  nativos no invalidan el lock.
+- `psc new`/`psc init` con ruta absoluta y `psc init .` generaban un proyecto
+  con `name`/`output_name` inválidos.
+- `psc vendor`/`copy_local` descartaban las librerías nativas.
+- `parse_version` acepta basura final y `^0.0.x` permitía subir el patch.
+
+### Documentación
+
+- `docs/LIBRARIES.md` y `docs/LIBRARIES.es.md` reescritos para 0.34: layout,
+  `import`, `build.pengu`, archivos nativos verificados, vendor, GitLab y
+  pitfalls.
+- `docs/psc/CLI.md` actualizado con las nuevas opciones y el lock v2.
+
 ## [0.33.0] — 2026-11-05 — Builds incrementales, cobertura y cross-compile
 
 Esta versión convierte el compilador en una herramienta de trabajo diaria:

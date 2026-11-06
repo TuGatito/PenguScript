@@ -51,6 +51,10 @@ weave tree_hash with root as string into string:
             set skip is true
         if (calling contains with rel, "/build/") or (calling starts_with with rel, "build/"):
             set skip is true
+        if (calling contains with rel, "/lib/") or (calling starts_with with rel, "lib/"):
+            set skip is true
+        if (calling contains with rel, "/.psc-stage-") or (calling starts_with with rel, ".psc-stage-"):
+            set skip is true
         if (calling contains with rel, "/__pycache__/") or (calling starts_with with rel, "__pycache__"):
             set skip is true
         if (calling contains with rel, "/.venv/") or (calling starts_with with rel, ".venv/"):
@@ -131,7 +135,9 @@ weave read with base as string into maybe Lock:
         calling lock.packages.push with p
         set i is i + 1
     var tgt as string is ""
-    if calling toml.has with entries, "targets[0]":
+    if calling toml.has with entries, "target":
+        set tgt is calling toml.get with entries, "target"
+    else if calling toml.has with entries, "targets[0]":
         set tgt is calling toml.get with entries, "targets[0]"
     set lock.target is tgt
     calling toml.free_entries with entries
@@ -141,13 +147,13 @@ weave read with base as string into maybe Lock:
 weave dumps with lock as Lock into string:
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb
-    calling sb.append with "version = 1\n"
+    calling sb.append with "schema = 2\ngenerated_by = \"psc 0.34.0\"\n"
     if lock.target length > 0:
-        calling sb.append with "targets = [\""
+        calling sb.append with "target = \""
         calling sb.append with lock.target
-        calling sb.append with "\"]\n"
+        calling sb.append with "\"\n"
     else:
-        calling sb.append with "targets = []\n"
+        calling sb.append with "target = \"\"\n"
     for p in lock.packages:
         calling sb.append with "\n[[package]]\nname = \""
         calling sb.append with p.name

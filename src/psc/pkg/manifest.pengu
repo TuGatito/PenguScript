@@ -24,6 +24,55 @@ rune Dependency:
 weave copy with s as string into string:
     return calling npool.copy_string with s
 
+## Layout declarado por un paquete (consumidor o dependencia).
+##
+## Los defaults conservan el layout histórico (`src`, `include`, `lib`).
+rune Layout:
+    src_dir as string
+    include_dir as string
+    lib_dir as string
+    import_name as string
+
+## Lee `[build]`/`[project] import` de `<dir>/pengu.toml`.
+##
+## Devuelve defaults si el manifiesto no existe o no es TOML válido.
+weave load_layout with dir as string into Layout:
+    var out as Layout is with src_dir is (calling copy with "src"), include_dir is (calling copy with "include"), lib_dir is (calling copy with "lib"), import_name is (calling copy with "")
+    var path as string is "{dir}/pengu.toml"
+    var txt as maybe string is calling archivum.read_text with path
+    banish path
+    if not txt.is_present:
+        banish txt
+        return out
+    var pr as result of list of toml.TomlEntry to string is calling toml.parse with txt.value
+    banish txt.value
+    banish txt
+    if not pr.is_ok:
+        banish pr
+        return out
+    var entries as list of toml.TomlEntry is pr.value
+    if calling toml.has with entries, "build.src_dir":
+        banish out.src_dir
+        set out.src_dir is (calling copy with (calling toml.get with entries, "build.src_dir"))
+    if calling toml.has with entries, "build.include_dir":
+        banish out.include_dir
+        set out.include_dir is (calling copy with (calling toml.get with entries, "build.include_dir"))
+    if calling toml.has with entries, "build.lib_dir":
+        banish out.lib_dir
+        set out.lib_dir is (calling copy with (calling toml.get with entries, "build.lib_dir"))
+    if calling toml.has with entries, "project.import":
+        banish out.import_name
+        set out.import_name is (calling copy with (calling toml.get with entries, "project.import"))
+    calling toml.free_entries with entries
+    return out
+
+## Libera un layout.
+weave free_layout with l as ref to Layout into void:
+    banish l->src_dir
+    banish l->include_dir
+    banish l->lib_dir
+    banish l->import_name
+
 ## Busca la raíz con `pengu.toml`; rechaza formatos legados.
 ##
 ## Devuelve `""` si no hay manifiesto; el caller distingue el error con
@@ -412,6 +461,7 @@ weave remove with base as string, name as string into bool:
     banish txt
     var out as list of string is list of string
     var in_deps as bool is false
+    var in_named as bool is false
     for line in lines:
         var lb as ref to frozen byte is bytes of line
         var a as int is 0
@@ -421,7 +471,16 @@ weave remove with base as string, name as string into bool:
         while e > a and (((lb at (e - 1)) to int) == 32 or ((lb at (e - 1)) to int) == 9):
             set e is e - 1
         var t as string is line at a to e
-        if t == "[dependencies]":
+        if t == "[dependencies.{name}]":
+            # Sección nombrada: se elimina entera hasta la próxima cabecera.
+            set in_named is true
+            set in_deps is false
+        else if in_named and (calling starts_with with t, "[") and (calling ends_with with t, "]"):
+            set in_named is false
+            calling out.push with (calling copy with line)
+        else if in_named:
+            var skipped_named as int is 0
+        else if t == "[dependencies]":
             set in_deps is true
             calling out.push with (calling copy with line)
         else if in_deps and (calling starts_with with t, "["):

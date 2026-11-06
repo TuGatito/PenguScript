@@ -1,4 +1,8 @@
 ## psc/pkg/install.pengu — instala una dependencia en lib/<name>.
+##
+## La instalación se hace en un directorio de staging y sólo se mueve al
+## destino cuando el contenido es válido. Un fallo no deja `lib/<name>` a
+## medias y nunca libera strings prestados del manifiesto.
 import std.archivum
 import std.compass
 import std.toml as toml
@@ -44,65 +48,145 @@ weave dep_version with dir as string into string:
     banish txt
     return calling copy with "0.1.0"
 
+## `true` si `version` satisface `constraint` (vacío y `*` = cualquiera).
+weave satisfies_text with version as string, constraint as string into bool:
+    if constraint length == 0 or constraint == "*":
+        return true
+    var vm as maybe semver.Version is calling semver.parse_version with version
+    if not vm.is_present:
+        banish vm
+        return false
+    var cs as list of semver.Constraint is calling semver.parse_constraints with constraint
+    if cs.len == 0:
+        banish cs
+        banish vm
+        return false
+    var ok as bool is calling semver.satisfies with vm.value, cs
+    banish cs
+    banish vm
+    return ok
+
+## Limpia un staging y el destino anterior.
+weave replace_stage with stage as string, target as string into bool:
+    if calling archivum.is_dir with target:
+        var ign as bool is calling archivum.remove_dir with target, true
+    if not calling archivum.move_file with stage, target, true:
+        var ign2 as bool is calling archivum.remove_dir with stage, true
+        return false
+    return true
+
 ## Instala una dependencia.
 ##
+## `origin` es el directorio contra el que se resuelven las rutas relativas
+## (la raíz del consumidor o el paquete que declara la dependencia).
 ## Devuelve `none` en error.
-weave install with base as string, lib_dir as string, d as pman.Dependency into maybe Installed:
+weave install_from with base as string, lib_dir as string, d as pman.Dependency, origin as string into maybe Installed:
     if not calling pman.valid_name with d.name:
         return (maybe none)
     var target as string is "{base}/{lib_dir}/{d.name}"
-    var src as string is calling copy with d.source
+    var stage as string is "{base}/{lib_dir}/.psc-stage-{d.name}"
+    if calling archivum.is_dir with stage:
+        var ign0 as bool is calling archivum.remove_dir with stage, true
     if d.kind == "path":
-        var dbs as ref to frozen byte is bytes of d.source
-        if d.source length == 0 or ((dbs at 0) to int) != 47:
+        var src as string is calling copy with d.source
+        if not calling compass.cp_is_abs with d.source:
             banish src
-            set src is "{base}/{d.source}"
+            set src is "{origin}/{d.source}"
+        var norm as string is calling compass.cp_normalize with src
+        banish src
+        set src is norm
         if not calling archivum.is_dir with src:
             banish src
+            banish stage
             banish target
             return (maybe none)
-        if not calling source.copy_local with src, target:
+        if not calling source.copy_local with src, stage, true:
+            var igns as bool is calling archivum.remove_dir with stage, true
             banish src
+            banish stage
             banish target
             return (maybe none)
         banish src
-        var ver as string is calling dep_version with target
+        var ver as string is calling dep_version with stage
+        if not calling satisfies_text with ver, d.constraint:
+            var ignv as bool is calling archivum.remove_dir with stage, true
+            banish ver
+            banish stage
+            banish target
+            return (maybe none)
+        if not calling replace_stage with stage, target:
+            banish ver
+            banish stage
+            banish target
+            return (maybe none)
         var inst as Installed is with name is (calling copy with d.name), path is (calling copy with target), version is ver, commit is "", kind is "path", source is (calling copy with d.source), constraint is (calling copy with d.constraint)
+        banish stage
         banish target
         return some inst
     var ref as string is ""
     var version as string is ""
     if d.tag length > 0:
-        set ref is d.tag
-        set version is d.tag
+        set ref is (calling copy with d.tag)
+        set version is (calling copy with d.tag)
     else if d.branch length > 0:
-        set ref is d.branch
+        set ref is (calling copy with d.branch)
     else:
-        var tags as list of string is calling source.tags with src
+        var tags as list of string is calling source.tags with d.source
         var cons as list of semver.Constraint is calling semver.parse_constraints with d.constraint
         var tag as string is calling semver.select_tag with tags, cons
         if tag length == 0:
-            var i as int is 0
-            while i < tags.len:
-                banish tags at i
-                set i is i + 1
-            banish tags
-            banish cons
-            banish src
-            banish target
-            return (maybe none)
-        set ref is (calling copy with tag)
-        set version is tag
-    if not calling source.clone_git with src, target, ref:
-        banish src
-        banish target
+            if d.constraint length > 0 and d.constraint != "*":
+                var i as int is 0
+                while i < tags.len:
+                    banish tags at i
+                    set i is i + 1
+                banish tags
+                banish cons
+                banish stage
+                banish target
+                return (maybe none)
+            # Sin tags y sin constraint: se usa la rama por defecto.
+        else:
+            set ref is (calling copy with tag)
+            set version is (calling copy with tag)
+        var j as int is 0
+        while j < tags.len:
+            banish tags at j
+            set j is j + 1
+        banish tags
+        banish cons
+    if not calling source.clone_git with d.source, stage, ref:
+        var igc as bool is calling archivum.remove_dir with stage, true
         banish ref
+        banish version
+        banish stage
+        banish target
         return (maybe none)
-    var commit as string is calling source.commit with target
+    var commit as string is calling source.commit with stage
     if version length == 0:
-        set version is calling dep_version with target
+        banish version
+        set version is calling dep_version with stage
+    if not calling satisfies_text with version, d.constraint:
+        var igs as bool is calling archivum.remove_dir with stage, true
+        banish commit
+        banish version
+        banish ref
+        banish stage
+        banish target
+        return (maybe none)
+    if not calling replace_stage with stage, target:
+        banish commit
+        banish version
+        banish ref
+        banish stage
+        banish target
+        return (maybe none)
     var inst2 as Installed is with name is (calling copy with d.name), path is (calling copy with target), version is version, commit is commit, kind is "git", source is (calling copy with d.source), constraint is (calling copy with d.constraint)
-    banish target
     banish ref
-    banish src
+    banish stage
+    banish target
     return some inst2
+
+## Compatibilidad: instala resolviendo rutas relativas contra la raíz.
+weave install with base as string, lib_dir as string, d as pman.Dependency into maybe Installed:
+    return calling install_from with base, lib_dir, d, base

@@ -62,14 +62,29 @@ weave contains with s as string, p as string into bool:
 ## Copiar esos directorios al instalar una dependencia `path` provoca
 ## recursión (el `lib/` de un ejemplo contiene otra copia del paquete) y
 ## llena el disco; además nunca son parte del código de la dependencia.
-weave is_ignored_rel with rel as string into bool:
+weave is_native_lib_rel with rel as string into bool:
+    if not calling starts_with with rel, "lib/":
+        return false
+    if calling ends_with with rel, ".a" or calling ends_with with rel, ".so" or calling ends_with with rel, ".dylib" or calling ends_with with rel, ".dll" or calling ends_with with rel, ".lib":
+        return true
+    return false
+
+weave is_ignored_rel with rel as string, keep_lib as bool is false into bool:
     var wrapped as string is "/{rel}/"
-    var hit as bool is calling contains with wrapped, "/.git/" or calling contains with wrapped, "/lib/" or calling contains with wrapped, "/build/"
+    var hit as bool is calling contains with wrapped, "/.git/"
+    if calling contains with wrapped, "/lib/":
+        if not keep_lib:
+            set hit is true
+        else if not calling is_native_lib_rel with rel:
+            set hit is true
+    if calling contains with wrapped, "/build/":
+        set hit is true
     banish wrapped
     return hit
 
 ## Copia un árbol local a `dst` (elimina dst antes).
-weave copy_local with src as string, dst as string into bool:
+## `keep_lib` conserva `lib/` (artefactos nativos) para vendor/frozen.
+weave copy_local with src as string, dst as string, keep_lib as bool is false into bool:
     if calling archivum.is_dir with dst:
         var ign as bool is calling archivum.remove_dir with dst, true
     var okd as bool is calling archivum.create_dir with dst, true
@@ -81,7 +96,7 @@ weave copy_local with src as string, dst as string into bool:
         var relm as maybe string is calling compass.cp_relative_to with f, src
         if relm.is_present:
             var rel as string is (calling copy with relm.value)
-            if calling is_ignored_rel with rel:
+            if calling is_ignored_rel with rel, keep_lib:
                 banish rel
             else:
                 var out as string is "{dst}/{rel}"
@@ -105,6 +120,7 @@ weave clone_git with src as string, dst as string, ref as string into bool:
     calling args.push with (calling copy with "git")
     calling args.push with (calling copy with "clone")
     calling args.push with (calling copy with "--quiet")
+    calling args.push with (calling copy with "--")
     calling args.push with (calling copy with src)
     calling args.push with (calling copy with dst)
     var code as int is calling proc.run_argv with args
@@ -116,6 +132,9 @@ weave clone_git with src as string, dst as string, ref as string into bool:
     if code != 0:
         return false
     if ref length > 0:
+        var rb as ref to frozen byte is bytes of ref
+        if ref length == 0 or ((rb at 0) to int) == 45:
+            return false
         var cargs as list of string is list of string
         calling cargs.push with (calling copy with "git")
         calling cargs.push with (calling copy with "-C")

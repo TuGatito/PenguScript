@@ -54,9 +54,10 @@ Sólo `pengu.toml`; `pengu.yaml`, `pengu.yml` y `pengu.json` se rechazan.
 
 ```bash
 psc add SOURCE [--name=NAME] [--branch=B] [--tag=T] [--version=CONSTRAINT]
+                [--trust] [--no-build] [--rebuild]
 psc remove NAME [--keep-files]
 psc update [--trust] [--no-build]
-psc upgrade NAME [--version=V] [--branch=B]
+psc upgrade NAME [--version=V] [--branch=B] [--trust]
 psc verify [--verbose]
 psc vendor [--verbose]
 psc tree [--json]
@@ -64,12 +65,31 @@ psc metadata [--json]
 psc build [--locked|--frozen]
 ```
 
-- Fuentes: path local, `file://` o URL git. Las versiones son tags git.
-- `add` instala en `lib/<name>`, resuelve transitivas y escribe `pengu.lock`.
-- `build.pengu` sólo se ejecuta con `--trust` o `PENGU_TRUST_ALL=1`.
+- Fuentes: path local, `file://`, URL git (GitHub, GitLab, Codeberg,
+  self-hosted) o `scp`-style. Se aceptan `#ref` y `/-/tree/<ref>` (GitLab);
+  el ref se guarda como `branch`/`tag`. Las versiones publicadas son tags git.
+- `add` instala en `lib/<name>`. Si el paquete declara `[project] import` y no
+  se pasó `--name`, usa ese nombre: `psc add https://github.com/TuGatito/raylib-pengu`
+  queda importable como `import raylib` (no como `raylib-pengu`).
+- El layout del paquete (`[build] src_dir`, `include_dir`, `lib_dir`) se
+  respeta: el driver añade `<paquete>/<src_dir>` a módulos,
+  `<paquete>/<include_dir>` a `-I` y `<paquete>/<lib_dir>` a `-L`.
+- `add` resuelve transitivas, valida constraints, escribe `pengu.lock` y es
+  transaccional: si falla la instalación restaura `pengu.toml` y no deja un
+  paquete nuevo a medias.
+- `build.pengu` de cada dependencia se ejecuta sólo con `--trust` o
+  `PENGU_TRUST_ALL=1`; sin trust se omite con un aviso. `--no-build` no lo
+  ejecuta. `--rebuild` fuerza la ejecución aunque el paquete ya exista.
+- `update` reinstala respetando el manifiesto y ejecuta builds con `--trust`.
+- `upgrade` cambia versión/rama y reconstruye con `--trust`.
 - `--locked` verifica el lock sin reescribirlo; `--frozen` además exige lock y
-  restaura desde `vendor/` sin red.
-- `verify` comprueba commit y SHA-256 del árbol.
+  restaura desde `vendor/` sin red. Ambos fallan con `E0061: pengu.lock is out
+  of date` si el lock no coincide con el manifiesto o el árbol instalado.
+- El lock es schema 2 e incluye `target`; los locks viejos (`targets = [...]`)
+  se siguen leyendo. `verify` comprueba commit, SHA-256, constraints del lock y
+  del manifiesto, y paquetes que falten.
+- `vendor` copia también las librerías nativas de `<paquete>/<lib_dir>`
+  (`.a/.so/.dylib/.dll/.lib`), no sólo el código PenguScript.
 
 
 ## Build

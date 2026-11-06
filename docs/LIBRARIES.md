@@ -1,25 +1,21 @@
 # Building a PenguScript library
 
-This guide describes how to write a library that other projects can install
-with `psc add` and import like any other module. Everything below is tested
-against `psc` 0.33.0 on Linux and macOS; the notes call out what only works on
-newer compilers.
+This guide describes how to write a library that other projects install with
+`psc add` and import like any other module. It reflects `psc` 0.34.0.
 
-A library in PenguScript is **a git repository** (or a local directory) with a
-`pengu.toml`, a `src/` tree whose modules are importable, and optionally an
-`include/` directory with C declarations. There is no registry: the source URL
-*is* the package.
+A library is a git repository (or a local directory) with a `pengu.toml`, an
+importable source tree, and optional C headers and native archives. There is no
+registry: the source URL *is* the package.
 
 <!-- toc -->
 - [1. Repository layout](#1-repository-layout)
 - [2. `pengu.toml`](#2-pengutoml)
 - [3. The façade](#3-the-façade)
-- [4. C code: two options](#4-c-code-two-options)
-  - [Option A — header-only C (recommended)](#option-a-header-only-c-recommended)
-  - [Option B — a real library (`-l`)](#option-b-a-real-library--l)
-  - [Calling back into Pengu](#calling-back-into-pengu)
-- [5. Publishing and installing](#5-publishing-and-installing)
+- [4. C code and native libraries](#4-c-code-and-native-libraries)
+  - [Option A — header-only C](#option-a--header-only-c)
+  - [Option B — a real native library](#option-b--a-real-native-library)
   - [`build.pengu`](#buildpengu)
+- [5. Publishing and installing](#5-publishing-and-installing)
 - [6. Testing a library](#6-testing-a-library)
 - [7. Documentation and versioning](#7-documentation-and-versioning)
 - [8. Licensing](#8-licensing)
@@ -34,7 +30,7 @@ A library in PenguScript is **a git repository** (or a local directory) with a
 ```
 my_lib/
 ├── pengu.toml
-├── src/
+├── pengu/                    # or src/; declared by [build] src_dir
 │   ├── my_lib.pengu          # façade: what `import my_lib` gives the user
 │   └── my_lib/
 │       ├── app.pengu         # import my_lib.app
@@ -42,6 +38,8 @@ my_lib/
 │       └── native.d.pengu    # C declarations (private)
 ├── include/
 │   └── my_lib_native.h       # C prototypes and header-only C code
+├── lib/                      # native .a/.so/.dylib/.dll, if any
+├── build.pengu               # optional: stages native artifacts
 ├── tests/                    # optional: consumer projects and scripts
 ├── examples/                 # optional: runnable examples
 ├── LICENSE
@@ -52,47 +50,55 @@ my_lib/
 Two rules make the difference between "works locally" and "works after
 `psc add`":
 
-1. **The package's `src/` becomes a module root.** `psc add` copies the
-   repository to `lib/<name>/` and adds `lib/<name>/src` to the module search
-   path. A file at `src/foo.pengu` is therefore imported as `import foo`, and a
-   file at `src/my_lib/router.pengu` as `import my_lib.router`. There is no
-   package prefix other than the file path.
-2. **Do not put your only entry point at `src/<name>.d.pengu`.** A file
-   `src/native.d.pengu` is importable as `import native` from the consumer; a
-   `.d.pengu` inside `src/<name>/` is namespaced and private in practice
-   (`import my_lib.native`). The façade belongs in `src/<name>.pengu`.
+1. **`[build] src_dir` is the module root.** The driver adds
+   `<package>/<src_dir>` to the consumer's module search path. With
+   `src_dir = "pengu"`, `pengu/foo.pengu` is `import foo` and
+   `pengu/my_lib/router.pengu` is `import my_lib.router`. Older packages that
+   only have `src/` keep working because the default is `src_dir = "src"`.
+2. **The directory name and the import name are different things.** The
+   consumer installs into `lib/<name>`, but imports by module path. Declare the
+   intended namespace in the manifest; see below.
 
-`include/` is added as `-I` for the consumer, which is how `#include
-"my_lib_native.h"` resolves from the generated C.
+`include/` is added as `-I` for the consumer, which resolves
+`#include "my_lib_native.h"` from the generated C. `lib/` is added as `-L`, so
+`link "my_lib"` finds `lib/libmy_lib.a` without a hard-coded path.
 
 ---
 
 ## 2. `pengu.toml`
 
-A library is built as a static library (or shared), never as an executable:
+A library is built as a static or shared library, never as an executable:
 
 ```toml
 [project]
-name = "my_lib"
+name = "my-lib-repo"        # repository/package name; may contain dashes
+import = "my_lib"           # optional: default import/dir when `psc add` has no --name
 version = "0.1.0"
-entry = "src/my_lib.pengu"
+entry = "pengu/my_lib.pengu"
 output = "static"
 
 [build]
-src_dir = "src"
-include_dir = "include"
-strict_c99 = true
+src_dir = "pengu"           # default: "src"
+include_dir = "include"     # default: "include"
+lib_dir = "lib"             # default: "lib"
+c_dir = "c"                 # only for this repo's own `psc build`
 ```
 
-- `name` must be a valid PenguScript identifier (lowercase, no dashes); it
-  becomes the directory in `lib/` and the name in `pengu.toml` of consumers.
-- `version` is semver. Consumers can pin it with `version = "^0.1"`, `tag`, or
-  `branch`.
+- `name` is the package identity used in `pengu.lock` and diagnostics. It may
+  contain letters, digits, `_` and `-`.
+- `import` is the namespace users type. If present and the user did not pass
+  `--name`, `psc add` installs into `lib/<import>` and writes the dependency
+  under that key. Example: `psc add https://github.com/TuGatito/raylib-pengu`
+  installs `lib/raylib`, so users write `import raylib`.
+- `version` is semver. Consumers pin it with `version = "^0.1"`, `tag`, or
+  `branch`. Tag the repository (for example `v0.1.0`); a repository without
+  tags still installs from its default branch when the constraint is `*`.
 - `entry` only matters when the package is built on its own (CI, `psc build`);
-  `psc add` installs the sources, not an artifact.
+  `psc add` installs sources and, with trust, runs `build.pengu`.
+- `lib_dir` is both where `build.pengu` leaves native archives and what the
+  driver adds to the consumer's `-L`.
 
-You do **not** need a `main` weave in a library. A `weave main into int` would
-make `psc run` ambiguous; put demos in `examples/`.
+You do **not** need a `main` weave in a library. Put demos in `examples/`.
 
 ---
 
@@ -120,29 +126,23 @@ Re-exporting a type with `alias` also re-exports its methods: a value typed
 `my_lib.Application` can call methods declared in `my_lib.app`. This is the
 supported way to build a façade, because imports are not re-exports.
 
-What to keep private: modules that the docs do not mention. A consumer can
-still `import my_lib.native`, but the `_`-prefixed fields and the `##` contract
-tell them not to. If you need real privacy, keep the implementation in a
-module the façade never exposes and do not document it.
-
 Naming follows the language guide: `snake_case` files, `PascalCase` types,
-`snake_case` functions, no `utils`/`helpers`/`common` modules. A library is a
-good place to be strict about this, because its names become other people's
-vocabulary.
+`snake_case` functions, no `utils`/`helpers`/`common` modules.
 
 ---
 
-## 4. C code: two options
+## 4. C code and native libraries
 
-The consumer's build does **not** compile your `c/` directory and does **not**
-read `links` from your `pengu.toml`. Only two things travel: your `src/` (as
-modules) and your `include/` (as `-I`). `ldflag "..."` declared in a module
-*is* emitted into the consumer's link line.
+The consumer does **not** compile your `c/` directory and does **not** read
+`links` from your `pengu.toml`. Three things travel: your source tree (as
+modules), your `include/` (as `-I`), and anything your `build.pengu` stages in
+`lib/` (as `-L`). `link "..."` and `ldflag "..."` declared in a module are
+emitted into the consumer's link line.
 
-### Option A — header-only C (recommended)
+### Option A — header-only C
 
 Put the C implementation in `include/my_lib_native.h` as `static` functions and
-declare it from `src/my_lib/native.d.pengu`:
+declare it from `pengu/my_lib/native.d.pengu`:
 
 ```c
 /* include/my_lib_native.h */
@@ -165,48 +165,58 @@ include "my_lib_native.h"
 declare my_lib_add with a as int, b as int into int
 ```
 
-This is what makes `psc add` "just work": the whole project is a single C
-translation unit, so header-only code is compiled in, dead code is dropped by
-the C compiler, and nothing has to be found at link time. Keep the header
-self-contained (`static inline`, no global state unless documented) and prefix
-everything with your package name (`my_lib_`) to avoid clashes.
+This is the simplest distribution: a single C translation unit, no link-time
+lookup, dead code dropped by the C compiler. Keep the header self-contained
+(`static inline`, no global state unless documented) and prefix everything with
+your package name.
 
-For bigger C dependencies, **amalgamate** them into one header at release time
-(the way `stb` and `sqlite3` are distributed) instead of asking users to
-install a system library. A generated `include/my_lib_llhttp.h` with `static`
-functions is still header-only, and you keep the source in `vendor/` with its
-license.
+### Option B — a real native library
 
-### Option B — a real library (`-l`)
+For a prebuilt or compiled archive:
 
-If you must link a system library, declare it in a module:
+1. Put the archive in `lib/libmy_lib.a` (or `.so`/`.dylib`/`.dll`/`.lib`).
+2. Declare `link "my_lib"` in the module that uses it.
+3. Make `build.pengu` produce that file when it is missing.
 
-```pengu-fragment
-link "mylib"
+The driver adds `<package>/lib` (or the declared `lib_dir`) to `-L`, so the
+consumer does not need `ldflag` with a path. A hard-coded `ldflag` is still
+supported for compatibility but is fragile: moving or vendoring the package
+breaks it.
+
+Native archives are copied by `psc add` (only the archives, not the whole
+`lib/` tree) and preserved by `psc vendor`, so `--frozen` works offline.
+
+### `build.pengu`
+
+An optional PenguScript program at the package root. `psc add`, `psc update`
+and `psc upgrade` run it **only with `--trust`** (or `PENGU_TRUST_ALL=1`);
+without trust it is skipped with a message. It runs with the package directory
+as cwd. Exit non-zero on failure: `psc` then aborts the install and rolls back a
+new dependency.
+
+Keep it idempotent: if the archive is already present, return 0. A typical
+script:
+
+```pengu
+import std.archivum
+import std.rites
+import std.spark
+
+weave main into int:
+    if calling archivum.is_file with "lib/libmy_lib.a":
+        return 0
+    # Descarga verificada, o clona y compila el proyecto C.
+    var rc as int is calling rites.run_shell with "make -C native"
+    if rc != 0:
+        return 1
+    return 0
 ```
 
-The linker flag is emitted only if a live symbol needs it (DCE applies), but
-the user must have the library installed and the compiler must find it. That
-breaks the "one command" promise, so reserve it for libraries that are already
-ubiquitous (libc, pthreads) or for optional features documented as such.
-
-You can also ship a prebuilt static library inside your package and point at it
-with an absolute or relative `ldflag`. It works, but the path is baked into the
-generated link line: moving the project or vendoring the package breaks it.
-Prefer option A.
-
-### Calling back into Pengu
-
-A C function can call a Pengu weave passed as a function pointer. The portable
-handle is `ref to void`:
-
-```pengu-fragment
-declare my_lib_run with cb as weave with userdata as ref to void into void, userdata as ref to void into int
-```
-
-Pass `sigil of state` as the user data and `transmute` it back inside the
-callback. This is how an event loop (or a server) delivers events to the
-library.
+Do not ship `build.py`, `build.sh` or any other name: the installer only looks
+for `build.pengu`. If a package needs Python today, port the logic to
+PenguScript (`std.petitio` for HTTP, `std.digest` for checksums,
+`std.archivum` for files) or commit a `build.pengu` that invokes an external
+tool explicitly and fails when it is unavailable.
 
 ---
 
@@ -223,11 +233,12 @@ library.
 
    ```sh
    psc add https://github.com/you/my_lib --trust
+   psc add https://gitlab.com/you/my_lib --trust
    ```
 
-   `--trust` is required because `psc add` runs the package's `build.pengu` if
-   it exists (it executes code). Without `--trust`, the sources are still
-   installed but the build script is skipped (`--no-build` does the same).
+   `--trust` is required to run `build.pengu`. Without it the sources are
+   installed but native artifacts are not produced; `--no-build` is the
+   explicit way to skip the script.
 
 3. `pengu.toml` of the consumer gets:
 
@@ -237,26 +248,34 @@ library.
    version = "^0.1"
    ```
 
-   and `pengu.lock` pins the exact commit. Commit the lock file; use
+   or, for a local path:
+
+   ```toml
+   [dependencies.my_lib]
+   path = "/home/you/my_lib"
+   ```
+
+   `pengu.lock` is schema 2: it pins source, commit, version, constraint,
+   SHA-256 of the installed tree and the target. Commit the lock; use
    `--locked` in development and `--frozen` in CI.
 
-On compilers **0.28.0 and older**, `psc add` without `--name` corrupts the
-manifest (fixed in 0.31.0). Pass `--name my_lib` explicitly if you are stuck on
-0.28.0.
+URL forms accepted by `add`:
 
-### `build.pengu`
+- `https://github.com/you/my_lib` (GitHub, default branch)
+- `https://gitlab.com/you/my_lib/-/tree/v0.2.0` (ref from GitLab URL)
+- `https://github.com/you/my_lib#v0.2.0` (explicit ref)
+- `file:///absolute/path` and `ssh://git@host/repo.git`
+- a local path, absolute or relative to the current directory
 
-An optional program at the package root, run with `psc run build.pengu --` in
-the package directory when the user trusts it. Use it to generate code, check
-the environment, or build native artifacts. Keep it idempotent and fast; it
-runs on every `psc add` unless the user passes `--no-build`. A typical script
-prints one line per step and exits non-zero on failure, so the install stops.
+GitLab needs no special code: it is plain git over HTTPS/SSH. Private
+repositories use the user's normal git credentials; avoid putting tokens in the
+URL because the manifest and lock would store them.
 
 ---
 
 ## 6. Testing a library
 
-`psc test` runs the `test "..."` blocks in your `src/`:
+`psc test` runs the `test "..."` blocks in your source tree:
 
 ```pengu-fragment
 test "adds two numbers":
@@ -266,83 +285,75 @@ test "adds two numbers":
 
 For the public API, add a consumer project under `tests/consumer/` that
 installs the library by path and runs a program. That is the only way to test
-what the user actually experiences (module resolution, `include/`, ldflags):
+what the user experiences (layout, module resolution, `-I`, `-L`, native
+archive):
 
 ```sh
-psc add ../.. --name my_lib --trust
+psc add ../.. --trust
 psc run src/main.pengu
 ```
 
-Automate it in CI with a script that copies the repository to a temporary
-directory, adds it to a fresh project, and checks the output. Keep the
-"compiles in a clean project" test separate from unit tests; it catches the
-packaging bugs that unit tests cannot.
+Test it twice: with a clean checkout (no `lib/*.a`) and with `--frozen` after
+`psc vendor`. The first catches a missing `build.pengu`; the second catches a
+vendor that dropped native files.
 
 ---
 
 ## 7. Documentation and versioning
 
-- Every public symbol gets a `##` docstring. `psc doc` publishes it; a public
-  symbol without documentation is unfinished.
-- Document ownership for anything that allocates: does the caller own the
-  returned string/list? Are parameters borrowed? PenguScript does not check
-  this for you.
-- Semver: patch for fixes, minor for additions (new modules, new functions),
-  major for breaking changes. Deprecate with `@deprecated("use X instead")`
-  and keep the old symbol for at least one minor release.
-- Note the compiler version you test against in the README and pin it in CI.
+- Every public symbol gets a `##` docstring. `psc doc` publishes it.
+- Document ownership for anything that allocates.
+- Semver: patch for fixes, minor for additions, major for breaking changes.
+  Tag releases; `psc add --version '^0.2'` selects the highest matching tag.
+- State the `psc` version you test against in the README.
 
 ---
 
 ## 8. Licensing
 
-- Put a `LICENSE` at the root (MIT is the usual choice for PenguScript code).
-- If you vendor C code, keep its license text, record the origin and version in
-  `THIRD_PARTY.md`, and make sure the license is permissive (MIT, BSD-2/3,
-  Apache-2.0, ISC, public domain). GPL code cannot be linked into most
-  projects; do not vendor it.
-- Apache-2.0 requires keeping the `NOTICE` file and the attribution.
+- Put a `LICENSE` at the root (MIT is the usual choice).
+- If you vendor C code, keep its license, record origin/version in
+  `THIRD_PARTY.md`, and use a permissive license (MIT, BSD, Apache-2.0, ISC).
+- Apache-2.0 requires keeping `NOTICE`.
 
 ---
 
 ## 9. Checklist
 
-- [ ] `pengu.toml` with `output = "static"` and a valid `name`.
-- [ ] Public API in `src/<name>.pengu`; implementation in `src/<name>/*.pengu`.
-- [ ] Type façade re-exported with `alias`, not by re-declaring it.
-- [ ] C code header-only in `include/`, prefixed, documented; or a documented
-      `link` for a system library.
+- [ ] `pengu.toml` with `output = "static"` (or `shared`), a valid `name` and,
+      if the import name differs, `import`.
+- [ ] Public API in `<src_dir>/<import>.pengu`; implementation below it.
+- [ ] `[build] src_dir` / `include_dir` / `lib_dir` match the repository.
+- [ ] C header-only in `include/`, or a native archive in `lib/` produced by
+      `build.pengu`.
+- [ ] `build.pengu` idempotent, verified downloads, non-zero on failure.
 - [ ] `psc build` and `psc test` pass in the library itself.
-- [ ] A consumer project installs it with `psc add` and runs.
-- [ ] `psc doc` runs clean; the module docstring says what the library does
-      **not** do.
-- [ ] `LICENSE` and, if needed, `THIRD_PARTY.md`.
-- [ ] Version tagged, `pengu.lock` of the consumer committed.
+- [ ] A clean consumer installs with `psc add --trust` and builds without
+      symlinks or manual `-L`.
+- [ ] `psc vendor` + `psc build --frozen` works.
+- [ ] `LICENSE`, tags, and the consumer's `pengu.lock` committed.
 
 ---
 
 ## 10. Known pitfalls
 
-- **`import` is path-based, not package-based.** If `import my_lib.core`
-  fails after `psc add`, check that the file is at
-  `lib/my_lib/src/my_lib/core.pengu`, not `lib/my_lib/src/core.pengu`.
-- **No closures.** A callback is a named weave plus `ref to void` user data
-  (or `std.functor`); a lambda cannot capture. Design APIs around a
-  context/handle parameter.
-- **`concept` has no dynamic dispatch.** A list of `concept` values is not
-  possible; use a tagged `omen`, a `rune` with function pointers, or an enum
-  plus `judge`.
-- **`let` bindings are frozen in some positions** (`ref to frozen T`); use
-  `var` when you need to call a mutating method on the local.
-- **Every statement needs a form:** `calling f with x`, `let y is ...`,
-  `return ...`. A bare call is a syntax error.
-- **`with` needs `field is value`**: `Widget with name is "x"`, never
-  `Widget with "x"`.
+- **`import` is path-based.** If `import my_lib.core` fails, check
+  `lib/my_lib/<src_dir>/my_lib/core.pengu`. The driver reads `src_dir`; it no
+  longer assumes `src/`.
+- **The package name is not the import.** `raylib-pengu` installs as
+  `lib/raylib-pengu` unless the manifest declares `import = "raylib"` or the
+  user passes `--name raylib`.
+- **Untrusted builds do nothing.** `psc add` without `--trust` skips
+  `build.pengu`; a native package then fails at link time. Use `--trust` in a
+  clean environment or document the artifacts.
+- **The consumer never compiles `c/`.** Put reusable C in `include/` or stage a
+  real archive in `lib/`.
+- **No closures.** A callback is a named weave plus `ref to void` user data.
+- **`concept` has no dynamic dispatch.** Use a tagged `omen`, a `rune` with
+  function pointers, or an enum plus `judge`.
 - **Empty containers need a type**: `let xs as list of int is []`.
-- **`at` is an operator**: write `xs at 0`, not `calling xs.at with 0`.
-- **Strings are owned by default.** A function that takes a `string` parameter
-  borrows it; returning one transfers ownership to the caller. Do not `banish`
-  a parameter.
-- **The consumer does not compile your C.** If `psc add` works but the
-  consumer's link fails with an undefined symbol, you shipped C in `c/`
-  instead of `include/`.
+- **`at` is an operator**: `xs at 0`, not `calling xs.at with 0`.
+- **Strings are owned by default.** A `string` parameter is borrowed; do not
+  `banish` it. Returning a string transfers ownership.
+- **Vendoring keeps only native archives from `lib/`**, not the whole tree.
+  Do not rely on arbitrary files under `lib/` at consumer build time.

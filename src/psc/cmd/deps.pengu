@@ -6,6 +6,7 @@ import std.archivum
 import std.compass
 import std.rites
 import std.spark
+import std.scrolls
 
 import psc.cli.args as cliargs
 import psc.pkg.build_script as build_script
@@ -33,6 +34,13 @@ weave project_root into string:
     banish cwd
     return r
 
+## `lib_dir` efectivo del proyecto.
+weave project_lib_dir with base as string into string:
+    var lay as pman.Layout is calling pman.load_layout with base
+    var d as string is (calling copy with lay.lib_dir)
+    calling pman.free_layout with (sigil of lay)
+    return d
+
 ## Imprime un error de fase.
 weave fail with msg as string into int:
     var e as string is "psc: {msg}"
@@ -53,20 +61,34 @@ weave check_legacy with base as string into int:
     return 0
 
 ## Resuelve, instala y escribe lock.
-weave sync with base as string, lib_dir as string, write_lock as bool, trusted as bool, exe as string, run_build as bool into int:
+weave sync with base as string, lib_dir as string, write_lock as bool, trusted as bool, exe as string, run_build as bool, force as bool into int:
     var deps as list of pman.Dependency is calling pman.load with base
     if deps.len == 0:
         var lp as string is "{base}/pengu.lock"
         var ign as bool is calling archivum.delete_file with lp
         banish lp
+        calling pman.free with deps
         return 0
-    var g as presolve.Graph is calling presolve.resolve with base, lib_dir, deps
+    var g as presolve.Graph is calling presolve.resolve with base, lib_dir, deps, force, false
     if not g.ok:
         var e as string is g.error
         calling spark.eprintln with e
         calling pman.free with deps
         calling presolve.free with (sigil of g)
         return 1
+    if run_build:
+        for p in g.packages:
+            if calling build_script.exists with base, lib_dir, p.name:
+                if trusted:
+                    var bok as bool is calling build_script.run with base, lib_dir, p.name, trusted, force, exe
+                    if not bok:
+                        calling pman.free with deps
+                        calling presolve.free with (sigil of g)
+                        return 1
+                else:
+                    var sk as string is "     Skipped '{p.name}' build.pengu; pass --trust to run it."
+                    calling spark.eprintln with sk
+                    banish sk
     if write_lock:
         var lk as plock.Lock is with target is "x86_64-unknown-linux-gnu", packages is list of plock.Package
         for p in g.packages:
@@ -75,6 +97,8 @@ weave sync with base as string, lib_dir as string, write_lock as bool, trusted a
         banish lk.packages
         if not ok:
             calling spark.eprintln with "psc: cannot write pengu.lock"
+            calling pman.free with deps
+            calling presolve.free with (sigil of g)
             return 1
     calling pman.free with deps
     calling presolve.free with (sigil of g)
@@ -159,6 +183,36 @@ weave run_add with args as list of string into int:
         banish base
         calling cliargs.free_parse_result with (sigil of pr)
         return 1
+    var explicit_name as bool is name length > 0
+    # Las rutas locales se resuelven contra el cwd, no contra la raíz del
+    # proyecto: `psc add ../../dep` desde `src/` debe funcionar.
+    if not calling psource.is_git with source:
+        if not calling compass.cp_is_abs with source:
+            var cw0 as maybe string is calling rites.getcwd
+            if cw0.is_present:
+                var abs0 as string is "{cw0.value}/{source}"
+                var norm0 as string is calling compass.cp_normalize with abs0
+                banish abs0
+                banish source
+                set source is norm0
+            banish cw0
+    var url_ref as string is ""
+    if calling psource.is_git with source:
+        var hi as int is calling scrolls.index_of with source, "#"
+        if hi >= 0:
+            set url_ref is (calling copy with (source at (hi + 1) to (source length)))
+            var nsrc as string is (calling copy with (source at 0 to hi))
+            banish source
+            set source is nsrc
+        var ti as int is calling scrolls.index_of with source, "/-/tree/"
+        if ti >= 0:
+            banish url_ref
+            set url_ref is (calling copy with (source at (ti + 8) to (source length)))
+            var nsrc2 as string is (calling copy with (source at 0 to ti))
+            banish source
+            set source is nsrc2
+    # El nombre se deriva después de quitar `#ref`/`/-/tree/<ref>`: si no,
+    # `psc add .../dep#v1` instalaría `lib/dep#v1`.
     if name length == 0:
         banish name
         set name is calling derive_name with source
@@ -177,25 +231,123 @@ weave run_add with args as list of string into int:
         set d.constraint is "*"
     if calling psource.is_git with source:
         set d.kind is (calling copy with "git")
+        if d.branch length == 0 and url_ref length > 0:
+            banish d.branch
+            set d.branch is (calling copy with url_ref)
+    var lay as pman.Layout is calling pman.load_layout with base
+    var lib_dir as string is (calling copy with lay.lib_dir)
+    calling pman.free_layout with (sigil of lay)
+    var mpath as string is "{base}/pengu.toml"
+    var before as maybe string is calling archivum.read_text with mpath
+    var target as string is "{base}/{lib_dir}/{name}"
+    var had_target as bool is calling archivum.is_dir with target
+    var backup as string is "{base}/{lib_dir}/.psc-backup-{name}"
+    var backed_up as bool is false
+    if had_target:
+        if calling archivum.is_dir with backup:
+            var ignb as bool is calling archivum.remove_dir with backup, true
+        set backed_up is calling archivum.rename with target, backup
+        if not backed_up:
+            calling spark.eprintln with "psc add: cannot back up the installed package"
+            banish backup
+            banish target
+            banish mpath
+            banish lib_dir
+            banish name
+            banish source
+            banish base
+            calling cliargs.free_parse_result with (sigil of pr)
+            return 1
     var up as bool is calling pman.upsert with base, d
     if not up:
         calling spark.eprintln with "psc add: cannot update pengu.toml"
+        if backed_up and calling archivum.is_dir with backup:
+            var ignr as bool is calling archivum.rename with backup, target
+        banish backup
+        banish before
+        banish target
+        banish mpath
+        banish lib_dir
         banish name
         banish base
         calling cliargs.free_parse_result with (sigil of pr)
         return 1
     var trust as bool is calling cliargs.enabled with (sigil of pr.args), "--trust"
     var nobuild as bool is calling cliargs.enabled with (sigil of pr.args), "--no-build"
-    var code as int is calling sync with base, "lib", true, trust, (args at 0), not nobuild
-    if code == 0 and not nobuild:
-        var force as bool is calling cliargs.enabled with (sigil of pr.args), "--rebuild"
-        var br as bool is calling build_script.run with base, "lib", name, trust, force, (args at 0)
-        if br:
-            set code is calling sync with base, "lib", true, trust, (args at 0), false
+    var force as bool is calling cliargs.enabled with (sigil of pr.args), "--rebuild"
+    var code as int is calling sync with base, lib_dir, true, trust, (args at 0), not nobuild, force
+    if code == 0 and not explicit_name:
+        var adopted as maybe string is calling adopt_import_name with base, lib_dir, name
+        if adopted.is_present:
+            var newname as string is adopted.value
+            var ign_rm as bool is calling pman.remove with base, name
+            var nd as pman.Dependency is calling pman.clone_dep with d
+            banish nd.name
+            set nd.name is (calling copy with newname)
+            var ign_up as bool is calling pman.upsert with base, nd
+            calling pman.free_one with (sigil of nd)
+            banish name
+            set name is (calling copy with newname)
+            set code is calling sync with base, lib_dir, true, false, (args at 0), false, false
+            banish newname
+        banish adopted
+    if code != 0:
+        # Rollback: el manifiesto no debe quedar sucio y el paquete anterior
+        # (o el inexistente) debe quedar como estaba.
+        if before.is_present:
+            var rbk as bool is calling archivum.write_text with mpath, before.value
+        if calling archivum.is_dir with target:
+            var ign as bool is calling archivum.remove_dir with target, true
+        if backed_up and calling archivum.is_dir with backup:
+            var ign2 as bool is calling archivum.rename with backup, target
+    else:
+        if backed_up and calling archivum.is_dir with backup:
+            var ign3 as bool is calling archivum.remove_dir with backup, true
+    banish backup
+    banish before
+    banish target
+    banish mpath
+    banish lib_dir
+    banish url_ref
     banish name
     banish base
     calling cliargs.free_parse_result with (sigil of pr)
     return code
+
+## Si el paquete instalado declara `[project] import`, mueve su directorio
+## a `lib/<import>` y devuelve el nombre nuevo. Solo se usa cuando el usuario
+## no paso `--name`: asi `psc add <url-de-raylib-pengu>` queda importable como
+## `import raylib`. Devuelve `none` si no hay import, si el nombre es invalido
+## o si el destino ya existe.
+weave adopt_import_name with base as string, lib_dir as string, old_name as string into maybe string:
+    var mp as string is "{base}/{lib_dir}/{old_name}/pengu.toml"
+    if not calling archivum.is_file with mp:
+        banish mp
+        return maybe none
+    var lay as pman.Layout is calling pman.load_layout with "{base}/{lib_dir}/{old_name}"
+    var imp as string is (calling copy with lay.import_name)
+    calling pman.free_layout with (sigil of lay)
+    banish mp
+    if imp length == 0:
+        banish imp
+        return maybe none
+    if imp == old_name or not calling pman.valid_name with imp:
+        banish imp
+        return maybe none
+    var oldp as string is "{base}/{lib_dir}/{old_name}"
+    var newp as string is "{base}/{lib_dir}/{imp}"
+    if calling archivum.is_dir with newp:
+        banish oldp
+        banish newp
+        banish imp
+        return maybe none
+    var ok as bool is calling archivum.rename with oldp, newp
+    banish oldp
+    banish newp
+    if not ok:
+        banish imp
+        return maybe none
+    return some imp
 
 ## Deriva el nombre del paquete a partir de la fuente (ruta o URL).
 ## `source` es prestado: no se libera aquí. El nombre devuelto es propio.
@@ -253,12 +405,14 @@ weave run_remove with args as list of string into int:
         banish base
         calling cliargs.free_parse_result with (sigil of pr)
         return 1
+    var ld as string is calling project_lib_dir with base
     if not calling cliargs.enabled with (sigil of pr.args), "--keep-files":
-        var p as string is "{base}/lib/{name}"
+        var p as string is "{base}/{ld}/{name}"
         if calling archivum.is_dir with p:
             var ign as bool is calling archivum.remove_dir with p, true
         banish p
-    var code as int is calling sync with base, "lib", true, false, (args at 0), false
+    var code as int is calling sync with base, ld, true, false, (args at 0), false, false
+    banish ld
     banish name
     banish base
     calling cliargs.free_parse_result with (sigil of pr)
@@ -285,7 +439,9 @@ weave run_update with args as list of string into int:
         return calling fail with "no pengu.toml found"
     var trust as bool is calling cliargs.enabled with (sigil of pr.args), "--trust"
     var nobuild as bool is calling cliargs.enabled with (sigil of pr.args), "--no-build"
-    var code as int is calling sync with base, "lib", true, trust, (args at 0), not nobuild
+    var ld as string is calling project_lib_dir with base
+    var code as int is calling sync with base, ld, true, trust, (args at 0), not nobuild, true
+    banish ld
     banish base
     calling cliargs.free_parse_result with (sigil of pr)
     return code
@@ -296,6 +452,7 @@ weave run_upgrade with args as list of string into int:
     calling vf.push with "--version"
     calling vf.push with "--branch"
     var sf as list of string is list of string
+    calling sf.push with "--trust"
     calling sf.push with "--help"
     var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
     if not pr.ok or pr.args.positionals.len == 0:
@@ -321,6 +478,7 @@ weave run_upgrade with args as list of string into int:
         set d.constraint is (calling copy with ver)
         banish d.tag
         set d.tag is ""
+    var trust as bool is calling cliargs.enabled with (sigil of pr.args), "--trust"
     var br as string is calling copy with (calling cliargs.value with (sigil of pr.args), "--branch")
     if br length > 0:
         banish d.branch
@@ -328,11 +486,13 @@ weave run_upgrade with args as list of string into int:
     var up as bool is calling pman.upsert with base, d
     var code as int is 0
     if up:
-        var upath as string is "{base}/lib/{name}"
+        var ld as string is calling project_lib_dir with base
+        var upath as string is "{base}/{ld}/{name}"
         if calling archivum.is_dir with upath:
             var ign as bool is calling archivum.remove_dir with upath, true
         banish upath
-        set code is calling sync with base, "lib", true, false, (args at 0), false
+        set code is calling sync with base, ld, true, trust, (args at 0), true, true
+        banish ld
     else:
         set code is 1
     banish ver
@@ -368,8 +528,9 @@ weave run_verify with args as list of string into int:
         calling cliargs.free_parse_result with (sigil of pr)
         return 1
     var bad as int is 0
+    var ld as string is calling project_lib_dir with base
     for p in lm.value.packages:
-        var dir as string is "{base}/lib/{p.name}"
+        var dir as string is "{base}/{ld}/{p.name}"
         if not calling archivum.is_dir with dir:
             var m as string is "  - {p.name}: not installed"
             calling spark.eprintln with m
@@ -392,8 +553,34 @@ weave run_verify with args as list of string into int:
                     banish m2
                     set bad is bad + 1
                 banish h
+            if not calling install.satisfies_text with p.version, p.constraint:
+                var mc2 as string is "  - {p.name}: version {p.version} does not satisfy '{p.constraint}'"
+                calling spark.eprintln with mc2
+                banish mc2
+                set bad is bad + 1
         banish dir
+    var mdeps as list of pman.Dependency is calling pman.load with base
+    for d in mdeps:
+        var in_lock as bool is false
+        for p in lm.value.packages:
+            if p.name == d.name:
+                set in_lock is true
+        if not in_lock:
+            var mm as string is "  - {d.name}: missing from pengu.lock"
+            calling spark.eprintln with mm
+            banish mm
+            set bad is bad + 1
+        else:
+            for p in lm.value.packages:
+                if p.name == d.name:
+                    if not calling install.satisfies_text with p.version, d.constraint:
+                        var mc3 as string is "  - {d.name}: lock version {p.version} does not satisfy manifest '{d.constraint}'"
+                        calling spark.eprintln with mc3
+                        banish mc3
+                        set bad is bad + 1
+    calling pman.free with mdeps
     var count as int is lm.value.packages.len
+    banish ld
     if bad == 0:
         var msg as string is "Verified {count} package(s) match pengu.lock"
         calling spark.println with msg
@@ -424,15 +611,16 @@ weave run_vendor with args as list of string into int:
         calling cliargs.free_parse_result with (sigil of pr)
         return calling fail with "no pengu.toml found"
     var vdir as string is "{base}/vendor"
+    var ld as string is calling project_lib_dir with base
     var ignv as bool is calling archivum.create_dir with vdir, true
     var lm0 as maybe plock.Lock is calling plock.read with base
     var count as int is 0
     if lm0.is_present:
         for vp in lm0.value.packages:
-            var src as string is "{base}/lib/{vp.name}"
+            var src as string is "{base}/{ld}/{vp.name}"
             if calling archivum.is_dir with src:
                 var dst as string is "{vdir}/{vp.name}"
-                var okc as bool is calling psource.copy_local with src, dst
+                var okc as bool is calling psource.copy_local with src, dst, true
                 if okc:
                     set count is count + 1
                 banish dst
@@ -442,10 +630,10 @@ weave run_vendor with args as list of string into int:
         banish lm0
         var ds as list of pman.Dependency is calling pman.load with base
         for d in ds:
-            var src as string is "{base}/lib/{d.name}"
+            var src as string is "{base}/{ld}/{d.name}"
             if calling archivum.is_dir with src:
                 var dst as string is "{vdir}/{d.name}"
-                var okc as bool is calling psource.copy_local with src, dst
+                var okc as bool is calling psource.copy_local with src, dst, true
                 if okc:
                     set count is count + 1
                 banish dst
@@ -456,6 +644,7 @@ weave run_vendor with args as list of string into int:
     var ig2 as bool is calling archivum.write_text with rp, readme
     banish rp
     banish readme
+    banish ld
     var msg as string is "Vendored {count} dependency(ies) into {vdir}"
     calling spark.println with msg
     banish msg

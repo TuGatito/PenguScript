@@ -5,7 +5,7 @@
 **A small, fast, self-hosted systems language that compiles to readable C.**
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.33.0-4c1.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.34.0-4c1.svg)](CHANGELOG.md)
 [![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows%20%7C%20WASM-2ea44f.svg)](#-supported-platforms)
 [![Docs](https://img.shields.io/badge/docs-English%20%2B%20Español-blueviolet.svg)](docs/README.md)
 
@@ -81,7 +81,7 @@ rc; pass `--no-register` to skip it. To try the compiler in the current shell:
 ```console
 $ export PATH="$PWD/build:$PATH"
 $ psc version
-psc 0.33.0
+psc 0.34.0
 ```
 
 Useful flags:
@@ -101,8 +101,8 @@ Download the archive for your platform from
 `bin/` to `PATH`:
 
 ```console
-$ tar xf pengu-0.33.0-linux-x86_64.tar.gz
-$ export PATH="$PWD/pengu-0.33.0-linux-x86_64/bin:$PATH"
+$ tar xf pengu-0.34.0-linux-x86_64.tar.gz
+$ export PATH="$PWD/pengu-0.34.0-linux-x86_64/bin:$PATH"
 $ psc doctor
 ```
 
@@ -345,7 +345,7 @@ vscode-extension/    editor client
 Good first issues are labelled
 [`good first issue`](https://github.com/TuGatito/PenguScript/labels/good%20first%20issue).
 The audit and roadmap for 0.33 live in
-[`docs/psc/AUDITORIA_0.33.0.md`](docs/psc/AUDITORIA_0.33.0.md).
+[`docs/psc/AUDITORIA_0.34.0.md`](docs/psc/AUDITORIA_0.34.0.md).
 
 ## 💚 Acknowledgements
 

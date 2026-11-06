@@ -2,6 +2,7 @@
 
 import std.archivum
 import std.builder
+import std.compass
 import std.rites
 import std.spark
 
@@ -125,7 +126,19 @@ weave create_project with name as string, template as string, out_type as string
         banish cwd
         return 2
     var cws as string is calling npool.copy_string with cwd.value
-    var proj as string is "{cws}/{name}"
+    var proj_name as string is calling copy with name
+    var proj as string is ""
+    if name == "." or name == "..":
+        banish proj_name
+        set proj_name is calling compass.cp_basename with cws
+        set proj is calling copy with cws
+    else:
+        set proj is "{cws}/{name}"
+    if calling compass.cp_is_abs with name:
+        banish proj
+        set proj is calling compass.cp_normalize with name
+        banish proj_name
+        set proj_name is calling compass.cp_basename with name
     if calling archivum.exists with proj:
         if not calling archivum.is_dir with proj:
             calling spark.eprintln with "psc init: target exists and is not a directory"
@@ -147,7 +160,11 @@ weave create_project with name as string, template as string, out_type as string
         banish proj
         banish cwd
         return 2
-    var safe as string is calling safe_name with name
+    var onm as string is calling copy with out_name
+    if onm length == 0 or onm == "." or onm == ".." or calling compass.cp_is_abs with onm:
+        banish onm
+        set onm is calling compass.cp_basename with proj_name
+    var safe as string is calling safe_name with proj_name
     var src_sub as string is "src"
     var entry as string is "src/main.pengu"
     var output as string is out_type
@@ -168,14 +185,17 @@ weave create_project with name as string, template as string, out_type as string
         calling archivum.create_dir with "{proj}/include", true
         calling archivum.create_dir with "{proj}/c", true
         calling archivum.create_dir with "{proj}/assets", true
+    else if template == "cbind":
+        calling archivum.create_dir with "{proj}/include", true
+        calling archivum.create_dir with "{proj}/c", true
     var src_path as string is "{proj}/{entry}"
     var src_text as string is ""
     if template == "pengu-lib":
-        set src_text is "## {name}: biblioteca PenguScript.\n\nweave {safe}_hello into int:\n    return 0\n"
+        set src_text is "## {proj_name}: biblioteca PenguScript.\n\nweave {safe}_hello into int:\n    return 0\n"
     else if template == "cbind":
-        set src_text is "## {name}: binding C generado por F6.\n\ninsignia {safe}_\n\ndeclare {safe}_example with x as int into int\n"
+        set src_text is "## {proj_name}: binding C generado por F6.\n\ninclude \"{safe}.h\"\n\ninsignia {safe}_\n\ndeclare {safe}_example with x as int into int\n"
     else:
-        set src_text is "import std.spark\n\nweave main into int:\n    calling spark.println with \"hola desde {name}\"\n    return 0\n"
+        set src_text is "import std.spark\n\nweave main into int:\n    calling spark.println with \"hola desde {proj_name}\"\n    return 0\n"
     if not calling archivum.write_text with src_path, src_text:
         calling spark.eprintln with "psc init: cannot write entry"
         banish src_text
@@ -188,8 +208,19 @@ weave create_project with name as string, template as string, out_type as string
     banish src_text
     banish src_path
     banish src_dir
+    if template == "cbind":
+        var hdr as string is "#pragma once\n\nint {safe}_example(int x);\n"
+        var hpath as string is "{proj}/include/{safe}.h"
+        calling archivum.write_text with hpath, hdr
+        banish hdr
+        banish hpath
+        var ctext as string is "#include \"{safe}.h\"\n\nint {safe}_example(int x) {\n    return x;\n}\n"
+        var cpath as string is "{proj}/c/{safe}.c"
+        calling archivum.write_text with cpath, ctext
+        banish ctext
+        banish cpath
     var links_t as string is calling toml_list with links
-    var manifest as string is "[project]\nname = \"{name}\"\nversion = \"0.1.0\"\nentry = \"{entry}\"\noutput = \"{output}\"\noutput_name = \"{out_name}\"\n\n[build]\nsrc_dir = \"{src_sub}\"\nlib_dir = \"lib\"\ninclude_dir = \"include\"\nc_dir = \"c\"\nbuild_dir = \"build\"\nincludes = []\nlinks = {links_t}\nlib_dirs = []\ninclude_dirs = []\ncflags = [\"-Wall\", \"-std=c11\"]\nldflags = []\ndefines = []\ncc = \"{cc}\"\n\n[assets]\ndir = \"assets\"\nmodule = \"arca\"\nembed = true\n\n[dependencies]\n\n[profiles.debug]\ncflags = [\"-g\", \"-O0\", \"-Wall\"]\ndefines = [\"DEBUG\"]\n\n[profiles.release]\ncflags = [\"-O3\", \"-DNDEBUG\", \"-ffunction-sections\", \"-fdata-sections\"]\ndefines = [\"NDEBUG\"]\n\n[profiles.small]\ncflags = [\"-Os\", \"-DNDEBUG\", \"-ffunction-sections\", \"-fdata-sections\"]\ndefines = [\"NDEBUG\", \"PENGU_SIZE_OPT\"]\n"
+    var manifest as string is "[project]\nname = \"{proj_name}\"\nversion = \"0.1.0\"\nentry = \"{entry}\"\noutput = \"{output}\"\noutput_name = \"{onm}\"\n\n[build]\nsrc_dir = \"{src_sub}\"\nlib_dir = \"lib\"\ninclude_dir = \"include\"\nc_dir = \"c\"\nbuild_dir = \"build\"\nincludes = []\nlinks = {links_t}\nlib_dirs = []\ninclude_dirs = []\ncflags = [\"-Wall\", \"-std=c11\"]\nldflags = []\ndefines = []\ncc = \"{cc}\"\n\n[assets]\ndir = \"assets\"\nmodule = \"arca\"\nembed = true\n\n[dependencies]\n\n[profiles.debug]\ncflags = [\"-g\", \"-O0\", \"-Wall\"]\ndefines = [\"DEBUG\"]\n\n[profiles.release]\ncflags = [\"-O3\", \"-DNDEBUG\", \"-ffunction-sections\", \"-fdata-sections\"]\ndefines = [\"NDEBUG\"]\n\n[profiles.small]\ncflags = [\"-Os\", \"-DNDEBUG\", \"-ffunction-sections\", \"-fdata-sections\"]\ndefines = [\"NDEBUG\", \"PENGU_SIZE_OPT\"]\n"
     var mpath as string is "{proj}/pengu.toml"
     if not calling archivum.write_text with mpath, manifest:
         calling spark.eprintln with "psc init: cannot write pengu.toml"
@@ -203,14 +234,16 @@ weave create_project with name as string, template as string, out_type as string
     banish manifest
     banish links_t
     banish mpath
-    var gitignore as string is "build/\n"
+    var gitignore as string is "build/\nlib/\n"
     var gpath as string is "{proj}/.gitignore"
     calling archivum.write_text with gpath, gitignore
     banish gpath
-    var msg as string is "Created {name} ({template}, {output}) at {proj}"
+    var msg as string is "Created {proj_name} ({template}, {output}) at {proj}"
     calling spark.println with msg
     banish msg
     banish proj
+    banish onm
+    banish proj_name
     banish cwd
     banish safe
     return 0

@@ -1,6 +1,7 @@
 ## psc/pkg/resolve.pengu — resolución e instalación de dependencias.
 
 import std.archivum
+import std.compass
 
 import psc.pkg.install as install
 import psc.pkg.lock as plock
@@ -29,21 +30,33 @@ weave find_pkg with ps as list of plock.Package, name as string into int:
     return 0 - 1
 
 ## Asegura/instala y crea el paquete.
-weave ensure with base as string, lib_dir as string, d as pman.Dependency, parent as string into maybe plock.Package:
+weave ensure with base as string, lib_dir as string, d as pman.Dependency, parent as string, origin as string, force as bool, locked as bool into maybe plock.Package:
     var target as string is "{base}/{lib_dir}/{d.name}"
     var ver as string is ""
     var commit as string is ""
+    var need as bool is force
     if not calling archivum.is_dir with target:
-        var inst as maybe install.Installed is calling install.install with base, lib_dir, d
-        if not inst.is_present:
-            banish inst
+        set need is true
+    if not need:
+        set ver is calling install.dep_version with target
+        if not calling install.satisfies_text with ver, d.constraint:
+            set need is true
+    if need:
+        if locked:
+            banish ver
             banish target
             return (maybe none)
+        var inst as maybe install.Installed is calling install.install_from with base, lib_dir, d, origin
+        if not inst.is_present:
+            banish inst
+            banish ver
+            banish target
+            return (maybe none)
+        banish ver
         set ver is inst.value.version
         set commit is inst.value.commit
         banish inst
     else:
-        set ver is calling install.dep_version with target
         if d.kind == "git":
             set commit is calling source.commit with target
     var hash as string is calling plock.tree_hash with target
@@ -55,18 +68,23 @@ weave ensure with base as string, lib_dir as string, d as pman.Dependency, paren
     return some p
 
 ## Resuelve el grafo desde dependencias directas.
-weave resolve with base as string, lib_dir as string, deps as list of pman.Dependency into Graph:
+##
+## `force` reinstala cada paquete (usado por `psc update`/`upgrade`).
+weave resolve with base as string, lib_dir as string, deps as list of pman.Dependency, force as bool, locked as bool into Graph:
     var g as Graph is with ok is true, error is "", packages is list of plock.Package
     var roots as list of pman.Dependency is deps
     var queue as list of pman.Dependency is list of pman.Dependency
     var parents as list of string is list of string
+    var origins as list of string is list of string
     for d in roots:
         calling queue.push with (calling pman.clone_dep with d)
         calling parents.push with ""
+        calling origins.push with (calling copy with base)
     var qi as int is 0
     while qi < queue.len:
         var d as pman.Dependency is (queue at qi)
         var parent as string is (parents at qi)
+        var origin as string is (origins at qi)
         var ex as int is calling find_pkg with g.packages, d.name
         if ex >= 0:
             if parent length > 0:
@@ -78,8 +96,26 @@ weave resolve with base as string, lib_dir as string, deps as list of pman.Depen
                 if not present:
                     calling ep.required_by.push with (calling copy with parent)
                     set g.packages at ex is ep
+            if not calling install.satisfies_text with (g.packages at ex).version, d.constraint:
+                banish g.error
+                set g.error is "dependency '{d.name}' version {(g.packages at ex).version} does not satisfy '{d.constraint}'"
+                set g.ok is false
+                # liberar cola
+                var k as int is qi
+                while k < parents.len:
+                    banish parents at k
+                    banish origins at k
+                    set k is k + 1
+                var qk as int is 0
+                while qk < queue.len:
+                    calling pman.free_one with (sigil of (queue at qk))
+                    set qk is qk + 1
+                banish queue
+                banish parents
+                banish origins
+                return g
         else:
-            var pm as maybe plock.Package is calling ensure with base, lib_dir, d, parent
+            var pm as maybe plock.Package is calling ensure with base, lib_dir, d, parent, origin, force, locked
             if not pm.is_present:
                 banish pm
                 set g.ok is false
@@ -88,6 +124,7 @@ weave resolve with base as string, lib_dir as string, deps as list of pman.Depen
                 var k as int is qi
                 while k < parents.len:
                     banish parents at k
+                    banish origins at k
                     set k is k + 1
                 var qk as int is 0
                 while qk < queue.len:
@@ -95,6 +132,7 @@ weave resolve with base as string, lib_dir as string, deps as list of pman.Depen
                     set qk is qk + 1
                 banish queue
                 banish parents
+                banish origins
                 return g
             var p as plock.Package is pm.value
             var idx as int is g.packages.len
@@ -102,19 +140,34 @@ weave resolve with base as string, lib_dir as string, deps as list of pman.Depen
             var child as string is p.name
             banish pm
             var cpath as string is "{base}/{lib_dir}/{d.name}"
+            var corigin as string is (calling copy with cpath)
+            if d.kind == "path":
+                var psrc as string is (calling copy with d.source)
+                if not calling compass.cp_is_abs with d.source:
+                    var pabs as string is "{origin}/{psrc}"
+                    banish psrc
+                    set psrc is pabs
+                var pnorm as string is calling compass.cp_normalize with psrc
+                banish psrc
+                banish corigin
+                set corigin is pnorm
             var cdeps as list of pman.Dependency is calling pman.load with cpath
-            banish cpath
             for cd in cdeps:
                 calling queue.push with (calling pman.clone_dep with cd)
                 calling parents.push with (calling copy with child)
+                calling origins.push with (calling copy with corigin)
             calling pman.free with cdeps
+            banish corigin
+            banish cpath
         set qi is qi + 1
     var qf as int is 0
     while qf < queue.len:
         calling pman.free_one with (sigil of (queue at qf))
+        banish origins at qf
         set qf is qf + 1
     banish queue
     banish parents
+    banish origins
     return g
 
 ## Libera un grafo.

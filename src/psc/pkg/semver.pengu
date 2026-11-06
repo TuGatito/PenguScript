@@ -51,7 +51,10 @@ weave parse_version with text as string into maybe Version:
             set cur is 0
             set has is false
         else:
-            break
+            if c == 45 or c == 43:
+                break
+            banish nums
+            return (maybe none)
         set i is i + 1
     if has:
         calling nums.push with cur
@@ -206,6 +209,8 @@ weave satisfies_one with v as Version, c as Constraint into bool:
         if v.major != cv.major:
             return false
         if cv.major == 0:
+            if cv.minor == 0:
+                return v.minor == 0 and v.patch == cv.patch
             return v.minor == cv.minor and v.patch >= cv.patch
         return cmpv >= 0
     if c.op == 2:
@@ -235,5 +240,4 @@ weave select_tag with tags as list of string, constraints as list of Constraint 
                     set bestv is pv
                     set has is true
         banish pm
-        banish t
     return best

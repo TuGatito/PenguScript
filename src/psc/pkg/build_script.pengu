@@ -19,9 +19,16 @@ weave trusted_by_env into bool:
     banish v
     return ok
 
-## Ejecuta `build.pengu` de una dependencia directa.
+## `true` si la dependencia declara `build.pengu`.
+weave exists with base as string, lib_dir as string, name as string into bool:
+    var script as string is "{base}/{lib_dir}/{name}/build.pengu"
+    var ok as bool is calling archivum.is_file with script
+    banish script
+    return ok
+
+## Ejecuta `build.pengu` de una dependencia.
 ##
-## Devuelve true si existía y se ejecutó (aunque fallara).
+## Devuelve true sólo si el script existía, se ejecutó y terminó con código 0.
 weave run with base as string, lib_dir as string, name as string, trusted as bool, force as bool, exe as string into bool:
     var dir as string is "{base}/{lib_dir}/{name}"
     var script as string is "{dir}/build.pengu"
@@ -65,9 +72,12 @@ weave run with base as string, lib_dir as string, name as string, trusted as boo
         set i is i + 1
     banish args
     if code != 0:
-        var w as string is "     Warning build.pengu of '{name}' returned {code}"
+        var w as string is "     Error build.pengu of '{name}' returned {code}"
         calling spark.eprintln with w
         banish w
+        banish script
+        banish dir
+        return false
     banish script
     banish dir
     return true

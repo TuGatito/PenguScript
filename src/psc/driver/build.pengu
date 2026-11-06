@@ -28,6 +28,7 @@ import psc.pkg.manifest as pman
 import psc.pkg.resolve as presolve
 import psc.pkg.lock as plock
 import psc.pkg.source as psource
+import psc.pkg.install as pinstall
 
 insignia psc_driver_build_
 
@@ -958,7 +959,7 @@ weave build with o as BuildOptions into BuildResult:
                 if not calling archivum.is_dir with vt:
                     var vv as string is "{base}/vendor/{vd.name}"
                     if calling archivum.is_dir with vv:
-                        var vr as bool is calling psource.copy_local with vv, vt
+                        var vr as bool is calling psource.copy_local with vv, vt, true
                     banish vv
                 if not calling archivum.is_dir with vt:
                     banish vt
@@ -968,9 +969,15 @@ weave build with o as BuildOptions into BuildResult:
                     calling toolchain.free_toolchain with (sigil of tc)
                     return with ok is false, error is "E0061: dependency missing and --frozen forbids network/install", artifact is "", bundle_path is "", is_wasm is false
                 banish vt
-        var g as presolve.Graph is calling presolve.resolve with base, man.lib_dir, dep_ds
+        var lkd as bool is o.locked
+        if o.frozen:
+            set lkd is true
+        var g as presolve.Graph is calling presolve.resolve with base, man.lib_dir, dep_ds, false, lkd
         if not g.ok:
             var ge as string is g.error
+            if lkd:
+                banish ge
+                set ge is "E0061: pengu.lock is out of date (--locked/--frozen)"
             calling spark.eprintln with ge
             banish ge
             banish dep_ds
@@ -995,7 +1002,18 @@ weave build with o as BuildOptions into BuildResult:
                         set found is true
                         if lp.version != gp.version or lp.commit != gp.commit or lp.sha256 != gp.sha256:
                             set bad is true
+                        if not calling pinstall.satisfies_text with gp.version, lp.constraint:
+                            set bad is true
+                        if not calling pinstall.satisfies_text with gp.version, gp.constraint:
+                            set bad is true
                 if not found:
+                    set bad is true
+            for lp2 in lm.value.packages:
+                var seen as bool is false
+                for gp2 in g.packages:
+                    if lp2.name == gp2.name:
+                        set seen is true
+                if not seen:
                     set bad is true
             if bad:
                 banish lm
@@ -1011,15 +1029,23 @@ weave build with o as BuildOptions into BuildResult:
                 calling lk.packages.push with gp2
             var lw as bool is calling plock.write with base, lk
         for gp in g.packages:
-            var dsrc as string is "{base}/{man.lib_dir}/{gp.name}/src"
-            var dsd as bool is calling archivum.is_dir with dsrc
-            if dsd:
+            var ddir as string is "{base}/{man.lib_dir}/{gp.name}"
+            var lay as pman.Layout is calling pman.load_layout with ddir
+            # Layout declarado por el paquete: src_dir/include_dir/lib_dir.
+            var dsrc as string is "{ddir}/{lay.src_dir}"
+            if calling archivum.is_dir with dsrc:
                 calling so.dep_dirs.push with (calling copy with dsrc)
-            var dinc as string is "{base}/{man.lib_dir}/{gp.name}/include"
+            var dinc as string is "{ddir}/{lay.include_dir}"
             if calling archivum.is_dir with dinc:
                 calling tc.include_dirs.push with (calling copy with dinc)
-            banish dsrc
+            var dlib as string is "{ddir}/{lay.lib_dir}"
+            if calling archivum.is_dir with dlib:
+                calling tc.lib_dirs.push with (calling copy with dlib)
+            banish dlib
             banish dinc
+            banish dsrc
+            calling pman.free_layout with (sigil of lay)
+            banish ddir
     var ccn as string is calling compass.cp_basename with tc.cc
     banish so.compiler
     set so.compiler is (calling copy with ccn)
