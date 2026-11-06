@@ -106,13 +106,16 @@ rune SemaSymbols:
     import_count as map of int to int
     ## Destinos de import, aplanados y contiguos por módulo.
     import_edges as list of int
+    ## `NameId` del alias -> índice del último `SkImport` con ese nombre.
+    ## Acelera el fallback de `lookup_name` (antes recorría todos los símbolos).
+    import_by_name as map of int to int
 
 ## Crea la tabla y registra builtins.
 ##
 ## ## Memoria
 ## Asigna listas/mapas; `free_symbols` los libera.
 weave new_symbols with t as ref to types.SemaTypeTable, pool as ref to npool.NamePool into SemaSymbols:
-    var s as SemaSymbols is with names is pool, types is t, symbols is list of sym.SemaSymbol, scopes is list of scope.SemaScope, current is -1, runes is map of int to int, echos is map of int to int, omens is map of int to int, aliases is map of int to int, seals is map of int to int, concepts is map of int to int, functions is map of int to int, consts is map of int to int, methods is map of int to int, method_receiver is map of int to int, mutating_methods is map of int to int, generic_runes is map of int to int, generic_echos is map of int to int, generic_omens is map of int to int, generic_aliases is map of int to int, generic_concepts is map of int to int, generic_functions is map of int to int, generic_methods is map of int to int, container_methods is map of int to int, generic_owner is map of int to int, bind_owner is map of int to int, primitive_owner is map of int to int, shard_bounds is map of int to int, templates is list of sym.SemaTemplate, instances is list of sym.SemaInstance, instance_keys is map of int to int, instance_by_type is map of int to int, instance_args is list of int, const_values is list of sym.SemaConst, symbol_bounds is list of int, module_type_keys is map of int to int, module_types is map of int to int, includes is list of string, links is list of string, link_modules is list of int, ldflags is list of string, imports is list of string, import_order is list of int, import_graph is list of int, has_includes is false, insignia is -1, current_module is -1, module_of_scope is map of int to int, scope_of_module is map of int to int, import_first is map of int to int, import_count is map of int to int, import_edges is list of int
+    var s as SemaSymbols is with names is pool, types is t, symbols is list of sym.SemaSymbol, scopes is list of scope.SemaScope, current is -1, runes is map of int to int, echos is map of int to int, omens is map of int to int, aliases is map of int to int, seals is map of int to int, concepts is map of int to int, functions is map of int to int, consts is map of int to int, methods is map of int to int, method_receiver is map of int to int, mutating_methods is map of int to int, generic_runes is map of int to int, generic_echos is map of int to int, generic_omens is map of int to int, generic_aliases is map of int to int, generic_concepts is map of int to int, generic_functions is map of int to int, generic_methods is map of int to int, container_methods is map of int to int, generic_owner is map of int to int, bind_owner is map of int to int, primitive_owner is map of int to int, shard_bounds is map of int to int, templates is list of sym.SemaTemplate, instances is list of sym.SemaInstance, instance_keys is map of int to int, instance_by_type is map of int to int, instance_args is list of int, const_values is list of sym.SemaConst, symbol_bounds is list of int, module_type_keys is map of int to int, module_types is map of int to int, includes is list of string, links is list of string, link_modules is list of int, ldflags is list of string, imports is list of string, import_order is list of int, import_graph is list of int, has_includes is false, insignia is -1, current_module is -1, module_of_scope is map of int to int, scope_of_module is map of int to int, import_first is map of int to int, import_count is map of int to int, import_edges is list of int, import_by_name is map of int to int
     calling new_global_scope with (sigil of s)
     calling init_builtins with (sigil of s)
     return s
@@ -173,6 +176,7 @@ weave free_symbols with s as ref to SemaSymbols into void:
     banish s->import_first
     banish s->import_count
     banish s->import_edges
+    banish s->import_by_name
 
 ## Libera una lista de strings owned.
 ##
@@ -376,17 +380,21 @@ weave lookup_name with s as ref to SemaSymbols, name as string into int:
         var found as int is calling lookup with s, id
         if found >= 0:
             return found
+    else:
+        # Ningún símbolo puede llamarse `name`: el pool es la única fuente de
+        # nombres (`symbol.name` siempre sale de él). Evita recorrer todos los
+        # símbolos por cada búsqueda de un nombre C/mangled que no existe.
+        return -1
     # Fallback para alias de import en scopes cuyo padre no se enlazó
     # correctamente (bootstrap stage2), restringido al módulo actual.
-    var i as int is 0
-    while i < s->symbols.len:
-        var sv as sym.SemaSymbol is (s->symbols at i)
-        if sv.kind == sym.SemaSymbolKind.SkImport:
-            if s->current_module < 0 or sv.module == s->current_module:
-                var svn as string is calling npool.text with s->names, sv.name
-                if svn == name:
-                    return i
-        set i is i + 1
+    if calling s->import_by_name.has with id:
+        var fast as int is calling s->import_by_name.get with id
+        if fast >= 0 and fast < s->symbols.len:
+            var fv as sym.SemaSymbol is (s->symbols at fast)
+            if fv.kind == sym.SemaSymbolKind.SkImport and (s->current_module < 0 or fv.module == s->current_module):
+                return fast
+    # El mapa cubre todos los `SkImport`: se actualiza en `symbol_define`,
+    # único camino que crea imports. No hace falta recorrer la tabla entera.
     return -1
 
 ## Lookup local por `NameId`.
@@ -403,6 +411,8 @@ weave symbol_lookup_local with s as ref to SemaSymbols, name as int into int:
 ## Añade a `symbols` y al mapa del scope.
 weave symbol_define with s as ref to SemaSymbols, symbol as sym.SemaSymbol into int:
     var id as int is s->symbols.len
+    if symbol.kind == sym.SemaSymbolKind.SkImport:
+        calling s->import_by_name.put with symbol.name, id
     calling s->symbols.push with symbol
     var sc as scope.SemaScope is (s->scopes at s->current)
     calling scope.scope_define with (sigil of sc), symbol.name, id

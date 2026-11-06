@@ -15,9 +15,10 @@ insignia psc_cmd_gc_
 ## ## Memoria
 ## No asigna.
 weave print_help into void:
-    calling spark.println with "Usage: psc gc [--all] [--max-age=DAYS] [--json]"
+    calling spark.println with "Usage: psc gc [--all] [--max-age=DAYS] [--max-size=MB] [--json]"
     calling spark.println with "  --all          remove every cached entry"
     calling spark.println with "  --max-age=N    remove entries older than N days (default 30)"
+    calling spark.println with "  --max-size=N   remove arbitrary entries until the cache is <= N MiB"
     calling spark.println with "  --verbose"
     calling spark.println with "  --json"
     calling spark.println with "  --help"
@@ -26,9 +27,49 @@ weave print_help into void:
 ##
 ## ## Memoria
 ## Libera ParseResult.
+## Elimina entradas hasta que la caché quepa en `limit` bytes.
+##
+## No ordena por fecha: `find_dirs` no garantiza orden y cualquier entrada es
+## prescindible. Devuelve cuántas se borraron.
+##
+## ## Memoria
+## Libera `root`, `dirs`, sus strings y `sizes`.
+weave prune_to_size with limit as int into int:
+    var root as string is calling cache.root
+    var dirs as list of string is calling archivum.find_dirs with root, false
+    var sizes as list of int is list of int
+    var total as int is 0
+    for d in dirs:
+        var sz as maybe int is calling archivum.dir_size with d, true
+        var v as int is 0
+        if sz.is_present:
+            set v is sz.value
+        calling sizes.push with v
+        set total is total + v
+        banish sz
+    var i as int is 0
+    var removed as int is 0
+    while total > limit and i < dirs.len:
+        var d as string is (dirs at i)
+        if calling archivum.remove_dir with d, true:
+            set removed is removed + 1
+            set total is total - (sizes at i)
+        set i is i + 1
+    for d in dirs:
+        banish d
+    banish dirs
+    banish sizes
+    banish root
+    return removed
+
+## Implementa `psc gc`.
+##
+## ## Memoria
+## Libera ParseResult.
 weave run_gc with args as list of string into int:
     var vf as list of string is list of string
     calling vf.push with "--max-age"
+    calling vf.push with "--max-size"
     var sf as list of string is list of string
     calling sf.push with "--all"
     calling sf.push with "--verbose"
@@ -50,6 +91,15 @@ weave run_gc with args as list of string into int:
     if all:
         set removed is calling cache.clear
     else:
+        var size_mb as int is 0
+        var msz as string is calling cliargs.value with (sigil of pr.args), "--max-size"
+        if msz length > 0:
+            var psz as maybe int is calling spark.parse_int with msz
+            if psz.is_present and psz.value > 0:
+                set size_mb is psz.value
+            banish psz
+        if size_mb > 0:
+            set removed is removed + calling prune_to_size with size_mb * 1048576
         var days as int is 30
         var ma as string is calling cliargs.value with (sigil of pr.args), "--max-age"
         if ma length > 0:

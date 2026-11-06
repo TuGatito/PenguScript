@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CC="${CC:-cc}"
 AR="${AR:-ar}"
-OUT="$ROOT/build"
+OUT="${RUNTIME_OUT:-$ROOT/build}"
 INC="$OUT/include"
 LIB="$OUT/lib"
 OBJ="$OUT/obj_runtime"

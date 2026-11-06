@@ -1,0 +1,35 @@
+name: Windows cross (best effort)
+
+# Windows/mingw is a best-effort target: this workflow is manual so an
+# unavailable mingw runtime never blocks a release. Run it before tagging when
+# touching driver/toolchain/runtime Windows paths.
+on:
+  workflow_dispatch:
+
+jobs:
+  mingw:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install mingw-w64 and libcurl
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mingw-w64 libcurl4-openssl-dev
+      - name: Build compiler (host)
+        run: ./tools/build.sh --no-register --no-wasm --no-bind
+      - name: Build Windows runtime
+        run: |
+          CC=x86_64-w64-mingw32-gcc \
+          AR=x86_64-w64-mingw32-ar \
+          RUNTIME_OUT=build/lib/x86_64-w64-mingw32 \
+          bash tools/build_runtime.sh
+      - name: Build hello.exe
+        run: |
+          mkdir -p /tmp/win-hello/src
+          printf 'weave main into int:\n    calling print with "hello from windows\\n"\n    return 0\n' > /tmp/win-hello/src/main.pengu
+          printf '[package]\nname = "win-hello"\nversion = "0.1.0"\n' > /tmp/win-hello/pengu.toml
+          ./build/psc build /tmp/win-hello --target=x86_64-w64-mingw32 --no-cache
+      - name: Verify PE artifact
+        run: |
+          file /tmp/win-hello/build/app.exe
+          file /tmp/win-hello/build/app.exe | grep -q 'PE32+'

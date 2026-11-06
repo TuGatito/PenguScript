@@ -61,6 +61,15 @@ psc/driver/toolchain.pengu — cc, flags e includes/links.
  ## Memoria
  Añade una copia owned a la lista.
 
+### `add_flag`
+
+> **add_flag**(xs: ref to list of string, flag: string) -> void
+
+ Añade una flag si no está ya (manifiesto + perfil pueden repetir `-Wall`).
+
+ ## Memoria
+ Añade una copia owned a la lista.
+
 ### `add_lib`
 
 > **add_lib**(xs: ref to list of string, dir: string) -> void

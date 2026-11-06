@@ -2599,9 +2599,12 @@ extern "C"
    * 10. Global Runtime State & Core I/O (Spark & Whisper)
    * ========================================================================= */
 
-  static int g_pengu_argc = 0;
-  static char **g_pengu_argv = NULL;
-  static int g_pengu_log_level = 0;
+  /* Definidos en runtime/pengu_runtime.c: con un solo TU eran `static`, pero
+   * eso daba una copia por unidad en la compilación por módulos (--split-dir)
+   * y `pengu_init` solo inicializaba la de core.c. */
+  extern int g_pengu_argc;
+  extern char **g_pengu_argv;
+  extern int g_pengu_log_level;
 
   /** @brief Collects the keys of a map into a list, copying their bytes.
    *
@@ -4594,6 +4597,9 @@ extern "C"
   void    pengu_c_coro_free(void *handle);
   /** Discards a suspended or finished coroutine. */
   void    pengu_c_coro_abandon(void *handle);
+  /** Debug helper: prints live coroutines and their last yield stack.
+   *  Enable frame capture with PENGU_FIBER_TRACE=1 (psc debug sets it). */
+  void    pengu_c_coro_dump(void);
 
 
   /* =========================================================================

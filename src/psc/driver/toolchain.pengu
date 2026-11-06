@@ -49,6 +49,31 @@ weave free_strings with xs as list of string into void:
 weave choose_cc with override as string, configured as string, t as target.Target into string:
     if override length > 0:
         return calling copy with override
+    if (not t.is_wasm) and (not t.is_host):
+        # Cross nativo: se prefieren las herramientas con prefijo del triple.
+        var tools as list of string is list of string
+        if t.os == "linux" and t.arch == "arm64":
+            calling tools.push with "aarch64-linux-gnu-gcc"
+        else if t.os == "linux" and t.arch == "x64":
+            calling tools.push with "x86_64-linux-gnu-gcc"
+        else if t.os == "windows":
+            calling tools.push with "x86_64-w64-mingw32-gcc"
+        else if t.os == "macos":
+            calling tools.push with "clang"
+        for name in tools:
+            var w as maybe string is calling rites.which with name
+            if w.is_present:
+                banish tools
+                return w.value
+            banish w
+        banish tools
+        if configured length > 0:
+            return calling copy with configured
+        var cl as maybe string is calling rites.which with "clang"
+        if cl.is_present:
+            return cl.value
+        banish cl
+        return ""
     if t.is_wasm:
         var we as maybe string is calling rites.getenv with "PSC_CC"
         if we.is_present:
@@ -92,8 +117,28 @@ weave choose_cc with override as string, configured as string, t as target.Targe
 ## ## Memoria
 ## Añade una copia owned a la lista.
 weave add_inc with xs as ref to list of string, dir as string into void:
-    if dir length > 0 and calling archivum.is_dir with dir:
-        calling xs.push with (calling copy with dir)
+    if dir length == 0 or not (calling archivum.is_dir with dir):
+        return
+    var i as int is 0
+    while i < xs->len:
+        if (xs at i) == dir:
+            return
+        set i is i + 1
+    calling xs.push with (calling copy with dir)
+
+## Añade una flag si no está ya (manifiesto + perfil pueden repetir `-Wall`).
+##
+## ## Memoria
+## Añade una copia owned a la lista.
+weave add_flag with xs as ref to list of string, flag as string into void:
+    if flag length == 0:
+        return
+    var i as int is 0
+    while i < xs->len:
+        if (xs at i) == flag:
+            return
+        set i is i + 1
+    calling xs.push with (calling copy with flag)
 
 ## Añade un directorio de librerías si existe.
 ##
@@ -121,11 +166,17 @@ weave resolve with m as ref to manifest.Manifest, p as ref to paths.Paths, t as 
     ## ir en la línea de compilación: definir­las desde el bundle llegaría tarde.
     calling cflags.push with "-D_POSIX_C_SOURCE=200809L"
     calling cflags.push with "-D_DEFAULT_SOURCE"
+    # Clang necesita el triple para cross; los gcc con prefijo ya lo implican.
+    if (not t.is_host) and (not t.is_wasm) and t.triple length > 0:
+        var tflag as string is "--target={t.triple}"
+        calling add_flag with (sigil of cflags), tflag
+        banish tflag
     for f in m->cflags:
-        calling cflags.push with (calling copy with f)
+        calling add_flag with (sigil of cflags), f
     for d in m->defines:
         var df as string is "-D{d}"
-        calling cflags.push with df
+        calling add_flag with (sigil of cflags), df
+        banish df
     if strict:
         calling cflags.push with "-pedantic"
     if release_unsafe:

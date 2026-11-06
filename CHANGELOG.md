@@ -2,6 +2,122 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.33.0] — 2026-11-05 — Builds incrementales, cobertura y cross-compile
+
+Esta versión convierte el compilador en una herramienta de trabajo diaria:
+builds en caliente por debajo de 2 s, ejecución wasm honesta, cobertura mapeada
+a `.pengu`, perfiles de sanitizers, depuración con DWARF, cross-compile nativo y
+un LSP con rename entre archivos.
+
+### Añadido
+
+- **Codegen multi-unidad (F7, base)**: `psc emit-c <entry> --split-dir DIR`
+  escribe `bundle.h`, `core.c` y una unidad `u<id>_<módulo>.c` por módulo. El
+  compilador completo (139 unidades) se compila por separado y se enlaza; con
+  `xargs -P 8` el paso de C baja a ~5 s. El driver también lo usa con
+  `psc build --split-codegen --jobs=N` (solo `exe` nativo). Regresión
+  `tests/regress_split.sh`.
+  `g_pengu_argc/argv/log_level` pasan a `extern` (definiciones débiles en el
+  runtime) para que `pengu_init` sea visible desde todas las unidades.
+- **Caché por unidad** para `--split-codegen`: cada `.o` se guarda bajo
+  `unit-object-v1` (hash de cabecera + fuente + flags + cc). Un rebuild sin
+  cambios reutiliza las 137 unidades y baja de ~19.9 s (single-TU) a ~14.8 s;
+  la primera compilación split tarda ~23.9 s.
+- `tests/regress_release.sh`: empaqueta dos veces con `SOURCE_DATE_EPOCH`, exige
+  tarballs idénticos, extrae el portable y compila/ejecuta un proyecto real.
+- `psc build --verbose` explica los misses de caché: imprime `cache: module
+  changed|added|removed <ruta>` comparando `build/.psc-modules` con las huellas
+  actuales (regresión `tests/regress_cache_explain.sh`).
+- **Caché de artefactos v2** (`psc-cache-2`): la clave se calcula *antes* de la
+  semántica y el codegen, cubre fuentes, cabeceras, cflags, links, lib_dirs,
+  ldflags, defines, runtime, shell wasm y preludio JS, y excluye el directorio
+  `build/`. Un hit copia el artefacto y retorna sin parsear ni generar C.
+- **Fast path seguro para el binario en ejecución**: si el destino es el propio
+  `psc` (`ETXTBSY`), se comparan los bytes y un artefacto idéntico cuenta como
+  hit.
+- **Escritura atómica de la caché** (`app.<pid>.tmp` + `rename`), apta para
+  builds concurrentes.
+- `psc test --coverage`: instrumenta con gcov y mapea los contadores a las
+  líneas `.pengu` mediante los marcadores `#line`; imprime líneas, ramas y
+  llamadas por archivo.
+- `psc build|test --sanitize=address|undefined|thread`: perfiles ASan/UBSan/TSan
+  completos (compile + link + clave de caché).
+- `psc debug`: compila con DWARF y lanza `gdb` (o `lldb` con `--llvm`), con
+  breakpoints sobre archivos `.pengu`.
+- **Cross-compile nativo**: `--target=x86_64/aarch64-unknown-linux-gnu`,
+  `aarch64/x86_64-apple-darwin` y `x86_64-w64-mingw32` (best effort). El driver
+  elige el compilador con prefijo, añade `--target` a clang y enlaza el runtime
+  de `build/lib/<triple>/`; error accionable si falta.
+- `psc build --target` acepta también el `target` de nivel superior en
+  `pengu.toml` (antes sólo `[build].target`).
+- `psc test` acepta `--no-cache`, `--clear-cache` y `--ephemeral`.
+- `psc expand --out PATH` acepta la forma separada, igual que `psc build`.
+- `PSC_TIME=1` imprime los milisegundos de semántica y codegen.
+- `psc test --coverage` imprime un resumen por módulo `.pengu` y filtra las
+  cabeceras del runtime; `gcov` se ejecuta con `LC_ALL=C` para que el parser no
+  dependa del idioma.
+- CI añade un job advisory de Windows/MSYS2 que compila bootstrap, compilador y
+  un hello program; el cross mingw sigue disponible como workflow manual.
+- `psc debug` carga `pengu-fibers`: lista corrutinas vivas con su pila del
+  último yield (caminando frame pointers; `PENGU_FIBER_TRACE=1`).
+- CI verifica que el runner macOS sea arm64 y aplica un gate de 1 s al
+  `psc check` cacheado (`tools/bench.sh --gate-check`).
+- `psc check` cachea el resultado correcto por clave pre-sema: un proyecto sin
+  cambios pasa de ~1.9 s a ~0.18 s; un cambio real o un error invalida el
+  marcador.
+- `psc gc --max-size=MB` recorta la caché por tamaño (entradas arbitrarias,
+  seguras bajo concurrencia) además del recorte por antigüedad.
+- `psc doctor` valida `gdb`, `lldb` y `gcov` (opcionales) y, con
+  `--target=TRIPLE`, el compilador y el runtime cross del triple pedido.
+- Workflow manual `.github/workflows/windows-cross.yml` para verificar el
+  artefacto PE32+ con mingw (best effort, no bloquea releases).
+- Perfil debug añade `-g` por defecto en proyectos de usuario (antes sólo si el
+  manifiesto definía `[profiles.debug]`).
+- Documentación nueva: `BUILD_CACHE.md`, `CROSS_COMPILE.md`, `COVERAGE.md`,
+  `SANITIZERS.md`, `DEBUGGER.md` y un `README.md` principal completo.
+- Regresiones nuevas: caché incremental, ejecución wasm/target, cobertura,
+  sanitizers, reproducibilidad y presupuesto de build caliente (<2 s).
+- `tools/bench.sh`: harness reproducible (cold/warm/check, `--gate-warm`) usado
+  por CI para bloquear regresiones del fast path.
+- Semántica ~2.5× más rápida: `tag_decl` ya no hace `split("\n")` del archivo
+  completo por cada declaración, el fallback de `lookup_name` indexa los alias
+  de import por `NameId` y ya no recorre todos los símbolos cuando el nombre no
+  es un import (eliminaba 116 M comparaciones de texto).
+
+### Corregido
+
+- `psc run` ignoraba el target resuelto del manifiesto y ejecutaba el `.html`
+  wasm como binario nativo (exit 127 sin diagnóstico). `BuildResult` transporta
+  ahora `is_wasm` y `run`/`test` lo respetan.
+- El runner wasm reintentaba en Chromium cuando Node devolvía un código distinto
+  de cero, enmascarando fallos del programa como éxito. Ahora propaga el código;
+  el modo navegador es explícito (`--browser`).
+- La clave de caché omitía `cflags`, `links` y `lib_dirs`, por lo que cambiar
+  flags reutilizaba un binario obsoleto; también hasheaba `build/` e invalidaba
+  en cada build. Ambos corregidos.
+- `psc build --verbose` duplicaba `-Wall` (manifiesto + perfil); las flags y los
+  include dirs se deduplican.
+- Rename del LSP comparaba ids de símbolo entre programas distintos, así que
+  renombrar un símbolo importado sólo editaba un archivo. La identidad ahora es
+  `ruta:línea:columna:tipo`, tolerante a rutas relativas/absolutas, con
+  resolución por token y por nombre para llamadas sin anotación.
+- `tests/lsp/run_lsp_tests.py` fallaba con `PSC=./build/psc` relativo porque el
+  subproceso cambiaba de directorio; ahora resuelve la ruta absoluta.
+
+### Medido
+
+- Compilador completo (51 kLOC): build caliente **0.23 s** (antes ~30 s),
+  semántica 1.5 s debug / 0.5 s release (antes 3.8 s / 0.9 s), codegen
+  ~20.5 s debug / ~4.7 s release, cc 5.5 s; `check` 1.7 s.
+- Builds de la misma fuente con el mismo toolchain: binarios idénticos
+  (release y debug), sin `__DATE__`/`__TIME__`.
+
+### Notas
+
+- La generación de C sigue siendo un único translation unit; el codegen por
+  módulo en paralelo queda para 0.34 (ver `scratch/auditoria-0.33.0.md`).
+- `wasm32-wasi` sigue reconocido y rechazado con un diagnóstico claro.
+
 ## [0.32.0] — 2026-11-05 — `derive Json` y limpieza honesta
 
 `rune … derive Json` genera un códec JSON en C plano a partir de la forma del

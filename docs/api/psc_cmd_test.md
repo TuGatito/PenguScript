@@ -30,6 +30,31 @@ psc/cmd/test.pengu — `psc test`.
  ## Memoria
  Libera opciones/resultado.
 
+### `cov_has_suffix`
+
+> **cov_has_suffix**(s: string, suffix: string) -> bool
+
+ ¿Termina `s` con `suffix`?
+
+### `cov_index_of`
+
+> **cov_index_of**(s: string, needle: string) -> int
+
+ Índice de `needle` en `s`, o -1.
+
+### `report_coverage`
+
+> **report_coverage**() -> void
+
+ Resume los `.gcov` de PenguScript y silencia las cabeceras del runtime.
+
+### `emit_coverage`
+
+> **emit_coverage**(artifact: string) -> void
+
+ Ejecuta gcov sobre el artefacto y deja los reportes `.gcov` (con `#line`,
+ las rutas son los `.pengu` originales).
+
 ### `copy`
 
 > **copy**(s: string) -> string

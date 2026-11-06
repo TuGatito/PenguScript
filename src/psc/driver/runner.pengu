@@ -203,11 +203,7 @@ weave run with t as target.Target, artifact as string, argv as list of string, b
     var raw as int is calling proc.run_argv with args
     banish args
     var code as int is calling normalize with raw
-    # raylib web necesita DOM/WebGL: si Node falla, intenta el navegador.
-    if t.is_wasm and code != 0 and not browser:
-        var chrome as maybe string is calling chromium_path
-        if chrome.is_present:
-            banish chrome
-            return calling run_browser with artifact
-        banish chrome
+    # No se reintenta en Chromium cuando Node devuelve un código distinto de
+    # cero: ese código es el del programa (p. ej. `return 3`) y enmascararlo
+    # hacía que un fallo pareciera éxito. Para DOM/WebGL existe `--browser`.
     return code

@@ -656,20 +656,21 @@ weave tag_decl with s as ref to state.SemaState, id as int, node as int into voi
     set sv.end is calling astutil.end_of with s->ast, node
     set sv.module is s->module->id
     # Doc comments inmediatamente encima: `#`, `##` y bloques `## ... ##`.
-    var lines as list of string is calling s->src->text.split with "\n"
+    # Se lee una línea a la vez: `split("\n")` copiaba el archivo completo por
+    # cada declaración (miles de splits de varios MB durante el sema).
     var li as int is ps.line - 2
     # La convención de los bindings deja una línea en blanco entre la
     # documentación `##` y la declaración; no debe romper el doc.
-    if li >= 0:
-        var gap as string is (lines at li)
+    if li >= 0 and li < (calling s->src.line_count):
+        var gap as string is calling s->src.line_text with (li + 1)
         var gapt as string is calling trim_text with gap
         if gapt length == 0:
             set li is li - 1
         banish gapt
         banish gap
     var docs as list of string is list of string
-    while li >= 0:
-        var line as string is (lines at li)
+    while li >= 0 and li < (calling s->src.line_count):
+        var line as string is calling s->src.line_text with (li + 1)
         var tr as string is calling trim_text with line
         var d as string is ""
         if calling starts_with_text with tr, "##":
@@ -679,6 +680,7 @@ weave tag_decl with s as ref to state.SemaState, id as int, node as int into voi
         else:
             banish d
             banish tr
+            banish line
             break
         # Copia owned: `d` es una vista sobre `line`/`tr`.
         calling docs.push with (calling npool.copy_string with d)
@@ -704,7 +706,6 @@ weave tag_decl with s as ref to state.SemaState, id as int, node as int into voi
         banish docs at di2
         set di2 is di2 + 1
     banish docs
-    banish lines
     calling symbols.symbol_set with s->symbols, id, sv
 
 ## Registra un tipo en los mapas y el scope.

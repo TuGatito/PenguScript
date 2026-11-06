@@ -9,7 +9,7 @@ superficie estable de F6.
 psc lex | parse | ast | check | emit-c
 psc build | run | expand
 psc init | new | clean | doctor | metadata | tree
-psc test | watch | eval | time
+psc test | debug | watch | eval | time
 psc fmt | doc | assets
 psc gc | benchmark | selftest
 psc version | help
@@ -82,6 +82,10 @@ psc build [TARGET] [opciones]
 - `--profile=debug|release|small`, `--cc`, `--out`/`-o`, `--entry`/`-e`.
 - `-D NAME[=VALUE]` repetible.
 - `--test`, `--exe`, `--strict-c99`, `--release-unsafe`, `--verbose`, `--json`.
+- `--split-codegen` emite `bundle.h`, `core.c` y una unidad por módulo, y las
+  compila por separado; `--jobs=N` limita cuántas compilaciones C corren a la
+  vez (solo `exe` nativo). Es opt-in: el camino de un único TU suele ser más
+  rápido con la cabecera actual.
 - `--target=wasm|wasm32-unknown-emscripten` (o `[build] target` en el manifiesto).
 - Tipos de salida del manifiesto: `exe`, `c`, `obj`, `static`, `shared`.
 - `--exe` fuerza el enlazado de un ejecutable aunque el manifiesto declare
@@ -107,10 +111,14 @@ psc run script.pengu
 psc run script.pengu --no-cache
 psc run script.pengu --clear-cache
 psc gc --all
+psc build . --target=aarch64-unknown-linux-gnu
+psc build . --target=wasm32-unknown-emscripten
 ```
 
 Ubicación: `PSC_CACHE_DIR`, `$XDG_CACHE_HOME/pengu/psc`, `~/.cache/pengu/psc`
-o `/tmp/pengu-psc-cache`. `psc gc --all` la vacía.
+o `/tmp/pengu-psc-cache`. `psc gc --all
+psc build . --target=aarch64-unknown-linux-gnu
+psc build . --target=wasm32-unknown-emscripten` la vacía.
 
 ## Proyecto
 
@@ -132,6 +140,10 @@ no se aceptan en F6.
 ```bash
 psc test
 psc test --watch
+psc test . --coverage          # gcov mapeado a líneas .pengu
+psc test . --sanitize=address  # ASan (undefined | thread)
+psc debug .                    # build con DWARF + gdb
+psc debug . --llvm -- --flag   # lldb y argumentos del programa
 psc fmt src/
 psc fmt --check src/
 psc fmt --stdin < file.pengu

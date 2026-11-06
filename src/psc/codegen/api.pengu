@@ -65,3 +65,53 @@ weave free_result with r as ref to CgResult into void:
     banish r->bundle
     banish r->error
     banish r->live_modules
+
+## Resultado de una emisión multiunidad (F7).
+##
+## ## Memoria
+## Textos owned; liberar con `free_units`.
+rune CgUnitsResult:
+    ## Emisión correcta.
+    ok as bool
+    ## Cabecera compartida.
+    header as string
+    ## Unidad con codecs, runner y main.
+    core as string
+    ## Una unidad por módulo.
+    units as list of bundle.CgUnit
+    ## Mensaje de error (owned) cuando `ok` es `false`.
+    error as string
+    ## IDs de módulos con al menos una función viva (DCE).
+    live_modules as list of int
+
+## Genera cabecera, core y una unidad C por módulo.
+##
+## ## Memoria
+## Devuelve textos owned; el programa sigue siendo del llamador.
+weave generate_units with p as ref to program.SemaProgram, o as CgOptions into CgUnitsResult:
+    var c as context.CgContext is calling context.new_context with p, o
+    var live as list of int is list of int
+    var parts as bundle.CgParts is calling bundle.generate_units_c with (sigil of c), (sigil of live)
+    var total_errors as int is c.errors + c.catalog.errors
+    var emsg as string is ""
+    if total_errors > 0:
+        set emsg is "code generation failed: {total_errors} unresolved compile-time condition(s)"
+    calling context.context_free with (sigil of c)
+    return with ok is (total_errors == 0), header is parts.header, core is parts.core, units is parts.units, error is emsg, live_modules is live
+
+## Libera un resultado multiunidad.
+##
+## ## Memoria
+## Libera cabecera, core, unidades y error.
+weave free_units with r as ref to CgUnitsResult into void:
+    banish r->header
+    banish r->core
+    banish r->error
+    banish r->live_modules
+    var i as int is 0
+    while i < r->units.len:
+        var u as bundle.CgUnit is (r->units at i)
+        banish u.name
+        banish u.text
+        set i is i + 1
+    banish r->units

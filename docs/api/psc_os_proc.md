@@ -9,14 +9,25 @@ POSIX: fork + execvp + waitpid. El hijo hereda stdin/stdout/stderr, así que
 
 ---
 
-### `run_argv`
+### `exec_replace`
 
-> **run_argv**(argv: list of string) -> int
+> **exec_replace**(argv: list of string) -> int
 
  Ejecuta un argv y devuelve el exit code (o 128+señal).
 
  ## Memoria
  Los strings de `argv` son prestados.
+ Reemplaza el proceso actual por `argv[0]` (execvp). No vuelve si tiene
+ éxito; si falla, devuelve 127.
+
+ ## Memoria
+ Los strings de `argv` son prestados y deben sobrevivir a la llamada.
+
+### `run_argv`
+
+> **run_argv**(argv: list of string) -> int
+
+_Undocumented._
 
 ### `spawn_argv`
 

@@ -2,7 +2,7 @@
 
 Esta guía describe cómo escribir una librería que otros proyectos puedan
 instalar con `psc add` e importar como cualquier otro módulo. Todo lo que sigue
-está probado con `psc` 0.32.0 en Linux y macOS; las notas indican lo que solo
+está probado con `psc` 0.33.0 en Linux y macOS; las notas indican lo que solo
 funciona en versiones nuevas del compilador.
 
 Una librería en PenguScript es **un repositorio git** (o un directorio local)

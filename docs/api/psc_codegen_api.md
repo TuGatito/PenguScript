@@ -53,3 +53,39 @@ No invoca el compilador C ni toca el sistema de archivos.
  ## Memoria
  Libera el bundle y el error.
 
+### `CgUnitsResult`
+
+> rune CgUnitsResult
+
+```pengu
+    ok as bool
+    header as string
+    core as string
+    units as list of CgUnit
+    error as string
+    live_modules as list of int
+```
+
+ Resultado de una emisión multiunidad (F7).
+
+ ## Memoria
+ Textos owned; liberar con `free_units`.
+
+### `generate_units`
+
+> **generate_units**(p: ref to SemaProgram, o: CgOptions) -> CgUnitsResult
+
+ Genera cabecera, core y una unidad C por módulo.
+
+ ## Memoria
+ Devuelve textos owned; el programa sigue siendo del llamador.
+
+### `free_units`
+
+> **free_units**(r: ref to CgUnitsResult) -> void
+
+ Libera un resultado multiunidad.
+
+ ## Memoria
+ Libera cabecera, core, unidades y error.
+

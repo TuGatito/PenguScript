@@ -173,13 +173,39 @@ weave parse with text as string into Target:
     var same as bool is (osn == hos) and (ar == har) and (env == "" or env == "gnu")
     banish hos
     banish har
-    if not same:
-        var msg as string is "target '{text}' is not supported; use the host or 'wasm32-unknown-emscripten' (native cross-compilation is not implemented yet)"
+    # Cross nativo: se aceptan los triples con runtime publicado en
+    # `build/lib/<triple>/`. El driver sigue compilando C portable; sólo
+    # cambia el compilador/herramientas y el archivo de runtime.
+    var known as bool is false
+    if osn == "linux" and (ar == "x64" or ar == "arm64"):
+        set known is true
+    else if osn == "macos" and (ar == "x64" or ar == "arm64"):
+        set known is true
+    else if osn == "windows" and ar == "x64":
+        set known is true
+    if not known:
+        var msg as string is "target '{text}' is not supported; use host, wasm32-unknown-emscripten, or one of: x86_64/aarch64-unknown-linux-gnu, x86_64/aarch64-apple-darwin, x86_64-w64-mingw32"
         banish ar
         banish first
         banish raw
         return calling failed with msg
-    var out as Target is with ok is true, error is "", raw is raw, triple is "", os is osn, arch is ar, env is env, is_wasm is false, wasm_target is "", is_host is true
+    var canon as string is ""
+    if osn == "linux":
+        if ar == "arm64":
+            set canon is "aarch64-unknown-linux-gnu"
+        else:
+            set canon is "x86_64-unknown-linux-gnu"
+        if env == "musl":
+            set canon is "{ar}-unknown-linux-musl"
+    else if osn == "macos":
+        if ar == "arm64":
+            set canon is "aarch64-apple-darwin"
+        else:
+            set canon is "x86_64-apple-darwin"
+    else:
+        set canon is "x86_64-w64-mingw32"
+    var out as Target is with ok is true, error is "", raw is raw, triple is (calling copy with canon), os is osn, arch is ar, env is env, is_wasm is false, wasm_target is "", is_host is same
+    banish canon
     banish first
     return out
 

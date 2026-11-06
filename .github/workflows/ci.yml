@@ -23,6 +23,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Assert macOS arm64
+        if: runner.os == 'macOS'
+        shell: bash
+        # `macos-latest` is an Apple Silicon runner; fail loudly if GitHub
+        # changes the mapping so the "macOS arm64 is guaranteed" claim stays
+        # honest.
+        run: test "$(uname -m)" = "arm64"
+
       - name: Install libcurl (Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -53,6 +61,10 @@ jobs:
       - name: PSC tests
         shell: bash
         run: ./tests/run.sh
+
+      - name: Compiler benchmark gate
+        shell: bash
+        run: ./tools/bench.sh . --runs 2 --gate-warm 2000 --gate-check 1000
 
       - name: CLI tests (psc add)
         if: runner.os != 'Windows'
@@ -147,6 +159,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Assert macOS arm64
+        if: runner.os == 'macOS'
+        shell: bash
+        # `macos-latest` is an Apple Silicon runner; fail loudly if GitHub
+        # changes the mapping so the "macOS arm64 is guaranteed" claim stays
+        # honest.
+        run: test "$(uname -m)" = "arm64"
+
       - name: Install libcurl (Linux)
         shell: bash
         run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
@@ -165,7 +185,7 @@ jobs:
 
       - name: Validate documents
         shell: bash
-        run: python3 ./tools/docs/validate_docs.py docs/LANGUAGE.md docs/LANGUAGE.es.md docs/PENGUNIC.md docs/PENGUNIC.es.md docs/STDLIB.md docs/STDLIB.es.md
+        run: python3 ./tools/docs/validate_docs.py docs/LANGUAGE.md docs/LANGUAGE.es.md docs/PENGUNIC.md docs/PENGUNIC.es.md docs/STDLIB.md docs/STDLIB.es.md docs/BUILD_CACHE.md docs/CROSS_COMPILE.md docs/COVERAGE.md docs/SANITIZERS.md docs/DEBUGGER.md
 
       - name: Links resolve
         shell: bash
@@ -324,3 +344,74 @@ jobs:
             --title "PenguScript v$VERSION — $TITLE" \
             --notes-file release-notes.md "${assets[@]}"
 
+
+  cross-linux-arm64:
+    name: Cross Linux ARM64
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cross toolchain and qemu
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu qemu-user libcurl4-openssl-dev
+
+      - name: Build native compiler
+        run: ./tools/build.sh --no-register --no-wasm --no-bind
+
+      - name: Build ARM64 runtime
+        run: |
+          CC=aarch64-linux-gnu-gcc AR=aarch64-linux-gnu-ar \
+          RUNTIME_OUT=build/lib/aarch64-unknown-linux-gnu \
+          bash tools/build_runtime.sh
+
+      - name: Cross-build and run a project
+        run: |
+          mkdir -p /tmp/arm/src
+          cat >/tmp/arm/pengu.toml <<'TOML'
+          [build]
+          entry = "src/main.pengu"
+          output = "exe"
+          TOML
+          cat >/tmp/arm/src/main.pengu <<'PENGU'
+          weave main into int:
+              calling print with "arm64 ok"
+              return 0
+          PENGU
+          ./build/psc build /tmp/arm --target=aarch64-unknown-linux-gnu
+          qemu-aarch64 -L /usr/aarch64-linux-gnu /tmp/arm/build/app
+
+  windows:
+    name: Windows (MSYS2, best effort)
+    runs-on: windows-latest
+    continue-on-error: true
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: msys2 {0}
+    env:
+      CC: gcc
+      AR: ar
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: mingw-w64-x86_64-gcc
+
+      - name: Build bootstrap compiler
+        run: bash ./tools/build_bootstrap.sh
+
+      - name: Build compiler
+        run: ./build/psc-stage0.exe build .
+
+      - name: Smoke test
+        run: |
+          mkdir -p /tmp/winhello/src
+          printf '[build]\nentry = "src/main.pengu"\noutput = "exe"\noutput_name = "hello"\n' > /tmp/winhello/pengu.toml
+          printf 'weave main into int:\n    calling print with "windows ok"\n    return 0\n' > /tmp/winhello/src/main.pengu
+          ./build/psc.exe build /tmp/winhello
+          ./build/psc.exe run /tmp/winhello

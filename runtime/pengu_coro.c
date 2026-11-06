@@ -21,6 +21,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #else
+#include <execinfo.h>
 #include <sys/mman.h>
 #include <unistd.h>
 #endif
@@ -59,16 +60,36 @@ typedef struct PenguCoro {
     uint64_t owner;
     struct PenguCoro *next_free;
     size_t slot_size;
+    /* Debug-only fiber trace: live list + last yield backtrace. */
+    struct PenguCoro *live_prev;
+    struct PenguCoro *live_next;
+    int bt_n;
+    void *bt[24];
 } PenguCoro;
 
 static _Atomic uint64_t g_owner_seq = 0;
 static PENGU_CORO_TLS uint64_t t_owner = 0;
 static PENGU_CORO_TLS PenguCoro *t_free_list = NULL;
 static PENGU_CORO_TLS size_t t_free_count = 0;
+static PENGU_CORO_TLS PenguCoro *t_live = NULL;
+static PENGU_CORO_TLS int t_trace = -1;
+
+static int pengu_coro_trace_enabled(void) {
+    if (t_trace < 0) {
+        const char *v = getenv("PENGU_FIBER_TRACE");
+        t_trace = (v != NULL && v[0] != '\0' && v[0] != '0') ? 1 : 0;
+    }
+    return t_trace;
+}
+
+void pengu_c_coro_dump(void);
 
 static void pengu_coro_panic(const char *msg) {
     fprintf(stderr, "[PENGU] coro: %s\n", msg);
     fflush(stderr);
+    if (pengu_coro_trace_enabled()) {
+        pengu_c_coro_dump();
+    }
     abort();
 }
 
@@ -175,6 +196,17 @@ static PenguCoro *pengu_coro_slot_alloc(void) {
 }
 
 static void pengu_coro_slot_free(PenguCoro *h) {
+    if (h->live_prev != NULL) {
+        h->live_prev->live_next = h->live_next;
+    } else {
+        t_live = h->live_next;
+    }
+    if (h->live_next != NULL) {
+        h->live_next->live_prev = h->live_prev;
+    }
+    h->live_prev = NULL;
+    h->live_next = NULL;
+    h->bt_n = 0;
     if (h->co != NULL) {
         mco_result r = mco_uninit(h->co);
         if (r != MCO_SUCCESS) {
@@ -243,6 +275,12 @@ void *pengu_c_coro_new(void (*run)(void *), void *box) {
         pengu_coro_panic("out of memory creating a coroutine");
     }
     pengu_coro_canary_set(h);
+    h->live_prev = NULL;
+    h->live_next = t_live;
+    if (t_live != NULL) {
+        t_live->live_prev = h;
+    }
+    t_live = h;
     return h;
 }
 
@@ -277,6 +315,30 @@ void pengu_c_coro_yield(void) {
     }
     PenguCoro *h = (PenguCoro *)mco_get_user_data(co);
     pengu_coro_canary_check(h);
+#if !defined(_WIN32)
+    if (pengu_coro_trace_enabled()) {
+        /* Do not call backtrace(): the unwinder crashes on minicoro's
+         * sentinel frame (0xdeaddeaddeaddead). Walk the frame-pointer chain
+         * instead; debug builds keep frame pointers (-O0 default). */
+        uintptr_t lo = (uintptr_t)h->co->stack_base;
+        uintptr_t hi = lo + h->co->stack_size;
+        uintptr_t *fp = (uintptr_t *)__builtin_frame_address(0);
+        int n = 0;
+        while (fp != NULL && n < (int)(sizeof(h->bt) / sizeof(h->bt[0]))) {
+            uintptr_t addr = (uintptr_t)fp;
+            if (addr < lo || addr + sizeof(uintptr_t) * 2 > hi) {
+                break;
+            }
+            h->bt[n++] = (void *)fp[1];
+            uintptr_t *next = (uintptr_t *)fp[0];
+            if (next <= fp) {
+                break;
+            }
+            fp = next;
+        }
+        h->bt_n = n;
+    }
+#endif
     mco_result r = mco_yield(co);
     if (r == MCO_STACK_OVERFLOW) {
         pengu_coro_panic("coroutine stack overflow; reduce recursion or move the work to a thread");
@@ -342,4 +404,44 @@ void pengu_c_coro_abandon(void *handle) {
         h->box = NULL;
     }
     pengu_coro_slot_free(h);
+}
+
+void pengu_c_coro_dump(void) {
+    size_t n = 0;
+    for (PenguCoro *h = t_live; h != NULL; h = h->live_next) {
+        n++;
+    }
+    fprintf(stderr, "[PENGU] fibers: %zu live on this thread", n);
+    if (!pengu_coro_trace_enabled()) {
+        fprintf(stderr, " (set PENGU_FIBER_TRACE=1 to capture yield stacks)");
+    }
+    fprintf(stderr, "\n");
+    for (PenguCoro *h = t_live; h != NULL; h = h->live_next) {
+        const char *state = "suspended";
+        if (h->co != NULL) {
+            mco_state st = mco_status(h->co);
+            if (st == MCO_RUNNING) state = "running";
+            else if (st == MCO_DEAD) state = "finished";
+        }
+        fprintf(stderr, "  fiber %p state=%s owner=%llu stack=%p size=%zu\n",
+                (void *)h, state, (unsigned long long)h->owner,
+                h->co != NULL ? h->co->stack_base : NULL,
+                h->co != NULL ? h->co->stack_size : (size_t)0);
+#if !defined(_WIN32)
+        if (h->bt_n > 0) {
+            char **syms = backtrace_symbols(h->bt, h->bt_n);
+            if (syms != NULL) {
+                for (int i = 0; i < h->bt_n; i++) {
+                    fprintf(stderr, "    #%d %s\n", i, syms[i]);
+                }
+                free(syms);
+            } else {
+                for (int i = 0; i < h->bt_n; i++) {
+                    fprintf(stderr, "    #%d %p\n", i, h->bt[i]);
+                }
+            }
+        }
+#endif
+    }
+    fflush(stderr);
 }

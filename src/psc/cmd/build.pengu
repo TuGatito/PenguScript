@@ -66,6 +66,9 @@ weave print_build_help into void:
     calling spark.println with "  TARGET                  .pengu file or project directory (default: cwd)"
     calling spark.println with "  --target=TRIPLE|wasm  host or wasm32-unknown-emscripten"
     calling spark.println with "  --profile=debug|release"
+    calling spark.println with "  --sanitize=address|undefined|thread"
+    calling spark.println with "  --split-codegen    una unidad C por módulo (exe nativo)"
+    calling spark.println with "  --jobs=N           compilaciones C en paralelo (con --split-codegen)"
     calling spark.println with "  --cc=NAME               C compiler (default: gcc/cc)"
     calling spark.println with "  --out=PATH              artifact path"
     calling spark.println with "  --exe                   link an executable even if the manifest says output=\"c\""
@@ -119,10 +122,13 @@ weave run_build with args as list of string into int:
     calling vf.push with "-c"
     calling vf.push with "--dce-scope"
     calling vf.push with "--target"
+    calling vf.push with "--sanitize"
+    calling vf.push with "--jobs"
     var lf as list of string is list of string
     calling lf.push with "--define"
     calling lf.push with "-D"
     var sf as list of string is list of string
+    calling sf.push with "--split-codegen"
     calling sf.push with "--verbose"
     calling sf.push with "--strict-c99"
     calling sf.push with "--release-unsafe"
@@ -217,6 +223,26 @@ weave run_build with args as list of string into int:
     set o.prune_native is (calling cliargs.enabled with (sigil of pr.args), "--prune-native") or prof == "release"
     set o.dce_scope_user is calling cliargs.enabled with (sigil of pr.args), "--tree-shake-user"
     set o.pch is calling cliargs.enabled with (sigil of pr.args), "--pch"
+    set o.split is calling cliargs.enabled with (sigil of pr.args), "--split-codegen"
+    var jval as string is calling cliargs.value with (sigil of pr.args), "--jobs"
+    if jval length > 0:
+        var jn as maybe int is calling spark.parse_int with jval
+        if jn.is_present and jn.value > 0:
+            set o.jobs is jn.value
+        banish jn
+    var san as string is calling cliargs.value with (sigil of pr.args), "--sanitize"
+    if san length > 0:
+        if san != "address" and san != "undefined" and san != "thread":
+            calling spark.eprintln with "psc build: --sanitize must be address, undefined or thread"
+            calling driver.free_options with (sigil of o)
+            calling cliargs.free_parse_result with (sigil of pr)
+            return 2
+        if san == "address":
+            set o.sanitize_kind is 1
+        else if san == "undefined":
+            set o.sanitize_kind is 2
+        else:
+            set o.sanitize_kind is 3
     var dscope as string is calling cliargs.value with (sigil of pr.args), "--dce-scope"
     if dscope == "user":
         set o.dce_scope_user is true
@@ -464,6 +490,9 @@ weave run_run with args as list of string into int:
         banish child
         return 1
     var art as string is r.artifact
+    # El build resolvió el target (posible `[build] target = wasm`):
+    # ejecutar con el target resuelto evita intentar exec de un .html.
+    set o.platform.is_wasm is r.is_wasm
     if path length > 0 and (calling archivum.is_file with path) and not no_cache and not ephemeral and not o.is_test and not o.platform.is_wasm:
         var txt2 as maybe string is calling archivum.read_text with path
         if txt2.is_present:
@@ -546,6 +575,14 @@ weave run_expand with args as list of string into int:
             calling targetmod.free with (sigil of o.platform)
             set o.platform is nt2
             set o.target_explicit is true
+        else if a == "--out":
+            if i + 1 >= args.len:
+                calling spark.eprintln with "psc expand: missing value for '--out'"
+                calling driver.free_options with (sigil of o)
+                return 2
+            banish out
+            set out is calling copy_path with (args at (i + 1))
+            set i is i + 1
         else if calling starts_with with a, "--out=":
             var ov as string is a at 6 to (a length)
             banish out

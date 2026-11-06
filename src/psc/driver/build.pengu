@@ -4,6 +4,7 @@
 
 import std.archivum
 import std.builder
+import std.chronicle
 import std.compass
 import std.diagnostic as diag
 import std.digest
@@ -65,6 +66,14 @@ rune BuildOptions:
     frozen as bool
     ## `psc run`/`psc test` sobre un proyecto de librería: fuerza `exe`.
     force_exe as bool
+    ## Instrumenta con `--coverage` (gcov) y conserva `.gcno/.gcda`.
+    coverage as bool
+    ## Perfil de sanitizer: 0=none, 1=address, 2=undefined, 3=thread.
+    sanitize_kind as int
+    ## Emite una unidad C por módulo y las compila por separado (F7).
+    split as bool
+    ## Número máximo de compilaciones C en paralelo (0 = secuencial).
+    jobs as int
     defines as list of string
 
 ## Resultado de un build.
@@ -76,6 +85,9 @@ rune BuildResult:
     error as string
     artifact as string
     bundle_path as string
+    ## Target resuelto (manifiesto o CLI): `psc run`/`psc test` lo necesitan
+    ## para ejecutar un artefacto wasm como wasm aunque el host sea nativo.
+    is_wasm as bool
 
 ## Copia un string.
 ##
@@ -113,29 +125,438 @@ weave ends_with with s as string, suffix as string into bool:
         set i is i + 1
     return true
 
-## Añade a la clave de caché el contenido de todos los archivos de un directorio.
-##
-## Los `include "..."`, los `.c` de `c_dir` y los headers locales cambian el
-## artefacto pero no estaban en la clave: un header editado reutilizaba el
-## binario viejo (bug 20).
+## Compara dos strings por bytes (orden lexicográfico sin locale).
 ##
 ## ## Memoria
-## Libera los strings temporales.
-weave push_dir_hashes with cparts as ref to list of string, dir as string into void:
+## No asigna.
+weave str_cmp with a as string, b as string into int:
+    var ab as ref to frozen byte is bytes of a
+    var bb as ref to frozen byte is bytes of b
+    var n as int is a length
+    if (b length) < n:
+        set n is b length
+    var i as int is 0
+    while i < n:
+        var ca as int is (ab at i) to int
+        var cb as int is (bb at i) to int
+        if ca < cb:
+            return -1
+        if ca > cb:
+            return 1
+        set i is i + 1
+    if (a length) < (b length):
+        return -1
+    if (a length) > (b length):
+        return 1
+    return 0
+
+## `true` si `s` empieza por `prefix`.
+##
+## ## Memoria
+## No asigna.
+weave str_starts with s as string, prefix as string into bool:
+    var m as int is prefix length
+    if m > (s length):
+        return false
+    var sb as ref to frozen byte is bytes of s
+    var pb as ref to frozen byte is bytes of prefix
+    var i as int is 0
+    while i < m:
+        if ((sb at i) to int) != ((pb at i) to int):
+            return false
+        set i is i + 1
+    return true
+
+## `true` si `s` contiene `needle`.
+##
+## ## Memoria
+## No asigna.
+weave str_contains with s as string, needle as string into bool:
+    var n as int is s length
+    var m as int is needle length
+    if m == 0:
+        return true
+    if m > n:
+        return false
+    var sb as ref to frozen byte is bytes of s
+    var nb as ref to frozen byte is bytes of needle
+    var i as int is 0
+    while i <= n - m:
+        var j as int is 0
+        var same as bool is true
+        while j < m:
+            if ((sb at (i + j)) to int) != ((nb at j) to int):
+                set same is false
+                break
+            set j is j + 1
+        if same:
+            return true
+        set i is i + 1
+    return false
+
+## Ordena una lista de strings in place (inserción estable).
+##
+## La clave de caché debe ser determinista: `find_files` devuelve el orden del
+## sistema de archivos, que cambia entre ejecuciones y plataformas.
+##
+## ## Memoria
+## No copia ni libera strings; mueve las celdas de la lista.
+weave sort_strings_in_place with xs as list of string into void:
+    var i as int is 1
+    while i < xs.len:
+        var cur as string is (xs at i)
+        var j as int is i - 1
+        while j >= 0:
+            if (calling str_cmp with (xs at j), cur) <= 0:
+                break
+            set xs at (j + 1) is (xs at j)
+            set j is j - 1
+        set xs at (j + 1) is cur
+        set i is i + 1
+
+## `true` si la extensión de `path` está en la familia `mode`.
+##
+## Modos: `pengu` (.pengu), `c` (.c/.h/.hpp/.inc), `h` (.h/.hpp/.inc),
+## `all` (cualquier archivo).
+##
+## ## Memoria
+## Libera la extensión temporal.
+weave ext_allowed with path as string, mode as string into bool:
+    if mode == "all":
+        return true
+    var ex as string is calling compass.cp_ext with path
+    var ok as bool is false
+    if mode == "pengu":
+        set ok is ex == ".pengu"
+    else if mode == "c":
+        set ok is ex == ".c" or ex == ".h" or ex == ".hpp" or ex == ".inc"
+    else if mode == "h":
+        set ok is ex == ".h" or ex == ".hpp" or ex == ".inc"
+    banish ex
+    return ok
+
+## `true` si `dir` ya se hasheó (dedup de std/include dirs).
+##
+## ## Memoria
+## No asigna.
+weave seen_has with seen as ref to list of string, dir as string into bool:
+    var i as int is 0
+    while i < seen->len:
+        if (seen at i) == dir:
+            return true
+        set i is i + 1
+    return false
+
+## Añade a `cparts` el path y el hash de cada archivo de `dir`.
+##
+## `mode` filtra por extensión; `skip` es el directorio de build del proyecto
+## (nunca entra en la clave). Los archivos se ordenan para que la clave sea
+## determinista. `seen` deduplica directorios ya hasheados en la misma clave.
+##
+## ## Memoria
+## Libera la lista de archivos y los hashes temporales.
+weave push_tree_hashes with cparts as ref to list of string, dir as string, mode as string, skip as string, seen as ref to list of string into void:
+    if dir length == 0:
+        return
     if not (calling archivum.is_dir with dir):
         return
+    if calling seen_has with seen, dir:
+        return
+    calling seen.push with (calling copy with dir)
     var files as list of string is calling archivum.find_files with dir, true
+    calling sort_strings_in_place with files
     var i as int is 0
     while i < files.len:
         var f as string is (files at i)
+        var excluded as bool is false
+        if skip length > 0:
+            if calling str_starts with f, skip:
+                set excluded is true
+        if (not excluded) and (calling str_contains with f, "/.git/"):
+            set excluded is true
+        if (not excluded) and (calling str_contains with f, "/node_modules/"):
+            set excluded is true
+        if (not excluded) and (calling str_contains with f, "/.cache/"):
+            set excluded is true
+        if excluded or (not (calling ext_allowed with f, mode)):
+            set i is i + 1
+            continue
         calling cparts.push with (calling copy with f)
-        var fb as maybe string is calling archivum.read_bytes with f
-        if fb.is_present:
-            var h as string is calling digest.sha256_raw with fb.value
-            calling cparts.push with h
-        banish fb
+        var h as maybe string is calling digest.sha256_file with f
+        if h.is_present:
+            calling cparts.push with h.value
+        banish h
         set i is i + 1
     banish files
+
+## Añade a la clave el hash de un archivo suelto (manifest, lock, runtime).
+##
+## ## Memoria
+## Libera el hash temporal.
+weave push_file_hash with cparts as ref to list of string, path as string into void:
+    if not (calling archivum.is_file with path):
+        return
+    calling cparts.push with (calling copy with path)
+    var h as maybe string is calling digest.sha256_file with path
+    if h.is_present:
+        calling cparts.push with h.value
+    banish h
+
+## `true` si dos archivos tienen el mismo contenido.
+##
+## Se usa cuando copiar la entrada de caché falla porque el destino es el
+## binario que se está ejecutando (`ETXTBSY`): en ese caso el artefacto ya es
+## el deseado y el build es un no-op.
+##
+## ## Memoria
+## Libera las lecturas temporales.
+weave same_file_content with a as string, b as string into bool:
+    var ab as maybe string is calling archivum.read_bytes with a
+    var bb as maybe string is calling archivum.read_bytes with b
+    var same as bool is false
+    if ab.is_present and bb.is_present:
+        var ah as string is calling digest.sha256_raw with ab.value
+        var bh as string is calling digest.sha256_raw with bb.value
+        set same is ah == bh
+        banish ah
+        banish bh
+    banish ab
+    banish bb
+    return same
+
+## Construye la clave de caché ANTES de sema/codegen.
+##
+## La clave incluye todo lo que puede cambiar el artefacto: compilador, target,
+## flags del manifiesto y del CLI (incluidos `cflags`, `links`, `lib_dirs`), el
+## runtime, el manifiesto, el lock y el contenido de todos los árboles de
+## fuentes (proyecto, dependencias y stdlib). El directorio de build queda
+## excluido: sus artefactos no son entradas.
+##
+## ## Memoria
+## Devuelve string owned; libera todas las partes temporales.
+weave compute_cache_key with o as ref to BuildOptions, man as ref to Manifest, p as ref to paths.Paths, tc as ref to toolchain.Toolchain, eff as ref to target.Target, base as string, entry as string, is_project as bool, is_file as bool, eff_output as string, out_name as string, dep_dirs as list of string into string:
+    var parts as list of string is list of string
+    var cbytes as maybe string is calling archivum.read_bytes with o->compiler_path
+    if cbytes.is_present:
+        var ch as string is calling digest.sha256_hex with cbytes.value
+        calling parts.push with ch
+    else:
+        calling parts.push with (calling copy with o->compiler_path)
+    banish cbytes
+    calling parts.push with "psc-cache-2"
+    calling parts.push with (calling copy with eff->triple)
+    calling parts.push with (calling copy with eff->wasm_target)
+    calling parts.push with (calling copy with eff->os)
+    calling parts.push with (calling copy with eff->arch)
+    calling parts.push with (calling copy with tc->cc)
+    calling parts.push with (calling copy with o->profile)
+    calling parts.push with (calling copy with o->cc)
+    calling parts.push with (calling copy with eff_output)
+    calling parts.push with (calling copy with out_name)
+    calling parts.push with (calling copy with man->output)
+    calling parts.push with (calling copy with man->target)
+    calling parts.push with (calling copy with man->name)
+    if o->is_test:
+        calling parts.push with "test"
+    else:
+        calling parts.push with "app"
+    if o->test_json:
+        calling parts.push with "json"
+    else:
+        calling parts.push with "plain"
+    if o->strict_c99:
+        calling parts.push with "strict"
+    if o->release_unsafe:
+        calling parts.push with "unsafe"
+    if o->no_dce:
+        calling parts.push with "nodce"
+    if o->dce_scope_user:
+        calling parts.push with "userdce"
+    if o->prune_types:
+        calling parts.push with "prunetypes"
+    if o->prune_native:
+        calling parts.push with "prunenative"
+    if o->no_line_markers:
+        calling parts.push with "nolines"
+    if o->force_exe:
+        calling parts.push with "forceexe"
+    if o->coverage:
+        calling parts.push with "coverage"
+    if o->split:
+        calling parts.push with "split"
+    if o->sanitize_kind == 1:
+        calling parts.push with "san1"
+    else if o->sanitize_kind == 2:
+        calling parts.push with "san2"
+    else if o->sanitize_kind == 3:
+        calling parts.push with "san3"
+    if is_file:
+        calling parts.push with "file"
+    if man->assets_embed:
+        calling parts.push with "assets-embed"
+    # Flags del toolchain: antes faltaban y un `-D` nuevo reutilizaba el
+    # binario viejo (bug de caché observado en --frozen/sanitizers).
+    for f in tc->cflags:
+        calling parts.push with (calling copy with f)
+    for d in tc->links:
+        calling parts.push with (calling copy with d)
+    for d in tc->lib_dirs:
+        calling parts.push with (calling copy with d)
+    for d in man->ldflags:
+        calling parts.push with (calling copy with d)
+    var skip as string is "{base}/{man->build_dir}"
+    calling push_file_hash with (sigil of parts), "{base}/pengu.toml"
+    calling push_file_hash with (sigil of parts), "{base}/pengu.lock"
+    calling push_file_hash with (sigil of parts), entry
+    var seen as list of string is list of string
+    if is_project:
+        calling push_tree_hashes with (sigil of parts), "{base}/{man->src_dir}", "pengu", skip, (sigil of seen)
+        calling push_tree_hashes with (sigil of parts), "{base}/{man->lib_dir}", "pengu", skip, (sigil of seen)
+        calling push_tree_hashes with (sigil of parts), "{base}/{man->c_dir}", "c", skip, (sigil of seen)
+        calling push_tree_hashes with (sigil of parts), "{base}/{man->include_dir}", "c", skip, (sigil of seen)
+        calling push_tree_hashes with (sigil of parts), "{base}/{man->assets_dir}", "all", skip, (sigil of seen)
+    else:
+        var fdir as string is calling compass.cp_dirname with entry
+        calling push_tree_hashes with (sigil of parts), fdir, "pengu", skip, (sigil of seen)
+        banish fdir
+    var di as int is 0
+    while di < dep_dirs.len:
+        calling push_tree_hashes with (sigil of parts), (dep_dirs at di), "pengu", skip, (sigil of seen)
+        set di is di + 1
+    var si as int is 0
+    while si < p->std_dirs.len:
+        calling push_tree_hashes with (sigil of parts), (p->std_dirs at si), "pengu", skip, (sigil of seen)
+        set si is si + 1
+    # Includes: path (orden de búsqueda) + headers. El build dir se excluye
+    # por completo: existe o no según la fase en que se consulte la caché y su
+    # contenido es salida, no entrada.
+    var bskip as bool is false
+    var ii as int is 0
+    while ii < tc->include_dirs.len:
+        var inc as string is (tc->include_dirs at ii)
+        set bskip is inc == skip
+        if (not bskip) and (skip length > 0) and (inc length > skip length) and (calling str_starts with inc, skip):
+            set bskip is true
+        if not bskip:
+            calling parts.push with (calling copy with inc)
+            calling push_tree_hashes with (sigil of parts), inc, "h", skip, (sigil of seen)
+        set ii is ii + 1
+    banish bskip
+    calling push_file_hash with (sigil of parts), p->runtime_archive
+    calling push_file_hash with (sigil of parts), p->wasm_shell
+    calling push_file_hash with (sigil of parts), p->js_library
+    calling push_file_hash with (sigil of parts), p->js_pre
+    var ck as string is calling cache.key with parts
+    var ci as int is 0
+    while ci < parts.len:
+        banish parts at ci
+        set ci is ci + 1
+    banish parts
+    var se as int is 0
+    while se < seen.len:
+        banish seen at se
+        set se is se + 1
+    banish seen
+    banish skip
+    return ck
+
+## Fingerprints `ruta\tsha256` de los módulos semánticos.
+##
+## Se guardan en el build dir para explicar, con `--verbose`, qué módulo
+## invalidó la caché entre dos builds. No forman parte de la clave: la clave
+## ya hashea cada fuente; esto solo mejora el diagnóstico.
+##
+## ## Memoria
+## Devuelve una lista owned.
+weave module_fingerprints with sr as ref to sema_api.SemaResult into list of string:
+    var out as list of string is list of string
+    for mm in sr->program->modules:
+        var h as string is calling digest.sha256_hex with mm.source.text
+        var line as string is "{mm.source.path}\t{h}"
+        calling out.push with line
+        banish h
+    return out
+
+## Ruta de una línea `ruta\tsha`.
+##
+## ## Memoria
+## Devuelve string owned.
+weave fingerprint_path with line as string into string:
+    var i as int is 0
+    var b as ref to frozen byte is bytes of line
+    while i < line length:
+        if ((b at i) to int) == 9:
+            return line at 0 to i
+        set i is i + 1
+    return line at 0 to (line length)
+
+## Hash de una línea `ruta\tsha`.
+##
+## ## Memoria
+## Devuelve string owned (`""` si no hay tabulador).
+weave fingerprint_hash with line as string into string:
+    var i as int is 0
+    var b as ref to frozen byte is bytes of line
+    while i < line length:
+        if ((b at i) to int) == 9:
+            return line at (i + 1) to (line length)
+        set i is i + 1
+    return ""
+
+## `true` si `lines` contiene una fingerprint para `path`.
+##
+## ## Memoria
+## No retiene nada.
+weave fingerprint_has with lines as list of string, path as string into bool:
+    for line in lines:
+        var p as string is calling fingerprint_path with line
+        var eq as bool is p == path
+        banish p
+        if eq:
+            return true
+    return false
+
+## Hash guardado para `path`.
+##
+## ## Memoria
+## Devuelve string owned (`""` si no existe).
+weave fingerprint_of with lines as list of string, path as string into string:
+    for line in lines:
+        var p as string is calling fingerprint_path with line
+        if p == path:
+            banish p
+            return calling fingerprint_hash with line
+        banish p
+    return ""
+
+## Imprime módulos añadidos, cambiados y eliminados.
+##
+## ## Memoria
+## No retiene nada.
+weave report_fingerprint_changes with old_lines as list of string, cur_lines as list of string into void:
+    for line in cur_lines:
+        var p as string is calling fingerprint_path with line
+        var h as string is calling fingerprint_hash with line
+        if not calling fingerprint_has with old_lines, p:
+            var m as string is "cache: module added {p}"
+            calling spark.eprintln with m
+            banish m
+        else:
+            var oh as string is calling fingerprint_of with old_lines, p
+            if oh != h:
+                var mc as string is "cache: module changed {p}"
+                calling spark.eprintln with mc
+                banish mc
+            banish oh
+        banish h
+        banish p
+    for line in old_lines:
+        var p as string is calling fingerprint_path with line
+        if (p length > 0) and not (calling fingerprint_has with cur_lines, p):
+            var mr as string is "cache: module removed {p}"
+            calling spark.eprintln with mr
+            banish mr
+        banish p
 
 ## Directorio actual.
 ##
@@ -189,7 +610,7 @@ weave find_manifest_root with start as string into string:
 ## ## Memoria
 ## Strings owned; liberar con `free_options`.
 weave default_options into BuildOptions:
-    return with target is "", platform is (calling targetmod.host), target_explicit is false, profile is (calling copy with "debug"), cc is "", out_path is "", verbose is false, strict_c99 is false, release_unsafe is false, is_library is false, is_test is false, test_json is false, bundle_only is false, check_only is false, no_dce is false, prune_types is false, no_line_markers is false, prune_native is false, dce_scope_user is false, pch is false, compiler_path is "", no_cache is false, clear_cache is false, ephemeral is false, locked is false, frozen is false, force_exe is false, defines is list of string
+    return with target is "", platform is (calling targetmod.host), target_explicit is false, profile is (calling copy with "debug"), cc is "", out_path is "", verbose is false, strict_c99 is false, release_unsafe is false, is_library is false, is_test is false, test_json is false, bundle_only is false, check_only is false, no_dce is false, prune_types is false, no_line_markers is false, prune_native is false, dce_scope_user is false, pch is false, compiler_path is "", no_cache is false, clear_cache is false, ephemeral is false, locked is false, frozen is false, force_exe is false, coverage is false, sanitize_kind is 0, split is false, jobs is 0, defines is list of string
 
 ## Libera opciones.
 ##
@@ -269,6 +690,84 @@ weave emar_for with cc as string into string:
 ## `std.net` usa sockets BSD (no existen en el navegador; Node necesita `ws`);
 ## dynlib/ffi/secrets/petitio dependen de librerías nativas que no están en el
 ## sysroot wasm. Se rechazan antes de llegar a un error de linker.
+## Clave de caché de un objeto de unidad: cabecera + fuente + flags + cc.
+weave unit_object_key with header_hash as string, src as string, cc as string, flags as list of string into string:
+    var parts as list of string is list of string
+    calling parts.push with (calling copy with "unit-object-v1")
+    calling parts.push with (calling copy with header_hash)
+    var sm as maybe string is calling digest.sha256_file with src
+    if sm.is_present:
+        calling parts.push with (calling copy with sm.value)
+    else:
+        calling parts.push with (calling copy with "")
+    banish sm
+    calling parts.push with (calling copy with cc)
+    for f in flags:
+        calling parts.push with (calling copy with f)
+    var k as string is calling cache.key with parts
+    for x in parts:
+        banish x
+    banish parts
+    return k
+
+## Compila `srcs` a `objs` en paralelo (máximo `jobs` procesos).
+##
+## Devuelve 0 si todos los objetos se generaron. Windows usa `spawn_argv`,
+## que no implementa fork: allí cae a ejecución secuencial.
+##
+## ## Memoria
+## Los argv temporales se liberan tras cada spawn.
+weave compile_units with cc as string, flags as list of string, srcs as list of string, objs as list of string, jobs as int into int:
+    var limit as int is jobs
+    if limit < 1:
+        set limit is 1
+    var running as list of int is list of int
+    var failed as bool is false
+    var i as int is 0
+    while i < srcs.len and not failed:
+        var src as string is (srcs at i)
+        var obj as string is (objs at i)
+        var argv as list of string is list of string
+        calling argv.push with (calling copy with cc)
+        for f in flags:
+            calling argv.push with (calling copy with f)
+        calling argv.push with "-c"
+        calling argv.push with (calling copy with src)
+        calling argv.push with "-o"
+        calling argv.push with (calling copy with obj)
+        var pid as int is calling proc.spawn_argv with argv
+        if pid <= 0:
+            var code as int is calling proc.run_argv with argv
+            if code != 0:
+                set failed is true
+        else:
+            calling running.push with pid
+        for a in argv:
+            banish a
+        banish argv
+        if running.len >= limit:
+            var w as int is 0
+            while w < running.len:
+                var rp as int is (running at w)
+                var rc as int is calling proc.wait_pid with rp
+                if rc != 0:
+                    set failed is true
+                set w is w + 1
+            banish running
+            set running is list of int
+        set i is i + 1
+    var w2 as int is 0
+    while w2 < running.len:
+        var rp2 as int is (running at w2)
+        var rc2 as int is calling proc.wait_pid with rp2
+        if rc2 != 0:
+            set failed is true
+        set w2 is w2 + 1
+    banish running
+    if failed:
+        return 1
+    return 0
+
 weave wasm_unsupported with p as ref to program.SemaProgram into string:
     var i as int is 0
     while i < p->modules.len:
@@ -334,20 +833,20 @@ weave build with o as BuildOptions into BuildResult:
             banish target
             banish start
             banish root
-            return with ok is false, error is lm2, artifact is "", bundle_path is ""
+            return with ok is false, error is lm2, artifact is "", bundle_path is "", is_wasm is false
         banish leg
         banish cwd
         banish target
         banish start
         banish root
-        return with ok is false, error is (calling copy with "no pengu.toml found; pass a file or a project directory"), artifact is "", bundle_path is ""
+        return with ok is false, error is (calling copy with "no pengu.toml found; pass a file or a project directory"), artifact is "", bundle_path is "", is_wasm is false
     if not man.ok:
         var emsg as string is man.error
         banish cwd
         banish target
         banish start
         banish root
-        return with ok is false, error is emsg, artifact is "", bundle_path is ""
+        return with ok is false, error is emsg, artifact is "", bundle_path is "", is_wasm is false
     # Target efectivo: `--target` explícito manda; si no, `[build] target`.
     var eff as targetmod.Target is calling targetmod.clone with o.platform
     defer calling targetmod.free with (sigil of eff)
@@ -361,7 +860,7 @@ weave build with o as BuildOptions into BuildResult:
             banish start
             banish root
             calling manifest.free_manifest with (sigil of man)
-            return with ok is false, error is terr, artifact is "", bundle_path is ""
+            return with ok is false, error is terr, artifact is "", bundle_path is "", is_wasm is false
         calling targetmod.free with (sigil of eff)
         set eff is parsed
     if eff.wasm_target == "wasi":
@@ -370,7 +869,7 @@ weave build with o as BuildOptions into BuildResult:
         banish start
         banish root
         calling manifest.free_manifest with (sigil of man)
-        return with ok is false, error is (calling copy with "WASI is not supported; use --target wasm32-unknown-emscripten"), artifact is "", bundle_path is ""
+        return with ok is false, error is (calling copy with "WASI is not supported; use --target wasm32-unknown-emscripten"), artifact is "", bundle_path is "", is_wasm is false
     var entry as string is ""
     if is_file:
         set entry is calling compass.cp_absolute with target
@@ -386,7 +885,7 @@ weave build with o as BuildOptions into BuildResult:
         banish root
         banish entry
         calling manifest.free_manifest with (sigil of man)
-        return with ok is false, error is emsg2, artifact is "", bundle_path is ""
+        return with ok is false, error is emsg2, artifact is "", bundle_path is "", is_wasm is false
     var p as paths.Paths is calling paths.find_paths with base, eff
     if not p.ok and not o.check_only:
         var perr as string is p.error
@@ -397,7 +896,24 @@ weave build with o as BuildOptions into BuildResult:
         banish entry
         calling manifest.free_manifest with (sigil of man)
         calling paths.free_paths with (sigil of p)
-        return with ok is false, error is perr, artifact is "", bundle_path is ""
+        return with ok is false, error is perr, artifact is "", bundle_path is "", is_wasm is false
+    if (not eff.is_host) and (not eff.is_wasm):
+        var xarch as string is "{p.repo_root}/build/lib/{eff.triple}/libpengu_runtime.a"
+        if calling archivum.exists with xarch:
+            banish p.runtime_archive
+            set p.runtime_archive is calling copy with xarch
+        else:
+            var xerr as string is "cross runtime missing: {xarch}; build it with: CC=<cross-gcc> AR=<cross-ar> RUNTIME_OUT=build/lib/{eff.triple} bash tools/build_runtime.sh"
+            banish xarch
+            banish cwd
+            banish target
+            banish start
+            banish root
+            banish entry
+            calling manifest.free_manifest with (sigil of man)
+            calling paths.free_paths with (sigil of p)
+            return with ok is false, error is xerr, artifact is "", bundle_path is "", is_wasm is false
+        banish xarch
     var tc as toolchain.Toolchain is calling toolchain.resolve with (sigil of man), (sigil of p), eff, o.cc, o.profile, o.strict_c99, o.release_unsafe
     if o.verbose:
         var pdbg as string is "paths: base={man.base_dir} incdir={man.include_dir} libdir={man.lib_dir} archive={p.runtime_archive} include={p.runtime_include} stds={p.std_dirs.len} incs={tc.include_dirs.len} libs={tc.lib_dirs.len}"
@@ -413,7 +929,7 @@ weave build with o as BuildOptions into BuildResult:
         calling manifest.free_manifest with (sigil of man)
         calling paths.free_paths with (sigil of p)
         calling toolchain.free_toolchain with (sigil of tc)
-        return with ok is false, error is terr, artifact is "", bundle_path is ""
+        return with ok is false, error is terr, artifact is "", bundle_path is "", is_wasm is false
     # F3: opciones propias, sin compartir ownership con Manifest/Paths.
     var so as sopts.SemaOptions is calling sopts.default_options with (calling copy with man.base_dir)
     calling targetmod.apply_sema with eff, (sigil of so)
@@ -450,7 +966,7 @@ weave build with o as BuildOptions into BuildResult:
                     calling manifest.free_manifest with (sigil of man)
                     calling paths.free_paths with (sigil of p)
                     calling toolchain.free_toolchain with (sigil of tc)
-                    return with ok is false, error is "E0061: dependency missing and --frozen forbids network/install", artifact is "", bundle_path is ""
+                    return with ok is false, error is "E0061: dependency missing and --frozen forbids network/install", artifact is "", bundle_path is "", is_wasm is false
                 banish vt
         var g as presolve.Graph is calling presolve.resolve with base, man.lib_dir, dep_ds
         if not g.ok:
@@ -461,7 +977,7 @@ weave build with o as BuildOptions into BuildResult:
             calling manifest.free_manifest with (sigil of man)
             calling paths.free_paths with (sigil of p)
             calling toolchain.free_toolchain with (sigil of tc)
-            return with ok is false, error is "dependencies", artifact is "", bundle_path is ""
+            return with ok is false, error is "dependencies", artifact is "", bundle_path is "", is_wasm is false
         if o.locked or o.frozen:
             var lm as maybe plock.Lock is calling plock.read with base
             if not lm.is_present:
@@ -470,7 +986,7 @@ weave build with o as BuildOptions into BuildResult:
                 calling manifest.free_manifest with (sigil of man)
                 calling paths.free_paths with (sigil of p)
                 calling toolchain.free_toolchain with (sigil of tc)
-                return with ok is false, error is "E0061: pengu.lock missing (--locked/--frozen)", artifact is "", bundle_path is ""
+                return with ok is false, error is "E0061: pengu.lock missing (--locked/--frozen)", artifact is "", bundle_path is "", is_wasm is false
             var bad as bool is false
             for gp in g.packages:
                 var found as bool is false
@@ -487,7 +1003,7 @@ weave build with o as BuildOptions into BuildResult:
                 calling manifest.free_manifest with (sigil of man)
                 calling paths.free_paths with (sigil of p)
                 calling toolchain.free_toolchain with (sigil of tc)
-                return with ok is false, error is "E0061: pengu.lock is out of date (--locked/--frozen)", artifact is "", bundle_path is ""
+                return with ok is false, error is "E0061: pengu.lock is out of date (--locked/--frozen)", artifact is "", bundle_path is "", is_wasm is false
             banish lm
         else:
             var lk as plock.Lock is with target is "x86_64-unknown-linux-gnu", packages is list of plock.Package
@@ -508,7 +1024,137 @@ weave build with o as BuildOptions into BuildResult:
     banish so.compiler
     set so.compiler is (calling copy with ccn)
     banish ccn
+    # --- Fast path: clave y acierto ANTES de sema/codegen ------------------
+    # El artefacto depende solo de entradas que ya conocemos aquí (manifiesto,
+    # toolchain, fuentes y runtime). Consultar la caché antes de sema convierte
+    # un no-op de ~25 s en una copia de milisegundos.
+    var eff_output as string is man.output
+    if o.force_exe:
+        set eff_output is "exe"
+    var out_kind as string is eff_output
+    var out_name as string is man.output_name
+    if is_file:
+        var stem as string is calling compass.cp_stem with entry
+        set out_name is stem
+    if o.is_test:
+        set out_name is "{out_name}_test"
+    var build_dir as string is ""
+    var bundle as string is ""
+    var artifact as string is ""
+    var ck as string is ""
+    var cache_ok as bool is (not o.no_cache) and (not o.ephemeral) and (not o.check_only) and (not o.bundle_only) and (man.output != "c" or o.force_exe) and not (eff.is_wasm and out_kind == "exe")
+    if not o.check_only:
+        set build_dir is "{base}/{man.build_dir}"
+        if not calling archivum.create_dir with build_dir, true:
+            var bderr as string is "cannot create build directory: {build_dir}"
+            banish cwd
+            banish target
+            banish start
+            banish root
+            banish entry
+            banish build_dir
+            banish bundle
+            banish artifact
+            banish ck
+            banish dep_ds
+            calling sopts.free_options with (sigil of so)
+            calling manifest.free_manifest with (sigil of man)
+            calling paths.free_paths with (sigil of p)
+            calling toolchain.free_toolchain with (sigil of tc)
+            return with ok is false, error is bderr, artifact is "", bundle_path is "", is_wasm is false
+        set bundle is "{build_dir}/bundle.c"
+        if o.out_path length > 0:
+            set artifact is calling compass.cp_absolute with o.out_path
+            if eff.is_wasm and out_kind == "exe" and not (calling ends_with with artifact, ".html") and not (calling ends_with with artifact, ".js") and not (calling ends_with with artifact, ".mjs"):
+                set artifact is "{artifact}.html"
+        else:
+            if out_kind == "obj":
+                set artifact is "{build_dir}/{out_name}.o"
+            else if out_kind == "static":
+                set artifact is "{build_dir}/lib{out_name}.a"
+            else if out_kind == "shared":
+                set artifact is "{build_dir}/lib{out_name}.so"
+            else if out_kind == "exe" and eff.is_wasm:
+                set artifact is "{build_dir}/{out_name}.html"
+            else if out_kind == "exe" and so.os_name == "windows":
+                set artifact is "{build_dir}/{out_name}.exe"
+            else:
+                set artifact is "{build_dir}/{out_name}"
+        var adir as string is calling compass.cp_dirname with artifact
+        if adir length > 0:
+            calling archivum.create_dir with adir, true
+        banish adir
+        if cache_ok:
+            set ck is calling compute_cache_key with (sigil of o), (sigil of man), (sigil of p), (sigil of tc), (sigil of eff), base, entry, is_project, is_file, eff_output, out_name, so.dep_dirs
+            var hit as string is calling cache.get with ck
+            if hit length > 0:
+                var cok as bool is calling archivum.copy_file with hit, artifact, true
+                if (not cok) and (calling same_file_content with hit, artifact):
+                    set cok is true
+                if cok:
+                    var cargsx as list of string is list of string
+                    calling cargsx.push with "chmod"
+                    calling cargsx.push with "+x"
+                    calling cargsx.push with (calling copy with artifact)
+                    var chx as int is calling proc.run_argv with cargsx
+                    calling free_strings with cargsx
+                    banish hit
+                    banish ck
+                    banish cwd
+                    banish target
+                    banish start
+                    banish root
+                    banish entry
+                    banish build_dir
+                    banish dep_ds
+                    calling sopts.free_options with (sigil of so)
+                    calling manifest.free_manifest with (sigil of man)
+                    calling paths.free_paths with (sigil of p)
+                    calling toolchain.free_toolchain with (sigil of tc)
+                    return with ok is true, error is "", artifact is artifact, bundle_path is bundle, is_wasm is eff.is_wasm
+                banish hit
+    # --- Fast path de `psc check`: un proyecto ya verificado no vuelve a
+    # ejecutar sema. La clave cubre fuentes, flags, toolchain y runtime, así que
+    # cualquier cambio real la invalida.
+    var check_ck as string is ""
+    if o.check_only and not o.no_cache and not o.ephemeral and p.ok and tc.ok:
+        set check_ck is calling compute_cache_key with (sigil of o), (sigil of man), (sigil of p), (sigil of tc), (sigil of eff), base, entry, is_project, is_file, "check", "", so.dep_dirs
+        if calling cache.has with check_ck:
+            banish check_ck
+            banish cwd
+            banish target
+            banish start
+            banish root
+            banish entry
+            banish dep_ds
+            calling sopts.free_options with (sigil of so)
+            calling manifest.free_manifest with (sigil of man)
+            calling paths.free_paths with (sigil of p)
+            calling toolchain.free_toolchain with (sigil of tc)
+            return with ok is true, error is "", artifact is "", bundle_path is "", is_wasm is eff.is_wasm
+    if o.verbose and check_ck length > 0:
+        var cm as string is "cache: check key={check_ck}"
+        calling spark.eprintln with cm
+        banish cm
+    if o.verbose and ck length > 0:
+        var km as string is "cache: key={ck}"
+        calling spark.eprintln with km
+        banish km
+    var ptime as bool is false
+    var te as maybe string is calling rites.getenv with "PSC_TIME"
+    if te.is_present:
+        set ptime is true
+    banish te
+    var t_sema as int is 0
+    var t_cg as int is 0
+    if ptime:
+        set t_sema is calling chronicle.monotonic_ms
     var sr as sema_api.SemaResult is calling sema_api.check_file with entry, so
+    if ptime:
+        var dt as int is (calling chronicle.monotonic_ms) - t_sema
+        var m as string is "psc: sema {dt} ms"
+        calling spark.eprintln with m
+        banish m
     var bag_ref as ref to diag.DiagnosticBag is (sigil of sr.program->diagnostics)
     var bag_v as diag.DiagnosticBag is sr.program->diagnostics
     if not sr.ok or bag_ref->error_count > 0:
@@ -524,7 +1170,7 @@ weave build with o as BuildOptions into BuildResult:
         calling manifest.free_manifest with (sigil of man)
         calling paths.free_paths with (sigil of p)
         calling toolchain.free_toolchain with (sigil of tc)
-        return with ok is false, error is (calling copy with "semantic errors"), artifact is "", bundle_path is ""
+        return with ok is false, error is (calling copy with "semantic errors"), artifact is "", bundle_path is "", is_wasm is false
     if eff.is_wasm:
         var uns as string is calling wasm_unsupported with sr.program
         if uns length > 0:
@@ -537,8 +1183,44 @@ weave build with o as BuildOptions into BuildResult:
             calling manifest.free_manifest with (sigil of man)
             calling paths.free_paths with (sigil of p)
             calling toolchain.free_toolchain with (sigil of tc)
-            return with ok is false, error is uns, artifact is "", bundle_path is ""
+            return with ok is false, error is uns, artifact is "", bundle_path is "", is_wasm is false
+    # Diagnóstico incremental: compara las huellas de los módulos con las del
+    # build anterior. La caché sigue siendo por programa completo; esto solo
+    # explica qué fuente invalidó la clave (visible con --verbose).
+    if build_dir length > 0:
+        var oldp as string is "{build_dir}/.psc-modules"
+        var olds as list of string is list of string
+        if o.verbose and calling archivum.is_file with oldp:
+            var om as maybe string is calling archivum.read_text with oldp
+            if om.is_present:
+                var otxt as string is calling copy with om.value
+                var oparts as list of string is calling otxt.split with "\n"
+                for pl in oparts:
+                    if pl length > 0:
+                        calling olds.push with (calling copy with pl)
+                    banish pl
+                banish oparts
+                banish otxt
+            banish om
+        var cur as list of string is calling module_fingerprints with (sigil of sr)
+        if o.verbose and olds.len > 0:
+            calling report_fingerprint_changes with olds, cur
+        var acc as string is ""
+        for fl in cur:
+            set acc is "{acc}{fl}\n"
+        calling archivum.write_text with oldp, acc
+        banish acc
+        for fl in cur:
+            banish fl
+        banish cur
+        for fl in olds:
+            banish fl
+        banish olds
+        banish oldp
     if o.check_only:
+        if check_ck length > 0:
+            var marked as bool is calling cache.mark with check_ck
+            banish check_ck
         banish cwd
         banish target
         banish start
@@ -548,7 +1230,7 @@ weave build with o as BuildOptions into BuildResult:
         calling manifest.free_manifest with (sigil of man)
         calling paths.free_paths with (sigil of p)
         calling toolchain.free_toolchain with (sigil of tc)
-        return with ok is true, error is "", artifact is "", bundle_path is ""
+        return with ok is true, error is "", artifact is "", bundle_path is "", is_wasm is eff.is_wasm
     if eff.is_wasm and man.output == "shared":
         banish cwd
         banish target
@@ -559,7 +1241,7 @@ weave build with o as BuildOptions into BuildResult:
         calling manifest.free_manifest with (sigil of man)
         calling paths.free_paths with (sigil of p)
         calling toolchain.free_toolchain with (sigil of tc)
-        return with ok is false, error is (calling copy with "output = \"shared\" is not supported for wasm: a side module needs -fPIC on every input, including the runtime archive. Use output = \"static\" or the default .html/.js/.wasm"), artifact is "", bundle_path is ""
+        return with ok is false, error is (calling copy with "output = \"shared\" is not supported for wasm: a side module needs -fPIC on every input, including the runtime archive. Use output = \"static\" or the default .html/.js/.wasm"), artifact is "", bundle_path is "", is_wasm is false
     var needs_th as bool is calling needs_threads with sr.program
     var needs_web_js as bool is calling needs_js with sr.program
     if eff.is_wasm and needs_web_js and p.js_library length == 0:
@@ -572,10 +1254,7 @@ weave build with o as BuildOptions into BuildResult:
         calling manifest.free_manifest with (sigil of man)
         calling paths.free_paths with (sigil of p)
         calling toolchain.free_toolchain with (sigil of tc)
-        return with ok is false, error is (calling copy with "std.web.js needs runtime/pengu_js.js; rebuild the wasm runtime or reinstall the package"), artifact is "", bundle_path is ""
-    var eff_output as string is man.output
-    if o.force_exe:
-        set eff_output is "exe"
+        return with ok is false, error is (calling copy with "std.web.js needs runtime/pengu_js.js; rebuild the wasm runtime or reinstall the package"), artifact is "", bundle_path is "", is_wasm is false
     var cgo as cgopt.CgOptions is calling cgopt.default_options with (calling copy with base)
     calling targetmod.apply_cg with eff, (sigil of cgo)
     set cgo.entry_file is (calling copy with entry)
@@ -606,7 +1285,61 @@ weave build with o as BuildOptions into BuildResult:
         calling all_defs.push with (calling copy with (o.defines at ado))
         set ado is ado + 1
     set cgo.defines is all_defs
-    var cr is calling cgapi.generate_c with sr.program, cgo
+    if ptime:
+        set t_cg is calling chronicle.monotonic_ms
+    # F7: modo multi-unidad. Solo `exe` nativo por ahora; static/obj/wasm
+    # siguen en el camino de un único translation unit.
+    var split_mode as bool is o.split and out_kind == "exe" and not eff.is_wasm
+    var units_dir as string is ""
+    var unit_srcs as list of string is list of string
+    var unit_objs as list of string is list of string
+    var cr as cgapi.CgResult is with ok is true, bundle is "", error is "", stats is (with types is 0, prototypes is 0, functions is 0, instances is 0, includes is 0, bytes is 0, lines is 0), live_modules is list of int
+    if split_mode:
+        var cru as cgapi.CgUnitsResult is calling cgapi.generate_units with sr.program, cgo
+        if not cru.ok:
+            calling spark.eprintln with cru.error
+            banish cwd
+            banish target
+            banish start
+            banish root
+            banish entry
+            banish build_dir
+            banish bundle
+            banish artifact
+            calling cgapi.free_units with (sigil of cru)
+            calling sema_api.free_result with (sigil of sr)
+            calling manifest.free_manifest with (sigil of man)
+            calling paths.free_paths with (sigil of p)
+            calling toolchain.free_toolchain with (sigil of tc)
+            return with ok is false, error is (calling copy with "code generation failed"), artifact is "", bundle_path is "", is_wasm is false
+        set units_dir is "{build_dir}/units"
+        var mkdir as bool is calling archivum.create_dir with units_dir, true
+        var hex as string is "{units_dir}/bundle.h"
+        var cex as string is "{units_dir}/core.c"
+        var wh as bool is calling archivum.write_text with hex, cru.header
+        var wc as bool is calling archivum.write_text with cex, cru.core
+        var ui as int is 0
+        while ui < cru.units.len:
+            var uu as cgapi.bundle.CgUnit is (cru.units at ui)
+            var up as string is "{units_dir}/{uu.name}.c"
+            var wu as bool is calling archivum.write_text with up, uu.text
+            calling unit_srcs.push with (calling copy with up)
+            banish up
+            set ui is ui + 1
+        set cr.live_modules is cru.live_modules
+        set cru.live_modules is list of int
+        calling cgapi.free_units with (sigil of cru)
+        banish bundle
+        set bundle is (calling copy with cex)
+        banish hex
+        banish cex
+    else:
+        set cr is calling cgapi.generate_c with sr.program, cgo
+    if ptime:
+        var dtc as int is (calling chronicle.monotonic_ms) - t_cg
+        var mc as string is "psc: codegen {dtc} ms"
+        calling spark.eprintln with mc
+        banish mc
     if not cr.ok:
         calling spark.eprintln with "code generation failed"
         banish cwd
@@ -619,7 +1352,7 @@ weave build with o as BuildOptions into BuildResult:
         calling manifest.free_manifest with (sigil of man)
         calling paths.free_paths with (sigil of p)
         calling toolchain.free_toolchain with (sigil of tc)
-        return with ok is false, error is (calling copy with "code generation failed"), artifact is "", bundle_path is ""
+        return with ok is false, error is (calling copy with "code generation failed"), artifact is "", bundle_path is "", is_wasm is false
     # Links de módulos: se podan si `--prune-native` y el módulo no tiene
     # ninguna función viva. Sin la poda se mantiene el comportamiento previo.
     var lmi as int is 0
@@ -642,23 +1375,7 @@ weave build with o as BuildOptions into BuildResult:
             if not already:
                 calling tc.links.push with (calling copy with lname)
         set lmi is lmi + 1
-    var build_dir as string is "{base}/{man.build_dir}"
-    if not calling archivum.create_dir with build_dir, true:
-        var bderr as string is "cannot create build directory: {build_dir}"
-        banish cwd
-        banish target
-        banish start
-        banish root
-        banish entry
-        banish build_dir
-        calling cgapi.free_result with (sigil of cr)
-        calling sema_api.free_result with (sigil of sr)
-        calling manifest.free_manifest with (sigil of man)
-        calling paths.free_paths with (sigil of p)
-        calling toolchain.free_toolchain with (sigil of tc)
-        return with ok is false, error is bderr, artifact is "", bundle_path is ""
-    var bundle as string is "{build_dir}/bundle.c"
-    if not calling archivum.write_text with bundle, cr.bundle:
+    if (not split_mode) and (not calling archivum.write_text with bundle, cr.bundle):
         var wberr as string is "cannot write bundle: {bundle}"
         banish cwd
         banish target
@@ -672,7 +1389,7 @@ weave build with o as BuildOptions into BuildResult:
         calling manifest.free_manifest with (sigil of man)
         calling paths.free_paths with (sigil of p)
         calling toolchain.free_toolchain with (sigil of tc)
-        return with ok is false, error is wberr, artifact is "", bundle_path is ""
+        return with ok is false, error is wberr, artifact is "", bundle_path is "", is_wasm is false
     if o.bundle_only or (man.output == "c" and not o.force_exe):
         banish cwd
         banish target
@@ -685,140 +1402,7 @@ weave build with o as BuildOptions into BuildResult:
         calling manifest.free_manifest with (sigil of man)
         calling paths.free_paths with (sigil of p)
         calling toolchain.free_toolchain with (sigil of tc)
-        return with ok is true, error is "", artifact is bundle, bundle_path is (calling copy with bundle)
-    var artifact as string is ""
-    var out_kind as string is eff_output
-    var out_name as string is man.output_name
-    if is_file:
-        var stem as string is calling compass.cp_stem with entry
-        set out_name is stem
-    if o.is_test:
-        set out_name is "{out_name}_test"
-    if o.out_path length > 0:
-        set artifact is calling compass.cp_absolute with o.out_path
-        if eff.is_wasm and out_kind == "exe" and not (calling ends_with with artifact, ".html") and not (calling ends_with with artifact, ".js") and not (calling ends_with with artifact, ".mjs"):
-            set artifact is "{artifact}.html"
-    else:
-        if out_kind == "obj":
-            set artifact is "{build_dir}/{out_name}.o"
-        else if out_kind == "static":
-            set artifact is "{build_dir}/lib{out_name}.a"
-        else if out_kind == "shared":
-            set artifact is "{build_dir}/lib{out_name}.so"
-        else if out_kind == "exe" and eff.is_wasm:
-            set artifact is "{build_dir}/{out_name}.html"
-        else if out_kind == "exe" and so.os_name == "windows":
-            set artifact is "{build_dir}/{out_name}.exe"
-        else:
-            set artifact is "{build_dir}/{out_name}"
-    var adir as string is calling compass.cp_dirname with artifact
-    if adir length > 0:
-        calling archivum.create_dir with adir, true
-    banish adir
-    var ck as string is ""
-    var cparts as list of string is list of string
-    if (not o.no_cache) and (not o.ephemeral) and (not o.check_only) and (not o.bundle_only) and (man.output != "c" or o.force_exe) and not (eff.is_wasm and out_kind == "exe"):
-        var cbytes as maybe string is calling archivum.read_bytes with o.compiler_path
-        if cbytes.is_present:
-            var chash as string is calling digest.sha256_raw with cbytes.value
-            calling cparts.push with chash
-        else:
-            calling cparts.push with (calling copy with o.compiler_path)
-        banish cbytes
-        calling cparts.push with "psc-0.8.0"
-        calling cparts.push with (calling copy with eff.triple)
-        calling cparts.push with (calling copy with eff.wasm_target)
-        calling cparts.push with (calling copy with tc.cc)
-        calling cparts.push with (calling copy with o.profile)
-        calling cparts.push with (calling copy with o.cc)
-        calling cparts.push with (calling copy with eff_output)
-        calling cparts.push with "test"
-        if o.is_test:
-            calling cparts.push with "1"
-        else:
-            calling cparts.push with "0"
-        if o.test_json:
-            calling cparts.push with "json"
-        else:
-            calling cparts.push with "plain"
-        if o.strict_c99:
-            calling cparts.push with "strict"
-        if o.release_unsafe:
-            calling cparts.push with "unsafe"
-        if o.no_dce:
-            calling cparts.push with "nodce"
-        if o.dce_scope_user:
-            calling cparts.push with "userdce"
-        if o.prune_types:
-            calling cparts.push with "prunetypes"
-        if o.prune_native:
-            calling cparts.push with "prunenative"
-        if o.no_line_markers:
-            calling cparts.push with "nolines"
-        var mdi as int is 0
-        while mdi < man.defines.len:
-            calling cparts.push with (calling copy with (man.defines at mdi))
-            set mdi is mdi + 1
-        var dfi as int is 0
-        while dfi < o.defines.len:
-            calling cparts.push with (calling copy with (o.defines at dfi))
-            set dfi is dfi + 1
-        for ld in sr.program->symbols.ldflags:
-            calling cparts.push with (calling copy with ld)
-        for ld in man.ldflags:
-            calling cparts.push with (calling copy with ld)
-        var mi as int is 0
-        while mi < sr.program->modules.len:
-            var mm as loader.SemaModule is (sr.program->modules at mi)
-            calling cparts.push with (calling copy with mm.source.path)
-            calling cparts.push with (calling copy with mm.source.text)
-            set mi is mi + 1
-        # C nativo y headers: `c_dir`, `include_dir` del proyecto y los
-        # `include_dirs` (dependencias). Sin esto la caché reutilizaba el
-        # binario tras editar un header incluido (bug 20).
-        if is_project:
-            var cdirh as string is "{base}/{man.c_dir}"
-            calling push_dir_hashes with (sigil of cparts), cdirh
-            banish cdirh
-            var incdirh as string is "{base}/{man.include_dir}"
-            calling push_dir_hashes with (sigil of cparts), incdirh
-            banish incdirh
-        var idir as int is 0
-        while idir < tc.include_dirs.len:
-            calling push_dir_hashes with (sigil of cparts), (tc.include_dirs at idir)
-            set idir is idir + 1
-        set ck is calling cache.key with cparts
-        var hit as string is calling cache.get with ck
-        if hit length > 0:
-            var cok as bool is calling archivum.copy_file with hit, artifact, true
-            if cok:
-                var cargsx as list of string is list of string
-                calling cargsx.push with "chmod"
-                calling cargsx.push with "+x"
-                calling cargsx.push with (calling copy with artifact)
-                var chx as int is calling proc.run_argv with cargsx
-                calling free_strings with cargsx
-                banish hit
-                banish ck
-                var hci2 as int is 0
-                while hci2 < cparts.len:
-                    banish cparts at hci2
-                    set hci2 is hci2 + 1
-                banish cparts
-                banish cwd
-                banish target
-                banish start
-                banish root
-                banish entry
-                banish build_dir
-                banish bundle
-                calling cgapi.free_result with (sigil of cr)
-                calling sema_api.free_result with (sigil of sr)
-                calling manifest.free_manifest with (sigil of man)
-                calling paths.free_paths with (sigil of p)
-                calling toolchain.free_toolchain with (sigil of tc)
-                return with ok is true, error is "", artifact is artifact, bundle_path is bundle
-            banish hit
+        return with ok is true, error is "", artifact is bundle, bundle_path is (calling copy with bundle), is_wasm is eff.is_wasm
     var objpath as string is calling copy with artifact
     if out_kind == "static":
         banish objpath
@@ -826,6 +1410,31 @@ weave build with o as BuildOptions into BuildResult:
     var args as list of string is list of string
     for f in tc.cflags:
         calling args.push with (calling copy with f)
+    # Debug debe traer DWARF por defecto: los manifiestos de usuario no
+    # definen un perfil `debug` y antes `psc build` producía binarios sin
+    # información de línea para gdb/lldb.
+    if o.profile == "debug" and not eff.is_wasm:
+        calling args.push with "-g"
+        # Necesario para que pengu-fibers recorra la cadena de frames.
+        calling args.push with "-fno-omit-frame-pointer"
+    if o.coverage:
+        # gcov respeta `#line` del bundle: el mapa cae directamente en .pengu.
+        calling args.push with "-g"
+        if not eff.is_wasm:
+            calling args.push with "-fno-omit-frame-pointer"
+        calling args.push with "--coverage"
+        calling args.push with "-fprofile-arcs"
+        calling args.push with "-ftest-coverage"
+    if o.sanitize_kind > 0:
+        calling args.push with "-g"
+        if not eff.is_wasm:
+            calling args.push with "-fno-omit-frame-pointer"
+        if o.sanitize_kind == 1:
+            calling args.push with "-fsanitize=address"
+        else if o.sanitize_kind == 2:
+            calling args.push with "-fsanitize=undefined"
+        else:
+            calling args.push with "-fsanitize=thread"
     calling args.push with "-ffunction-sections"
     calling args.push with "-fdata-sections"
     # D12: hardening del binario final. Solo release y nunca en WASM (emcc no
@@ -844,6 +1453,70 @@ weave build with o as BuildOptions into BuildResult:
         calling args.push with "-DPENGU_ENABLE_THREADS=0"
     for inc in tc.include_dirs:
         calling args.push with "-I{inc}"
+    var unit_keys as list of string is list of string
+    if split_mode:
+        # Caché por unidad: si la cabecera y esta unidad no cambian, el objeto
+        # se reutiliza. Cambiar solo un cuerpo recompila solo esa unidad.
+        var hh as string is ""
+        var hm as maybe string is calling digest.sha256_file with "{units_dir}/bundle.h"
+        if hm.is_present:
+            set hh is (calling copy with hm.value)
+        banish hm
+        var uflags as list of string is list of string
+        for uf in args:
+            if uf != "-I{build_dir}":
+                calling uflags.push with (calling copy with uf)
+        var todo_srcs as list of string is list of string
+        var todo_objs as list of string is list of string
+        var oi as int is 0
+        while oi < unit_srcs.len:
+            var op as string is "{units_dir}/unit_{oi}.o"
+            calling unit_objs.push with op
+            var uk as string is calling unit_object_key with hh, (unit_srcs at oi), tc.cc, uflags
+            var uh as string is calling cache.get with uk
+            var reused as bool is false
+            if uh length > 0:
+                set reused is calling archivum.copy_file with uh, op, true
+            banish uh
+            if reused and o.verbose:
+                calling spark.eprintln with "cache: reused {unit_srcs at oi}"
+            else:
+                calling todo_srcs.push with (calling copy with (unit_srcs at oi))
+                calling todo_objs.push with (calling copy with op)
+                calling unit_keys.push with (calling copy with uk)
+            banish uk
+            set oi is oi + 1
+        banish hh
+        var urc as int is calling compile_units with tc.cc, uflags, todo_srcs, todo_objs, o.jobs
+        if urc == 0:
+            var ki as int is 0
+            while ki < unit_keys.len:
+                var storedx as bool is calling cache.put with (unit_keys at ki), (todo_objs at ki)
+                set ki is ki + 1
+        calling free_strings with todo_srcs
+        calling free_strings with todo_objs
+        calling free_strings with uflags
+        if urc != 0:
+            calling spark.eprintln with "C compiler failed (split units)"
+            banish cwd
+            banish target
+            banish start
+            banish root
+            banish entry
+            banish build_dir
+            banish bundle
+            banish artifact
+            banish units_dir
+            calling free_strings with unit_keys
+            banish unit_keys
+            calling free_strings with unit_srcs
+            calling free_strings with unit_objs
+            calling cgapi.free_result with (sigil of cr)
+            calling sema_api.free_result with (sigil of sr)
+            calling manifest.free_manifest with (sigil of man)
+            calling paths.free_paths with (sigil of p)
+            calling toolchain.free_toolchain with (sigil of tc)
+            return with ok is false, error is (calling copy with "C compilation failed"), artifact is "", bundle_path is "", is_wasm is false
     calling args.push with (calling copy with bundle)
     var glue as list of string is list of string
     if is_project:
@@ -867,6 +1540,9 @@ weave build with o as BuildOptions into BuildResult:
     if out_kind != "obj" and out_kind != "static":
         for gf in glue:
             calling args.push with (calling copy with gf)
+        if split_mode:
+            for uo in unit_objs:
+                calling args.push with (calling copy with uo)
     if out_kind == "obj" or out_kind == "static":
         calling args.push with "-c"
         if not eff.is_wasm:
@@ -880,6 +1556,10 @@ weave build with o as BuildOptions into BuildResult:
                 calling args.push with "-Wl,-dead_strip"
             else:
                 calling args.push with "-Wl,--gc-sections"
+            if so.os_name == "linux" and o.profile == "debug":
+                # pengu-fibers imprime PCs; -rdynamic deja que
+                # backtrace_symbols resuelva funciones globales.
+                calling args.push with "-rdynamic"
             if so.os_name == "linux":
                 calling args.push with "-Wl,--as-needed"
                 calling args.push with "-Wl,-z,relro,-z,now"
@@ -943,6 +1623,14 @@ weave build with o as BuildOptions into BuildResult:
             calling args.push with (calling copy with ld)
         for ld in man.ldflags:
             calling args.push with (calling copy with ld)
+    if o.coverage:
+        calling args.push with "--coverage"
+    if o.sanitize_kind == 1:
+        calling args.push with "-fsanitize=address"
+    else if o.sanitize_kind == 2:
+        calling args.push with "-fsanitize=undefined"
+    else if o.sanitize_kind == 3:
+        calling args.push with "-fsanitize=thread"
     calling args.push with "-o"
     calling args.push with (calling copy with objpath)
     if o.verbose:
@@ -976,7 +1664,7 @@ weave build with o as BuildOptions into BuildResult:
         calling manifest.free_manifest with (sigil of man)
         calling paths.free_paths with (sigil of p)
         calling toolchain.free_toolchain with (sigil of tc)
-        return with ok is false, error is (calling copy with "C compilation failed"), artifact is "", bundle_path is ""
+        return with ok is false, error is (calling copy with "C compilation failed"), artifact is "", bundle_path is "", is_wasm is false
     if out_kind == "static":
         var ar_args as list of string is list of string
         if eff.is_wasm:
@@ -1007,15 +1695,10 @@ weave build with o as BuildOptions into BuildResult:
             calling manifest.free_manifest with (sigil of man)
             calling paths.free_paths with (sigil of p)
             calling toolchain.free_toolchain with (sigil of tc)
-            return with ok is false, error is (calling copy with "archiver failed"), artifact is "", bundle_path is ""
+            return with ok is false, error is (calling copy with "archiver failed"), artifact is "", bundle_path is "", is_wasm is false
     if ck length > 0:
         var storedx as bool is calling cache.put with ck, artifact
     banish ck
-    var cpi as int is 0
-    while cpi < cparts.len:
-        banish cparts at cpi
-        set cpi is cpi + 1
-    banish cparts
     banish cwd
     banish target
     banish start
@@ -1030,4 +1713,4 @@ weave build with o as BuildOptions into BuildResult:
     calling manifest.free_manifest with (sigil of man)
     calling paths.free_paths with (sigil of p)
     calling toolchain.free_toolchain with (sigil of tc)
-    return with ok is true, error is "", artifact is artifact, bundle_path is bundle
+    return with ok is true, error is "", artifact is artifact, bundle_path is bundle, is_wasm is eff.is_wasm

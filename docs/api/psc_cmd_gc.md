@@ -15,6 +15,22 @@ psc/cmd/gc.pengu — `psc gc`.
  ## Memoria
  No asigna.
 
+### `prune_to_size`
+
+> **prune_to_size**(limit: int) -> int
+
+ Implementa `psc gc`.
+
+ ## Memoria
+ Libera ParseResult.
+ Elimina entradas hasta que la caché quepa en `limit` bytes.
+
+ No ordena por fecha: `find_dirs` no garantiza orden y cualquier entrada es
+ prescindible. Devuelve cuántas se borraron.
+
+ ## Memoria
+ Libera `root`, `dirs`, sus strings y `sizes`.
+
 ### `run_gc`
 
 > **run_gc**(args: list of string) -> int

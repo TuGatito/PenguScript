@@ -34,9 +34,16 @@ regenerates them and fails if the committed tree is stale.
 | [CARMEN.md](CARMEN.md) | `std.carmen`, the binary struct format. |
 | [EXTERNAL_MODULES.md](EXTERNAL_MODULES.md) | How bindings and C satellites are organised. |
 | [LIBRARIES.md](LIBRARIES.md) / [LIBRARIES.es.md](LIBRARIES.es.md) | How to build, test and publish a library that installs with `psc add`. |
-| [LSP.md](LSP.md) | The language server. |
+| [LSP.md](LSP.md) | The language server: hover, definition, references, rename, diagnostics. |
 | [WASM.md](WASM.md) | Building for WebAssembly. |
+| [CROSS_COMPILE.md](CROSS_COMPILE.md) | Native cross builds: Linux ARM64, macOS ARM64, Windows (best effort). |
+| [BUILD_CACHE.md](BUILD_CACHE.md) | Incremental builds, cache key, `psc gc`, timings and reproducibility. |
+| [COVERAGE.md](COVERAGE.md) | `psc test --coverage` mapped to `.pengu` lines. |
+| [SANITIZERS.md](SANITIZERS.md) | ASan, UBSan and TSan profiles. |
+| [DEBUGGER.md](DEBUGGER.md) | `psc debug`, DWARF, breakpoints and fiber backtraces. |
 | [psc/](psc/) | Compiler internals: AST, semantic analysis, codegen, modules. |
+| [psc/AUDITORIA_0.33.0.md](psc/AUDITORIA_0.33.0.md) | Audit and phased plan for 0.33 (Spanish). |
+| [psc/F7_MULTITU.md](psc/F7_MULTITU.md) | F7 implementation plan: per-module codegen units and parallel `cc`. |
 
 ## Keeping the docs honest
 
@@ -55,7 +62,7 @@ compiled.
 
 ## Versioning
 
-The documents state the `psc` version they describe (currently **0.32.0**).
+The documents state the `psc` version they describe (currently **0.33.0**).
 When the language changes, the same pull request updates:
 
 1. the reference (`LANGUAGE.md` + `.es.md`),

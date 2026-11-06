@@ -1,0 +1,3 @@
+## Dobla un entero.
+weave twice with x as int into int:
+    return x * 2

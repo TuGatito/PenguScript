@@ -151,6 +151,24 @@ weave run_doctor with args as list of string into int:
         else:
             calling check_line with as_json, "clang", false, "not found (optional)"
         banish clang
+        var gdb as maybe string is calling rites.which with "gdb"
+        if gdb.is_present:
+            calling check_line with as_json, "gdb", true, gdb.value
+        else:
+            calling check_line with as_json, "gdb", false, "not found (optional; psc debug)"
+        banish gdb
+        var lldb as maybe string is calling rites.which with "lldb"
+        if lldb.is_present:
+            calling check_line with as_json, "lldb", true, lldb.value
+        else:
+            calling check_line with as_json, "lldb", false, "not found (optional; psc debug --llvm)"
+        banish lldb
+        var gcov as maybe string is calling rites.which with "gcov"
+        if gcov.is_present:
+            calling check_line with as_json, "gcov", true, gcov.value
+        else:
+            calling check_line with as_json, "gcov", false, "not found (optional; psc test --coverage)"
+        banish gcov
         var tcc as maybe string is calling rites.which with "tcc"
         if tcc.is_present:
             calling check_line with as_json, "tcc", true, tcc.value
@@ -177,6 +195,33 @@ weave run_doctor with args as list of string into int:
                 calling check_line with as_json, "tcc", false, "not found (required for the Linux gate)"
                 set bad is bad + 1
         banish tcc
+    # Cross toolchain y runtime del triple pedido.
+    if p.ok and not ht.is_host and not ht.is_wasm:
+        var prefix as string is ""
+        if ht.arch == "arm64" and ht.os == "linux":
+            set prefix is "aarch64-linux-gnu-"
+        else if ht.arch == "x86_64" and ht.os == "linux":
+            set prefix is "x86_64-linux-gnu-"
+        else if ht.os == "windows":
+            set prefix is "x86_64-w64-mingw32-"
+        if prefix length > 0:
+            var ccname as string is "{prefix}gcc"
+            var xcc as maybe string is calling rites.which with ccname
+            if xcc.is_present:
+                calling check_line with as_json, "cross-cc", true, xcc.value
+            else:
+                calling check_line with as_json, "cross-cc", false, "not found (needed for {ht.triple})"
+                set bad is bad + 1
+            banish xcc
+            banish ccname
+        banish prefix
+        var rtpath as string is "{p.repo_root}/build/lib/{ht.triple}/libpengu_runtime.a"
+        if calling archivum.is_file with rtpath:
+            calling check_line with as_json, "cross-runtime", true, rtpath
+        else:
+            calling check_line with as_json, "cross-runtime", false, "missing: {rtpath} (tools/build_runtime.sh)"
+            set bad is bad + 1
+        banish rtpath
     # Runtime/std
     if p.ok:
         calling check_line with as_json, "runtime-archive", true, p.runtime_archive

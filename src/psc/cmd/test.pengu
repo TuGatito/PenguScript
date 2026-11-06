@@ -7,6 +7,7 @@ import std.compass
 import std.rites
 import std.spark
 
+import psc.cache.cache
 import psc.cli.args as cliargs
 import psc.driver.build as driver
 import psc.driver.runner as runner
@@ -27,6 +28,8 @@ weave print_help into void:
     calling spark.println with "  --cc=NAME"
     calling spark.println with "  --entry=PATH"
     calling spark.println with "  --json"
+    calling spark.println with "  --coverage  (gcov; mapea #line a .pengu)"
+    calling spark.println with "  --sanitize=address|undefined|thread"
     calling spark.println with "  --watch"
     calling spark.println with "  --verbose"
     calling spark.println with "  --help"
@@ -68,10 +71,15 @@ weave run_test with args as list of string into int:
     calling vf.push with "--cc"
     calling vf.push with "--target"
     calling vf.push with "--entry"
+    calling vf.push with "--sanitize"
     var sf as list of string is list of string
     calling sf.push with "--json"
     calling sf.push with "--watch"
     calling sf.push with "--verbose"
+    calling sf.push with "--no-cache"
+    calling sf.push with "--clear-cache"
+    calling sf.push with "--ephemeral"
+    calling sf.push with "--coverage"
     var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
     if not pr.ok:
         var e as string is pr.error
@@ -144,6 +152,28 @@ weave run_test with args as list of string into int:
     set o.force_exe is true
     set o.test_json is calling cliargs.enabled with (sigil of pr.args), "--json"
     set o.verbose is calling cliargs.enabled with (sigil of pr.args), "--verbose"
+    set o.no_cache is calling cliargs.enabled with (sigil of pr.args), "--no-cache"
+    set o.ephemeral is calling cliargs.enabled with (sigil of pr.args), "--ephemeral"
+    set o.coverage is calling cliargs.enabled with (sigil of pr.args), "--coverage"
+    var san as string is calling cliargs.value with (sigil of pr.args), "--sanitize"
+    if san length > 0:
+        if san != "address" and san != "undefined" and san != "thread":
+            calling spark.eprintln with "psc test: --sanitize must be address, undefined or thread"
+            calling driver.free_options with (sigil of o)
+            calling cliargs.free_parse_result with (sigil of pr)
+            return 2
+        if san == "address":
+            set o.sanitize_kind is 1
+        else if san == "undefined":
+            set o.sanitize_kind is 2
+        else:
+            set o.sanitize_kind is 3
+    if o.coverage:
+        # La instrumentación debe ser fresca: un artefacto cacheado sin gcov
+        # no escribe .gcda.
+        set o.no_cache is true
+    if calling cliargs.enabled with (sigil of pr.args), "--clear-cache":
+        var ignored as int is calling cache.clear
     var r as driver.BuildResult is calling driver.build with o
     if not r.ok:
         var e2 as string is r.error
@@ -155,13 +185,122 @@ weave run_test with args as list of string into int:
         calling cliargs.free_parse_result with (sigil of pr)
         return 1
     var art as string is r.artifact
+    # El build resolvió el target (posible `[build] target = wasm`):
+    # ejecutar con el target resuelto evita intentar exec de un .html.
+    set o.platform.is_wasm is r.is_wasm
     var code as int is calling runner.run with o.platform, art, list of string, false
+    if o.coverage:
+        calling emit_coverage with art
     if code != 0 and code != 2:
         set code is 1
     calling driver.free_result with (sigil of r)
     calling driver.free_options with (sigil of o)
     calling cliargs.free_parse_result with (sigil of pr)
     return code
+
+## ¿Termina `s` con `suffix`?
+weave cov_has_suffix with s as string, suffix as string into bool:
+    if suffix length > s length:
+        return false
+    var off as int is s length - suffix length
+    var i as int is 0
+    while i < suffix length:
+        if (s at (off + i)) != (suffix at i):
+            return false
+        set i is i + 1
+    return true
+
+## Índice de `needle` en `s`, o -1.
+weave cov_index_of with s as string, needle as string into int:
+    if needle length == 0 or needle length > s length:
+        return -1
+    var i as int is 0
+    while i + needle length <= s length:
+        var j as int is 0
+        var ok as bool is true
+        while j < needle length:
+            if (s at (i + j)) != (needle at j):
+                set ok is false
+            set j is j + 1
+        if ok:
+            return i
+        set i is i + 1
+    return -1
+
+## Resume los `.gcov` de PenguScript y silencia las cabeceras del runtime.
+weave report_coverage into void:
+    var covs as list of string is calling archivum.find_files with ".", false
+    var seen as int is 0
+    for cf in covs:
+        if calling cov_has_suffix with cf, ".pengu.gcov":
+            var tm as maybe string is calling archivum.read_text with cf
+            if tm.is_present:
+                var body as string is tm.value
+                var lines as list of string is calling body.split with "\n"
+                var source as string is cf
+                var total as int is 0
+                var covered as int is 0
+                for ln in lines:
+                    var si as int is calling cov_index_of with ln, "Source:"
+                    if si >= 0:
+                        set source is ln at (si + 7) to (ln length)
+                    # Formato gcov: "<conteo>:<línea>:<fuente>"; el conteo
+                    # puede ser "-" (no ejecutable) o "#####" (no cubierta).
+                    var ci as int is calling cov_index_of with ln, ":"
+                    if ci > 0:
+                        var p as int is 0
+                        while p < ci and (ln at p) == " ":
+                            set p is p + 1
+                        var cnt as string is ln at p to ci
+                        if cnt != "-":
+                            set total is total + 1
+                            if cnt != "#####":
+                                set covered is covered + 1
+                        banish cnt
+                if total > 0:
+                    var pct as int is covered * 100 / total
+                    var msg as string is "coverage: {source}  {pct}% ({covered}/{total} lines)"
+                    calling spark.println with msg
+                    banish msg
+                    set seen is seen + 1
+                banish lines
+                banish body
+            banish tm
+        banish cf
+    banish covs
+    if seen == 0:
+        calling spark.eprintln with "psc test: coverage: no .pengu.gcov files (gcov needs -g --coverage)"
+
+## Ejecuta gcov sobre el artefacto y deja los reportes `.gcov` (con `#line`,
+## las rutas son los `.pengu` originales).
+weave emit_coverage with artifact as string into void:
+    var gdir as string is calling compass.cp_dirname with artifact
+    var gcno as string is "{artifact}-bundle.gcno"
+    if not calling archivum.exists with gcno:
+        var w as string is "psc test: coverage: no se encontró {gcno}"
+        calling spark.eprintln with w
+        banish w
+        banish gcno
+        banish gdir
+        return
+    # gcov traduce sus etiquetas ("Líneas ejecutadas"); el parser busca las
+    # inglesas, así que fijamos el locale del hijo.
+    var locale_ok as bool is calling rites.setenv with "LC_ALL", "C", true
+    banish locale_ok
+    var argv as list of string is list of string
+    calling argv.push with "gcov"
+    calling argv.push with "-b"
+    calling argv.push with "-o"
+    calling argv.push with gdir
+    calling argv.push with gcno
+    var rc as int is calling proc.run_argv with argv
+    if rc != 0:
+        calling spark.eprintln with "psc test: coverage: gcov falló (¿gcc sin --coverage?)"
+    banish argv
+    if rc == 0:
+        calling report_coverage
+    banish gcno
+    banish gdir
 
 ## Copia owned.
 ##

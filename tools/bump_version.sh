@@ -12,6 +12,7 @@ if [ "$old" = "$new" ]; then
 fi
 files=(
     VERSION
+    README.md
     pengu.toml
     release.toml
     src/main.pengu

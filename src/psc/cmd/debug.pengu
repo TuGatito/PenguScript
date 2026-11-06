@@ -1,0 +1,142 @@
+## psc/cmd/debug.pengu — `psc debug`: compila en modo debug y abre gdb/lldb.
+##
+## El bundle generado lleva `#line` hacia los `.pengu` y el perfil debug añade
+## `-g`, así que los breakpoints se ponen sobre rutas y líneas PenguScript:
+##
+##     psc debug . -- arg1 arg2
+##
+## En gdb: `break /ruta/src/main.pengu:12`, `run`, `bt`. Para fibras
+## (corrutinas) usa `pengu-fibers`: lista las corrutinas vivas y la pila
+## capturada en su último yield (PENGU_FIBER_TRACE=1, activado aquí).
+
+import std.archivum
+import std.compass
+import std.rites
+import std.spark
+
+import psc.cli.args as cliargs
+import psc.driver.build as driver
+import psc.os.proc as proc
+import psc.sema.names as npool
+
+insignia psc_cmd_debug_
+
+## Ayuda.
+##
+## ## Memoria
+## No asigna.
+weave print_help into void:
+    calling spark.println with "Usage: psc debug [TARGET] [options] [-- program args]"
+    calling spark.println with "  --profile=debug|release   (debug por defecto)"
+    calling spark.println with "  --target=TRIPLE|wasm"
+    calling spark.println with "  --cc=NAME"
+    calling spark.println with "  --llvm                   usa lldb en vez de gdb"
+    calling spark.println with "  --no-cache"
+    calling spark.println with "  --help"
+
+## Implementa `psc debug`.
+##
+## ## Memoria
+## Libera opciones/resultado.
+weave run_debug with args as list of string into int:
+    var vf as list of string is list of string
+    calling vf.push with "--profile"
+    calling vf.push with "--target"
+    calling vf.push with "--cc"
+    var sf as list of string is list of string
+    calling sf.push with "--no-cache"
+    calling sf.push with "--llvm"
+    calling sf.push with "--verbose"
+    calling sf.push with "--help"
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    if calling cliargs.enabled with (sigil of pr.args), "--help":
+        calling cliargs.free_parse_result with (sigil of pr)
+        calling print_help
+        return 0
+    var path as string is "."
+    if pr.args.positionals.len > 0:
+        banish path
+        set path is calling npool.copy_string with (pr.args.positionals at 0)
+    var vprof as string is calling cliargs.value with (sigil of pr.args), "--profile"
+    var prof as string is "debug"
+    if vprof length > 0:
+        banish prof
+        set prof is calling npool.copy_string with vprof
+    var o as driver.BuildOptions is calling driver.default_options
+    banish o.profile
+    set o.profile is prof
+    banish o.target
+    set o.target is calling npool.copy_string with path
+    set o.force_exe is true
+    var vcc as string is calling cliargs.value with (sigil of pr.args), "--cc"
+    if vcc length > 0:
+        banish o.cc
+        set o.cc is calling npool.copy_string with vcc
+    set o.no_cache is calling cliargs.enabled with (sigil of pr.args), "--no-cache"
+    var use_llvm as bool is calling cliargs.enabled with (sigil of pr.args), "--llvm"
+    var rest as list of string is list of string
+    var i as int is 0
+    var seen_dd as bool is false
+    while i < args.len:
+        var a as string is args at i
+        if a == "--":
+            set seen_dd is true
+        else if seen_dd:
+            calling rest.push with (calling npool.copy_string with a)
+        banish a
+        set i is i + 1
+    var dbgdir as string is calling compass.cp_dirname with path
+    if calling archivum.is_dir with path:
+        banish dbgdir
+        set dbgdir is calling npool.copy_string with path
+    banish path
+    var r as driver.BuildResult is calling driver.build with o
+    if not r.ok:
+        var emsg as string is calling npool.copy_string with r.error
+        calling spark.eprintln with emsg
+        banish emsg
+        calling driver.free_result with (sigil of r)
+        calling driver.free_options with (sigil of o)
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 1
+    var ignored as bool is calling rites.chdir with dbgdir
+    banish dbgdir
+    banish ignored
+    var art as string is calling npool.copy_string with r.artifact
+    # La captura de pilas de fibras se activa en el hijo; sin esto el dump
+    # solo muestra estado y límites de pila.
+    var trace_on as bool is calling rites.setenv with "PENGU_FIBER_TRACE", "1", true
+    banish trace_on
+    var msg as string is "Debugging {art}"
+    calling spark.println with msg
+    banish msg
+    var dbg as string is "gdb"
+    if use_llvm:
+        set dbg is "lldb"
+    var dargs as list of string is list of string
+    calling dargs.push with dbg
+    if use_llvm:
+        calling dargs.push with "--"
+        calling dargs.push with art
+    else:
+        var gdir as string is calling cp_dirname with art
+        var gscript as string is "{gdir}/psc-gdbinit"
+        var gtext as string is "set breakpoint pending on\ndefine pengu-fibers\n  call (void) pengu_c_coro_dump()\nend\ndocument pengu-fibers\n  Print live coroutines and their last yield stacks.\nend\n"
+        var wrote as bool is calling archivum.write_text with gscript, gtext
+        banish wrote
+        banish gtext
+        banish gdir
+        calling dargs.push with "-q"
+        calling dargs.push with "-x"
+        calling dargs.push with gscript
+        # `gscript` vive hasta exec_replace: dargs guarda punteros prestados.
+        calling dargs.push with "--args"
+        calling dargs.push with art
+    var ri as int is 0
+    while ri < rest.len:
+        calling dargs.push with (rest at ri)
+        set ri is ri + 1
+    var code as int is calling proc.exec_replace with dargs
+    # El proceso termina justo después; no se liberan opciones/resultado para
+    # no arriesgar dobles liberaciones de argv prestados por el SO.
+    return code

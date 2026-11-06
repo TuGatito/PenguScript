@@ -72,6 +72,7 @@ todo. El `NamePool` y la tabla de tipos son prestados y viven más.
     import_first as map of int to int
     import_count as map of int to int
     import_edges as list of int
+    import_by_name as map of int to int
 ```
 
  Tabla de símbolos completa.

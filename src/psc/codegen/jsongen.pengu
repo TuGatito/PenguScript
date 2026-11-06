@@ -87,7 +87,14 @@ weave mark_nested with c as ref to context.CgContext, ty as int, r as ref to dce
 ##
 ## ## Memoria
 ## Presta el contexto; libera las listas temporales.
-weave emit_all with c as ref to context.CgContext, r as ref to dce.CgReach into void:
+## Emite solo los prototipos de los codecs vivos.
+##
+## Es la mitad que necesita una cabecera compartida cuando el codegen se divide
+## en varias unidades (F7); `emit_all` mantiene el contrato de un solo TU.
+##
+## ## Memoria
+## Presta el contexto; libera las listas temporales.
+weave emit_prototypes with c as ref to context.CgContext, r as ref to dce.CgReach into void:
     var live as list of int is list of int
     defer banish live
     var i as int is 0
@@ -96,16 +103,32 @@ weave emit_all with c as ref to context.CgContext, r as ref to dce.CgReach into 
         if calling dce.type_live with r, ty:
             calling live.push with ty
         set i is i + 1
-    if live.len == 0:
-        return
     var pi as int is 0
     while pi < live.len:
-        calling emit_protos with c, (live at pi)
+        calling emit_type_protos with c, (live at pi)
         set pi is pi + 1
+
+## Emite solo los cuerpos de los codecs vivos.
+##
+## ## Memoria
+## Presta el contexto; libera las listas temporales.
+weave emit_bodies with c as ref to context.CgContext, r as ref to dce.CgReach into void:
+    var live as list of int is list of int
+    defer banish live
+    var i as int is 0
+    while i < c->program->types.json_type_ids.len:
+        var ty as int is (c->program->types.json_type_ids at i)
+        if calling dce.type_live with r, ty:
+            calling live.push with ty
+        set i is i + 1
     var bi as int is 0
     while bi < live.len:
-        calling emit_bodies with c, (live at bi)
+        calling emit_type_bodies with c, (live at bi)
         set bi is bi + 1
+
+weave emit_all with c as ref to context.CgContext, r as ref to dce.CgReach into void:
+    calling emit_prototypes with c, r
+    calling emit_bodies with c, r
 
 # ---------------------------------------------------------------------------
 # Registro en el catálogo
@@ -274,7 +297,7 @@ weave eout with c as ref to context.CgContext into void:
 ##
 ## ## Memoria
 ## Strings temporales liberados.
-weave emit_protos with c as ref to context.CgContext, ty as int into void:
+weave emit_type_protos with c as ref to context.CgContext, ty as int into void:
     var cn as string is calling nom_ctype with c, ty
     defer banish cn
     calling eline with c, "static PenguString _pengu_json_encode_{cn}({cn}* self);"
@@ -291,7 +314,7 @@ weave emit_protos with c as ref to context.CgContext, ty as int into void:
 ##
 ## ## Memoria
 ## Strings temporales liberados.
-weave emit_bodies with c as ref to context.CgContext, ty as int into void:
+weave emit_type_bodies with c as ref to context.CgContext, ty as int into void:
     var cn as string is calling nom_ctype with c, ty
     defer banish cn
     var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty

@@ -26,7 +26,7 @@ VS Code starts it automatically through the extension:
 | Completion | Keywords, types, locals, params, `std.*` modules, imported-module exports, and **members**: enchantment methods, rune/echo fields and omen variants resolved from the receiver type (`calling s.` offers `string` methods). |
 | Definition | Locals, functions, methods, fields and imported modules; jumps to the name, not the whole declaration. |
 | References / highlight | Symbol-based (not textual), across open documents; `includeDeclaration` honored. |
-| Rename | Symbol-safe; `prepareRename` returns the identifier range. Limited to open documents (cross-file rename needs the workspace loaded). |
+| Rename | Symbol-safe across every open document (including imported modules); `prepareRename` returns the identifier range. Documents outside the workspace are not edited until they are open. |
 | Signature help | `calling f with a, b`; resolves methods and module functions, tracks `activeParameter` after `with`. |
 | Inlay hints | Inferred types for `var`/`let`/`static var` without annotation; `≈ N B` size+alignment hints for named types. Variables never get a size hint (hover instead). Filtered by `range` and configurable. |
 | Semantic tokens | Keyword/type/function/variable/string/number/comment/namespace/parameter/property/enumMember/operator, UTF-16 (`positionEncoding: "utf-16"`), incremental sync. |

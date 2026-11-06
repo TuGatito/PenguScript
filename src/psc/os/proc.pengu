@@ -9,6 +9,47 @@ insignia psc_os_proc_
 ##
 ## ## Memoria
 ## Los strings de `argv` son prestados.
+## Reemplaza el proceso actual por `argv[0]` (execvp). No vuelve si tiene
+## éxito; si falla, devuelve 127.
+##
+## ## Memoria
+## Los strings de `argv` son prestados y deben sobrevivir a la llamada.
+antiquus exec_replace with argv as list of string into int:
+    r"""
+#if defined(_WIN32)
+if (argv.len <= 0)
+return -1;
+char **v = (char **)malloc(((size_t)argv.len + 1) * sizeof(char *));
+if (!v)
+return -1;
+for (int i = 0; i < argv.len; i++)
+{
+PenguString *s = (PenguString *)pengu_list_at(&argv, i);
+v[i] = (s && s->data) ? s->data : (char *)"";
+}
+v[argv.len] = NULL;
+int rc = _spawnvp(_P_WAIT, v[0], (const char *const *)v);
+free(v);
+return rc;
+#else
+extern int execvp(const char *, char *const[]);
+if (argv.len <= 0)
+return 127;
+char **v = (char **)malloc(((size_t)argv.len + 1) * sizeof(char *));
+if (!v)
+return 127;
+for (int i = 0; i < argv.len; i++)
+{
+PenguString *s = (PenguString *)pengu_list_at(&argv, i);
+v[i] = (s && s->data) ? s->data : (char *)"";
+}
+v[argv.len] = NULL;
+execvp(v[0], v);
+free(v);
+return 127;
+#endif
+"""
+
 antiquus run_argv with argv as list of string into int:
     r"""
 #if defined(_WIN32)

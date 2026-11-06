@@ -465,6 +465,33 @@ psc/lsp/server.pengu — servidor LSP mínimo (lifecycle + diagnósticos).
 
  Formatea con el `psc fmt` de F7.
 
+### `symbol_identity`
+
+> **symbol_identity**(p: ref to SemaProgram, sid: int) -> string
+
+ Identidad estable de un símbolo entre programas: módulo + declaración.
+
+ Los `sid` son índices por `SemaProgram`; comparar ids entre documentos era
+ el bug de rename cross-file (el id 12 de un documento no es el 12 de otro).
+
+### `identity_equal`
+
+> **identity_equal**(a: string, b: string) -> bool
+
+ Igualdad de identidades tolerando rutas relativas vs absolutas: el mismo
+ módulo puede aparecer como `src/lib.pengu` en un programa y como
+ `/proyecto/src/lib.pengu` en otro.
+
+### `resolve_symbol_id`
+
+> **resolve_symbol_id**(p: ref to SemaProgram, mid: int, text: string, off: int) -> int
+
+ Resuelve el símbolo bajo `off`, con fallback a la declaración léxica.
+
+ `query.symbol_at_offset` no anota el identificador de una definición en
+ todos los casos; para rename en la definición buscamos el token y su
+ símbolo por offset de declaración.
+
 ### `handle_rename`
 
 > **handle_rename**(st: ref to State, id: JsonRpcId, params: JsonValue) -> void

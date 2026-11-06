@@ -151,6 +151,9 @@ weave load_manifest with base_dir as string, profile as string into Manifest:
     var output as string is calling text_or with entries, "project.output", "exe"
     var output_name as string is calling text_or with entries, "project.output_name", name
     var target as string is calling text_or with entries, "build.target", ""
+    if target length == 0:
+        banish target
+        set target is calling text_or with entries, "target", ""
     var src_dir as string is calling text_or with entries, "build.src_dir", "src"
     var lib_dir as string is calling text_or with entries, "build.lib_dir", "lib"
     var include_dir as string is calling text_or with entries, "build.include_dir", "include"

@@ -49,14 +49,36 @@ Presta `CgContext`; los textos temporales se liberan en cada emisor.
  ## Memoria
  Recursivo; no posee recursos.
 
-### `emit_all`
+### `emit_prototypes`
 
-> **emit_all**(c: ref to CgContext, r: ref to CgReach) -> void
+> **emit_prototypes**(c: ref to CgContext, r: ref to CgReach) -> void
 
  Emite prototipos y cuerpos de todos los codecs vivos.
 
  ## Memoria
  Presta el contexto; libera las listas temporales.
+ Emite solo los prototipos de los codecs vivos.
+
+ Es la mitad que necesita una cabecera compartida cuando el codegen se divide
+ en varias unidades (F7); `emit_all` mantiene el contrato de un solo TU.
+
+ ## Memoria
+ Presta el contexto; libera las listas temporales.
+
+### `emit_bodies`
+
+> **emit_bodies**(c: ref to CgContext, r: ref to CgReach) -> void
+
+ Emite solo los cuerpos de los codecs vivos.
+
+ ## Memoria
+ Presta el contexto; libera las listas temporales.
+
+### `emit_all`
+
+> **emit_all**(c: ref to CgContext, r: ref to CgReach) -> void
+
+_Undocumented._
 
 ### `register_methods`
 
@@ -178,18 +200,18 @@ Presta `CgContext`; los textos temporales se liberan en cada emisor.
  ## Memoria
  O(1).
 
-### `emit_protos`
+### `emit_type_protos`
 
-> **emit_protos**(c: ref to CgContext, ty: int) -> void
+> **emit_type_protos**(c: ref to CgContext, ty: int) -> void
 
  Prototipos de las cinco funciones de una runa.
 
  ## Memoria
  Strings temporales liberados.
 
-### `emit_bodies`
+### `emit_type_bodies`
 
-> **emit_bodies**(c: ref to CgContext, ty: int) -> void
+> **emit_type_bodies**(c: ref to CgContext, ty: int) -> void
 
  Cuerpos encode/write/decode/read/free de una runa.
 

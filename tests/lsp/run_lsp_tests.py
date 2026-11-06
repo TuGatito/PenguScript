@@ -15,7 +15,7 @@ import sys
 import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-PSC = pathlib.Path(os.environ.get("PSC", ROOT / "build" / "psc"))
+PSC = pathlib.Path(os.environ.get("PSC", ROOT / "build" / "psc")).resolve()
 PROJECT = ROOT / "tests" / "lsp" / "fixtures" / "project"
 DOC = PROJECT / "src" / "main.pengu"
 URI = DOC.as_uri()
@@ -28,10 +28,11 @@ def frame(obj: dict) -> bytes:
 
 
 class Client:
-    def __init__(self) -> None:
+    def __init__(self, project: pathlib.Path = PROJECT) -> None:
+        self.project = project
         self.proc = subprocess.Popen(
             [str(PSC), "lsp", "--stdio"],
-            cwd=str(PROJECT),
+            cwd=str(project),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -262,6 +263,46 @@ def main() -> int:
         assert_true("diagnostic source", bad_diags[0]["source"] == "psc")
     finally:
         client.shutdown()
+
+    # Rename cross-file: los ids de símbolo son por programa; la identidad
+    # debe compararse por declaración (módulo + línea + columna + clase).
+    ren = ROOT / "tests" / "lsp" / "fixtures" / "rename"
+    lib = ren / "src" / "lib.pengu"
+    mainp = ren / "src" / "main.pengu"
+    lib_uri = lib.as_uri()
+    main_uri = mainp.as_uri()
+    rc = Client(ren)
+    try:
+        rc.request("initialize", {"rootUri": ren.as_uri(), "capabilities": {}})
+        lib_text = lib.read_text()
+        main_text = mainp.read_text()
+        rc.open(lib_uri, lib_text)
+        rc.open(main_uri, main_text)
+        # Definición: `weave twice` (línea 1, columna 6).
+        at_def = rc.request(
+            "textDocument/rename",
+            {"textDocument": {"uri": lib_uri}, "position": {"line": 1, "character": 7}, "newName": "doble"},
+        )["result"]
+        assert_true("rename def returns changes", at_def and "changes" in at_def)
+        assert_true("rename def edits lib", lib_uri in at_def["changes"])
+        assert_true("rename def edits main", main_uri in at_def["changes"])
+        # Uso en main: `calling twice` en la línea 3.
+        col = main_text.splitlines()[3].index("twice") + 1
+        at_use = rc.request(
+            "textDocument/rename",
+            {"textDocument": {"uri": main_uri}, "position": {"line": 3, "character": col}, "newName": "triple"},
+        )["result"]
+        assert_true("rename use returns changes", at_use and "changes" in at_use)
+        assert_true("rename use edits lib", lib_uri in at_use["changes"])
+        assert_true("rename use edits main", main_uri in at_use["changes"])
+        new_texts = {
+            edit["newText"]
+            for edits in at_use["changes"].values()
+            for edit in edits
+        }
+        assert_eq("rename new text", new_texts, {"triple"})
+    finally:
+        rc.shutdown()
 
     print("OK LSP protocol tests")
     return 0

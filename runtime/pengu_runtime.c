@@ -15,6 +15,21 @@
 
 #include "pengu_runtime.h"
 
+/* Estado global compartido entre unidades cuando el bundle se compila con
+ * `psc emit-c --split-dir` (una unidad por módulo). */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((weak))
+#endif
+int g_pengu_argc = 0;
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((weak))
+#endif
+char **g_pengu_argv = NULL;
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((weak))
+#endif
+int g_pengu_log_level = 0;
+
 #if PENGU_WINDOWS
 #include <process.h>
 #include <winsock2.h>

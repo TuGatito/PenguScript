@@ -73,6 +73,39 @@ weave get with k as string into string:
     banish p
     return ""
 
+## Indica si `k` ya tiene una entrada publicada.
+##
+## ## Memoria
+## No retiene strings.
+weave has with k as string into bool:
+    var r as string is calling root
+    var p as string is "{r}/{k}/app"
+    banish r
+    var ok as bool is calling archivum.is_file with p
+    banish p
+    return ok
+
+## Publica una entrada vacía (marcador de fase, p. ej. `psc check`).
+##
+## ## Memoria
+## Libera temporales.
+weave mark with k as string into bool:
+    var r as string is calling root
+    var d as string is "{r}/{k}"
+    var p as string is "{d}/app"
+    var pid as int is calling rites.getpid
+    var tmp as string is "{d}/app.{pid}.tmp"
+    var ok as bool is false
+    if calling archivum.create_dir with d, true:
+        if calling archivum.write_text with tmp, "":
+            if calling archivum.rename with tmp, p:
+                set ok is true
+        banish tmp
+    banish p
+    banish d
+    banish r
+    return ok
+
 ## Guarda un artefacto.
 ##
 ## ## Memoria
@@ -81,20 +114,26 @@ weave put with k as string, artifact as string into bool:
     var r as string is calling root
     var d as string is "{r}/{k}"
     var p as string is "{d}/app"
+    var pid as int is calling rites.getpid
+    var tmp as string is "{d}/app.{pid}.tmp"
     var ok as bool is false
     if calling archivum.create_dir with d, true:
-        if calling archivum.copy_file with artifact, p, true:
+        # Escritura atómica: varios `psc build` concurrentes no deben ver un
+        # artefacto a medio copiar. El rename final es la publicación.
+        if calling archivum.copy_file with artifact, tmp, true:
             var cargs as list of string is list of string
             calling cargs.push with "chmod"
             calling cargs.push with "+x"
-            calling cargs.push with (calling copy with p)
+            calling cargs.push with (calling copy with tmp)
             var ignored as int is calling proc.run_argv with cargs
             var cfi as int is 0
             while cfi < cargs.len:
                 banish cargs at cfi
                 set cfi is cfi + 1
             banish cargs
-            set ok is true
+            if calling archivum.rename with tmp, p:
+                set ok is true
+        banish tmp
     banish p
     banish d
     banish r

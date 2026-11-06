@@ -22,6 +22,7 @@ import psc.lsp.uri as luri
 import psc.sema.api as sema_api
 import psc.sema.ast as astutil
 import psc.sema.modules.loader as loader
+import psc.sema.modules.program as program
 import psc.sema.names as npool
 import psc.sema.options as sopts
 import psc.sema.symbols.symbol as sym
@@ -408,7 +409,7 @@ weave initialize_result into JsonValue:
     calling out.put_json with "capabilities", cap
     var info as JsonValue is calling JsonValue.empty_object
     calling info.put_json with "name", (calling JsonValue.string_val with (calling copy with "psc"))
-    calling info.put_json with "version", (calling JsonValue.string_val with (calling copy with "0.32.0"))
+    calling info.put_json with "version", (calling JsonValue.string_val with (calling copy with "0.33.0"))
     calling out.put_json with "serverInfo", info
     return out
 
@@ -1515,9 +1516,10 @@ weave handle_references with st as ref to State, id as rpc.JsonRpcId, params as 
     var arr as JsonValue is calling JsonValue.empty_array
     if mid >= 0:
         var sp as ref to sema_api.SemaResult is calling doc_sema with st, u
-        var sid as int is calling query.symbol_at_offset with sp->program, mid, text, off
+        var sid as int is calling resolve_symbol_id with sp->program, mid, text, off
         if sid >= 0:
             var old as string is calling query.symbol_name with sp->program, sid
+            var oid as string is calling symbol_identity with sp->program, sid
             var ns as int is calling query.symbol_name_start with sp->program, mid, sid
             for du in st->uris:
                 var dmid as int is calling doc_module with st, du
@@ -1533,12 +1535,13 @@ weave handle_references with st as ref to State, id as rpc.JsonRpcId, params as 
                             if nm == old:
                                 var is_decl as bool is (du == u and t.start == ns)
                                 if inc or not is_decl:
-                                    var s2 as int is calling query.symbol_at_offset with dsp->program, dmid, dtext, t.start
-                                    if s2 == sid:
+                                    var s2 as int is calling resolve_symbol_id with dsp->program, dmid, dtext, t.start
+                                    if s2 >= 0 and (calling identity_equal with (calling symbol_identity with dsp->program, s2), oid):
                                         calling add_occurrence with (sigil of arr), dtext, du, t.start, t.end
                             banish nm
                         set ti is ti + 1
                     banish dtext
+            banish oid
     banish text
     banish u
     var out as rpc.JsonRpcMessage is calling rpc.response_ok with (calling copy_id with id), arr
@@ -1688,6 +1691,87 @@ weave handle_formatting with st as ref to State, id as rpc.JsonRpcId, params as 
     var ok as bool is calling send_msg with st, outmsg
     banish outmsg
 
+## Identidad estable de un símbolo entre programas: módulo + declaración.
+##
+## Los `sid` son índices por `SemaProgram`; comparar ids entre documentos era
+## el bug de rename cross-file (el id 12 de un documento no es el 12 de otro).
+weave symbol_identity with p as ref to program.SemaProgram, sid as int into string:
+    var s as sym.SemaSymbol is calling query.symbol_at with p, sid
+    if s.name < 0:
+        return ""
+    var mp as string is "?"
+    if s.module >= 0 and s.module < p->modules.len:
+        var mm as loader.SemaModule is (p->modules at s.module)
+        set mp is mm.source.path
+    var kn as string is calling sym.symbol_kind_name with s.kind
+    var id as string is "{mp}:{s.line}:{s.col}:{kn}"
+    banish kn
+    return id
+
+## Igualdad de identidades tolerando rutas relativas vs absolutas: el mismo
+## módulo puede aparecer como `src/lib.pengu` en un programa y como
+## `/proyecto/src/lib.pengu` en otro.
+weave identity_equal with a as string, b as string into bool:
+    if a == b:
+        return true
+    if a length == 0 or b length == 0:
+        return false
+    if a length > b length + 1:
+        var suf as string is "/{b}"
+        var r as bool is calling ends_with with a, suf
+        banish suf
+        if r:
+            return true
+    if b length > a length + 1:
+        var suf2 as string is "/{a}"
+        var r2 as bool is calling ends_with with b, suf2
+        banish suf2
+        return r2
+    return false
+
+## Resuelve el símbolo bajo `off`, con fallback a la declaración léxica.
+##
+## `query.symbol_at_offset` no anota el identificador de una definición en
+## todos los casos; para rename en la definición buscamos el token y su
+## símbolo por offset de declaración.
+weave resolve_symbol_id with p as ref to program.SemaProgram, mid as int, text as string, off as int into int:
+    var sid as int is calling query.symbol_at_offset with p, mid, text, off
+    if sid >= 0:
+        return sid
+    if mid < 0 or mid >= p->modules.len:
+        return -1
+    var dm as loader.SemaModule is (p->modules at mid)
+    var ti as int is 0
+    while ti < dm.lex.tokens.len:
+        var t as pstoken.Token is (dm.lex.tokens at ti)
+        if t.kind == pstoken.TokenKind.TokIdentifier and t.start <= off and off < t.end:
+            var si as int is 0
+            while si < p->symbols.symbols.len:
+                var s as sym.SemaSymbol is (p->symbols.symbols at si)
+                if s.start == t.start and (s.module == mid or s.module < 0):
+                    return si
+                set si is si + 1
+            # Sin anotación de nodo (p. ej. el callee de `calling f`): resolver
+            # por nombre, prefiriendo el scope del documento y nunca un import.
+            var w as string is calling astutil.token_text with (sigil of dm.source), (sigil of dm.lex), ti
+            var fallback as int is -1
+            set si is 0
+            while si < p->symbols.symbols.len and w length > 0:
+                var s2 as sym.SemaSymbol is (p->symbols.symbols at si)
+                if s2.name >= 0 and s2.kind != sym.SemaSymbolKind.SkImport and (calling query.symbol_name with p, si) == w:
+                    if s2.module == mid:
+                        banish w
+                        return si
+                    if fallback < 0:
+                        set fallback is si
+                set si is si + 1
+            banish w
+            if fallback >= 0:
+                return fallback
+            return -1
+        set ti is ti + 1
+    return -1
+
 ## Rename basado en símbolos: sólo edita identificadores que resuelven al
 ## mismo `sid` (no toca strings, comentarios ni homónimos de otro scope).
 weave handle_rename with st as ref to State, id as rpc.JsonRpcId, params as JsonValue into void:
@@ -1710,10 +1794,11 @@ weave handle_rename with st as ref to State, id as rpc.JsonRpcId, params as Json
     var res as JsonValue is calling JsonValue.null_value
     if mid >= 0:
         var sp as ref to sema_api.SemaResult is calling doc_sema with st, u
-        var sid as int is calling query.symbol_at_offset with sp->program, mid, text, off
+        var sid as int is calling resolve_symbol_id with sp->program, mid, text, off
         if sid >= 0 and newname length > 0:
             var old as string is calling query.symbol_name with sp->program, sid
-            if old length > 0 and old != newname:
+            var oid as string is calling symbol_identity with sp->program, sid
+            if old length > 0 and oid length > 0 and old != newname:
                 var changes as JsonValue is calling JsonValue.empty_object
                 for du in st->uris:
                     var dmid as int is calling doc_module with st, du
@@ -1728,8 +1813,8 @@ weave handle_rename with st as ref to State, id as rpc.JsonRpcId, params as Json
                             if t.kind == pstoken.TokenKind.TokIdentifier:
                                 var nm as string is calling astutil.token_text with (sigil of dm.source), (sigil of dm.lex), ti
                                 if nm == old:
-                                    var s2 as int is calling query.symbol_at_offset with dsp->program, dmid, dtext, t.start
-                                    if s2 == sid:
+                                    var s2 as int is calling resolve_symbol_id with dsp->program, dmid, dtext, t.start
+                                    if s2 >= 0 and (calling identity_equal with (calling symbol_identity with dsp->program, s2), oid):
                                         var edit as JsonValue is calling JsonValue.empty_object
                                         calling edit.put_json with "range", (calling lpos.range_json with dtext, t.start, t.end)
                                         calling edit.put_json with "newText", (calling JsonValue.string_val with (calling copy with newname))
@@ -1741,6 +1826,7 @@ weave handle_rename with st as ref to State, id as rpc.JsonRpcId, params as Json
                         else:
                             banish edits
                         banish dtext
+                banish oid
                 var wr as JsonValue is calling JsonValue.empty_object
                 calling wr.put_json with "changes", changes
                 set res is wr

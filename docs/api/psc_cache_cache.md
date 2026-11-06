@@ -45,6 +45,24 @@ entrada se escribe de forma atómica dentro de `<root>/<key>/`.
  ## Memoria
  Devuelve string owned o `""`.
 
+### `has`
+
+> **has**(k: string) -> bool
+
+ Indica si `k` ya tiene una entrada publicada.
+
+ ## Memoria
+ No retiene strings.
+
+### `mark`
+
+> **mark**(k: string) -> bool
+
+ Publica una entrada vacía (marcador de fase, p. ej. `psc check`).
+
+ ## Memoria
+ Libera temporales.
+
 ### `put`
 
 > **put**(k: string, artifact: string) -> bool
