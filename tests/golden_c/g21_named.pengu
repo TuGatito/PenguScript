@@ -1,0 +1,35 @@
+## Golden: argumentos nombrados, defaults en su ranura, métodos y genéricos.
+weave greet with name as string, times as int is 2, loud as bool is false into void:
+    var i as int is 0
+    while i < times:
+        if loud:
+            calling print with "{name}!"
+        else:
+            calling print with "{name}."
+        set i is i + 1
+    calling print with "\n"
+
+weave sub with a as int, b as int into int:
+    return a - b
+
+weave first_of shard T with a as T, b as T into T:
+    return a
+
+rune Point:
+    x as int
+    y as int
+
+enchanting Point:
+    weave shift with dy as int into int:
+        set self->y is self->y + dy
+        return self->y
+
+weave main into int:
+    calling greet with "ada"
+    calling greet with times is 3, name is "bo"
+    calling greet with loud is true, name is "cy"
+    calling print with "{calling sub with b is 5, a is 12}\n"
+    var p as Point is with x is 1, y is 2
+    calling print with "{calling p.shift with dy is 5}\n"
+    calling print with "{calling first_of with b is 8, a is 4}\n"
+    return 0

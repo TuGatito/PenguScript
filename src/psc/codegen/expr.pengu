@@ -2086,23 +2086,10 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
     if fslot >= 0 and not explicit_g:
         var bfg as catalog.CgFunction is (c->catalog.functions at fslot)
         if bfg.is_generic:
-            var actuals as list of int is list of int
-            var argm0 as int is calling astutil.node_child with ast, node, 2
-            if argm0 >= 0:
-                var ac0 as int is calling astutil.child_count with ast, argm0
-                var a0 as int is 0
-                while a0 < ac0:
-                    var an0 as int is calling astutil.node_child with ast, argm0, a0
-                    if an0 >= 0:
-                        var av0 as int is an0
-                        if (calling astutil.kind_of with ast, an0) == pskind.NodeKind.NdPosArg:
-                            set av0 is calling astutil.node_child with ast, an0, 0
-                        if av0 >= 0:
-                            var aty0 as int is calling node_type with c, av0
-                            if aty0 > 0:
-                                calling actuals.push with aty0
-                    set a0 is a0 + 1
-            var inf0 as list of int is calling generics.infer_from_actual with c, fslot, actuals
+            # Los argumentos nombrados se alinean con su parámetro; si no, la
+            # inferencia de `shard` vería una lista vacía y la llamada quedaría
+            # con el nombre base (C no compila).
+            var inf0 as list of int is calling generics.spec_args_for_call with c, fslot, -1, node
             if inf0.len == bfg.tparams.len and inf0.len > 0:
                 var si0 as int is calling generics.find_spec with c, bfg.symbol, inf0
                 # El prepass no siempre crea la instancia (p. ej. cuando la
@@ -2116,7 +2103,6 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
                     banish cname
                     set cname is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), sf0.c_name)
             banish inf0
-            banish actuals
     # Método genérico sobre un receptor concreto (`list of int`, `map of
     # string to int`): especializa el cuerpo con los args del receptor.
     if fslot >= 0:
@@ -2435,58 +2421,122 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
                 banish recv
                 set wrote_recv is true
     var args as int is calling astutil.node_child with ast, node, 2
+    var nfixed as int is fn_params_count
+    var has_va as bool is false
+    if fn_params_count > 0:
+        var lp as types.SemaFnParam is (c->program->types.fn_params at (fn_params_first + fn_params_count - 1))
+        if lp.type == types.TYPE_ID_CVARARGS:
+            set has_va is true
+            set nfixed is fn_params_count - 1
+    # `pos_nodes[i]` es el argumento posicional de la ranura i. Los nombrados
+    # van en listas paralelas (ranura, nodo): son pocos y sólo se leen.
+    var pos_nodes as list of int is list of int
+    defer banish pos_nodes
+    var named_slots as list of int is list of int
+    defer banish named_slots
+    var named_nodes as list of int is list of int
+    defer banish named_nodes
+    var extras as list of int is list of int
+    defer banish extras
+    var n as int is 0
     if args >= 0:
-        var i as int is 0
-        var n as int is calling astutil.child_count with ast, args
-        while i < n:
-            if i > 0 or wrote_recv:
-                calling sb.append with ", "
-            var arg as int is calling astutil.node_child with ast, args, i
-            if arg >= 0:
-                var v as int is arg
+        set n is calling astutil.child_count with ast, args
+    var cm as loader.SemaModule is (c->program->modules at c->current_module)
+    var ai as int is 0
+    while ai < n:
+        var arg as int is calling astutil.node_child with ast, args, ai
+        if arg >= 0:
+            if (calling astutil.kind_of with ast, arg) == pskind.NodeKind.NdNamedArg:
+                var ntxt as string is calling astutil.child_token_text with (sigil of cm.source), (sigil of cm.lex), ast, arg, 0
+                var nid as int is calling npool.intern with (sigil of c->program->names), ntxt
+                banish ntxt
+                var nv as int is calling astutil.node_child with ast, arg, 1
+                var sj as int is 0
+                while sj < nfixed:
+                    var np as types.SemaFnParam is (c->program->types.fn_params at (fn_params_first + sj))
+                    if np.name == nid:
+                        calling named_slots.push with sj
+                        calling named_nodes.push with nv
+                    set sj is sj + 1
+            else:
+                var pv as int is arg
                 if (calling astutil.kind_of with ast, arg) == pskind.NodeKind.NdPosArg:
-                    set v is calling astutil.node_child with ast, arg, 0
-                var a as string is ""
-                if i < fn_params_count:
-                    var p as types.SemaFnParam is (c->program->types.fn_params at (fn_params_first + i))
-                    var pty as int is p.type
-                    if pty > 0 and fslot >= 0:
-                        var cfm as catalog.CgFunction is (c->catalog.functions at fslot)
-                        if cfm.is_spec and cfm.spec_args.len > 0:
-                            var psub as int is calling generics.subst_spec_type_of with c, cfm, pty
-                            if psub > 0:
-                                set pty is psub
-                    if pty > 0 and pty != types.TYPE_ID_CVARARGS:
-                        set a is calling emit_expr_as with c, v, pty
-                    else:
-                        set a is calling emit_expr with c, v
+                    set pv is calling astutil.node_child with ast, arg, 0
+                if pos_nodes.len < nfixed:
+                    calling pos_nodes.push with pv
                 else:
-                    set a is calling emit_expr with c, v
-                calling sb.append with a
-                banish a
-            set i is i + 1
-    var di as int is 0
-    if args >= 0:
-        set di is calling astutil.child_count with ast, args
-    while di < fn_params_count:
-        var dpm as types.SemaFnParam is (c->program->types.fn_params at (fn_params_first + di))
-        if dpm.default_node < 0 or dpm.type <= 0:
-            break
-        if di > 0 or wrote_recv:
-            calling sb.append with ", "
-        var dv as string is ""
-        if dpm.default_text >= 0:
-            set dv is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), dpm.default_text)
+                    calling extras.push with pv
+        set ai is ai + 1
+    # Se emite en orden de declaración: cada ranura recibe su argumento (por
+    # posición o por nombre) o su valor por defecto.
+    var wrote as bool is wrote_recv
+    var si as int is 0
+    while si < nfixed:
+        var anode as int is -1
+        if si < pos_nodes.len:
+            set anode is (pos_nodes at si)
         else:
-            var saved_mod as int is c->current_module
-            set c->current_module is dpm.default_module
-            set dv is calling emit_expr_as with c, dpm.default_node, dpm.type
-            set c->current_module is saved_mod
-        calling sb.append with dv
-        banish dv
-        set di is di + 1
+            var sj2 as int is 0
+            while sj2 < named_slots.len:
+                if (named_slots at sj2) == si:
+                    set anode is (named_nodes at sj2)
+                set sj2 is sj2 + 1
+        var sp as types.SemaFnParam is (c->program->types.fn_params at (fn_params_first + si))
+        if anode >= 0:
+            if wrote:
+                calling sb.append with ", "
+            var spty as int is sp.type
+            if spty > 0 and fslot >= 0:
+                var scfm as catalog.CgFunction is (c->catalog.functions at fslot)
+                if scfm.is_spec and scfm.spec_args.len > 0:
+                    var spsub as int is calling generics.subst_spec_type_of with c, scfm, spty
+                    if spsub > 0:
+                        set spty is spsub
+            var sv as string is ""
+            if spty > 0 and spty != types.TYPE_ID_CVARARGS:
+                set sv is calling emit_expr_as with c, anode, spty
+            else:
+                set sv is calling emit_expr with c, anode
+            calling sb.append with sv
+            banish sv
+            set wrote is true
+        else:
+            if sp.default_node >= 0 and sp.type > 0:
+                if wrote:
+                    calling sb.append with ", "
+                var dvd as string is calling param_default_text with c, fn_params_first + si
+                calling sb.append with dvd
+                banish dvd
+                set wrote is true
+        set si is si + 1
+    var xi as int is 0
+    while xi < extras.len:
+        if wrote:
+            calling sb.append with ", "
+        var xv as string is calling emit_expr with c, (extras at xi)
+        calling sb.append with xv
+        banish xv
+        set wrote is true
+        set xi is xi + 1
     calling sb.append with ")"
     return calling sb.finish
+
+## Texto C del valor por defecto del parámetro global `gidx`.
+##
+## Los defaults plegados a texto no dependen del AST de la llamada; los demás
+## se emiten en el módulo que los declaró.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave param_default_text with c as ref to context.CgContext, gidx as int into string:
+    var p as types.SemaFnParam is (c->program->types.fn_params at gidx)
+    if p.default_text >= 0:
+        return calling npool.copy_string with (calling npool.text with (sigil of c->program->names), p.default_text)
+    var saved as int is c->current_module
+    set c->current_module is p.default_module
+    var txt as string is calling emit_expr_as with c, p.default_node, p.type
+    set c->current_module is saved
+    return txt
 
 ## Tipo de un campo de payload de una variante de omen.
 ##

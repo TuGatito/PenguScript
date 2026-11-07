@@ -1,7 +1,7 @@
 # The Pengunic Manual
 
 How to write PenguScript that is safe, idiomatic and fast: the engineering
-manual for the language implemented by `psc` 0.37.0.
+manual for the language implemented by `psc` 0.38.0.
 
 It is the *practice* document of the documentation set:
 
@@ -63,6 +63,7 @@ Spanish: [PENGUNIC.es.md](PENGUNIC.es.md).
   - [7.5 `do:` for local scope](#75-do-for-local-scope)
   - [7.6 Guard clauses over nesting](#76-guard-clauses-over-nesting)
   - [7.7 Recursion](#77-recursion)
+  - [7.8 Name the argument that carries the meaning](#78-name-the-argument-that-carries-the-meaning)
 - [8. Anti-patterns](#8-anti-patterns)
   - [8.1 String building](#81-string-building)
   - [8.2 Ownership of parameters](#82-ownership-of-parameters)
@@ -318,7 +319,7 @@ binary. From a checkout:
 $ bash tools/build_bootstrap.sh     # builds build/psc-stage0 from the C bundle
 $ ./build/psc-stage0 build .        # self-hosts build/psc
 $ ./build/psc --version
-psc 0.37.0 (F13)
+psc 0.38.0 (F13)
 ```
 
 `build/psc` is the compiler you use from then on. `psc doctor` reports what it
@@ -906,6 +907,26 @@ weave depth with node as Node into int:
 * `judge` for categories, `if` for conditions, comprehensions for lists.
 * Guard clauses at the top; the happy path last.
 * Recursion only over recursive data.
+
+### 7.8 Name the argument that carries the meaning
+
+Three bare integers at a call site say nothing; a boolean flag says less than its
+name. Name an argument when its parameter name is part of the meaning, and keep
+it positional when the order is obvious:
+
+```pengu-fragment
+calling window.resize with 800, 600
+calling window.configure with resizable is false, title is "Logs"
+```
+
+**Rules**
+
+* Name arguments that are flags, modes or units; leave obvious orders positional.
+* Positional arguments first, then named ones — never a positional after a name.
+* A named argument costs nothing at runtime: the compiler orders it and emits the
+  same C call as the positional form.
+* Chain and pipe steps take positional arguments only; when a step needs a name,
+  call the method directly on its receiver.
 
 ## 8. Anti-patterns
 
@@ -3161,7 +3182,7 @@ truncates, and `transmute`, which reinterprets bits.
 **Are there threads and coroutines?**
 Yes. 0.30.0 added first-class threads (`filum.start`, `join`, `detach`, `free`),
 0.31.0 added `std.coro` (explicit stackful coroutines with `resume` and `yield`
-on the same thread) and 0.37.0 adds `std.reactor`: an explicit `EventLoop` that
+on the same thread) and 0.38.0 adds `std.reactor`: an explicit `EventLoop` that
 calls `epoll_wait`/`poll` and resumes tasks. There is no `async`/`await` keyword
 and no hidden scheduler: you create the loop, `spawn` and call `run`. The stdlib
 `*_async` variants are functions that suspend the current coroutine and only

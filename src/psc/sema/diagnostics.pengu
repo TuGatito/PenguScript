@@ -79,6 +79,8 @@ const CODE_MUTATES_ATTR as string is "E0067"
 const CODE_MUTATES_GETTER as string is "E0068"
 const CODE_DUP_LABEL as string is "E0069"
 const CODE_DUP_TYPE as string is "E0070"
+## Argumento nombrado inválido (desconocido, duplicado o fuera de orden).
+const CODE_NAMED_ARG as string is "E0071"
 
 const WARN_TRANSMUTE as string is "W0001"
 const WARN_ECHO_ACCESS as string is "W0002"

@@ -24,7 +24,7 @@ en una fase del plan, o se elimina de la documentación.
 | `E0002` | `CODE_VAR_TOP_LEVEL` | 1 | emitido | sí |
 | `E0003` | `CODE_SELF_DOT` | 1 | emitido | sí |
 | `E0004` | `CODE_UNDEFINED` | 12 | emitido | sí |
-| `E0005` | `CODE_TYPE_MISMATCH` | 38 | emitido | sí |
+| `E0005` | `CODE_TYPE_MISMATCH` | 39 | emitido | sí |
 | `E0006` | `CODE_MUTABILITY` | 5 | emitido | sí |
 | `E0007` | `CODE_CONTROL_FLOW` | 2 | emitido | sí |
 | `E0008` | `CODE_MEMORY_OP` | 13 | emitido | sí |
@@ -73,6 +73,7 @@ en una fase del plan, o se elimina de la documentación.
 | `E0068` | `CODE_MUTATES_GETTER` | 0 | **sin emisor** | sí |
 | `E0069` | `CODE_DUP_LABEL` | 1 | emitido | sí |
 | `E0070` | `CODE_DUP_TYPE` | 0 | **sin emisor** | sí |
+| `E0071` | `CODE_NAMED_ARG` | 5 | emitido | sí |
 | `W0001` | `WARN_TRANSMUTE` | 0 | **sin emisor** | sí |
 | `W0002` | `WARN_ECHO_ACCESS` | 0 | **sin emisor** | sí |
 | `W0004` | `WARN_UNREACHABLE` | 0 | **sin emisor** | sí |

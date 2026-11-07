@@ -1,7 +1,7 @@
 # PenguScript Language Reference
 
 PenguScript is a small, statically typed language that compiles to C. This
-reference documents the language as implemented by `psc` 0.37.0: every
+reference documents the language as implemented by `psc` 0.38.0: every
 construct, its semantics, and the C it lowers to.
 
 It is the *language* document of the documentation set:
@@ -140,7 +140,7 @@ own section (generics, memory, interop).
 * The keyword lists, type mappings and diagnostic codes are exhaustive; the
   prose is not — [PENGUNIC.md](PENGUNIC.md) covers *how to use* the language and
   [STDLIB.md](STDLIB.md) covers the standard library.
-* Version: `psc` 0.37.0. The ABI version the generated C expects is 3.
+* Version: `psc` 0.38.0. The ABI version the generated C expects is 3.
 
 ## 1. Lexical structure
 
@@ -734,8 +734,10 @@ weave double with x as int into int:
   omit the value of `return`.
 * Default parameter values must be compile-time constants.
 * A body whose last statement is an expression returns it implicitly.
-* Calls accept positional and named arguments:
-  `calling greet with "Ada", times is 2`.
+* Calls accept positional and named arguments: `calling greet with "Ada",
+  times is 2` and `calling greet with times is 2, name is "Ada"` are equivalent;
+  every parameter must be covered exactly once, positionally, by name or by its
+  default (see §6.2).
 * The argument list after `with` is greedy — parenthesise a call used inside a
   larger expression: `(calling get_count) > 0`.
 * `weave inline ...` forces the C function to be emitted as
@@ -765,6 +767,32 @@ calling items.push with 4          # built-in container method
 Built-in container methods (`list`: `push`, `pop`, `len`, `at`, `clear`;
 `map`: `get`, `put`, `contains`, `remove`, `len`, `keys`, `values`) are
 resolved by the compiler without an `enchanting` block.
+
+Named arguments bind by parameter name, in any order, and the compiler prints
+the arguments in declaration order — both call forms below produce the same C:
+
+```pengu
+weave greet with name as string, times as int is 2, loud as bool is false into void:
+    calling print with "{name}"
+
+weave main into int:
+    calling greet with "Ada", times is 3
+    calling greet with times is 3, name is "Ada"
+    return 0
+```
+
+```c
+d1_greet(pengu_string_from_cstr("Ada"), 3, false);
+```
+
+* Positional arguments come first. A named argument may follow them; a
+  positional argument after a named one is `E0071`.
+* A parameter is covered at most once. Repeating it — `a is 1, a is 2` or
+  `1, a is 2` — is `E0071`; so is a name the function does not take.
+* A parameter without a default left uncovered, or extra arguments, is `E0005`.
+* Chain and pipe steps (`calling p.plus with 1` followed by `.plus with by is 2`)
+  still take positional arguments only; naming one is `E0071`. Call the method
+  directly instead: `calling p.plus with by is 2`.
 
 ### 6.3 Variadic parameters
 
@@ -2136,6 +2164,7 @@ Every diagnostic has a stable code. Errors stop the compilation; warnings do not
 | `E0068` | `@mutates` return type is not the receiver |
 | `E0069` | duplicate loop label |
 | `E0070` | duplicate type name in a module |
+| `E0071` | unknown, repeated or misplaced named argument |
 | `W0001` | `transmute` used |
 | `W0002` | `echo` field access (unchecked union) |
 | `W0004` | unreachable code |

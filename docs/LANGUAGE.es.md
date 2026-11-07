@@ -1,7 +1,7 @@
 # Referencia del lenguaje PenguScript
 
 PenguScript es un lenguaje pequeño y de tipado estático que compila a C. Esta
-referencia documenta el lenguaje tal como lo implementa `psc` 0.37.0: cada
+referencia documenta el lenguaje tal como lo implementa `psc` 0.38.0: cada
 construcción, su semántica y el C al que se reduce.
 
 Es el documento de *lenguaje* del conjunto de documentación:
@@ -142,7 +142,7 @@ rasgos que necesitan su propia sección (genéricos, memoria, interop).
   diagnóstico son exhaustivos; la prosa no lo es — [PENGUNIC.es.md](PENGUNIC.es.md)
   cubre *cómo usar* el lenguaje y [STDLIB.es.md](STDLIB.es.md) cubre la
   biblioteca estándar.
-* Versión: `psc` 0.37.0. La versión de ABI que espera el C generado es 3.
+* Versión: `psc` 0.38.0. La versión de ABI que espera el C generado es 3.
 
 ## 1. Estructura léxica
 
@@ -749,7 +749,10 @@ weave double with x as int into int:
   compilación.
 * Un cuerpo cuya última sentencia es una expresión la devuelve implícitamente.
 * Las llamadas aceptan argumentos posicionales y nombrados:
-  `calling greet with "Ada", times is 2`.
+  `calling greet with "Ada", times is 2` y
+  `calling greet with times is 2, name is "Ada"` son equivalentes; cada
+  parámetro debe cubrirse exactamente una vez, por posición, por nombre o por su
+  valor por defecto (ver §6.2).
 * La lista de argumentos tras `with` es voraz — pon paréntesis a una llamada
   usada dentro de una expresión mayor: `(calling get_count) > 0`.
 * `weave inline ...` fuerza que la función de C se emita como
@@ -779,6 +782,34 @@ calling items.push with 4          # método integrado de contenedor
 Los métodos integrados de contenedor (`list`: `push`, `pop`, `len`, `at`,
 `clear`; `map`: `get`, `put`, `contains`, `remove`, `len`, `keys`, `values`) los
 resuelve el compilador sin necesidad de un bloque `enchanting`.
+
+Un argumento nombrado se une a su parámetro por nombre, en cualquier orden, y el
+compilador emite los argumentos en el orden de la declaración: ambas formas de
+llamar producen el mismo C:
+
+```pengu
+weave greet with name as string, times as int is 2, loud as bool is false into void:
+    calling print with "{name}"
+
+weave main into int:
+    calling greet with "Ada", times is 3
+    calling greet with times is 3, name is "Ada"
+    return 0
+```
+
+```c
+d1_greet(pengu_string_from_cstr("Ada"), 3, false);
+```
+
+* Los argumentos posicionales van primero. Un nombrado puede seguirlos; un
+  posicional después de un nombrado es `E0071`.
+* Cada parámetro se cubre como mucho una vez. Repetirlo —`a is 1, a is 2` o
+  `1, a is 2`— es `E0071`; también un nombre que la función no acepta.
+* Dejar sin cubrir un parámetro sin valor por defecto, o pasar argumentos de
+  más, es `E0005`.
+* Los pasos de cadena y tubería (`calling p.plus with 1` seguido de
+  `.plus with by is 2`) siguen aceptando sólo posicionales; nombrar uno es
+  `E0071`. Llama al método directamente: `calling p.plus with by is 2`.
 
 ### 6.3 Parámetros variádicos
 
@@ -2178,6 +2209,7 @@ los avisos no.
 | `E0068` | el retorno de `@mutates` no es el receptor |
 | `E0069` | etiqueta de bucle duplicada |
 | `E0070` | nombre de tipo duplicado en un módulo |
+| `E0071` | argumento nombrado desconocido, repetido o fuera de lugar |
 | `W0001` | se usó `transmute` |
 | `W0002` | acceso a campo de `echo` (unión sin comprobar) |
 | `W0004` | código inalcanzable |

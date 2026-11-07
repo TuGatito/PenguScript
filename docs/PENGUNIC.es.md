@@ -1,7 +1,7 @@
 # El Manual Pengunic
 
 Cómo escribir PenguScript seguro, idiomático y rápido: el manual de ingeniería
-del lenguaje que implementa `psc` 0.37.0.
+del lenguaje que implementa `psc` 0.38.0.
 
 Es el documento de *práctica* del conjunto de documentación:
 
@@ -63,6 +63,7 @@ English: [PENGUNIC.md](PENGUNIC.md).
   - [7.5 `do:` para un ámbito local](#75-do-para-un-ámbito-local)
   - [7.6 Cláusulas de guarda en lugar de anidamiento](#76-cláusulas-de-guarda-en-lugar-de-anidamiento)
   - [7.7 Recursión](#77-recursión)
+  - [7.8 Nombra el argumento que carga el significado](#78-nombra-el-argumento-que-carga-el-significado)
 - [8. Anti-patrones](#8-anti-patrones)
   - [8.1 Construcción de strings](#81-construcción-de-strings)
   - [8.2 Propiedad de los parámetros](#82-propiedad-de-los-parámetros)
@@ -321,7 +322,7 @@ binario `psc`. Desde un checkout:
 $ bash tools/build_bootstrap.sh     # builds build/psc-stage0 from the C bundle
 $ ./build/psc-stage0 build .        # self-hosts build/psc
 $ ./build/psc --version
-psc 0.37.0 (F13)
+psc 0.38.0 (F13)
 ```
 
 A partir de ahí usas `build/psc`. `psc doctor` informa de lo que encontró: el
@@ -914,6 +915,27 @@ weave depth with node as Node into int:
 * `judge` para categorías, `if` para condiciones, comprensiones para listas.
 * Cláusulas de guarda arriba; el camino feliz al final.
 * Recursión solo sobre datos recursivos.
+
+### 7.8 Nombra el argumento que carga el significado
+
+Tres enteros sueltos en una llamada no dicen nada; una bandera booleana dice
+menos que su nombre. Nombra un argumento cuando el nombre del parámetro forma
+parte del significado, y déjalo posicional cuando el orden es obvio:
+
+```pengu-fragment
+calling window.resize with 800, 600
+calling window.configure with resizable is false, title is "Logs"
+```
+
+**Reglas**
+
+* Nombra argumentos que sean banderas, modos o unidades; deja posicionales los
+  órdenes obvios.
+* Posicionales primero, luego nombrados: nunca un posicional después de un nombre.
+* Un argumento nombrado no cuesta nada en tiempo de ejecución: el compilador lo
+  ordena y emite la misma llamada C que la forma posicional.
+* Los pasos de cadena y tubería aceptan solo posicionales; cuando un paso
+  necesite nombre, llama al método directamente sobre su receptor.
 
 ## 8. Anti-patrones
 
@@ -3200,7 +3222,7 @@ trunca, y `transmute`, que reinterpreta bits.
 **¿Hay hilos y corrutinas?**
 Sí. 0.30.0 añadió hilos de primera clase (`filum.start`, `join`, `detach`,
 `free`), 0.31.0 añadió `std.coro` (corrutinas stackful explícitas con `resume` y
-`yield`, en el mismo hilo) y 0.37.0 añade `std.reactor`: un `EventLoop` explícito
+`yield`, en el mismo hilo) y 0.38.0 añade `std.reactor`: un `EventLoop` explícito
 que hace `epoll_wait`/`poll` y reanuda las tareas. No hay `async`/`await` como
 palabras clave ni un planificador escondido: tú creas el loop, haces `spawn` y
 llamas `run`. Las variantes `*_async` de la stdlib son funciones que suspenden la

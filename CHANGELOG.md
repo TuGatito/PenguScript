@@ -2,6 +2,42 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.38.0] — 2026-11-06 — Argumentos nombrados y aridad exacta
+
+Segunda fase del plan de lenguaje: las llamadas por fin emiten lo que la
+semántica resuelve. Antes, un argumento nombrado se compilaba como `0` y la
+llamada `calling add with b is 5, a is 3` devolvía `0` sin un solo diagnóstico.
+
+### Añadido
+
+- **Argumentos nombrados** en cualquier orden y mezclados con posicionales:
+  `calling greet with "Ada", times is 3` y
+  `calling greet with times is 3, name is "Ada"` emiten el mismo C, con los
+  argumentos en el orden de la declaración.
+- **`E0071`**: argumento nombrado desconocido, repetido, o posicional después de
+  un nombrado. También se emite al nombrar un argumento en un paso de cadena o
+  tubería, que sigue siendo posicional.
+- `tests/pengu/named_args.pengu`, `tests/regress_named_args.sh` (8 casos
+  negativos) y el golden `tests/golden_c/g21_named.pengu`.
+
+### Cambiado
+
+- El sema valida toda la lista de argumentos: cada parámetro se cubre una sola
+  vez, por posición, por nombre o por su valor por defecto. Los argumentos de
+  más y los que faltan son `E0005` (antes sólo se contaban los obligatorios).
+- El codegen reconstruye las ranuras por nombre y emite cada argumento con el
+  tipo esperado de su parámetro, con la sustitución de especialización aplicada.
+- Los valores por defecto se emiten en la ranura de su parámetro, no al final:
+  `calling greet with loud is true` ya no desplaza los argumentos.
+
+### Corregido
+
+- Una llamada con un nombre que la función no acepta emitía `f(0)` y compilaba:
+  ahora es `E0071`.
+- Las llamadas genéricas con argumentos nombrados perdían la inferencia de
+  `shard` y emitían el nombre base de la plantilla (C: "declaración implícita de
+  la función"); ahora se especializan con las ranuras resueltas.
+
 ## [0.37.0] — 2026-11-06 — Documentación verificable y catálogo de diagnósticos
 
 Primera fase del plan de lenguaje: la documentación deja de ser una promesa y
