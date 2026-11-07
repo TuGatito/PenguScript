@@ -13,6 +13,7 @@
  */
 
 #define CC_NO_SHORT_NAMES 1
+#include <stdatomic.h>
 #include "pengu_runtime.h"
 #include "cc.h"
 
@@ -451,4 +452,214 @@ const void *pengu_map_iter_key(const PenguMapIter *iter)
   if (!state || !iter->it)
     return NULL;
   return cc_map_key_for(iter->it, state->val_size, state->layout);
+}
+
+/* =========================================================================
+ * std.consortium — Rc / Arc / Weak
+ * ========================================================================= */
+
+static PenguRcHdr *pengu_rc_hdr(void *p) {
+  return p ? (PenguRcHdr *)((char *)p - sizeof(PenguRcHdr)) : NULL;
+}
+
+void *pengu_rc_new(size_t size, void (*drop)(void *), void (*clone)(const void *, void *)) {
+  PenguRcHdr *h = (PenguRcHdr *)malloc(sizeof(PenguRcHdr) + (size > 0 ? size : 1));
+  if (!h)
+    return NULL;
+  h->strong = 1;
+  h->weak = 1;
+  h->magic = PENGU_RC_MAGIC;
+  h->pad = 0;
+  h->drop = drop;
+  h->clone = clone;
+  h->size = size;
+  return (char *)h + sizeof(PenguRcHdr);
+}
+
+void *pengu_rc_retain(void *p) {
+  PenguRcHdr *h = pengu_rc_hdr(p);
+  if (h && h->magic == PENGU_RC_MAGIC)
+    h->strong++;
+  return p;
+}
+
+int32_t pengu_rc_release(void *p) {
+  PenguRcHdr *h = pengu_rc_hdr(p);
+  if (!h || h->magic != PENGU_RC_MAGIC)
+    return 0;
+  if (--h->strong > 0)
+    return 0;
+  if (h->drop)
+    h->drop(p);
+  if (--h->weak <= 0) {
+    h->magic = 0;
+    free(h);
+  }
+  return 1;
+}
+
+int32_t pengu_rc_strong(void *p) {
+  PenguRcHdr *h = pengu_rc_hdr(p);
+  return (h && h->magic == PENGU_RC_MAGIC) ? h->strong : 0;
+}
+
+int32_t pengu_rc_weak_count(void *p) {
+  PenguRcHdr *h = pengu_rc_hdr(p);
+  return (h && h->magic == PENGU_RC_MAGIC) ? (h->weak > 0 ? h->weak - 1 : 0) : 0;
+}
+
+void *pengu_rc_weak_new(void *p) {
+  PenguRcHdr *h = pengu_rc_hdr(p);
+  if (h && h->magic == PENGU_RC_MAGIC)
+    h->weak++;
+  return p;
+}
+
+void *pengu_rc_weak_upgrade(void *p) {
+  PenguRcHdr *h = pengu_rc_hdr(p);
+  if (!h || h->magic != PENGU_RC_MAGIC || h->strong <= 0)
+    return NULL;
+  h->strong++;
+  return p;
+}
+
+int32_t pengu_rc_weak_alive(void *p) {
+  PenguRcHdr *h = pengu_rc_hdr(p);
+  return (h && h->magic == PENGU_RC_MAGIC && h->strong > 0) ? 1 : 0;
+}
+
+void pengu_rc_weak_release(void *p) {
+  PenguRcHdr *h = pengu_rc_hdr(p);
+  if (!h || h->magic != PENGU_RC_MAGIC)
+    return;
+  if (--h->weak <= 0)
+    free(h);
+}
+
+/* --- Arc: counts are atomic; the payload drop is still the caller's job. --- */
+
+static PenguArcHdr *pengu_arc_hdr(void *p) {
+  return p ? (PenguArcHdr *)((char *)p - sizeof(PenguArcHdr)) : NULL;
+}
+
+void *pengu_arc_new(size_t size, void (*drop)(void *), void (*clone)(const void *, void *)) {
+  PenguArcHdr *h = (PenguArcHdr *)malloc(sizeof(PenguArcHdr) + (size > 0 ? size : 1));
+  if (!h)
+    return NULL;
+  atomic_init(&h->strong, 1);
+  atomic_init(&h->weak, 1);
+  h->magic = PENGU_ARC_MAGIC;
+  h->pad = 0;
+  h->drop = drop;
+  h->clone = clone;
+  h->size = size;
+  return (char *)h + sizeof(PenguArcHdr);
+}
+
+void *pengu_arc_clone(void *p) {
+  PenguArcHdr *h = pengu_arc_hdr(p);
+  if (h && h->magic == PENGU_ARC_MAGIC)
+    atomic_fetch_add_explicit(&h->strong, 1, memory_order_relaxed);
+  return p;
+}
+
+int32_t pengu_arc_release(void *p) {
+  PenguArcHdr *h = pengu_arc_hdr(p);
+  if (!h || h->magic != PENGU_ARC_MAGIC)
+    return 0;
+  if (atomic_fetch_sub_explicit(&h->strong, 1, memory_order_acq_rel) > 1)
+    return 0;
+  if (h->drop)
+    h->drop(p);
+  if (atomic_fetch_sub_explicit(&h->weak, 1, memory_order_acq_rel) <= 1) {
+    h->magic = 0;
+    free(h);
+  }
+  return 1;
+}
+
+int32_t pengu_arc_strong(void *p) {
+  PenguArcHdr *h = pengu_arc_hdr(p);
+  return (h && h->magic == PENGU_ARC_MAGIC)
+             ? atomic_load_explicit(&h->strong, memory_order_acquire)
+             : 0;
+}
+
+int32_t pengu_arc_weak_count(void *p) {
+  PenguArcHdr *h = pengu_arc_hdr(p);
+  if (!h || h->magic != PENGU_ARC_MAGIC)
+    return 0;
+  int32_t w = atomic_load_explicit(&h->weak, memory_order_acquire);
+  return w > 0 ? w - 1 : 0;
+}
+
+void *pengu_arc_weak_new(void *p) {
+  PenguArcHdr *h = pengu_arc_hdr(p);
+  if (h && h->magic == PENGU_ARC_MAGIC)
+    atomic_fetch_add_explicit(&h->weak, 1, memory_order_relaxed);
+  return p;
+}
+
+void *pengu_arc_weak_upgrade(void *p) {
+  PenguArcHdr *h = pengu_arc_hdr(p);
+  if (!h || h->magic != PENGU_ARC_MAGIC)
+    return NULL;
+  int32_t strong = atomic_load_explicit(&h->strong, memory_order_acquire);
+  while (strong > 0) {
+    if (atomic_compare_exchange_weak_explicit(&h->strong, &strong, strong + 1,
+                                              memory_order_acq_rel,
+                                              memory_order_acquire))
+      return p;
+  }
+  return NULL;
+}
+
+int32_t pengu_arc_weak_alive(void *p) {
+  PenguArcHdr *h = pengu_arc_hdr(p);
+  return (h && h->magic == PENGU_ARC_MAGIC &&
+          atomic_load_explicit(&h->strong, memory_order_acquire) > 0)
+             ? 1
+             : 0;
+}
+
+void pengu_arc_weak_release(void *p) {
+  PenguArcHdr *h = pengu_arc_hdr(p);
+  if (!h || h->magic != PENGU_ARC_MAGIC)
+    return;
+  if (atomic_fetch_sub_explicit(&h->weak, 1, memory_order_acq_rel) <= 1)
+    free(h);
+}
+
+void *pengu_rc_make_mut(void *p) {
+  PenguRcHdr *h = pengu_rc_hdr(p);
+  if (!h || h->magic != PENGU_RC_MAGIC)
+    return p;
+  if (h->strong == 1)
+    return p;
+  void *np = pengu_rc_new(h->size, h->drop, h->clone);
+  if (!np)
+    return p;
+  if (h->clone)
+    h->clone(p, np);
+  else
+    memcpy(np, p, h->size);
+  pengu_rc_release(p);
+  return np;
+}
+
+void *pengu_arc_make_mut(void *p) {
+  PenguArcHdr *h = pengu_arc_hdr(p);
+  if (!h || h->magic != PENGU_ARC_MAGIC)
+    return p;
+  if (atomic_load_explicit(&h->strong, memory_order_acquire) == 1)
+    return p;
+  void *np = pengu_arc_new(h->size, h->drop, h->clone);
+  if (!np)
+    return p;
+  if (h->clone)
+    h->clone(p, np);
+  else
+    memcpy(np, p, h->size);
+  pengu_arc_release(p);
+  return np;
 }

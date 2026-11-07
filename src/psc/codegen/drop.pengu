@@ -41,6 +41,10 @@ weave emit_drop_value with c as ref to context.CgContext, ty as int, target as s
         if t.b > 0:
             calling emit_drop_value with c, t.b, target
         return
+    var ck as int is calling consortium_kind_of with c, ty
+    if ck > 0:
+        calling emit_consortium_drop with c, ck, ty, target, t
+        return
     if t.kind == tk.SemaTypeKind.TkBase:
         var bn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), t.name)
         defer banish bn
@@ -188,3 +192,131 @@ weave clone_value with c as ref to context.CgContext, ty as int, dst as string, 
         calling emit.line with (sigil of c->emitter), "}"
         return
     calling emit.line with (sigil of c->emitter), "{dst} = {src};"
+
+## Qué envoltorio de `std.consortium` es `ty`: 0 ninguno, 1 `Rc`, 2 `WeakRc`,
+## 3 `Arc`, 4 `WeakArc`.
+##
+## El compilador conoce estos cuatro nombres a propósito: son los únicos tipos
+## con política de copia `share` (D11). Un `Rc of int` es un nominal
+## instanciado (`Rc__int`) que comparte struct C con la plantilla, así que la
+## comparación se hace sobre el nominal de la plantilla (`template_info`).
+##
+## ## Memoria
+## No asigna; copia el nombre base al pool del contexto.
+weave consortium_kind_of with c as ref to context.CgContext, ty as int into int:
+    if ty < 0 or ty >= c->program->types.types.len:
+        return 0
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    var steps as int is 0
+    while steps < 32 and (t.kind == tk.SemaTypeKind.TkAlias or t.kind == tk.SemaTypeKind.TkSeal):
+        if t.b <= 0:
+            return 0
+        set t is calling types.at with (sigil of c->program->types), t.b
+        set steps is steps + 1
+    if t.kind != tk.SemaTypeKind.TkRune:
+        return 0
+    if t.a <= 0 or t.a >= c->program->types.nominal_infos.len:
+        return 0
+    var info as types.SemaNominalInfo is (c->program->types.nominal_infos at t.a)
+    if info.template_info >= 0 and info.template_info < c->program->types.nominal_infos.len:
+        set info is (c->program->types.nominal_infos at info.template_info)
+    var bn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), info.base_name)
+    defer banish bn
+    if bn == "Rc":
+        return 1
+    if bn == "WeakRc":
+        return 2
+    if bn == "Arc":
+        return 3
+    if bn == "WeakArc":
+        return 4
+    return 0
+
+## Emite la liberación de un `Rc`/`Arc`/`Weak`.
+##
+## El payload lo destruye `pengu_rc_release`/`pengu_arc_release` con el thunk
+## que guardó `new` (el compilador emite `_pengu_rc_drop_<T>` por instancia),
+## así que aquí no hace falta conocer `T`.
+##
+## ## Memoria
+## Emite C; los strings C que construye son owned.
+weave emit_consortium_drop with c as ref to context.CgContext, kind as int, ty as int, target as string, t as tk.SemaType into void:
+    var rel as string is "pengu_arc_release"
+    if kind == 1:
+        set rel is "pengu_rc_release"
+    if kind == 2:
+        set rel is "pengu_rc_weak_release"
+    if kind == 4:
+        set rel is "pengu_arc_weak_release"
+    calling emit.line with (sigil of c->emitter), "if (({target}).ptr) {{ {rel}(({target}).ptr); ({target}).ptr = NULL; }}"
+
+## Expresión C con el destructor de `ty` con firma `void (void*)`, o
+## `NULL` si el tipo no tiene nada que liberar.
+##
+## `Rc`/`Arc` guardan ese puntero en su cabecera, así que liberarlos no
+## necesita conocer `T`.
+##
+## ## Memoria
+## El string devuelto es owned.
+weave emit_drop_thunk_ptr with c as ref to context.CgContext, ty as int into string:
+    if ty <= 0 or ty >= c->program->types.types.len:
+        return "NULL"
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    var steps as int is 0
+    while steps < 32 and (t.kind == tk.SemaTypeKind.TkAlias or t.kind == tk.SemaTypeKind.TkSeal):
+        if t.b <= 0:
+            return "NULL"
+        set t is calling types.at with (sigil of c->program->types), t.b
+        set steps is steps + 1
+    if t.kind == tk.SemaTypeKind.TkBase:
+        var bn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), t.name)
+        defer banish bn
+        if bn == "string":
+            return "pengu_drop_string"
+        return "NULL"
+    if t.kind == tk.SemaTypeKind.TkList:
+        return "pengu_drop_list"
+    if t.kind == tk.SemaTypeKind.TkMap:
+        return "pengu_drop_map"
+    if t.kind == tk.SemaTypeKind.TkMaybe:
+        return "pengu_drop_maybe"
+    if t.kind == tk.SemaTypeKind.TkResult:
+        return "pengu_drop_result"
+    if (t.kind == tk.SemaTypeKind.TkRune or t.kind == tk.SemaTypeKind.TkEcho) and t.a >= 0 and t.a < c->program->types.nominal_infos.len:
+        var info as types.SemaNominalInfo is (c->program->types.nominal_infos at t.a)
+        if (info.flags & types.NIF_DROP) != 0:
+            var cn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), info.c_name)
+            defer banish cn
+            var sb as StringBuilder is calling StringBuilder.new
+            defer banish sb
+            calling sb.append with "_pengu_rc_drop_"
+            calling sb.append with cn
+            return calling sb.finish
+    return "NULL"
+
+## Expresión C con la copia profunda de `ty` con firma
+## `void (const void*, void*)`, o `NULL` si basta con `memcpy`.
+##
+## ## Memoria
+## El string devuelto es owned.
+weave emit_clone_thunk_ptr with c as ref to context.CgContext, ty as int into string:
+    if ty <= 0 or ty >= c->program->types.types.len:
+        return "NULL"
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    var steps as int is 0
+    while steps < 32 and (t.kind == tk.SemaTypeKind.TkAlias or t.kind == tk.SemaTypeKind.TkSeal):
+        if t.b <= 0:
+            return "NULL"
+        set t is calling types.at with (sigil of c->program->types), t.b
+        set steps is steps + 1
+    if (t.kind == tk.SemaTypeKind.TkRune or t.kind == tk.SemaTypeKind.TkEcho) and t.a >= 0 and t.a < c->program->types.nominal_infos.len:
+        var info as types.SemaNominalInfo is (c->program->types.nominal_infos at t.a)
+        if (info.flags & types.NIF_DROP) != 0:
+            var cn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), info.c_name)
+            defer banish cn
+            var sb as StringBuilder is calling StringBuilder.new
+            defer banish sb
+            calling sb.append with "_pengu_rc_clone_"
+            calling sb.append with cn
+            return calling sb.finish
+    return "NULL"

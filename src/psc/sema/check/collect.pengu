@@ -918,10 +918,46 @@ weave collect_derives with s as ref to state.SemaState, node as int, ty as int, 
 ##
 ## ## Memoria
 ## Puede emitir diagnósticos; no posee recursos.
+## `true` si `ty` menciona algún parámetro de tipo (directamente o dentro de
+## contenedores y referencias).
+##
+## ## Memoria
+## Sigue alias/seal hasta 32 pasos.
+weave field_has_tparam with s as ref to state.SemaState, ty as int, depth as int into bool:
+    if ty <= 0 or depth > 8:
+        return false
+    var t as tk.SemaType is calling types.at with s->types, ty
+    var steps as int is 0
+    while steps < 32 and (t.kind == tk.SemaTypeKind.TkAlias or t.kind == tk.SemaTypeKind.TkSeal):
+        if t.b <= 0:
+            return false
+        set t is calling types.at with s->types, t.b
+        set steps is steps + 1
+    if t.kind == tk.SemaTypeKind.TkTypeParam:
+        return true
+    if t.kind == tk.SemaTypeKind.TkRef or t.kind == tk.SemaTypeKind.TkFrozen or t.kind == tk.SemaTypeKind.TkList or t.kind == tk.SemaTypeKind.TkMaybe or t.kind == tk.SemaTypeKind.TkArray or t.kind == tk.SemaTypeKind.TkSlice or t.kind == tk.SemaTypeKind.TkMany:
+        return calling field_has_tparam with s, t.a, depth + 1
+    if t.kind == tk.SemaTypeKind.TkMap or t.kind == tk.SemaTypeKind.TkResult:
+        if calling field_has_tparam with s, t.a, depth + 1:
+            return true
+        return calling field_has_tparam with s, t.b, depth + 1
+    return false
+
 weave validate_drop_fields with s as ref to state.SemaState, node as int, info as types.SemaNominalInfo, depth as int into void:
     if info.tparams_count > 0:
-        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "concept 'Drop' does not support generic runes yet", "Clone the payload by hand, or use a concrete rune.", ""
-        return
+        # Un `Drop` genérico solo es seguro si ningún campo guarda el parámetro
+        # (un handle como `Rc of T` solo tiene un `ref to void`): la copia
+        # profunda de `T` no puede generarse todavía.
+        var fi0 as int is 0
+        var holds as bool is false
+        while fi0 < info.fields_count:
+            var f0 as types.SemaField is (s->types->fields at (info.fields_first + fi0))
+            if calling field_has_tparam with s, f0.type, 0:
+                set holds is true
+            set fi0 is fi0 + 1
+        if holds:
+            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "concept 'Drop' does not support generic runes yet", "Clone the payload by hand, or use a concrete rune.", ""
+            return
     if depth > 8:
         return
     var fi as int is 0
@@ -965,9 +1001,12 @@ weave drop_field_unclonable with s as ref to state.SemaState, ty as int, depth a
 ## Añade símbolos y firmas a las tablas.
 weave register_drop_methods with s as ref to state.SemaState, ty as int, info as types.SemaNominalInfo into void:
     var cbase as string is calling npool.text with s->names, info.c_name
+    # `std.consortium` declara su propio `clone` (retiene el contador): la copia
+    # profunda de un handle sería un alias sin contador.
+    var cons_handle as bool is cbase == "Rc" or cbase == "WeakRc" or cbase == "Arc" or cbase == "WeakArc"
     var clone_nid as int is calling npool.intern with s->names, "clone"
     var drop_nid as int is calling npool.intern with s->names, "drop"
-    if (calling symbols.lookup_method_exact with s->symbols, ty, clone_nid) < 0:
+    if not cons_handle and (calling symbols.lookup_method_exact with s->symbols, ty, clone_nid) < 0:
         var csb as StringBuilder is calling StringBuilder.new
         defer banish csb
         calling csb.append with "_pengu_deepclone_"

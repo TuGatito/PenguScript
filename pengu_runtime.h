@@ -1694,6 +1694,13 @@ extern "C"
     s->is_owned = 0;
   }
 
+  /* Thunks de drop con firma `void (void*)` para `Rc`/`Arc` (std.consortium).
+     El payload vive tras la cabecera del contador; el wrapper solo quita el
+     tipo para que la cabecera guarde un destructor sin plantillas. */
+  static inline void pengu_drop_string(void *p) { pengu_banish_string((PenguString *)p); }
+  static inline void pengu_drop_maybe(void *p) { pengu_banish_maybe((PenguMaybe *)p); }
+  static inline void pengu_drop_result(void *p) { pengu_banish_result((PenguResult *)p); }
+
   /**
    * @brief Appends `v` to `*dst`, freeing the previous value when it was owned.
    *
@@ -2624,6 +2631,9 @@ static inline void pengu_string_append(PenguString *dst, PenguString v)
   {
     pengu_cc_map_banish(map);
   }
+
+  static inline void pengu_drop_list(void *p) { pengu_banish_list((PenguList *)p); }
+  static inline void pengu_drop_map(void *p) { pengu_banish_map((PenguMap *)p); }
 
   /**
    * @brief Clears all entries in a PenguMap.
@@ -5786,6 +5796,62 @@ static inline void pengu_string_append(PenguString *dst, PenguString v)
   int32_t pengu_js_callback_string_new(PenguJsStringCallback fn);
   void pengu_js_callback_string_free(int32_t id);
   #endif
+
+/* -------------------------------------------------------------------------
+ * std.consortium — reference counting (Rc/Arc/Weak).
+ *
+ * The handle points at the payload; the header lives immediately before it.
+ * The payload's destructor is *not* stored here: the generated code owns the
+ * static type, so `pengu_rc_release` reports "strong hit zero" and the caller
+ * destroys the payload (`_pengu_cleanup_<T>`) and then calls
+ * `pengu_rc_finalize`, which frees the block once the weak count drops too.
+ * Counts for `Rc`/`WeakRc` are plain integers (single thread); `Arc`/`WeakArc`
+ * use atomics.
+ * ------------------------------------------------------------------------- */
+  typedef struct PenguRcHdr {
+    int32_t strong;
+    int32_t weak;
+    uint32_t magic;
+    uint32_t pad;
+    void (*drop)(void *);
+    void (*clone)(const void *, void *);
+    size_t size;
+  } PenguRcHdr;
+
+  typedef struct PenguArcHdr {
+    _Atomic int32_t strong;
+    _Atomic int32_t weak;
+    uint32_t magic;
+    uint32_t pad;
+    void (*drop)(void *);
+    void (*clone)(const void *, void *);
+    size_t size;
+  } PenguArcHdr;
+
+  #define PENGU_RC_MAGIC 0x5243u  /* "RC" */
+  #define PENGU_ARC_MAGIC 0x4155u /* "AU" */
+
+  void *pengu_rc_new(size_t size, void (*drop)(void *), void (*clone)(const void *, void *));
+  void *pengu_rc_make_mut(void *p);
+  void *pengu_rc_retain(void *p);
+  int32_t pengu_rc_release(void *p);
+  int32_t pengu_rc_strong(void *p);
+  int32_t pengu_rc_weak_count(void *p);
+  void *pengu_rc_weak_new(void *p);
+  void *pengu_rc_weak_upgrade(void *p);
+  int32_t pengu_rc_weak_alive(void *p);
+  void pengu_rc_weak_release(void *p);
+
+  void *pengu_arc_new(size_t size, void (*drop)(void *), void (*clone)(const void *, void *));
+  void *pengu_arc_make_mut(void *p);
+  void *pengu_arc_clone(void *p);
+  int32_t pengu_arc_release(void *p);
+  int32_t pengu_arc_strong(void *p);
+  int32_t pengu_arc_weak_count(void *p);
+  void *pengu_arc_weak_new(void *p);
+  void *pengu_arc_weak_upgrade(void *p);
+  int32_t pengu_arc_weak_alive(void *p);
+  void pengu_arc_weak_release(void *p);
 
 #ifdef __cplusplus
 }

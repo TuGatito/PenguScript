@@ -1,0 +1,24 @@
+## `WeakRc` breaks a parent/child cycle.
+import std.consortium
+import std.spark
+
+rune Child:
+    value as int
+
+rune Parent:
+    child as WeakRc of Child
+
+weave main into int:
+    var c as Child is with value is 3
+    var rc as Rc of Child is calling Rc.new with c
+    var w as WeakRc of Child is calling rc.downgrade
+    var p as Parent is with child is w
+    if (calling rc.strong_count) != 1:
+        return 1
+    var up as maybe Rc of Child is calling p.child.upgrade
+    if not up.is_present:
+        return 2
+    if (calling rc.strong_count) != 2:
+        return 3
+    calling spark.println with "weak ok"
+    return 0

@@ -311,6 +311,10 @@ weave emit_cleanup with c as ref to context.CgContext, t as catalog.CgType into 
     defer banish cname
     if t.is_omen:
         calling emit_omen_cleanup with c, ty, cname
+        if (info.flags & types.NIF_DROP) != 0:
+            calling emit.line with (sigil of c->emitter), "static inline void _pengu_rc_drop_{cname}(void* p) {{ _pengu_cleanup_{cname}(({cname}*)p); }}"
+            calling emit.line with (sigil of c->emitter), "static inline void _pengu_rc_drop_{cname}(void* p) {{ _pengu_cleanup_{cname}(({cname}*)p); }}"
+            calling emit.line with (sigil of c->emitter), "static inline void _pengu_rc_clone_{cname}(const void* s, void* d) {{ *(({cname}*)d) = _pengu_deepclone_{cname}(({cname}*)s); }}"
         return
     calling emit.line with (sigil of c->emitter), "static inline void _pengu_cleanup_{cname}({cname}* p) {"
     calling emit.indent_more with (sigil of c->emitter)
@@ -328,6 +332,10 @@ weave emit_cleanup with c as ref to context.CgContext, t as catalog.CgType into 
         calling emit.line with (sigil of c->emitter), "memset(p, 0, sizeof(*p));"
     calling emit.indent_less with (sigil of c->emitter)
     calling emit.line with (sigil of c->emitter), "}"
+    if (info.flags & types.NIF_DROP) != 0:
+        # Thunk de drop para `Rc`/`Arc`: `pengu_rc_new` guarda un
+        # `void (*)(void*)` y así el sitio de drop no necesita conocer `T`.
+        calling emit.line with (sigil of c->emitter), "static inline void _pengu_rc_drop_{cname}(void* p) {{ _pengu_cleanup_{cname}(({cname}*)p); }}"
 
 ## Resuelve un `TypeId` a su tipo nominal (rune/eco/omen), siguiendo alias y seals.
 ##

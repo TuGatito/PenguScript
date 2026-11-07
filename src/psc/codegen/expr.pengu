@@ -33,6 +33,7 @@ import psc.sema.modules.program as program
 import psc.codegen.catalog as catalog
 import psc.codegen.type_ast as tast
 import psc.codegen.generics as generics
+import psc.codegen.drop as drop
 
 insignia psc_codegen_expr_
 
@@ -2685,6 +2686,127 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
             set tgt.type_id is gty
     # `.clone()` y `.drop()` de un rune con `derive Drop`: la copia profunda y
     # la liberación explícita, con el receptor como dirección.
+    # `Rc.new`/`Arc.new` necesitan el destructor de `T`, que solo conoce el
+    # compilador: se bajan a `pengu_rc_new(sizeof(T), &_pengu_rc_drop_T)`.
+    var consk as int is 0
+    var cons_tid as int is -1
+    if tgt.type_id >= 0:
+        set consk is calling drop.consortium_kind_of with c, tgt.type_id
+        if consk > 0:
+            set cons_tid is tgt.type_id
+    if consk == 0 and fslot >= 0:
+        var cfm as catalog.CgFunction is (c->catalog.functions at fslot)
+        if cfm.recv_type >= 0:
+            set consk is calling drop.consortium_kind_of with c, cfm.recv_type
+            if consk > 0:
+                set cons_tid is cfm.recv_type
+    if consk > 0 and (consk == 1 or consk == 3) and method_name == "new":
+        var narg as int is calling astutil.node_child with ast, node, 2
+        if narg >= 0:
+            var varg as int is calling astutil.node_child with ast, narg, 0
+            if varg >= 0 and (calling astutil.kind_of with ast, varg) == pskind.NodeKind.NdPosArg:
+                set varg is calling astutil.node_child with ast, varg, 0
+            if varg >= 0:
+                # El tipo del payload es el del parámetro de `new`, no el que
+                # infiera el argumento (un literal anónimo no trae nominal).
+                var aty as int is -1
+                if fslot >= 0:
+                    var nfm as catalog.CgFunction is (c->catalog.functions at fslot)
+                    if nfm.spec_args.len > 0:
+                        set aty is (nfm.spec_args at 0)
+                    if nfm.symbol >= 0:
+                        var nsv as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), nfm.symbol
+                        if nsv.type > 0:
+                            var nfty as tk.SemaType is calling types.at with (sigil of c->program->types), nsv.type
+                            if nfty.kind == tk.SemaTypeKind.TkFn:
+                                var nfi as types.SemaFnInfo is (c->program->types.fn_infos at nfty.a)
+                                if nfi.params_count > 0:
+                                    set aty is (c->program->types.fn_params at nfi.params_first).type
+                if aty > 0:
+                    var atk as tk.SemaType is calling types.at with (sigil of c->program->types), aty
+                    if atk.kind == tk.SemaTypeKind.TkTypeParam:
+                        set aty is -1
+                if aty <= 0:
+                    set aty is calling node_type with c, varg
+                if aty > 0:
+                    var atk2 as tk.SemaType is calling types.at with (sigil of c->program->types), aty
+                    if atk2.kind == tk.SemaTypeKind.TkTypeParam:
+                        set aty is calling guess_type with c, varg, ast
+                if aty <= 0:
+                    # Sin tipo nominal (p. ej. un literal anónimo) no se puede
+                    # elegir el destructor del payload: se pide un binding.
+                    set c->errors is c->errors + 1
+                if aty > 0:
+                    var act as string is calling ctype.c_type with (sigil of c->names), aty
+                    defer banish act
+                    var thn as string is calling drop.emit_drop_thunk_ptr with c, aty
+                    var thc as string is calling drop.emit_clone_thunk_ptr with c, aty
+                    defer banish thc
+                    defer banish thn
+                    var rct as string is calling ctype.c_type with (sigil of c->names), cons_tid
+                    defer banish rct
+                    var newfn as string is "pengu_rc_new"
+                    if consk == 3:
+                        set newfn is "pengu_arc_new"
+                    var az as string is calling emit_expr_as with c, varg, aty
+                    defer banish az
+                    var nsb as StringBuilder is calling StringBuilder.new
+                    defer banish nsb
+                    calling nsb.append with "__extension__(({ "
+                    calling nsb.append with rct
+                    calling nsb.append with " _rcn = {{0}}; _rcn.ptr = "
+                    calling nsb.append with newfn
+                    calling nsb.append with "(sizeof("
+                    calling nsb.append with act
+                    calling nsb.append with "), "
+                    calling nsb.append with thn
+                    calling nsb.append with ", "
+                    calling nsb.append with thc
+                    calling nsb.append with "); *(("
+                    calling nsb.append with act
+                    calling nsb.append with "*)_rcn.ptr) = ("
+                    calling nsb.append with az
+                    calling nsb.append with "); _rcn; }))"
+                    return calling nsb.finish
+    # `.clone` de `Rc`/`Arc`/`Weak*`: retiene el contador, no clona el payload.
+    if method_name == "clone" and tgt.type_id >= 0:
+        var hk as int is calling drop.consortium_kind_of with c, tgt.type_id
+        if hk > 0:
+            var hty as int is tgt.type_id
+            var hg as int is 0
+            var htp as tk.SemaType is calling types.at with (sigil of c->program->types), hty
+            while hg < 8 and (htp.kind == tk.SemaTypeKind.TkRef or htp.kind == tk.SemaTypeKind.TkFrozen):
+                set hty is htp.a
+                set htp is calling types.at with (sigil of c->program->types), hty
+                set hg is hg + 1
+            var hcn as string is calling ctype.c_type with (sigil of c->names), hty
+            defer banish hcn
+            var hfn as string is "pengu_rc_retain"
+            if hk == 2:
+                set hfn is "pengu_rc_weak_new"
+            if hk == 3:
+                set hfn is "pengu_arc_clone"
+            if hk == 4:
+                set hfn is "pengu_arc_weak_new"
+            var hpref as bool is false
+            var hpp as tk.SemaType is calling types.at with (sigil of c->program->types), tgt.type_id
+            while hpp.kind == tk.SemaTypeKind.TkRef or hpp.kind == tk.SemaTypeKind.TkFrozen:
+                set hpref is true
+                set hpp is calling types.at with (sigil of c->program->types), hpp.a
+            var hsb as StringBuilder is calling StringBuilder.new
+            defer banish hsb
+            calling hsb.append with "__extension__(({ {hcn} _ch = {{0}}; _ch.ptr = "
+            calling hsb.append with hfn
+            calling hsb.append with "("
+            if hpref or (tgt.text == "self" and not c->self_value):
+                calling hsb.append with tgt.text
+                calling hsb.append with "->ptr"
+            else:
+                calling hsb.append with "(&("
+                calling hsb.append with tgt.text
+                calling hsb.append with "))->ptr"
+            calling hsb.append with "); _ch; }))"
+            return calling hsb.finish
     if (method_name == "clone" or method_name == "drop") and tgt.type_id >= 0:
         var dt as int is tgt.type_id
         var dtref as bool is false

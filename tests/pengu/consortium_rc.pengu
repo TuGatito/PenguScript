@@ -1,0 +1,33 @@
+## `Rc` and `WeakRc`: counting, sharing and cycle breaking.
+import std.consortium
+import std.spark
+
+rune Node:
+    value as int
+
+weave main into int:
+    var n as Node is with value is 7
+    var a as Rc of Node is calling Rc.new with n
+    if (calling a.strong_count) != 1:
+        return 1
+    var b as Rc of Node is a
+    if (calling a.strong_count) != 2:
+        return 2
+    if (calling b.strong_count) != 2:
+        return 3
+    var w as WeakRc of Node is calling a.downgrade
+    if (calling w.is_alive) == false:
+        return 4
+    if (calling a.weak_count) != 1:
+        return 5
+    var up as maybe Rc of Node is calling w.upgrade
+    if not up.is_present:
+        return 6
+    calling spark.println with "after upgrade strong={calling a.strong_count}"
+    if (calling a.strong_count) != 3:
+        return 7
+    var r as ref to frozen Node is calling a.get
+    if (r->value) != 7:
+        return 8
+    calling spark.println with "rc ok"
+    return 0

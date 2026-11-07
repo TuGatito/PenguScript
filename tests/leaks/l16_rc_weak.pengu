@@ -1,0 +1,16 @@
+## `Rc`/`WeakRc` under ASan+LSan: no leaks, no double free.
+import std.consortium
+import std.spark
+
+rune Cell:
+    id as int
+
+weave main into int:
+    var c as Cell is with id is 5
+    var a as Rc of Cell is calling Rc.new with c
+    var b as Rc of Cell is a
+    var w as WeakRc of Cell is calling a.downgrade
+    if (calling w.is_alive) == false:
+        return 1
+    calling spark.println with "{calling a.strong_count}"
+    return 0

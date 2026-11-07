@@ -1,0 +1,257 @@
+## std.consortium — shared ownership by reference count.
+##
+## `Rc of T` keeps a value on the heap with a counter. Copying the handle is
+## free (one increment); the value is destroyed when the last owner goes away,
+## and the block is released when the last `Weak` stops looking.
+##
+## ## When to use it
+## Use `Rc` when **several** parts of a program must observe the same value and
+## you cannot tell which one dies last: a document shared by two views, a node
+## referenced by a parent and by a cache, an asset handed to several scenes.
+## Use `Arc` when the owners live on different threads (`filum.start`).
+## Use `WeakRc`/`WeakArc` to break a cycle: a child points at its parent
+## without keeping it alive.
+##
+## ## When not to use it
+## Do not use `Rc` for a value with a single owner: `derive Drop` (layer 1) is
+## faster and makes the ownership visible in the type. Do not use `Rc` to
+## silence a borrow error that `banish` would model exactly. Do not put a
+## `Rc` inside a hot inner loop as a poor man's allocator: the counter is
+## shared cache traffic.
+##
+## ## The cost is in the type
+## `Rc` copies implicitly because the copy is one non-atomic increment.
+## `Arc` is move-only: a copy is an atomic operation and must be spelled
+## `.clone()`. `make_mut` is explicit because it may clone the payload.
+##
+## ## Example: a shared tree node
+## ```pengu
+## import std.consortium
+## import std.spark
+##
+## rune Node:
+##     value as int
+##
+## weave main into int:
+##     var root as Rc of Node is calling Rc.new with Node { value is 7 }
+##     var alias as Rc of Node is root          # one increment
+##     calling spark.println with "{(calling alias.get)->value}"
+##     return 0
+## ```
+##
+## ## Implementation
+## Every handle is one pointer to the payload. The counter lives in a header
+## immediately before it:
+## `{ strong, weak, magic, drop, clone, size }`. `pengu_rc_release` runs the
+## destructor when `strong` reaches zero and frees the block when `weak` does.
+## `tools/build_runtime.sh` recompiles the runtime after changing the header.
+
+## Single-threaded reference-counted handle. Copying is implicit and cheap.
+rune Rc shard T derive Drop:
+    ## Pointer to the payload; the counter header lives just before it.
+    ptr as ref to void
+
+## Non-owning handle for `Rc`. Copying is implicit; it never keeps `T` alive.
+rune WeakRc shard T derive Drop:
+    ## Pointer to the payload (or to a header whose value is already dead).
+    ptr as ref to void
+
+## Multi-threaded reference-counted handle. Move-only: copy with `.clone()`.
+rune Arc shard T derive Drop:
+    ## Pointer to the payload; the atomic header lives just before it.
+    ptr as ref to void
+
+## Non-owning handle for `Arc`.
+rune WeakArc shard T derive Drop:
+    ## Pointer to the payload (or to a header whose value is already dead).
+    ptr as ref to void
+
+antiquus consortium_rc_strong with p as ref to frozen void into int:
+    r"""
+    return (int)pengu_rc_strong((void *)p);
+    """
+
+antiquus consortium_rc_weak with p as ref to frozen void into int:
+    r"""
+    return (int)pengu_rc_weak_count((void *)p);
+    """
+
+antiquus consortium_rc_upgrade with p as ref to frozen void into ref to void:
+    r"""
+    return pengu_rc_weak_upgrade((void *)p);
+    """
+
+antiquus consortium_rc_alive with p as ref to frozen void into bool:
+    r"""
+    return pengu_rc_weak_alive((void *)p);
+    """
+
+antiquus consortium_arc_strong with p as ref to frozen void into int:
+    r"""
+    return (int)pengu_arc_strong((void *)p);
+    """
+
+antiquus consortium_arc_weak with p as ref to frozen void into int:
+    r"""
+    return (int)pengu_arc_weak_count((void *)p);
+    """
+
+antiquus consortium_arc_upgrade with p as ref to frozen void into ref to void:
+    r"""
+    return pengu_arc_weak_upgrade((void *)p);
+    """
+
+antiquus consortium_arc_alive with p as ref to frozen void into bool:
+    r"""
+    return pengu_arc_weak_alive((void *)p);
+    """
+
+antiquus consortium_rc_retain with p as ref to void into ref to void:
+    r"""
+    return pengu_rc_retain(p);
+    """
+
+antiquus consortium_rc_weak_new with p as ref to void into ref to void:
+    r"""
+    return pengu_rc_weak_new(p);
+    """
+
+antiquus consortium_rc_make_mut with p as ref to void into ref to void:
+    r"""
+    return pengu_rc_make_mut(p);
+    """
+
+antiquus consortium_arc_retain with p as ref to void into ref to void:
+    r"""
+    return pengu_arc_clone(p);
+    """
+
+antiquus consortium_arc_weak_new with p as ref to void into ref to void:
+    r"""
+    return pengu_arc_weak_new(p);
+    """
+
+antiquus consortium_arc_make_mut with p as ref to void into ref to void:
+    r"""
+    return pengu_arc_make_mut(p);
+    """
+
+enchanting Rc shard T:
+    ## Allocates `value` inside a new reference count (strong = 1).
+    ##
+    ## The compiler lowers this call to `pengu_rc_new` with the destructor and
+    ## the deep copy of `T`, so the body below is only a type-check placeholder.
+    weave ritual new with value as T into Rc of T:
+        return with ptr is (transmute 0 to ref to void)
+
+    ## The value, without handing out ownership.
+    weave get into ref to frozen T:
+        return transmute self.ptr to ref to frozen T
+
+    ## The value for writing, only when this is the only owner.
+    weave get_mut into maybe ref to T:
+        if (calling consortium_rc_strong with self.ptr) == 1 and (calling consortium_rc_weak with self.ptr) == 0:
+            return some (transmute self.ptr to ref to T)
+        return maybe none
+
+    ## The value for writing, cloning the payload first if it is shared.
+    weave make_mut into ref to T:
+        set self->ptr is transmute (calling consortium_rc_make_mut with self.ptr) to ref to void
+        return transmute self.ptr to ref to T
+
+    ## Number of strong owners (including this one).
+    weave strong_count into int:
+        return calling consortium_rc_strong with self.ptr
+
+    ## Number of weak observers.
+    weave weak_count into int:
+        return calling consortium_rc_weak with self.ptr
+
+    ## A non-owning handle to the same value.
+    weave downgrade into WeakRc of T:
+        return with ptr is transmute (calling consortium_rc_weak_new with self.ptr) to ref to void
+
+    ## One more strong owner.
+    weave clone into Rc of T:
+        return with ptr is transmute (calling consortium_rc_retain with self.ptr) to ref to void
+
+enchanting Arc shard T:
+    ## Allocates `value` inside a new atomic reference count (strong = 1).
+    ##
+    ## The compiler lowers this call to `pengu_arc_new` with the destructor and
+    ## the deep copy of `T`; the body is a type-check placeholder.
+    weave ritual new with value as T into Arc of T:
+        return with ptr is (transmute 0 to ref to void)
+
+    ## One more strong owner. This is the **only** way to copy an `Arc`.
+    weave clone into Arc of T:
+        return with ptr is transmute (calling consortium_arc_retain with self.ptr) to ref to void
+
+    ## The value, without handing out ownership.
+    weave get into ref to frozen T:
+        return transmute self.ptr to ref to frozen T
+
+    ## The value for writing, cloning the payload first if it is shared.
+    weave make_mut into ref to T:
+        set self->ptr is transmute (calling consortium_arc_make_mut with self.ptr) to ref to void
+        return transmute self.ptr to ref to T
+
+    ## Number of strong owners (including this one).
+    weave strong_count into int:
+        return calling consortium_arc_strong with self.ptr
+
+    ## Number of weak observers.
+    weave weak_count into int:
+        return calling consortium_arc_weak with self.ptr
+
+    ## A non-owning handle to the same value.
+    weave downgrade into WeakArc of T:
+        return with ptr is transmute (calling consortium_arc_weak_new with self.ptr) to ref to void
+
+enchanting WeakRc shard T:
+    ## The value as a new strong owner, or `none` if it already died.
+    weave upgrade into maybe Rc of T:
+        var p as ref to void is calling consortium_rc_upgrade with self.ptr
+        if (calling consortium_rc_alive with self.ptr):
+            var out as Rc of T is with ptr is p
+            # El local `out` lleva destructor: la caja se queda con una
+            # referencia y el destructor devuelve la que añadimos aquí.
+            set out.ptr is (calling consortium_rc_retain with out.ptr)
+            return some out
+        return maybe none
+
+    ## Whether the value is still alive.
+    weave is_alive into bool:
+        return calling consortium_rc_alive with self.ptr
+
+    ## Number of strong owners remaining (0 once dead).
+    weave strong_count into int:
+        return calling consortium_rc_strong with self.ptr
+
+    ## One more weak observer.
+    weave clone into WeakRc of T:
+        return with ptr is transmute (calling consortium_rc_weak_new with self.ptr) to ref to void
+
+enchanting WeakArc shard T:
+    ## The value as a new strong owner, or `none` if it already died.
+    weave upgrade into maybe Arc of T:
+        var p as ref to void is calling consortium_arc_upgrade with self.ptr
+        if (calling consortium_arc_alive with self.ptr):
+            var out as Arc of T is with ptr is p
+            # El local `out` lleva destructor: la caja se queda con una
+            # referencia y el destructor devuelve la que añadimos aquí.
+            set out.ptr is (calling consortium_arc_retain with out.ptr)
+            return some out
+        return maybe none
+
+    ## Whether the value is still alive.
+    weave is_alive into bool:
+        return calling consortium_arc_alive with self.ptr
+
+    ## Number of strong owners remaining (0 once dead).
+    weave strong_count into int:
+        return calling consortium_arc_strong with self.ptr
+
+    ## One more weak observer.
+    weave clone into WeakArc of T:
+        return with ptr is transmute (calling consortium_arc_weak_new with self.ptr) to ref to void

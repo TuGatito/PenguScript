@@ -1,0 +1,30 @@
+## `Arc`: explicit clone, counts, downgrade and upgrade.
+import std.consortium
+import std.spark
+
+rune Job:
+    id as int
+
+weave main into int:
+    var j as Job is with id is 9
+    var a as Arc of Job is calling Arc.new with j
+    if (calling a.strong_count) != 1:
+        return 1
+    var b as Arc of Job is calling a.clone
+    if (calling a.strong_count) != 2:
+        return 2
+    var w as WeakArc of Job is calling b.downgrade
+    if (calling w.is_alive) == false:
+        return 3
+    var up as maybe Arc of Job is calling w.upgrade
+    if not up.is_present:
+        return 4
+    if (calling a.strong_count) != 3:
+        return 5
+    var r as ref to frozen Job is calling a.get
+    if (r->id) != 9:
+        return 6
+    if (calling a.weak_count) != 1:
+        return 7
+    calling spark.println with "arc ok"
+    return 0

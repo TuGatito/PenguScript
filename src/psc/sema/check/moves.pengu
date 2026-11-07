@@ -105,3 +105,29 @@ weave check_moved_use with s as ref to state.SemaState, sv as sym.SemaSymbol, at
         return false
     calling sdiag.node_error with s->bag, s->src, sdiag.CODE_USE_AFTER_MOVE, (calling astutil.start_of with s->ast, at_node), (calling astutil.end_of with s->ast, at_node), "value '{name}' was moved and cannot be used again", "Clone it before the move with '.clone()', or bind a new value.", ""
     return true
+
+## Nombres base de los handles de `std.consortium` que se copian compartiendo
+## (la copia retiene; no es un movimiento).
+const SHARE_NAMES as string is "Rc|WeakRc|WeakArc"
+
+## `true` si `ty` es un handle `Rc`/`WeakRc`/`WeakArc`.
+##
+## ## Memoria
+## Compara nombres; no asigna.
+weave type_is_share with s as ref to state.SemaState, ty as int into bool:
+    if ty <= 0 or ty >= s->types->types.len:
+        return false
+    var t as tk.SemaType is calling types.at with s->types, ty
+    var steps as int is 0
+    while steps < 32 and (t.kind == tk.SemaTypeKind.TkAlias or t.kind == tk.SemaTypeKind.TkSeal):
+        if t.b <= 0:
+            return false
+        set t is calling types.at with s->types, t.b
+        set steps is steps + 1
+    if t.kind != tk.SemaTypeKind.TkRune or t.a < 0 or t.a >= s->types->nominal_infos.len:
+        return false
+    var info as types.SemaNominalInfo is (s->types->nominal_infos at t.a)
+    if info.template_info >= 0 and info.template_info < s->types->nominal_infos.len:
+        set info is (s->types->nominal_infos at info.template_info)
+    var bn as string is calling npool.text with s->names, info.base_name
+    return bn == "Rc" or bn == "WeakRc" or bn == "WeakArc"

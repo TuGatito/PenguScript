@@ -1740,6 +1740,25 @@ weave emit_judge_block_value with c as ref to context.CgContext, node as int, as
 ##
 ## ## Memoria
 ## O(profundidad del alias).
+## `true` si `ty` es un handle que se copia compartiendo (`Rc`/`Weak*`).
+##
+## ## Memoria
+## No asigna.
+weave is_share_type with c as ref to context.CgContext, ty as int into bool:
+    var k as int is calling drop.consortium_kind_of with c, ty
+    return k == 1 or k == 2 or k == 4
+
+## `true` si la expresión es una referencia a una variable/parámetro (un
+## préstamo que hay que retener al copiarlo a un `Rc`/`Weak`).
+##
+## ## Memoria
+## No asigna.
+weave value_is_place with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst into bool:
+    if node < 0:
+        return false
+    var k as pskind.NodeKind is calling astutil.kind_of with ast, node
+    return k == pskind.NodeKind.NdVarRef
+
 weave is_drop_type with c as ref to context.CgContext, ty as int into bool:
     var cur as int is ty
     var guard as int is 0
@@ -1968,7 +1987,12 @@ weave emit_local with c as ref to context.CgContext, node as int, ast as ref to 
         defer banish val2
         calling emit.line with (sigil of c->emitter), "{cdecl} = {val2};"
         if is_drop:
-            calling drop.note_move_source with c, vn, ast
+            if calling is_share_type with c, ty:
+                # `Rc`/`Weak`: copiar el handle retiene, no mueve.
+                if calling value_is_place with c, vn, ast:
+                    calling emit.line with (sigil of c->emitter), "if (({cn}).ptr) {{ ({cn}).ptr = pengu_rc_retain(({cn}).ptr); }}"
+            else:
+                calling drop.note_move_source with c, vn, ast
     else if is_drop:
         # Un `Drop` sin inicializador arranca en cero: el destructor automático
         # es idempotente y una asignación posterior puede liberar el valor

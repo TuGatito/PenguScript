@@ -474,7 +474,8 @@ weave check_local with s as ref to state.SemaState, node as int, kind as pskind.
         if ty > 0 and not (calling compat.compatible with s->types, got, ty):
             calling mismatch with s, vn, ty, got
         # Enlazar un valor `Drop` lo mueve: el binding de origen queda inutilizable.
-        if calling moves.type_is_drop with s, got:
+        # `Rc`/`Weak*` se copian compartiendo (retienen), así que no se mueven.
+        if calling moves.type_is_drop with s, got and not (calling moves.type_is_share with s, got):
             calling moves.consume_value with s, vn
 
 
@@ -528,7 +529,7 @@ weave check_set with s as ref to state.SemaState, node as int, compound as bool 
             if pat.kind == tk.SemaTypeKind.TkRef:
                 set exp is calling types.strip_frozen with s->types, pat.a
         var got as int is calling state.call_infer with s, value, exp
-        if not compound and (calling moves.type_is_drop with s, got):
+        if not compound and (calling moves.type_is_drop with s, got) and not (calling moves.type_is_share with s, got):
             calling moves.consume_value with s, value
         if tt > 0 and not (calling compat.compatible with s->types, got, tt):
             if pat.kind == tk.SemaTypeKind.TkRef:
