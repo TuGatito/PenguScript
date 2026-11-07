@@ -2,6 +2,31 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.42.0] — 2026-11-07 — Literales de mapa y `with` como sentencia
+
+### Añadido
+
+- **Literales de mapa reales**: `{"ada": 36, "alan": 41}` construye el mapa con
+  una reserva y una inserción por entrada (`pengu_map_put`), en lugar de
+  devolver un mapa vacío. Acepta claves literales y expresiones del tipo de
+  clave, incluidos valores interpolados, y mapas anidados. El literal exige un
+  tipo conocido de clave y valor: fuera de una anotación se reporta `E0076`.
+- **`with` como sentencia**: `with p:` liga el receptor una sola vez y el cuerpo
+  usa `.campo` para leer o escribir y `calling .metodo` para despachar. El sema
+  comprueba todas las sentencias del cuerpo (antes solo la última) y rechaza
+  objetivos no direccionables con `E0077`. El C emitido liga `T* _wN = &(p)` y
+  el cuerpo ve `(*_wN).campo`, así que el receptor se evalúa exactamente una vez.
+- Tests `tests/pengu/map_literals.pengu`, `tests/pengu/with_stmt.pengu`,
+  `tests/regress_with.sh` y el golden `tests/golden_c/g24_map`; docs bilingües
+  en LANGUAGE §2.2/§5.7 y PENGUNIC §7.9/§7.10.
+
+### Corregido
+
+- Un `with` con una sentencia `set` a un nombre indefinido en la primera línea
+  del cuerpo ya no llega al compilador de C.
+- El texto del objetivo de `with` se transfiere al contexto (antes se liberaba
+  dos veces y el C emitido usaba memoria reciclada).
+
 ## [0.41.0] — 2026-11-06 — Cuerdas, formatos y temporales con dueño
 
 Quinta fase del plan: los temporales de `string` dejan de filtrarse, la

@@ -1036,15 +1036,25 @@ weave check_with_stmt with s as ref to state.SemaState, node as int into void:
     var tt as int is 0
     if target >= 0:
         set tt is calling infer.infer with s, target, -1
-    var b as int is calling astutil.node_child with s->ast, node, (calling astutil.child_count with s->ast, node) - 1
+    if target >= 0:
+        var tk_w as pskind.NodeKind is calling astutil.kind_of with s->ast, target
+        if not (tk_w == pskind.NodeKind.NdVarRef or tk_w == pskind.NodeKind.NdFieldAccess or tk_w == pskind.NodeKind.NdAtExpr or tk_w == pskind.NodeKind.NdAtAccess or tk_w == pskind.NodeKind.NdEssenceOf or tk_w == pskind.NodeKind.NdSelfRef or tk_w == pskind.NodeKind.NdWithTarget):
+            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_WITH_TARGET, (calling astutil.start_of with s->ast, target), (calling astutil.end_of with s->ast, target), "the target of 'with' must be an addressable place", "Bind it first: 'var tmp as T is …', then 'with tmp:'.", ""
     var start as int is calling astutil.start_of with s->ast, node
     var end as int is calling astutil.end_of with s->ast, node
     calling symbols.push_scope with s->symbols, scope.SemaScopeKind.SgWith, start, end
     var sc as scope.SemaScope is (s->symbols->scopes at s->symbols->current)
     set sc.with_type is tt
     set s->symbols->scopes at (s->symbols->current) is sc
-    if b >= 0:
-        calling check_block with s, b
+    # El cuerpo son los hijos 1..n-1: hay que comprobarlos todos, no sólo el
+    # último (un `set` a un nombre indefinido en la primera sentencia pasaba).
+    var bi as int is 1
+    var bn as int is calling astutil.child_count with s->ast, node
+    while bi < bn:
+        var wch as int is calling astutil.node_child with s->ast, node, bi
+        if wch >= 0:
+            calling check_block with s, wch
+        set bi is bi + 1
     calling symbols.pop_scope with s->symbols, end
 
 ## Lambda: construye y comprueba la firma, y devuelve su tipo `weave`.

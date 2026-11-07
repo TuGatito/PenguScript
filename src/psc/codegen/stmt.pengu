@@ -448,10 +448,32 @@ weave emit_stmt with c as ref to context.CgContext, node as int into void:
             var wtt as int is calling expr.node_type with c, wtgt
             if wtt <= 0:
                 set wtt is calling expr.guess_type with c, wtgt, ast
-            calling context.push_with with c, wtv, wtt
+            # El receptor se evalúa UNA vez: `T* _wN = &(expr)` y el cuerpo ve
+            # `(*_wN).campo`. Un `with` sobre algo no direccionable ya lo
+            # rechazó el sema (E0077).
+            var wptr as bool is false
+            var wct as string is ""
+            if wtt > 0:
+                var wu as int is calling types.underlying with (sigil of c->program->types), wtt
+                var wut as tk.SemaType is calling types.at with (sigil of c->program->types), wu
+                if wut.kind == tk.SemaTypeKind.TkRune or wut.kind == tk.SemaTypeKind.TkEcho:
+                    set wptr is true
+                    set wct is calling ctype.c_type with (sigil of c->names), wu
             calling emit.line with (sigil of c->emitter), "{"
             calling emit.indent_more with (sigil of c->emitter)
             calling begin_scope with c, false
+            if wptr:
+                var wt as string is calling emit.temp with (sigil of c->emitter), "_w"
+                calling emit.line with (sigil of c->emitter), "{wct}* {wt} = &({wtv});"
+                # `push_with` toma el texto: no liberarlo aquí (doble free).
+                var wref as string is "(*{wt})"
+                calling context.push_with with c, wref, wtt
+                banish wt
+                banish wct
+                banish wtv
+            else:
+                # `push_with` se queda con el texto: no liberarlo aquí.
+                calling context.push_with with c, wtv, wtt
             var wi as int is 1
             var wn as int is calling astutil.child_count with ast, node
             while wi < wn:
@@ -459,10 +481,10 @@ weave emit_stmt with c as ref to context.CgContext, node as int into void:
                 if wch >= 0:
                     calling emit_stmt with c, wch
                 set wi is wi + 1
+            calling context.pop_with with c
             calling end_scope with c
             calling emit.indent_less with (sigil of c->emitter)
             calling emit.line with (sigil of c->emitter), "}"
-            calling context.pop_with with c
         return
     if k == pskind.NodeKind.NdUnsafeStmt:
         var ub as int is calling astutil.node_child with ast, node, 0

@@ -141,6 +141,10 @@ weave infer with s as ref to state.SemaState, node as int, expected as int into 
         set t is calling infer_list_lit with s, node, expected
     else if kind == pskind.NodeKind.NdMapLit:
         set t is calling infer_map_lit with s, node, expected
+    else if kind == pskind.NodeKind.NdWithTarget:
+        set t is calling infer_with_field with s, node
+        if expected > 0:
+            set t is expected
     else if kind == pskind.NodeKind.NdStructInit:
         set t is calling infer_struct_init with s, node
         if t <= 0 and expected > 0:
@@ -1727,6 +1731,29 @@ weave active_with_type with s as ref to state.SemaState into int:
         set cur is sc.parent
     return -1
 
+## Tipo del campo `.campo` leído dentro de un `with`.
+##
+## ## Memoria
+## No asigna.
+weave infer_with_field with s as ref to state.SemaState, node as int into int:
+    var recv as int is calling active_with_type with s
+    var nm as int is calling astutil.token_child with s->ast, node, 0
+    if recv < 0 or nm < 0:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_UNDEFINED, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "'.field' needs an enclosing 'with'", "Write it inside 'with value:' or name the receiver.", ""
+        return 0
+    var txt as string is calling astutil.token_text with s->src, s->lex, nm
+    defer banish txt
+    var nid as int is calling npool.intern with s->names, txt
+    var fi as int is calling nominal_field_index with s, recv, nid
+    if fi < 0:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_UNDEFINED, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "the 'with' target has no field '{txt}'", "Check the field name or the type of the target.", ""
+        return 0
+    var t2 as int is calling underlying_type with s, recv
+    var tyy as tk.SemaType is calling types.at with s->types, t2
+    var info as types.SemaNominalInfo is (s->types->nominal_infos at tyy.a)
+    var f as types.SemaField is (s->types->fields at (info.fields_first + fi))
+    return f.type
+
 ## Llamada con target `.method` dentro de `with`.
 ##
 ## ## Memoria
@@ -2170,11 +2197,13 @@ weave infer_array_init with s as ref to state.SemaState, node as int, expected a
 weave infer_map_lit with s as ref to state.SemaState, node as int, expected as int into int:
     var kt as int is 0
     var vt as int is 0
-    if expected >= 0:
-        var e as tk.SemaType is calling types.at with s->types, expected
-        if e.kind == tk.SemaTypeKind.TkMap:
-            set kt is e.a
-            set vt is e.b
+    if expected <= 0:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MAP_LITERAL_TYPE, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "map literal needs a type annotation", "Write 'var m as map of string to int is {{ … }}'.", ""
+        return 0
+    var e as tk.SemaType is calling types.at with s->types, expected
+    if e.kind == tk.SemaTypeKind.TkMap:
+        set kt is e.a
+        set vt is e.b
     var i as int is 0
     var n as int is calling astutil.child_count with s->ast, node
     while i < n:
@@ -2188,7 +2217,8 @@ weave infer_map_lit with s as ref to state.SemaState, node as int, expected as i
                 set vt is v
         set i is i + 1
     if kt <= 0:
-        set kt is calling types.base with s->types, "string"
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MAP_LITERAL_TYPE, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "map literal needs a type annotation", "Write 'var m as map of string to int is {{ … }}'.", ""
+        return 0
     if vt <= 0:
         set vt is calling types.base with s->types, "int"
     return calling types.map_of with s->types, kt, vt

@@ -1,7 +1,7 @@
 # The Pengunic Manual
 
 How to write PenguScript that is safe, idiomatic and fast: the engineering
-manual for the language implemented by `psc` 0.41.0.
+manual for the language implemented by `psc` 0.42.0.
 
 It is the *practice* document of the documentation set:
 
@@ -64,6 +64,8 @@ Spanish: [PENGUNIC.es.md](PENGUNIC.es.md).
   - [7.6 Guard clauses over nesting](#76-guard-clauses-over-nesting)
   - [7.7 Recursion](#77-recursion)
   - [7.8 Name the argument that carries the meaning](#78-name-the-argument-that-carries-the-meaning)
+  - [7.9 Reuse a receiver with `with`](#79-reuse-a-receiver-with-with)
+  - [7.10 Build maps with literals](#710-build-maps-with-literals)
 - [8. Anti-patterns](#8-anti-patterns)
   - [8.1 String building](#81-string-building)
   - [8.2 Ownership of parameters](#82-ownership-of-parameters)
@@ -319,7 +321,7 @@ binary. From a checkout:
 $ bash tools/build_bootstrap.sh     # builds build/psc-stage0 from the C bundle
 $ ./build/psc-stage0 build .        # self-hosts build/psc
 $ ./build/psc --version
-psc 0.41.0 (F13)
+psc 0.42.0 (F13)
 ```
 
 `build/psc` is the compiler you use from then on. `psc doctor` reports what it
@@ -927,6 +929,47 @@ calling window.configure with resizable is false, title is "Logs"
   same C call as the positional form.
 * Chain and pipe steps take positional arguments only; when a step needs a name,
   call the method directly on its receiver.
+
+### 7.9 Reuse a receiver with `with`
+
+When one value owns most of the work in a block, bind it once with `with` and
+write `.field` / `calling .method` in the body. The receiver is evaluated once,
+the field names stay close to their owner, and a typo is a compile error instead
+of a silently wrong access:
+
+```pengu-fragment
+with window:
+    set .title is "Logs"
+    calling .resize with 800, 600
+    calling .refresh
+```
+
+**Rules**
+
+* Use `with` when three or more lines touch the same receiver; below that the
+  explicit receiver is clearer.
+* The target must be an addressable place — bind a temporary first (`var tmp as
+  T is …`) instead of `with make_widget():` (`E0077`).
+* Inside the body there is no second receiver: nested `with` blocks stack, the
+  innermost wins.
+
+### 7.10 Build maps with literals
+
+Prefer a map literal to a sequence of `.put` calls when the entries are known at
+the point of construction: it states the contents in one place and the compiler
+emits one insert per entry.
+
+```pengu-fragment
+var ages as map of string to int is {"ada": 36, "alan": 41}
+defer banish ages
+```
+
+**Rules**
+
+* Write the type on the binding (`var ages as map of string to int is …`);
+  a bare `{"a": 1}` has no key/value type and is `E0076`.
+* Use `.put` for entries computed later, and a literal for the initial shape.
+* The literal owns the map; `banish` it like any other map.
 
 ## 8. Anti-patterns
 
@@ -3188,7 +3231,7 @@ truncates, and `transmute`, which reinterprets bits.
 **Are there threads and coroutines?**
 Yes. 0.30.0 added first-class threads (`filum.start`, `join`, `detach`, `free`),
 0.31.0 added `std.coro` (explicit stackful coroutines with `resume` and `yield`
-on the same thread) and 0.41.0 adds `std.reactor`: an explicit `EventLoop` that
+on the same thread) and 0.42.0 adds `std.reactor`: an explicit `EventLoop` that
 calls `epoll_wait`/`poll` and resumes tasks. There is no `async`/`await` keyword
 and no hidden scheduler: you create the loop, `spawn` and call `run`. The stdlib
 `*_async` variants are functions that suspend the current coroutine and only

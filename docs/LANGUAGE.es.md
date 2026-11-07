@@ -1,7 +1,7 @@
 # Referencia del lenguaje PenguScript
 
 PenguScript es un lenguaje pequeño y de tipado estático que compila a C. Esta
-referencia documenta el lenguaje tal como lo implementa `psc` 0.41.0: cada
+referencia documenta el lenguaje tal como lo implementa `psc` 0.42.0: cada
 construcción, su semántica y el C al que se reduce.
 
 Es el documento de *lenguaje* del conjunto de documentación:
@@ -46,6 +46,7 @@ English: [LANGUAGE.md](LANGUAGE.md).
   - [5.4 `judge` — coincidencia de patrones](#54-judge-coincidencia-de-patrones)
   - [5.5 `break`, `continue`, `return`](#55-break-continue-return)
   - [5.6 Expresiones de bloque](#56-expresiones-de-bloque)
+  - [5.7 `with` como sentencia](#57-with-como-sentencia)
 - [6. Funciones](#6-funciones)
   - [6.1 `weave`](#61-weave)
   - [6.2 Convenciones de llamada](#62-convenciones-de-llamada)
@@ -143,7 +144,7 @@ rasgos que necesitan su propia sección (genéricos, memoria, interop).
   diagnóstico son exhaustivos; la prosa no lo es — [PENGUNIC.es.md](PENGUNIC.es.md)
   cubre *cómo usar* el lenguaje y [STDLIB.es.md](STDLIB.es.md) cubre la
   biblioteca estándar.
-* Versión: `psc` 0.41.0. La versión de ABI que espera el C generado es 3.
+* Versión: `psc` 0.42.0. La versión de ABI que espera el C generado es 3.
 
 ## 1. Estructura léxica
 
@@ -299,6 +300,34 @@ valor con un `elem_size` fijo y solo es dueño de su búfer de elementos.
 `string`, `list`, `map` y los valores boxeados `maybe`/`result` son *propiedad*
 del que los tiene, salvo que una función devuelva una vista prestada (§14).
 `slice`, los rangos, `ref to T`, las tuplas y los escalares son valores planos.
+
+Los literales de contenedor construyen el valor donde se escriben:
+
+```pengu-fragment
+var xs as list of int is [1, 2, 3]
+defer banish xs
+var ages as map of string to int is {"ada": 36, "alan": 41}
+defer banish ages
+```
+
+Un literal de mapa necesita conocer el tipo de clave y de valor, así que sólo se
+acepta donde el tipo está escrito: una anotación de `var`/`let`, un campo, un
+parámetro o un tipo de retorno. En cualquier otro sitio el compilador emite
+`E0076` (`map literal needs a type annotation`). Las claves pueden ser literales
+de cadena o cualquier expresión del tipo de clave, incluidas interpolaciones
+(`{"k{n}": n}`).
+
+El literal construye el contenedor una sola vez, al evaluarse. Para un mapa es
+una reserva de memoria más una inserción por entrada, nunca una reconstrucción
+en cada lectura:
+
+```c
+PenguMap ages = __extension__(({ PenguMap _map0 = pengu_map_new(sizeof(PenguString), sizeof(int32_t)); PenguString _mk1; int32_t _mv2; _mk1 = pengu_string_from_cstr_len("ada", 3); _mv2 = 36; pengu_map_put(&_map0, &_mk1, &_mv2); _mk1 = pengu_string_from_cstr_len("alan", 4); _mv2 = 41; pengu_map_put(&_map0, &_mk1, &_mv2); _map0; }));
+```
+
+El mapa es dueño de copias de sus claves y valores, así que los temporales de
+arriba sólo se prestan mientras se inserta la entrada. `banish` libera el mapa
+completo (§13).
 
 ### 2.3 Valor frente a referencia
 
@@ -738,6 +767,53 @@ así que el C generado necesita GCC o Clang, las toolchains soportadas.
 `return`, `banish` y `defer` dentro del bloque conservan su significado. Un
 bucle en posición de valor (`for x in xs then expr`) recoge el valor de cada
 iteración en un nuevo `list of T`.
+
+### 5.7 `with` como sentencia
+
+Un bloque `with` nombra un receptor una vez y permite que el cuerpo lo aborde
+con `.campo` y `calling .metodo`:
+
+```pengu
+rune Point:
+    x as int
+    y as int
+
+enchanting Point:
+    weave shift with dx as int, dy as int into void:
+        set self->x is self->x + dx
+        set self->y is self->y + dy
+
+weave main into int:
+    var p as Point is with x is 1, y is 2
+    with p:
+        var y0 as int is .y
+        set .x is .x + 1
+        calling .shift with 2, 1
+    return p.x + p.y
+```
+
+`.campo` lee o escribe un campo del objetivo y `calling .metodo` despacha según
+su tipo, así que el receptor se escribe una vez en lugar de en cada línea. El
+objetivo se evalúa exactamente una vez y debe ser un lugar direccionable — una
+variable, un campo, un elemento (`xs at i`) o un préstamo —; si no, el
+compilador emite `E0077`. Todas las sentencias del cuerpo se comprueban: un
+nombre desconocido o un campo que no pertenece al tipo del objetivo es `E0004`.
+
+Para un objetivo `rune` o `echo` el objetivo se liga a un puntero, y por eso el
+receptor aparece desreferenciado:
+
+```c
+{
+    Point* _w0 = &(p);
+    int32_t y0 = (*_w0).y;
+    (*_w0).x = ((*_w0).x + 1);
+    Point_shift(&((*_w0)), 2, 1);
+}
+```
+
+Para un objetivo `list`, `map` o `string` el cuerpo llama a los métodos
+incorporados (`calling .push with 4`, `calling .put with "k", 1`). Un builder
+`with` en posición de valor (`var p as Point with: ...`) está en §9.8.
 
 ## 6. Funciones
 
@@ -2298,6 +2374,8 @@ los avisos no.
 | `E0073` | default no constante o que no encaja con el tipo |
 | `E0074` | parámetro `many` con valor por defecto |
 | `E0075` | parámetro `many` en `declare` |
+| `E0076` | literal de mapa sin anotación de tipo |
+| `E0077` | el objetivo de `with` no es un lugar direccionable |
 | `W0001` | se usó `transmute` |
 | `W0002` | acceso a campo de `echo` (unión sin comprobar) |
 | `W0004` | código inalcanzable |
@@ -2519,13 +2597,16 @@ when_top       = "when" expr ":" { top_decl } [ "else" ":" { top_decl } ] ;
 
 block          = INDENT { stmt } DEDENT ;
 stmt           = var_decl | const_decl | set_stmt | if_stmt | while_stmt
-               | for_stmt | judge_stmt | return_stmt | break_stmt
+               | for_stmt | judge_stmt | with_stmt | return_stmt | break_stmt
                | continue_stmt | defer_stmt | banish_stmt | expr_stmt
                | "do" ":" block ;
+with_stmt      = "with" expr ":" block ;
 var_decl       = [ "static" ] "var" ident [ "as" type ] "is" expr
                | "let" ( ident | "(" ident { "," ident } ")" )
                  [ "," ident { "," ident } ] [ "as" type ] "is" expr ;
 set_stmt       = "set" lvalue ( "is" expr | op "=" expr ) ;
+lvalue         = [ "self" ( "." | "->" ) ] ident
+               | lvalue "at" expr | "." ident | expr "." ident ;
 if_stmt        = ( "if" | "unless" ) expr ":" block
                  { "else" "if" expr ":" block } [ "else" ":" block ] ;
 while_stmt     = [ ident ":" ] "while" expr ":" block ;

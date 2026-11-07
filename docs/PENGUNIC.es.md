@@ -1,7 +1,7 @@
 # El Manual Pengunic
 
 Cómo escribir PenguScript seguro, idiomático y rápido: el manual de ingeniería
-del lenguaje que implementa `psc` 0.41.0.
+del lenguaje que implementa `psc` 0.42.0.
 
 Es el documento de *práctica* del conjunto de documentación:
 
@@ -64,6 +64,8 @@ English: [PENGUNIC.md](PENGUNIC.md).
   - [7.6 Cláusulas de guarda en lugar de anidamiento](#76-cláusulas-de-guarda-en-lugar-de-anidamiento)
   - [7.7 Recursión](#77-recursión)
   - [7.8 Nombra el argumento que carga el significado](#78-nombra-el-argumento-que-carga-el-significado)
+  - [7.9 Repite un receptor con `with`](#79-repite-un-receptor-con-with)
+  - [7.10 Construye mapas con literales](#710-construye-mapas-con-literales)
 - [8. Anti-patrones](#8-anti-patrones)
   - [8.1 Construcción de strings](#81-construcción-de-strings)
   - [8.2 Propiedad de los parámetros](#82-propiedad-de-los-parámetros)
@@ -322,7 +324,7 @@ binario `psc`. Desde un checkout:
 $ bash tools/build_bootstrap.sh     # builds build/psc-stage0 from the C bundle
 $ ./build/psc-stage0 build .        # self-hosts build/psc
 $ ./build/psc --version
-psc 0.41.0 (F13)
+psc 0.42.0 (F13)
 ```
 
 A partir de ahí usas `build/psc`. `psc doctor` informa de lo que encontró: el
@@ -936,6 +938,48 @@ calling window.configure with resizable is false, title is "Logs"
   ordena y emite la misma llamada C que la forma posicional.
 * Los pasos de cadena y tubería aceptan solo posicionales; cuando un paso
   necesite nombre, llama al método directamente sobre su receptor.
+
+### 7.9 Repite un receptor con `with`
+
+Cuando un valor protagoniza la mayor parte de un bloque, ligéralo una vez con
+`with` y escribe `.campo` / `calling .metodo` en el cuerpo. El receptor se
+evalúa una vez, los nombres de campo quedan junto a su dueño y una errata es un
+error de compilación en vez de un acceso silenciosamente equivocado:
+
+```pengu-fragment
+with window:
+    set .title is "Logs"
+    calling .resize with 800, 600
+    calling .refresh
+```
+
+**Reglas**
+
+* Usa `with` cuando tres o más líneas toquen el mismo receptor; por debajo de
+  eso el receptor explícito se lee mejor.
+* El objetivo debe ser un lugar direccionable: liga un temporal primero (`var
+  tmp as T is …`) en vez de `with make_widget():` (`E0077`).
+* Dentro del cuerpo no hay un segundo receptor: los `with` anidados se apilan y
+  gana el más interno.
+
+### 7.10 Construye mapas con literales
+
+Prefiere un literal de mapa a una secuencia de `.put` cuando las entradas se
+conocen en el punto de construcción: dice el contenido en un solo sitio y el
+compilador emite una inserción por entrada.
+
+```pengu-fragment
+var ages as map of string to int is {"ada": 36, "alan": 41}
+defer banish ages
+```
+
+**Reglas**
+
+* Escribe el tipo en el binding (`var ages as map of string to int is …`); un
+  `{"a": 1}` suelto no tiene tipo de clave ni de valor y es `E0076`.
+* Usa `.put` para entradas calculadas después, y un literal para la forma
+  inicial.
+* El literal es dueño del mapa; báñalo como cualquier otro mapa.
 
 ## 8. Anti-patrones
 
@@ -3229,7 +3273,7 @@ trunca, y `transmute`, que reinterpreta bits.
 **¿Hay hilos y corrutinas?**
 Sí. 0.30.0 añadió hilos de primera clase (`filum.start`, `join`, `detach`,
 `free`), 0.31.0 añadió `std.coro` (corrutinas stackful explícitas con `resume` y
-`yield`, en el mismo hilo) y 0.41.0 añade `std.reactor`: un `EventLoop` explícito
+`yield`, en el mismo hilo) y 0.42.0 añade `std.reactor`: un `EventLoop` explícito
 que hace `epoll_wait`/`poll` y reanuda las tareas. No hay `async`/`await` como
 palabras clave ni un planificador escondido: tú creas el loop, haces `spawn` y
 llamas `run`. Las variantes `*_async` de la stdlib son funciones que suspenden la

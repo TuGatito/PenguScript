@@ -89,6 +89,14 @@ weave patom_parse_primary with p as ref to PsParser into int:
         return calling patom_parse_array_lit with p
     if k == TokLeftBrace:
         return calling patom_parse_map_lit with p
+    if k == TokDot:
+        # `.campo` en posición de expresión: el receptor lo aporta el `with`
+        # que envuelve la sentencia. La cadena `.a.b` la añade el postfix.
+        var dstart as int is calling ps_current_start with p
+        var ignored_dot as Token is calling ps_advance with p
+        calling ps_begin_children with p
+        calling ps_add_name_like with p
+        return calling ps_finish_node with p, NodeKind.NdWithTarget, dstart, (calling ps_previous_end with p), 0
     if k == TokKeyword:
         return calling patom_parse_keyword_atom with p
     if k == TokIdentifier:

@@ -1,0 +1,7 @@
+weave main into int:
+    var m as map of string to int is {"a": 1, "b": 2}
+    calling print with "{m.len}\n"
+    calling print with "{m at "a"}\n"
+    calling print with "{m at "b"}\n"
+    banish m
+    return 0

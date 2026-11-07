@@ -57,6 +57,11 @@ weave emit_expr with c as ref to context.CgContext, node as int into string:
     if node < 0:
         return "0"
     var m as loader.SemaModule is (c->program->modules at c->current_module)
+    if (calling astutil.kind_of with (sigil of m.parse.ast), node) == pskind.NodeKind.NdWithTarget:
+        # `.campo` en expresión: el receptor es el `with` activo. El sema ya
+        # comprobó que existe un `with` y que el campo pertenece al tipo.
+        var wtarget as CgTarget is calling resolve_with_target with c, node, (sigil of m.parse.ast), false
+        return wtarget.text
     var ast as ref to psast.PsAst is (sigil of m.parse.ast)
     var k as pskind.NodeKind is calling astutil.kind_of with ast, node
     if k == pskind.NodeKind.NdIntLit or k == pskind.NodeKind.NdFloatLit or k == pskind.NodeKind.NdCharLit:
@@ -1053,6 +1058,85 @@ weave list_literal_expr with c as ref to context.CgContext, node as int, ast as 
     calling sb.append with "; }))"
     return calling sb.finish
 
+## Emite un literal de mapa como statement expression C99.
+##
+## Cada entrada se copia a un temporal del tipo de la clave/valor y se inserta
+## con `pengu_map_put`, así el literal funciona con claves y valores de
+## cualquier tipo (incluidas runas) y el mapa queda listo antes de devolverlo.
+##
+## ## Memoria
+## Strings del texto emitido.
+weave map_lit_expr with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst, ty as int into string:
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    var kt as string is calling ctype.c_type with (sigil of c->names), t.a
+    defer banish kt
+    var vt as string is calling ctype.c_type with (sigil of c->names), t.b
+    defer banish vt
+    var mt as string is calling emit.temp with (sigil of c->emitter), "_map"
+    defer banish mt
+    var kvt as string is calling emit.temp with (sigil of c->emitter), "_mk"
+    defer banish kvt
+    var vvt as string is calling emit.temp with (sigil of c->emitter), "_mv"
+    defer banish vvt
+    var mm as loader.SemaModule is (c->program->modules at c->current_module)
+    var n as int is calling astutil.child_count with ast, node
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "__extension__(({ PenguMap "
+    calling sb.append with mt
+    calling sb.append with " = pengu_map_new(sizeof("
+    calling sb.append with kt
+    calling sb.append with "), sizeof("
+    calling sb.append with vt
+    calling sb.append with ")); "
+    if n > 0:
+        calling sb.append with kt
+        calling sb.append with " "
+        calling sb.append with kvt
+        calling sb.append with "; "
+        calling sb.append with vt
+        calling sb.append with " "
+        calling sb.append with vvt
+        calling sb.append with "; "
+    var i as int is 0
+    while i < n:
+        var entry as int is calling astutil.node_child with ast, node, i
+        if entry >= 0:
+            var kn as int is calling astutil.node_child with ast, entry, 0
+            var vn as int is calling astutil.node_child with ast, entry, 1
+            if vn >= 0:
+                # Una clave de cadena se guarda como token hijo, no como nodo.
+                var kv as string is ""
+                if kn >= 0:
+                    set kv is calling emit_expr_as with c, kn, t.a
+                else:
+                    var ktok as int is calling astutil.token_child with ast, entry, 0
+                    if ktok >= 0:
+                        var kraw as string is calling astutil.token_text with (sigil of mm.source), (sigil of mm.lex), ktok
+                        set kv is calling c_string_expr with c, entry, kraw, false
+                        banish kraw
+                var vv as string is calling emit_expr_as with c, vn, t.b
+                calling sb.append with kvt
+                calling sb.append with " = "
+                calling sb.append with kv
+                calling sb.append with "; "
+                calling sb.append with vvt
+                calling sb.append with " = "
+                calling sb.append with vv
+                calling sb.append with "; pengu_map_put(&"
+                calling sb.append with mt
+                calling sb.append with ", &"
+                calling sb.append with kvt
+                calling sb.append with ", &"
+                calling sb.append with vvt
+                calling sb.append with "); "
+                banish kv
+                banish vv
+        set i is i + 1
+    calling sb.append with mt
+    calling sb.append with "; }))"
+    return calling sb.finish
+
 weave emit_expr_as with c as ref to context.CgContext, node as int, expected as int into string:
     if node < 0:
         return "0"
@@ -1163,15 +1247,19 @@ weave emit_expr_as with c as ref to context.CgContext, node as int, expected as 
             banish kt0
             banish vt0
             return mnew
-    if expected >= 0 and (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdMapInitExpr or (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdMapLit:
+    if expected >= 0 and (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdMapLit:
         var mt1 as tk.SemaType is calling types.at with (sigil of c->program->types), expected
         if mt1.kind == tk.SemaTypeKind.TkMap:
-            var kt1 as string is calling ctype.c_type with (sigil of c->names), mt1.a
-            var vt1 as string is calling ctype.c_type with (sigil of c->names), mt1.b
-            var mnew2 as string is "pengu_map_new(sizeof({kt1}), sizeof({vt1}))"
-            banish kt1
-            banish vt1
-            return mnew2
+            return calling map_lit_expr with c, node, ast, expected
+    if expected >= 0 and (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdMapInitExpr:
+        var mt2 as tk.SemaType is calling types.at with (sigil of c->program->types), expected
+        if mt2.kind == tk.SemaTypeKind.TkMap:
+            var kt2 as string is calling ctype.c_type with (sigil of c->names), mt2.a
+            var vt2 as string is calling ctype.c_type with (sigil of c->names), mt2.b
+            var mnew3 as string is "pengu_map_new(sizeof({kt2}), sizeof({vt2}))"
+            banish kt2
+            banish vt2
+            return mnew3
     if expected >= 0 and (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdIndentLiteral:
         return calling indent_init_expr with c, node, ast, expected
     if expected >= 0 and (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdWithInitExpr:

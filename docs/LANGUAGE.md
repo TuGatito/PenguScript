@@ -1,7 +1,7 @@
 # PenguScript Language Reference
 
 PenguScript is a small, statically typed language that compiles to C. This
-reference documents the language as implemented by `psc` 0.41.0: every
+reference documents the language as implemented by `psc` 0.42.0: every
 construct, its semantics, and the C it lowers to.
 
 It is the *language* document of the documentation set:
@@ -46,6 +46,7 @@ Spanish: [LANGUAGE.es.md](LANGUAGE.es.md).
   - [5.4 `judge` — pattern matching](#54-judge-pattern-matching)
   - [5.5 `break`, `continue`, `return`](#55-break-continue-return)
   - [5.6 Block expressions](#56-block-expressions)
+  - [5.7 `with` as a statement](#57-with-as-a-statement)
 - [6. Functions](#6-functions)
   - [6.1 `weave`](#61-weave)
   - [6.2 Calling conventions](#62-calling-conventions)
@@ -141,7 +142,7 @@ own section (generics, memory, interop).
 * The keyword lists, type mappings and diagnostic codes are exhaustive; the
   prose is not — [PENGUNIC.md](PENGUNIC.md) covers *how to use* the language and
   [STDLIB.md](STDLIB.md) covers the standard library.
-* Version: `psc` 0.41.0. The ABI version the generated C expects is 3.
+* Version: `psc` 0.42.0. The ABI version the generated C expects is 3.
 
 ## 1. Lexical structure
 
@@ -295,6 +296,31 @@ marks a borrowed view. `PenguList` stores elements by value at a fixed
 `string`, `list`, `map` and boxed `maybe`/`result` values are *owned* unless a
 function returns a borrowed view (§14). `slice`, `range`, `ref to T`, tuples and
 scalar types are plain values.
+
+Container literals construct the value where it is written:
+
+```pengu-fragment
+var xs as list of int is [1, 2, 3]
+defer banish xs
+var ages as map of string to int is {"ada": 36, "alan": 41}
+defer banish ages
+```
+
+A map literal needs a known key and value type, so it is only accepted where the
+type is written: a `var`/`let` annotation, a field, a parameter or a return type.
+Anywhere else the compiler reports `E0076` (`map literal needs a type
+annotation`). Keys may be string literals or any expression of the key type,
+including interpolations (`{"k{n}": n}`).
+
+The literal builds the container once, when it is evaluated. For a map it is one
+allocation plus one insert per entry, never a rebuild on each read:
+
+```c
+PenguMap ages = __extension__(({ PenguMap _map0 = pengu_map_new(sizeof(PenguString), sizeof(int32_t)); PenguString _mk1; int32_t _mv2; _mk1 = pengu_string_from_cstr_len("ada", 3); _mv2 = 36; pengu_map_put(&_map0, &_mk1, &_mv2); _mk1 = pengu_string_from_cstr_len("alan", 4); _mv2 = 41; pengu_map_put(&_map0, &_mk1, &_mv2); _map0; }));
+```
+
+The map owns copies of its keys and values, so the temporaries above are only
+borrowed while the entry is inserted. `banish` releases the whole map (§13).
 
 ### 2.3 Value vs reference
 
@@ -725,6 +751,53 @@ generated C needs GCC or Clang, the supported toolchains. `return`, `banish`
 and `defer` inside the block keep their usual meaning. A loop in value
 position (`for x in xs then expr`) collects each iteration's value into a new
 `list of T`.
+
+### 5.7 `with` as a statement
+
+A `with` block names a receiver once and lets the body address it with
+`.field` and `calling .method`:
+
+```pengu
+rune Point:
+    x as int
+    y as int
+
+enchanting Point:
+    weave shift with dx as int, dy as int into void:
+        set self->x is self->x + dx
+        set self->y is self->y + dy
+
+weave main into int:
+    var p as Point is with x is 1, y is 2
+    with p:
+        var y0 as int is .y
+        set .x is .x + 1
+        calling .shift with 2, 1
+    return p.x + p.y
+```
+
+`.field` reads or writes a field of the target and `calling .method` dispatches
+on its type, so the receiver is written once instead of on every line. The
+target is evaluated exactly once and must be an addressable place — a variable,
+a field, an element (`xs at i`) or a borrow — otherwise the compiler reports
+`E0077`. Every statement in the body is type-checked: an unknown name or a field
+that does not belong to the target's type is `E0004`.
+
+For a `rune` or `echo` target the target is bound to a pointer, which is why the
+receiver appears dereferenced:
+
+```c
+{
+    Point* _w0 = &(p);
+    int32_t y0 = (*_w0).y;
+    (*_w0).x = ((*_w0).x + 1);
+    Point_shift(&((*_w0)), 2, 1);
+}
+```
+
+For a `list`, `map` or `string` target the body calls the built-in methods
+(`calling .push with 4`, `calling .put with "k", 1`). A `with` builder in value
+position (`var p as Point with: ...`) is §9.8.
 
 ## 6. Functions
 
@@ -2253,6 +2326,8 @@ Every diagnostic has a stable code. Errors stop the compilation; warnings do not
 | `E0073` | default value is not constant or does not match the type |
 | `E0074` | `many` parameter with a default value |
 | `E0075` | `many` parameter in `declare` |
+| `E0076` | map literal without a type annotation |
+| `E0077` | `with` target is not an addressable place |
 | `W0001` | `transmute` used |
 | `W0002` | `echo` field access (unchecked union) |
 | `W0004` | unreachable code |
@@ -2473,13 +2548,16 @@ when_top       = "when" expr ":" { top_decl } [ "else" ":" { top_decl } ] ;
 
 block          = INDENT { stmt } DEDENT ;
 stmt           = var_decl | const_decl | set_stmt | if_stmt | while_stmt
-               | for_stmt | judge_stmt | return_stmt | break_stmt
+               | for_stmt | judge_stmt | with_stmt | return_stmt | break_stmt
                | continue_stmt | defer_stmt | banish_stmt | expr_stmt
                | "do" ":" block ;
+with_stmt      = "with" expr ":" block ;
 var_decl       = [ "static" ] "var" ident [ "as" type ] "is" expr
                | "let" ( ident | "(" ident { "," ident } ")" )
                  [ "," ident { "," ident } ] [ "as" type ] "is" expr ;
 set_stmt       = "set" lvalue ( "is" expr | op "=" expr ) ;
+lvalue         = [ "self" ( "." | "->" ) ] ident
+               | lvalue "at" expr | "." ident | expr "." ident ;
 if_stmt        = ( "if" | "unless" ) expr ":" block
                  { "else" "if" expr ":" block } [ "else" ":" block ] ;
 while_stmt     = [ ident ":" ] "while" expr ":" block ;

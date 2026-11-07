@@ -1,0 +1,55 @@
+## Regresión: `with target:` como sentencia (0.42.0).
+##
+## El receptor se evalúa una sola vez, `.campo` lee y escribe en él y
+## `calling .metodo` despacha al método del tipo.
+rune Point:
+    x as int
+    y as int
+
+rune Counter:
+    value as int
+
+enchanting Point:
+    weave shift with dx as int, dy as int into void:
+        set self->x is self->x + dx
+        set self->y is self->y + dy
+
+enchanting Counter:
+    weave bump into void:
+        set self->value is self->value + 1
+
+weave make_point with x as int into Point:
+    return with x is x, y is 0
+
+weave main into int:
+    var p as Point is calling make_point with 3
+    with p:
+        var y0 as int is .y
+        set .x is .x + 1
+        set .y is y0 + 4
+        calling .shift with 2, 1
+    if p.x != 6:
+        return 1
+    if p.y != 5:
+        return 2
+
+    # Anidado: el `with` interno ve su receptor y el externo sigue vivo.
+    var c as Counter is with value is 0
+    with p:
+        with c:
+            calling .bump
+            calling .bump
+        set .x is .x + (c.value)
+    if c.value != 2:
+        return 3
+    if p.x != 8:
+        return 4
+
+    # `with` sobre una expresión prestada por un ref.
+    var q as Point is with x is 0, y is 0
+    var rq as ref to Point is sigil of q
+    with essence of rq:
+        set .x is 9
+    if q.x != 9:
+        return 5
+    return 0
