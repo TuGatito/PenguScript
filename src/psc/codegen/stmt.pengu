@@ -1384,62 +1384,6 @@ weave judge_bind_payload with c as ref to context.CgContext, st as int, payload 
                 banish pfn
         set pi is pi + 1
 
-## Emite un `judge` como cadena de `if` (necesario cuando hay guardas).
-##
-## ## Memoria
-## Strings owned; el AST es del programa.
-weave emit_judge_chain with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst, st as int, stmp as string into void:
-    var m as loader.SemaModule is (c->program->modules at c->current_module)
-    var endl as string is calling emit.temp with (sigil of c->emitter), "_jd"
-    defer banish endl
-    var i as int is 0
-    var n as int is calling astutil.child_count with ast, node
-    while i < n:
-        var cl as int is calling astutil.node_child with ast, node, i
-        if cl >= 0:
-            var ck as pskind.NodeKind is calling astutil.kind_of with ast, cl
-            if ck == pskind.NodeKind.NdWhenClause:
-                var pat as int is calling astutil.node_child with ast, cl, 0
-                var payload as int is calling astutil.node_child with ast, cl, 1
-                var guard as int is calling astutil.node_child with ast, cl, 2
-                var body as int is calling astutil.node_child with ast, cl, 3
-                if body < 0:
-                    set body is calling astutil.node_child with ast, cl, 2
-                if pat >= 0 and body >= 0:
-                    var cond as string is calling expr.judge_cond_c with c, st, pat, ast, stmp
-                    defer banish cond
-                    calling emit.line with (sigil of c->emitter), "if ({cond}) {"
-                    calling emit.indent_more with (sigil of c->emitter)
-                    var ptxt as int is calling expr.last_token_deep with ast, pat
-                    var vtxt as string is ""
-                    if ptxt >= 0:
-                        set vtxt is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), ptxt
-                    if payload >= 0 and vtxt length > 0:
-                        calling judge_bind_payload with c, st, payload, ast, stmp, vtxt
-                    if guard >= 0:
-                        var gv as string is calling expr.emit_expr with c, guard
-                        calling emit.line with (sigil of c->emitter), "if ({gv}) {"
-                        banish gv
-                        calling emit.indent_more with (sigil of c->emitter)
-                        calling emit_judge_body with c, body, ast
-                        calling emit.line with (sigil of c->emitter), "goto {endl};"
-                        calling emit.indent_less with (sigil of c->emitter)
-                        calling emit.line with (sigil of c->emitter), "}"
-                    else:
-                        calling emit_judge_body with c, body, ast
-                        calling emit.line with (sigil of c->emitter), "goto {endl};"
-                    calling emit.indent_less with (sigil of c->emitter)
-                    calling emit.line with (sigil of c->emitter), "}"
-                    if vtxt length > 0:
-                        banish vtxt
-            else if ck == pskind.NodeKind.NdElseClause:
-                var eb as int is calling astutil.node_child with ast, cl, 0
-                if eb < 0:
-                    set eb is cl
-                calling emit_judge_body with c, eb, ast
-        set i is i + 1
-    calling emit.line with (sigil of c->emitter), "{endl}: ;"
-
 ## Emite el cuerpo de un brazo de `judge`.
 ##
 ## Con `vty > 0` deja el valor de la rama en `vtmp` (modo valor). Con

@@ -66,6 +66,11 @@ jobs:
         shell: bash
         run: bash ./tests/golden_c/run.sh
 
+      - name: Leak tests (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: bash ./tests/leaks/run.sh
+
       - name: Compiler benchmark gate
         shell: bash
         run: ./tools/bench.sh . --runs 2 --gate-warm 2000 --gate-check 1000
