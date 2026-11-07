@@ -1311,12 +1311,48 @@ weave collect_weave with s as ref to state.SemaState, node as int, no_body as bo
 ##
 ## ## Memoria
 ## Añade `SemaFnParam` y actualiza `first/count` por referencia.
+## Texto token de un default float (con signo), o `-1`.
+##
+## Los defaults float conservan el token original para no perder precisión al
+## emitir C; el resto de kinds se pliega a un valor y se emite desde la tabla.
+##
+## ## Memoria
+## El texto se interna en el pool de nombres.
+weave default_float_text with s as ref to state.SemaState, node as int into int:
+    var n as int is node
+    var neg as bool is false
+    var guard as int is 0
+    while n >= 0 and guard < 8:
+        var k as pskind.NodeKind is calling astutil.kind_of with s->ast, n
+        if k == pskind.NodeKind.NdParenExpr or k == pskind.NodeKind.NdNeg:
+            if k == pskind.NodeKind.NdNeg:
+                set neg is not neg
+            set n is calling astutil.node_child with s->ast, n, 0
+        else:
+            break
+        set guard is guard + 1
+    if n < 0:
+        return -1
+    if (calling astutil.kind_of with s->ast, n) != pskind.NodeKind.NdFloatLit:
+        return -1
+    var tkc as int is calling astutil.token_child with s->ast, n, 0
+    if tkc < 0:
+        return -1
+    var raw as string is calling astutil.token_text with s->src, s->lex, tkc
+    defer banish raw
+    if neg:
+        var signed as string is "-{raw}"
+        defer banish signed
+        return calling npool.intern with s->names, signed
+    return calling npool.intern with s->names, raw
+
 weave collect_params with s as ref to state.SemaState, pnode as int, out as ref to ParamRange into void:
     # Los params se acumulan aparte: convertir un tipo función (`as weave ...`)
     # añade sus propios params a `fn_params`, así que empujarlos al vuelo
     # rompería la contigüidad del rango [first, first+count).
     var tmp as list of types.SemaFnParam is list of types.SemaFnParam
     defer banish tmp
+    var seen_default as bool is false
     var i as int is 0
     var n as int is calling astutil.child_count with s->ast, pnode
     while i < n:
@@ -1335,6 +1371,12 @@ weave collect_params with s as ref to state.SemaState, pnode as int, out as ref 
                 set pty is calling convert.convert with (sigil of ctx), ptn
             var pdef as int is calling astutil.node_child with s->ast, p, 2
             var dmidx as int is -1
+            var dkind as int is types.DEF_NONE
+            var di as i64 is 0
+            var df as f64 is 0.0
+            var db as bool is false
+            var dname as int is -1
+            var dtxt as int is -1
             if pdef >= 0:
                 var mi as int is 0
                 while mi < s->program->modules.len:
@@ -1343,16 +1385,32 @@ weave collect_params with s as ref to state.SemaState, pnode as int, out as ref 
                         set dmidx is mi
                         break
                     set mi is mi + 1
-            var dtxt as int is -1
+                var cvd as sym.SemaConst is calling const_literal with s, pdef
+                if cvd.kind == sym.SemaConstKind.CkInt:
+                    set dkind is types.DEF_INT
+                    set di is cvd.i
+                else if cvd.kind == sym.SemaConstKind.CkFloat:
+                    set dkind is types.DEF_FLOAT
+                    set df is cvd.f
+                    set dtxt is calling default_float_text with s, pdef
+                else if cvd.kind == sym.SemaConstKind.CkBool:
+                    set dkind is types.DEF_BOOL
+                    set db is cvd.b
+                else if cvd.kind == sym.SemaConstKind.CkString:
+                    set dkind is types.DEF_STRING
+                    set dname is cvd.name
+                else if cvd.kind == sym.SemaConstKind.CkChar:
+                    set dkind is types.DEF_CHAR
+                    set di is cvd.i
+                else:
+                    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_DEFAULT_VALUE, (calling astutil.start_of with s->ast, pdef), (calling astutil.end_of with s->ast, pdef), "default value must be a compile-time constant", "Use a literal, a const, or an arithmetic expression of those.", ""
+                if dkind != types.DEF_NONE and not (calling types.default_fits with s->types, pty, dkind):
+                    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_DEFAULT_VALUE, (calling astutil.start_of with s->ast, pdef), (calling astutil.end_of with s->ast, pdef), "default value does not match the parameter's type", "Pass a value of the declared type.", ""
+            if pdef < 0 and seen_default:
+                calling sdiag.node_error with s->bag, s->src, sdiag.CODE_DEFAULT_ORDER, (calling astutil.start_of with s->ast, p), (calling astutil.end_of with s->ast, p), "parameter without a default follows a parameter with one", "Give it a default too, or move it before the defaulted parameters.", "Python-style defaults must be the trailing parameters."
             if pdef >= 0:
-                var pk as pskind.NodeKind is calling astutil.kind_of with s->ast, pdef
-                if pk == pskind.NodeKind.NdIntLit or pk == pskind.NodeKind.NdFloatLit:
-                    var ptk as int is calling astutil.token_child with s->ast, pdef, 0
-                    if ptk >= 0:
-                        var ptx as string is calling astutil.token_text with s->src, s->lex, ptk
-                        set dtxt is calling npool.intern with s->names, ptx
-                        banish ptx
-            var fp as types.SemaFnParam is with name is pname, type is pty, flags is 0, default_node is pdef, default_module is dmidx, default_text is dtxt
+                set seen_default is true
+            var fp as types.SemaFnParam is with name is pname, type is pty, flags is 0, default_node is pdef, default_module is dmidx, default_text is dtxt, default_kind is dkind, default_i is di, default_f is df, default_b is db, default_name is dname
             calling tmp.push with fp
         else:
             # `...` es un token hijo, no un `NdParam`: registra el singleton

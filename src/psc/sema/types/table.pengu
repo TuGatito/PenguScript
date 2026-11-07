@@ -30,6 +30,14 @@ insignia sema_type_table_
 ## opaque y cvarargs; el resto de IDs son dinámicos.
 const TYPE_ID_CVARARGS as int is 5
 
+## Kinds plegados de un valor por defecto (`SemaFnParam.default_kind`).
+const DEF_NONE as int is 0
+const DEF_INT as int is 1
+const DEF_FLOAT as int is 2
+const DEF_BOOL as int is 3
+const DEF_STRING as int is 4
+const DEF_CHAR as int is 5
+
 ## Información mutable de una runa/echo/omen/alias/seal/concepto.
 rune SemaNominalInfo:
     ## Clase nominal.
@@ -124,6 +132,16 @@ rune SemaFnParam:
     default_module as int
     ## Texto C del default si es un literal simple (`-1` si no).
     default_text as int
+    ## Kind plegado del default (`DEF_*`; `DEF_NONE` si no hay).
+    default_kind as int
+    ## Valor entero/char plegado del default.
+    default_i as i64
+    ## Valor float plegado del default.
+    default_f as f64
+    ## Valor bool plegado del default.
+    default_b as bool
+    ## `NameId` del string plegado del default (`-1` si no).
+    default_name as int
 
 ## Firma de una función o método.
 rune SemaFnInfo:
@@ -757,3 +775,26 @@ weave is_base with t as ref to SemaTypeTable, id as int into bool:
 ## O(1), no asigna.
 weave is_error with t as ref to SemaTypeTable, id as int into bool:
     return id <= 0 or (calling at with t, id).kind == tk.SemaTypeKind.TkError
+
+## ¿Un valor por defecto plegado (`DEF_*`) encaja con el tipo del parámetro?
+##
+## Los primitivos se comparan por nombre canónico; runas, omens, genéricos y
+## alias se dejan a la llamada (C hace la conversión).
+##
+## ## Memoria
+## O(1), no asigna.
+weave default_fits with t as ref to SemaTypeTable, pty as int, dkind as int into bool:
+    if pty <= 0:
+        return true
+    var ty as tk.SemaType is calling at with t, pty
+    if ty.kind != tk.SemaTypeKind.TkBase:
+        return true
+    var name as string is calling npool.text with t->names, ty.name
+    var numeric as bool is name == "int" or name == "i8" or name == "i16" or name == "i32" or name == "i64" or name == "u8" or name == "u16" or name == "u32" or name == "u64" or name == "usize" or name == "isize" or name == "float" or name == "f32" or name == "f64" or name == "char"
+    if dkind == DEF_INT or dkind == DEF_CHAR or dkind == DEF_FLOAT:
+        return numeric
+    if dkind == DEF_BOOL:
+        return name == "bool"
+    if dkind == DEF_STRING:
+        return name == "string"
+    return false

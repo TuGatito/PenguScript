@@ -2,6 +2,42 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.39.0] — 2026-11-06 — Valores por defecto plegados y comprobados
+
+Tercera fase del plan: los defaults dejan de ser AST que el codegen reemite en
+el módulo del llamador. El sema los pliega a un valor constante, comprueba el
+orden y el tipo, y el codegen emite ese valor en la ranura de su parámetro.
+
+### Añadido
+
+- **`E0072`**: un parámetro sin default no puede seguir a uno con default
+  (estilo Python). **`E0073`**: el default no es una constante plegable, o no
+  encaja con el tipo declarado.
+- Los defaults genéricos se comprueban otra vez contra el tipo sustituido en
+  cada instanciación: `pick shard T with b as T is 5` llamado con `string` es
+  `E0073` en vez de un error de C.
+- `tests/regress_defaults.sh` (6 casos negativos) y el golden
+  `tests/golden_c/g22_defaults.pengu`; `tests/pengu/default_args.pengu` cubre
+  `string`, `bool`, `float`, `char` vía `const`, métodos y genéricos.
+
+### Cambiado
+
+- `SemaFnParam` guarda el default plegado (`default_kind`, `default_i`,
+  `default_f`, `default_b`, `default_name`) además del nodo. El codegen ya no
+  cambia de módulo ni reemite el AST para un default.
+- Un default se evalúa una sola vez, al declarar la función, y el sitio de
+  llamada emite el valor: el mismo C que pasar el argumento a mano.
+
+### Corregido
+
+- Un default podía ser una expresión arbitraria sin tipar
+  (`b as int is a + 1` emitía `f(5, a + 1)` con `a` inexistente). Ahora es
+  `E0073` antes de generar C.
+- Un default usado dentro de una interpolación abortaba el compilador con
+  `Index out of bounds … src/psc/sema/ast.pengu:25`; el plegado elimina esa ruta.
+- Los defaults de `string`/`bool` se reevaluaban en cada llamada desde el
+  módulo del llamador; ahora son una constante más.
+
 ## [0.38.0] — 2026-11-06 — Argumentos nombrados y aridad exacta
 
 Segunda fase del plan de lenguaje: las llamadas por fin emiten lo que la

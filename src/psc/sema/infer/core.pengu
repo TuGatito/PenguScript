@@ -1267,6 +1267,24 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
                     if i == 0:
                         set first_arg_type is gotv
         set i is i + 1
+    # En una instancia genérica el default debe encajar con el tipo sustituido:
+    # el C sólo lo descubriría al compilar (y con un error ilegible).
+    if subst.len > 0:
+        var dj as int is 0
+        while dj < fixed:
+            var cov as bool is dj < pos_next
+            var nj3 as int is 0
+            while nj3 < named.len:
+                if (named at nj3) == dj:
+                    set cov is true
+                set nj3 is nj3 + 1
+            if not cov:
+                var dp as types.SemaFnParam is (s->types->fn_params at (info.params_first + dj))
+                if dp.default_kind != types.DEF_NONE and dp.type > 0:
+                    var dsub as int is calling ginst.subst_deep with s->symbols, dp.type, subst
+                    if dsub > 0 and not (calling types.default_fits with s->types, dsub, dp.default_kind):
+                        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_DEFAULT_VALUE, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "default value does not match the instantiated type", "Pass the argument explicitly or change the default.", ""
+            set dj is dj + 1
     if recv_bounds < 0 and fsv.bounds_count > 0 and first_arg_type > 0:
         var bj as int is 0
         while bj < fsv.bounds_count:

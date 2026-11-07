@@ -1,7 +1,7 @@
 # PenguScript Language Reference
 
 PenguScript is a small, statically typed language that compiles to C. This
-reference documents the language as implemented by `psc` 0.38.0: every
+reference documents the language as implemented by `psc` 0.39.0: every
 construct, its semantics, and the C it lowers to.
 
 It is the *language* document of the documentation set:
@@ -140,7 +140,7 @@ own section (generics, memory, interop).
 * The keyword lists, type mappings and diagnostic codes are exhaustive; the
   prose is not — [PENGUNIC.md](PENGUNIC.md) covers *how to use* the language and
   [STDLIB.md](STDLIB.md) covers the standard library.
-* Version: `psc` 0.38.0. The ABI version the generated C expects is 3.
+* Version: `psc` 0.39.0. The ABI version the generated C expects is 3.
 
 ## 1. Lexical structure
 
@@ -732,7 +732,11 @@ weave double with x as int into int:
 
 * `with` introduces the parameters, `into` the return type. A `void` weave may
   omit the value of `return`.
-* Default parameter values must be compile-time constants.
+* Default parameter values must be compile-time constants — literals, `const`s
+  and integer arithmetic of those — and must match the parameter type. Defaults
+  are the trailing parameters: one without a default cannot follow one that has
+  it (`E0072`). A default that is not constant, or that does not fit the type,
+  is `E0073`; a generic default is checked again for every instantiation.
 * A body whose last statement is an expression returns it implicitly.
 * Calls accept positional and named arguments: `calling greet with "Ada",
   times is 2` and `calling greet with times is 2, name is "Ada"` are equivalent;
@@ -753,6 +757,25 @@ int32_t d1_add(int32_t a, int32_t b) {
 
 A returned `string`, `list` or `map` is returned by value; the callee transfers
 ownership to the caller.
+
+Defaults are folded to their value once, when the function is declared, and the
+call site emits that value directly:
+
+```pengu
+weave greet with name as string, times as int is 2 into void:
+    calling print with "{name} {times}"
+
+weave main into int:
+    calling greet with "Ada"
+    calling greet with "Ada", 2
+    return 0
+```
+
+```c
+d1_greet(pengu_string_from_cstr("Ada"), 2);
+```
+
+Both calls emit the same C, and a default never re-evaluates per call.
 
 ### 6.2 Calling conventions
 
@@ -2165,6 +2188,8 @@ Every diagnostic has a stable code. Errors stop the compilation; warnings do not
 | `E0069` | duplicate loop label |
 | `E0070` | duplicate type name in a module |
 | `E0071` | unknown, repeated or misplaced named argument |
+| `E0072` | parameter without a default after a defaulted one |
+| `E0073` | default value is not constant or does not match the type |
 | `W0001` | `transmute` used |
 | `W0002` | `echo` field access (unchecked union) |
 | `W0004` | unreachable code |

@@ -2530,6 +2530,24 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
 ## Devuelve un string owned; liberar con `banish`.
 weave param_default_text with c as ref to context.CgContext, gidx as int into string:
     var p as types.SemaFnParam is (c->program->types.fn_params at gidx)
+    # El sema pliega el default a un valor: el codegen no vuelve a tocar el AST
+    # del módulo que lo declaró (eso rompía la interpolación y reevaluaba).
+    if p.default_kind == types.DEF_INT or p.default_kind == types.DEF_CHAR:
+        return "{p.default_i}"
+    if p.default_kind == types.DEF_FLOAT:
+        if p.default_text >= 0:
+            return calling npool.copy_string with (calling npool.text with (sigil of c->program->names), p.default_text)
+        return "{p.default_f}"
+    if p.default_kind == types.DEF_BOOL:
+        if p.default_b:
+            return calling npool.copy_string with "true"
+        return calling npool.copy_string with "false"
+    if p.default_kind == types.DEF_STRING and p.default_name >= 0:
+        var sv as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), p.default_name)
+        defer banish sv
+        var esc as string is calling emit.escape_c with sv
+        defer banish esc
+        return "pengu_string_from_cstr(\"{esc}\")"
     if p.default_text >= 0:
         return calling npool.copy_string with (calling npool.text with (sigil of c->program->names), p.default_text)
     var saved as int is c->current_module

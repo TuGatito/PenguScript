@@ -74,6 +74,8 @@ en una fase del plan, o se elimina de la documentación.
 | `E0069` | `CODE_DUP_LABEL` | 1 | emitido | sí |
 | `E0070` | `CODE_DUP_TYPE` | 0 | **sin emisor** | sí |
 | `E0071` | `CODE_NAMED_ARG` | 5 | emitido | sí |
+| `E0072` | `CODE_DEFAULT_ORDER` | 1 | emitido | sí |
+| `E0073` | `CODE_DEFAULT_VALUE` | 3 | emitido | sí |
 | `W0001` | `WARN_TRANSMUTE` | 0 | **sin emisor** | sí |
 | `W0002` | `WARN_ECHO_ACCESS` | 0 | **sin emisor** | sí |
 | `W0004` | `WARN_UNREACHABLE` | 0 | **sin emisor** | sí |

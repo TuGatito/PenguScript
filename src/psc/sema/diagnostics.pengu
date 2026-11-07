@@ -81,6 +81,10 @@ const CODE_DUP_LABEL as string is "E0069"
 const CODE_DUP_TYPE as string is "E0070"
 ## Argumento nombrado inválido (desconocido, duplicado o fuera de orden).
 const CODE_NAMED_ARG as string is "E0071"
+## Valor por defecto después de un parámetro sin él.
+const CODE_DEFAULT_ORDER as string is "E0072"
+## Valor por defecto que no es constante o no encaja con el tipo.
+const CODE_DEFAULT_VALUE as string is "E0073"
 
 const WARN_TRANSMUTE as string is "W0001"
 const WARN_ECHO_ACCESS as string is "W0002"

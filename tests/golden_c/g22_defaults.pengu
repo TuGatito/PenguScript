@@ -1,0 +1,14 @@
+## Golden: defaults plegados a constantes (int, bool, string, float, const).
+const BASE as int is 40
+
+weave describe with n as int is BASE + 2, loud as bool is true, tag as string is "hi", ratio as float is 1.5 into void:
+    if loud:
+        calling print with "{tag}:{n}:{ratio}!\n"
+    else:
+        calling print with "{tag}:{n}:{ratio}\n"
+
+weave main into int:
+    calling describe
+    calling describe with 5, false
+    calling describe with tag is "yo", n is 1
+    return 0
