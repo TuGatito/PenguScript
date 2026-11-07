@@ -434,6 +434,17 @@ weave check_set with s as ref to state.SemaState, node as int, compound as bool 
             set opname is calling astutil.token_text with s->src, s->lex, optok
         var tuid as int is calling types.underlying with s->types, tt
         var tty as tk.SemaType is calling types.at with s->types, tuid
+        # `lista += elemento` empuja; el operando es el ELEMENTO, no la lista.
+        if (opname == "+" or opname == "+=") and (tty.kind == tk.SemaTypeKind.TkList or tty.kind == tk.SemaTypeKind.TkSlice) and value >= 0:
+            var et as int is calling compat.element_type with s->types, tt
+            var got0 as int is calling state.call_infer with s, value, et
+            if not (calling compat.compatible with s->types, got0, et):
+                calling mismatch with s, value, et, got0
+            calling check_mutable_target with s, target
+            if tty.kind == tk.SemaTypeKind.TkSlice:
+                calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MEMORY_OP, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "a slice has a fixed length: use a list to append", "Declare the target as 'list of T'.", ""
+            banish opname
+            return
         if tty.kind == tk.SemaTypeKind.TkRef and (opname == "+" or opname == "+=" or opname == "-" or opname == "-=") and value >= 0:
             var pgot as int is calling state.call_infer with s, value, -1
             if not (calling compat.is_int with s->types, pgot):
@@ -921,12 +932,25 @@ weave check_control with s as ref to state.SemaState, node as int into void:
             set coll_slot is 2
         var coll as int is calling astutil.node_child with s->ast, node, coll_slot
         var et as int is 0
+        var is_map as bool is false
+        var map_key as int is 0
+        var map_val as int is 0
         if coll >= 0:
             var ct as int is calling state.call_infer with s, coll, -1
+            var cty as tk.SemaType is calling types.at with s->types, ct
+            if cty.kind == tk.SemaTypeKind.TkMap:
+                set is_map is true
+                set map_key is cty.a
+                set map_val is cty.b
             set et is calling compat.element_type with s->types, ct
         var first_type as int is et
+        var second_type as int is et
         if indexed:
             set first_type is calling types.base with s->types, "int"
+        if is_map and indexed:
+            # Dos bindings sobre un mapa son clave y valor.
+            set first_type is map_key
+            set second_type is map_val
         if nm >= 0:
             var txt as string is calling astutil.token_text with s->src, s->lex, nm
             defer banish txt
@@ -944,7 +968,7 @@ weave check_control with s as ref to state.SemaState, node as int into void:
                 defer banish t1
                 if t1 == txt2 and t1 != "_":
                     calling sdiag.node_error with s->bag, s->src, sdiag.CODE_C_NAME_DUP, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "index and element loop bindings must have distinct names", "Rename one of the bindings, or use '_'.", ""
-            var sv2 as sym.SemaSymbol is calling symbols.make_symbol with s->names, "", et, sym.SemaSymbolKind.SkLet
+            var sv2 as sym.SemaSymbol is calling symbols.make_symbol with s->names, "", second_type, sym.SemaSymbolKind.SkLet
             set sv2.name is nid2
             set sv2.c_name is nid2
             calling symbols.symbol_define with s->symbols, sv2

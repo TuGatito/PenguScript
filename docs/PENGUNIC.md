@@ -1,7 +1,7 @@
 # The Pengunic Manual
 
 How to write PenguScript that is safe, idiomatic and fast: the engineering
-manual for the language implemented by `psc` 0.42.0.
+manual for the language implemented by `psc` 0.43.0.
 
 It is the *practice* document of the documentation set:
 
@@ -66,6 +66,7 @@ Spanish: [PENGUNIC.es.md](PENGUNIC.es.md).
   - [7.8 Name the argument that carries the meaning](#78-name-the-argument-that-carries-the-meaning)
   - [7.9 Reuse a receiver with `with`](#79-reuse-a-receiver-with-with)
   - [7.10 Build maps with literals](#710-build-maps-with-literals)
+  - [7.11 Iterate with the container's own form](#711-iterate-with-the-containers-own-form)
 - [8. Anti-patterns](#8-anti-patterns)
   - [8.1 String building](#81-string-building)
   - [8.2 Ownership of parameters](#82-ownership-of-parameters)
@@ -321,7 +322,7 @@ binary. From a checkout:
 $ bash tools/build_bootstrap.sh     # builds build/psc-stage0 from the C bundle
 $ ./build/psc-stage0 build .        # self-hosts build/psc
 $ ./build/psc --version
-psc 0.42.0 (F13)
+psc 0.43.0 (F13)
 ```
 
 `build/psc` is the compiler you use from then on. `psc doctor` reports what it
@@ -970,6 +971,32 @@ defer banish ages
   a bare `{"a": 1}` has no key/value type and is `E0076`.
 * Use `.put` for entries computed later, and a literal for the initial shape.
 * The literal owns the map; `banish` it like any other map.
+
+### 7.11 Iterate with the container's own form
+
+`for` knows every container, so index arithmetic is a red flag: it hides the
+length rule of each type and re-derives it at the wrong moment.
+
+```pengu-fragment
+# ❌ manual index, wrong for slices and maps
+var i as int is 0
+while i < (calling xs.length):
+    calling handle with (xs at i)
+    set i is i + 1
+
+# ✅ one loop, the compiler picks the accessor
+for x in xs:
+    calling handle with x
+
+# ✅ a map binds both halves; there is no index to fake
+for key, value in counts:
+    calling emit_pair with key, value
+```
+
+Prefer a labelled loop over a boolean flag to leave nested loops
+(`continue outer`), and a comprehension over an accumulator with `push`.
+Iterating a string yields borrowed one-byte views: no allocation per
+character, and no assumption about multi-byte boundaries.
 
 ## 8. Anti-patterns
 
@@ -3231,7 +3258,7 @@ truncates, and `transmute`, which reinterprets bits.
 **Are there threads and coroutines?**
 Yes. 0.30.0 added first-class threads (`filum.start`, `join`, `detach`, `free`),
 0.31.0 added `std.coro` (explicit stackful coroutines with `resume` and `yield`
-on the same thread) and 0.42.0 adds `std.reactor`: an explicit `EventLoop` that
+on the same thread) and 0.43.0 adds `std.reactor`: an explicit `EventLoop` that
 calls `epoll_wait`/`poll` and resumes tasks. There is no `async`/`await` keyword
 and no hidden scheduler: you create the loop, `spawn` and call `run`. The stdlib
 `*_async` variants are functions that suspend the current coroutine and only

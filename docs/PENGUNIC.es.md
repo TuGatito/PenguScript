@@ -1,7 +1,7 @@
 # El Manual Pengunic
 
 Cómo escribir PenguScript seguro, idiomático y rápido: el manual de ingeniería
-del lenguaje que implementa `psc` 0.42.0.
+del lenguaje que implementa `psc` 0.43.0.
 
 Es el documento de *práctica* del conjunto de documentación:
 
@@ -66,6 +66,7 @@ English: [PENGUNIC.md](PENGUNIC.md).
   - [7.8 Nombra el argumento que carga el significado](#78-nombra-el-argumento-que-carga-el-significado)
   - [7.9 Repite un receptor con `with`](#79-repite-un-receptor-con-with)
   - [7.10 Construye mapas con literales](#710-construye-mapas-con-literales)
+  - [7.11 Itera con la forma propia del contenedor](#711-itera-con-la-forma-propia-del-contenedor)
 - [8. Anti-patrones](#8-anti-patrones)
   - [8.1 Construcción de strings](#81-construcción-de-strings)
   - [8.2 Propiedad de los parámetros](#82-propiedad-de-los-parámetros)
@@ -324,7 +325,7 @@ binario `psc`. Desde un checkout:
 $ bash tools/build_bootstrap.sh     # builds build/psc-stage0 from the C bundle
 $ ./build/psc-stage0 build .        # self-hosts build/psc
 $ ./build/psc --version
-psc 0.42.0 (F13)
+psc 0.43.0 (F13)
 ```
 
 A partir de ahí usas `build/psc`. `psc doctor` informa de lo que encontró: el
@@ -980,6 +981,33 @@ defer banish ages
 * Usa `.put` para entradas calculadas después, y un literal para la forma
   inicial.
 * El literal es dueño del mapa; báñalo como cualquier otro mapa.
+
+### 7.11 Itera con la forma propia del contenedor
+
+`for` conoce todos los contenedores, así que la aritmética de índices es una
+señal de alarma: esconde la regla de longitud de cada tipo y la recalcula en el
+momento equivocado.
+
+```pengu-fragment
+# ❌ índice manual, incorrecto para slices y mapas
+var i as int is 0
+while i < (calling xs.length):
+    calling handle with (xs at i)
+    set i is i + 1
+
+# ✅ un solo bucle, el compilador elige el accesor
+for x in xs:
+    calling handle with x
+
+# ✅ un mapa liga sus dos mitades; no hay índice que simular
+for key, value in counts:
+    calling emit_pair with key, value
+```
+
+Prefiere un bucle etiquetado a una bandera booleana para salir de bucles
+anidados (`continue outer`), y una comprensión a un acumulador con `push`.
+Iterar un string produce vistas prestadas de un byte: sin reservar por carácter
+y sin suponer fronteras de varios bytes.
 
 ## 8. Anti-patrones
 
@@ -3273,7 +3301,7 @@ trunca, y `transmute`, que reinterpreta bits.
 **¿Hay hilos y corrutinas?**
 Sí. 0.30.0 añadió hilos de primera clase (`filum.start`, `join`, `detach`,
 `free`), 0.31.0 añadió `std.coro` (corrutinas stackful explícitas con `resume` y
-`yield`, en el mismo hilo) y 0.42.0 añade `std.reactor`: un `EventLoop` explícito
+`yield`, en el mismo hilo) y 0.43.0 añade `std.reactor`: un `EventLoop` explícito
 que hace `epoll_wait`/`poll` y reanuda las tareas. No hay `async`/`await` como
 palabras clave ni un planificador escondido: tú creas el loop, haces `spawn` y
 llamas `run`. Las variantes `*_async` de la stdlib son funciones que suspenden la

@@ -1,0 +1,129 @@
+## Regresión: iteración de los seis contenedores y `for k, v` (0.43.0).
+##
+## Cada contenedor se recorre con `for` en forma de sentencia y de comprensión,
+## con cero, uno y varios elementos. Un mapa liga clave y valor.
+
+rune Pair:
+    left as int
+    right as int
+
+weave sum_list with xs as list of int into int:
+    var t as int is 0
+    for x in xs:
+        set t is t + x
+    return t
+
+weave sum_list_comp with xs as list of int into int:
+    var t as int is 0
+    for x in for v in xs then v:
+        set t is t + x
+    return t
+
+weave main into int:
+    # list
+    var empty as list of int is list of int
+    var one as list of int is [7]
+    var many as list of int is [1, 2, 3]
+    if (calling sum_list with empty) != 0:
+        return 1
+    if (calling sum_list with one) != 7:
+        return 2
+    if (calling sum_list with many) != 6:
+        return 3
+    if (calling sum_list_comp with many) != 6:
+        return 4
+    banish empty
+    banish one
+
+    # array
+    var arr as array of int with size 3 is array of int with size 3
+    set arr at 0 is 4
+    set arr at 1 is 5
+    set arr at 2 is 6
+    var atot as int is 0
+    for x in arr:
+        set atot is atot + x
+    if atot != 15:
+        return 5
+    var actot as int is 0
+    for v in for x in arr then x * 2:
+        set actot is actot + v
+    if actot != 30:
+        return 6
+
+    # slice
+    var sl as slice of int is arr at 0 to 3
+    var stot as int is 0
+    for x in sl:
+        set stot is stot + x
+    if stot != 15:
+        return 7
+    var sctot as int is 0
+    for v in for x in sl then x + 1:
+        set sctot is sctot + v
+    if sctot != 18:
+        return 8
+
+    # string (un byte por elemento)
+    var txt as string is "abc"
+    var tlen as int is 0
+    for ch in txt:
+        set tlen is tlen + (ch length)
+    if tlen != 3:
+        return 9
+    var clen as int is 0
+    for ch in for c in txt then c:
+        set clen is clen + (ch length)
+    if clen != 3:
+        return 10
+
+    # range [a, b)
+    var rtot as int is 0
+    for i in 1 .. 4:
+        set rtot is rtot + i
+    if rtot != 6:
+        return 11
+    var rctot as int is 0
+    for v in for i in 1 .. 4 then i * 3:
+        set rctot is rctot + v
+    if rctot != 18:
+        return 12
+
+    # map: clave y valor
+    var m as map of string to int is {"a": 1, "b": 2, "c": 3}
+    var msum as int is 0
+    var keys as int is 0
+    for k, v in m:
+        set msum is msum + v
+        set keys is keys + (k length)
+    if msum != 6:
+        return 13
+    if keys != 3:
+        return 14
+    var mcomp as int is 0
+    for v in for kv in m then 1:
+        set mcomp is mcomp + v
+    if mcomp != 3:
+        return 15
+
+    # indexado en sentencia
+    var idxsum as int is 0
+    for i, x in many:
+        set idxsum is idxsum + i * x
+    if idxsum != 0 * 1 + 1 * 2 + 2 * 3:
+        return 16
+    var sidx as int is 0
+    for i, ch in txt:
+        set sidx is sidx + i
+    if sidx != 3:
+        return 17
+    var aidx as int is 0
+    for i, x in arr:
+        set aidx is aidx + i
+    if aidx != 3:
+        return 18
+
+    banish many
+    banish m
+    calling print with "ok\n"
+    return 0

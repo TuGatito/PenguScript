@@ -1,0 +1,52 @@
+## Golden: iteración de contenedores y etiquetas (0.43.0).
+
+weave main into int:
+    var xs as list of int is [1, 2, 3]
+    var total as int is 0
+    for x in xs:
+        set total is total + x
+    calling print with "list {total}\n"
+
+    var arr as array of int with size 3 is array of int with size 3
+    set arr at 0 is 2
+    set arr at 1 is 3
+    set arr at 2 is 4
+    var asum as int is 0
+    for v in arr:
+        set asum is asum + v
+    calling print with "array {asum}\n"
+
+    var sl as slice of int is arr at 0 to 3
+    var ssum as int is 0
+    for v in sl:
+        set ssum is ssum + v
+    calling print with "slice {ssum}\n"
+
+    var txt as string is "abcd"
+    var tlen as int is 0
+    for ch in txt:
+        set tlen is tlen + (ch length)
+    calling print with "string {tlen}\n"
+
+    var rsum as int is 0
+    for i in 1 .. 4:
+        set rsum is rsum + i
+    calling print with "range {rsum}\n"
+
+    var m as map of string to int is {"a": 1, "b": 2}
+    var msum as int is 0
+    for k, v in m:
+        set msum is msum + v
+    calling print with "map {msum}\n"
+
+    var acc as int is 0
+    outer: for i from 0 to 3:
+        for j from 0 to 3:
+            if j == 1:
+                continue outer
+            set acc is acc + 1
+    calling print with "labels {acc}\n"
+
+    banish xs
+    banish m
+    return 0

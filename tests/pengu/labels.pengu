@@ -1,0 +1,61 @@
+## Regresión: `break`/`continue` con etiqueta de loop (0.43.0).
+##
+## Antes de 0.43.0 las etiquetas se ignoraban y estos dos casos imprimían 7 y
+## 4 en vez de 6 y 22.
+
+weave main into int:
+    var out as int is 0
+    outer: for i from 0 to 3:
+        for j from 0 to 3:
+            if j == 2:
+                continue outer
+            set out is out + 1
+    if out != 6:
+        return 1
+
+    var hit as int is 0
+    scan: for i from 0 to 3:
+        for j from 0 to 3:
+            if i * j == 4:
+                set hit is i * 10 + j
+                break scan
+    if hit != 22:
+        return 2
+
+    # Etiqueta en `while` y `continue` con condición.
+    var seen as int is 0
+    var k as int is 0
+    loop_while: while k < 5:
+        set k is k + 1
+        if k == 2:
+            continue loop_while
+        if k == 4:
+            break loop_while
+        set seen is seen + k
+    if seen != 1 + 3:
+        return 3
+
+    # Etiqueta sobre `for ... in` (contenedor).
+    var xs as list of int is [1, 2, 3]
+    var total as int is 0
+    walk: for x in xs:
+        if x == 3:
+            break walk
+        set total is total + x
+    if total != 3:
+        return 4
+
+    # Etiqueta sobre mapa.
+    var m as map of string to int is {"a": 1, "b": 2}
+    var cells as int is 0
+    each: for key, value in m:
+        set cells is cells + 1
+        if cells == 1:
+            break each
+    if cells != 1:
+        return 5
+
+    banish xs
+    banish m
+    calling print with "ok\n"
+    return 0

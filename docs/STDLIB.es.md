@@ -1,6 +1,6 @@
 # La biblioteca estándar de PenguScript
 
-Los 69 módulos de `std/` en `psc` 0.42.0: para qué sirve cada uno, cuándo
+Los 69 módulos de `std/` en `psc` 0.43.0: para qué sirve cada uno, cuándo
 usarlo, cuándo usar otro y dónde vive su API generada.
 
 Es el documento *catálogo* del conjunto de documentación:
@@ -107,7 +107,7 @@ comentarios `##` del propio módulo por `psc doc --include-std`.
 - [Apéndice C — Convenciones de nombres en la biblioteca estándar](#apéndice-c-convenciones-de-nombres-en-la-biblioteca-estándar)
 <!-- /toc -->
 
-Todos los módulos que vienen con `psc` 0.42.0: para qué sirven, cuándo usarlos y
+Todos los módulos que vienen con `psc` 0.43.0: para qué sirven, cuándo usarlos y
 dónde vive la API generada de cada uno.
 
 ## 0. Cómo usar este catálogo
@@ -133,7 +133,7 @@ Cada entrada tiene la misma forma:
 **API** [enlace a la página generada] · [fuente]
 ```
 
-**Versión.** Este catálogo describe `psc` 0.42.0 y el árbol `std/` del mismo
+**Versión.** Este catálogo describe `psc` 0.43.0 y el árbol `std/` del mismo
 commit. La constante de versión de un módulo (`TRIAL_VERSION`, `CARMEN_VERSION`,
 …) es la versión propia de su API, no la del compilador.
 

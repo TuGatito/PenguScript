@@ -49,6 +49,7 @@ int32_t pengu_main(void) {
     PenguList _lst2 = xs;
     for (int _li3 = 0; _li3 < _lst2.len; _li3++) {
         int32_t x = (*( int32_t*)pengu_list_at(&_lst2, _li3));
+        (void)x;
         #line 7 "tests/golden_c/g08_list.pengu"
         total = (total + x);
     }

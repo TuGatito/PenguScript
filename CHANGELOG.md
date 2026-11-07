@@ -2,6 +2,48 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.43.0] — 2026-11-07 — Iteración completa, etiquetas y rangos
+
+### Añadido
+
+- **`for` sobre los seis contenedores**: además de listas y mapas, ahora itera
+  `array` (longitud del tipo, nunca `sizeof`), `slice` (`pengu_slice_at`),
+  `string` (vista prestada de un byte por elemento, sin reservar) y `range`.
+  Antes de 0.43.0 el cuerpo del bucle se borraba en silencio y sumaba 0.
+- **`for k, v in mapa` liga clave y valor** (y `for kk, vv` es idéntico): el
+  segundo binding ya no es la clave repetida ni un índice sin significado. En
+  el C emitido, `pengu_map_iter_key` y `pengu_map_iter_value` llenan ambos.
+- **Rangos como expresión**: `a .. b` produce `range of int` semiabierto
+  (`pengu_range_new`), igual que `for i from a to b`: `1 .. 4` recorre 1, 2, 3.
+- **Etiquetas de loop reales**: `break outer` / `continue outer` emiten `goto`
+  a la etiqueta del loop nombrado (`_pengu_label_<n>_break`/`_continue`) y
+  conservan los `defer` colgantes del loop que se abandona. Antes se emitía un
+  `break`/`continue` simple y el resultado era incorrecto sin aviso.
+- **Comprensiones sobre slice y rango**: `for x in sl then …` usa
+  `pengu_slice_at` y `for i in 1 .. 4 then …` un contador `int32_t`; los
+  bindings de la comprensión llevan `(void)` para no romper `-Werror`.
+- **`lista += elemento`**: `set xs += v` empuja un elemento con
+  `pengu_list_push` (el operando es el elemento, no la lista). En un `slice`
+  se rechaza con un diagnóstico: su longitud es fija.
+- Tests `tests/pengu/iteration.pengu`, `tests/pengu/labels.pengu`,
+  `tests/regress_labels.sh` y el golden `tests/golden_c/g25_iteration`.
+
+### Corregido
+
+- `for ch in s` ya no libera ni reserva por carácter: emite una vista
+  `(PenguString){ data + i, 1, 0 }`.
+- Las etiquetas declaradas pero no usadas ya no disparan `-Wunused-label` (se
+  emite un `goto` muerto bajo `if (0)`), y los bindings no usados de un bucle
+  ya no disparan `-Wunused-variable` con `-Werror`.
+- `break`/`continue` con una etiqueta inexistente reportan `E0007`/`E0004` con
+  el span del label (antes se ignoraba la etiqueta).
+
+### Pendiente
+
+- Comprensiones con índice (`for i, x in xs then …`), múltiples `for` anidados
+  y la forma mapa (`then k: v`) siguen sin parser; se documentan como forma
+  soportada solo en sentencia.
+
 ## [0.42.0] — 2026-11-07 — Literales de mapa y `with` como sentencia
 
 ### Añadido

@@ -1,7 +1,7 @@
 # Referencia del lenguaje PenguScript
 
 PenguScript es un lenguaje pequeño y de tipado estático que compila a C. Esta
-referencia documenta el lenguaje tal como lo implementa `psc` 0.42.0: cada
+referencia documenta el lenguaje tal como lo implementa `psc` 0.43.0: cada
 construcción, su semántica y el C al que se reduce.
 
 Es el documento de *lenguaje* del conjunto de documentación:
@@ -144,7 +144,7 @@ rasgos que necesitan su propia sección (genéricos, memoria, interop).
   diagnóstico son exhaustivos; la prosa no lo es — [PENGUNIC.es.md](PENGUNIC.es.md)
   cubre *cómo usar* el lenguaje y [STDLIB.es.md](STDLIB.es.md) cubre la
   biblioteca estándar.
-* Versión: `psc` 0.42.0. La versión de ABI que espera el C generado es 3.
+* Versión: `psc` 0.43.0. La versión de ABI que espera el C generado es 3.
 
 ## 1. Estructura léxica
 
@@ -628,11 +628,19 @@ for _, v in values:              # descarta el índice
 | `for x in list` | `list of T` | `T` |
 | `for x in array` | `array of T with size N` | `T` |
 | `for x in slice` | `slice of T` | `T` |
-| `for ch in s` | `string` | `string` de un carácter |
+| `for ch in s` | `string` | `string` de un byte (vista prestada, sin reservar) |
 | `for k in map` | claves de `map of K to V`, en orden de hash | `K` |
+| `for k, v in map` | clave y valor, en orden de hash (sin índice) | `K`, `V` |
+| `for x in a .. b` | rango entero `[a, b)` | `int` |
 
 La forma con índice `for i, v in col` exige nombres distintos (`E0037`); `_`
-descarta cualquiera de los dos bindings.
+descarta cualquiera de los dos bindings. Un mapa no tiene índice con
+significado: dos bindings sobre un mapa son la **clave y el valor**, y la forma
+`for kk, vv` liga lo mismo. Iterar un mapa recorre su orden de hash, que no
+está especificado.
+
+`a .. b` es la forma de expresión de un rango (la misma que `for i from a to b`);
+produce `range of int` y es semiabierto: `1 .. 4` da `1`, `2`, `3`.
 
 Las **comprensiones** construyen una lista a partir de una expresión:
 
@@ -643,7 +651,8 @@ let evens as list of int is for x in nums when x % 2 == 0 then x
 
 Las comprensiones aceptan solo la forma de elemento (sin binding de índice) y
 se reducen a una statement-expression que asigna un `PenguList` y hace push de
-cada valor.
+cada valor. Funcionan sobre listas, arrays, slices, strings, rangos y mapas (el
+elemento de un mapa es su clave).
 
 ```c
 /* for i from 0 to 3 */

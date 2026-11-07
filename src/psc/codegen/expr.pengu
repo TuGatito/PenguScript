@@ -72,6 +72,17 @@ weave emit_expr with c as ref to context.CgContext, node as int into string:
         return "false"
     if k == pskind.NodeKind.NdNullLit:
         return "NULL"
+    if k == pskind.NodeKind.NdRangeDotdot:
+        # `a .. b` es un rango semiabierto [a, b), igual que `from a to b`.
+        var rlo as int is calling astutil.node_child with (sigil of m.parse.ast), node, 0
+        var rhi as int is calling astutil.node_child with (sigil of m.parse.ast), node, 2
+        if rhi < 0:
+            set rhi is calling astutil.node_child with (sigil of m.parse.ast), node, 1
+        var rlo_c as string is calling emit_expr with c, rlo
+        defer banish rlo_c
+        var rhi_c as string is calling emit_expr with c, rhi
+        defer banish rhi_c
+        return "pengu_range_new((int64_t)({rlo_c}), (int64_t)({rhi_c}))"
     if k == pskind.NodeKind.NdMaybeNone:
         return "pengu_maybe_none()"
     if k == pskind.NodeKind.NdErrorLit:
@@ -858,7 +869,9 @@ weave for_comp_expr with c as ref to context.CgContext, node as int, ast as ref 
         calling sb.append with hi_c
         calling sb.append with "; "
         calling sb.append with cname
-        calling sb.append with "++) { if ("
+        calling sb.append with "++) { (void)"
+        calling sb.append with cname
+        calling sb.append with "; if ("
         calling sb.append with cond_c
         calling sb.append with ") { "
         calling sb.append with ect
@@ -896,7 +909,9 @@ weave for_comp_expr with c as ref to context.CgContext, node as int, ast as ref 
         calling sb.append with lct
         calling sb.append with "*)pengu_map_iter_key(&"
         calling sb.append with ptmp
-        calling sb.append with ")); if ("
+        calling sb.append with ")); (void)"
+        calling sb.append with cname
+        calling sb.append with "; if ("
         calling sb.append with cond_c
         calling sb.append with ") { "
         calling sb.append with ect
@@ -951,6 +966,40 @@ weave for_comp_expr with c as ref to context.CgContext, node as int, ast as ref 
         calling sb.append with ", &"
         calling sb.append with vtmp
         calling sb.append with "); } } "
+    else if actual.kind == tk.SemaTypeKind.TkRange:
+        var rtmp as string is calling emit.temp with (sigil of c->emitter), "_cr"
+        defer banish rtmp
+        var ict as string is calling ctype.c_type with (sigil of c->names), (calling types.base with (sigil of c->program->types), "int")
+        defer banish ict
+        calling sb.append with "PenguRange "
+        calling sb.append with rtmp
+        calling sb.append with " = "
+        calling sb.append with col_c
+        calling sb.append with "; for (int32_t "
+        calling sb.append with cname
+        calling sb.append with " = (int32_t)("
+        calling sb.append with rtmp
+        calling sb.append with ").start; "
+        calling sb.append with cname
+        calling sb.append with " < (int32_t)("
+        calling sb.append with rtmp
+        calling sb.append with ").end; "
+        calling sb.append with cname
+        calling sb.append with "++) { (void)"
+        calling sb.append with cname
+        calling sb.append with "; if ("
+        calling sb.append with cond_c
+        calling sb.append with ") { "
+        calling sb.append with ect
+        calling sb.append with " "
+        calling sb.append with vtmp
+        calling sb.append with " = "
+        calling sb.append with body_c
+        calling sb.append with "; pengu_list_push(&"
+        calling sb.append with ltmp
+        calling sb.append with ", &"
+        calling sb.append with vtmp
+        calling sb.append with "); } } "
     else:
         var len_expr as string is "0"
         var sep2 as string is "."
@@ -987,13 +1036,23 @@ weave for_comp_expr with c as ref to context.CgContext, node as int, ast as ref 
                 calling sb.append with ")["
                 calling sb.append with itmp
                 calling sb.append with "]; "
+        else if actual.kind == tk.SemaTypeKind.TkSlice:
+            calling sb.append with " = (*( "
+            calling sb.append with lct
+            calling sb.append with "*)pengu_slice_at(&("
+            calling sb.append with col_c
+            calling sb.append with "), "
+            calling sb.append with itmp
+            calling sb.append with ")); "
         else:
             calling sb.append with " = ("
             calling sb.append with col_c
             calling sb.append with ")["
             calling sb.append with itmp
             calling sb.append with "]; "
-        calling sb.append with "if ("
+        calling sb.append with "(void)"
+        calling sb.append with cname
+        calling sb.append with "; if ("
         calling sb.append with cond_c
         calling sb.append with ") { "
         calling sb.append with ect

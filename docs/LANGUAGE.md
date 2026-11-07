@@ -1,7 +1,7 @@
 # PenguScript Language Reference
 
 PenguScript is a small, statically typed language that compiles to C. This
-reference documents the language as implemented by `psc` 0.42.0: every
+reference documents the language as implemented by `psc` 0.43.0: every
 construct, its semantics, and the C it lowers to.
 
 It is the *language* document of the documentation set:
@@ -142,7 +142,7 @@ own section (generics, memory, interop).
 * The keyword lists, type mappings and diagnostic codes are exhaustive; the
   prose is not — [PENGUNIC.md](PENGUNIC.md) covers *how to use* the language and
   [STDLIB.md](STDLIB.md) covers the standard library.
-* Version: `psc` 0.42.0. The ABI version the generated C expects is 3.
+* Version: `psc` 0.43.0. The ABI version the generated C expects is 3.
 
 ## 1. Lexical structure
 
@@ -616,11 +616,18 @@ for _, v in values:              # discard the index
 | `for x in list` | `list of T` | `T` |
 | `for x in array` | `array of T with size N` | `T` |
 | `for x in slice` | `slice of T` | `T` |
-| `for ch in s` | `string` | one-character `string` |
+| `for ch in s` | `string` | one-byte `string` (a byte view, no allocation) |
 | `for k in map` | `map of K to V` keys, hash order | `K` |
+| `for k, v in map` | key and value, hash order (no index) | `K`, `V` |
+| `for x in a .. b` | integer range `[a, b)` | `int` |
 
 The indexed form `for i, v in col` requires distinct names (`E0037`); `_`
-discards either binding.
+discards either binding. A map has no meaningful index: two bindings over a
+map are the **key and the value**, and the third form (`for kk, vv`) is the
+same. Iterating a map walks its hash order, so the order is unspecified.
+
+`a .. b` is the expression form of a range (the same as `for i from a to b`);
+it evaluates to `range of int` and is half-open: `1 .. 4` yields `1`, `2`, `3`.
 
 **Comprehensions** build a list from an expression:
 
@@ -630,7 +637,9 @@ let evens as list of int is for x in nums when x % 2 == 0 then x
 ```
 
 Comprehensions accept the element form only (no index binding) and lower to a
-statement-expression that allocates a `PenguList` and pushes each value.
+statement-expression that allocates a `PenguList` and pushes each value. They
+work over lists, arrays, slices, strings, ranges and maps (the element of a map
+is its key).
 
 ```c
 /* for i from 0 to 3 */
@@ -641,7 +650,23 @@ for (int _k = 0; _k < xs.len; _k++) {
     int32_t item = *(int32_t*)pengu_list_at(&xs, _k);
     ...
 }
+
+/* for k, v in m: */
+for (; pengu_map_iter_valid(&it); pengu_map_iter_advance(&it)) {
+    PenguString k = *(const PenguString*)pengu_map_iter_key(&it);
+    int32_t v = *(const int32_t*)pengu_map_iter_value(&it);
+    ...
+}
+
+/* for ch in s: borrowed byte view, no malloc */
+for (int _k = 0; _k < s.len; _k++) {
+    PenguString ch = (PenguString){ (char*)s.data + _k, 1, 0 };
+    ...
+}
 ```
+
+An array is lowered with its compile-time length (`N`), never `sizeof`, so a
+loop over an array parameter does not decay to a pointer length.
 
 ### 5.4 `judge` — pattern matching
 
