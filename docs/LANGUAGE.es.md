@@ -1,7 +1,7 @@
 # Referencia del lenguaje PenguScript
 
 PenguScript es un lenguaje pequeño y de tipado estático que compila a C. Esta
-referencia documenta el lenguaje tal como lo implementa `psc` 0.39.0: cada
+referencia documenta el lenguaje tal como lo implementa `psc` 0.40.0: cada
 construcción, su semántica y el C al que se reduce.
 
 Es el documento de *lenguaje* del conjunto de documentación:
@@ -142,7 +142,7 @@ rasgos que necesitan su propia sección (genéricos, memoria, interop).
   diagnóstico son exhaustivos; la prosa no lo es — [PENGUNIC.es.md](PENGUNIC.es.md)
   cubre *cómo usar* el lenguaje y [STDLIB.es.md](STDLIB.es.md) cubre la
   biblioteca estándar.
-* Versión: `psc` 0.39.0. La versión de ABI que espera el C generado es 3.
+* Versión: `psc` 0.40.0. La versión de ABI que espera el C generado es 3.
 
 ## 1. Estructura léxica
 
@@ -836,17 +836,53 @@ d1_greet(pengu_string_from_cstr("Ada"), 3, false);
 
 ### 6.3 Parámetros variádicos
 
-`many T` está reservado en la gramática para weaves variádicos, pero ninguna
-sintaxis de llamada lo satisface en 0.28.0: toda llamada se rechaza con
-`E0005`. Mientras no se implemente, usa `slice of T` (o `list of T`):
+Un parámetro `many T` acepta cero o más argumentos `T`. Debe ser el último,
+sólo se permite uno por firma y no puede tener valor por defecto (`E0024`,
+`E0023`, `E0074`). En C viaja como `PenguSlice`, así que el llamado lo indexa
+como un slice y consulta `xs.len`:
 
 ```pengu
-weave count_slice with xs as slice of int into int:
-    return (xs.len to int)
+weave total with xs as many int into int:
+    var t as int is 0
+    var i as int is 0
+    while i < xs.len:
+        set t is t + (xs at i)
+        set i is i + 1
+    return t
+
+weave main into int:
+    calling print with "{calling total with 1, 2, 3}"
+    return 0
 ```
 
-`declare` no tiene forma `many` (`E0005`); allí se usa un `...` final para los
-varargs crudos de C. Tampoco existe el spread en la llamada (`f(...xs)`).
+```c
+int32_t total(PenguSlice xs);
+
+total((PenguSlice){ (int32_t[]){ 1, 2, 3 }, 3, sizeof(int32_t) });
+```
+
+El sitio de llamada empaqueta los argumentos sueltos en un compound literal
+C99 y pasa `(PenguSlice){ 0, 0, sizeof(T) }` si no hay ninguno. Pasar un
+`slice`, `many` o array existente reenvía la misma vista sin copiar:
+
+```pengu
+weave count with xs as many int into int:
+    return xs.len
+
+weave main into int:
+    var arr as array of int with size 3 is array of int with size 3
+    calling print with "{calling count with arr}"
+    return 0
+```
+
+```c
+total(pengu_slice_new(arr, sizeof(arr[0]), (int)(sizeof(arr) / sizeof(arr[0]))));
+```
+
+Los elementos se prestan: el llamado no debe hacer `banish` de un elemento que
+no creó, y un `many T` no puede guardarse más allá de la llamada. Un parámetro
+`many` no se permite en `declare` (`E0075`); ahí se usa `...` para varargs de C.
+El spread en la llamada (`f(...xs)`) no existe.
 
 ### 6.4 `declare`
 
@@ -2235,6 +2271,8 @@ los avisos no.
 | `E0071` | argumento nombrado desconocido, repetido o fuera de lugar |
 | `E0072` | parámetro sin default después de uno con default |
 | `E0073` | default no constante o que no encaja con el tipo |
+| `E0074` | parámetro `many` con valor por defecto |
+| `E0075` | parámetro `many` en `declare` |
 | `W0001` | se usó `transmute` |
 | `W0002` | acceso a campo de `echo` (unión sin comprobar) |
 | `W0004` | código inalcanzable |
@@ -2359,7 +2397,7 @@ retorno.
 | `ldflag` | opción cruda del enlazador |
 | `let` | binding inmutable |
 | `link` | enlaza una librería |
-| `many` | marcador variádico (reservado; ver §6.3) |
+| `many` | marcador de parámetro variádico (ver §6.3) |
 | `maybe` | tipo opcional / constructor vacío |
 | `none` | `maybe` vacío (`maybe none`) |
 | `not` | negación lógica / `not in` |

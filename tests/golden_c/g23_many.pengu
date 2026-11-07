@@ -1,0 +1,20 @@
+## Golden: `many T` empaquetado y reenvío (0.40.0).
+weave total with xs as many int into int:
+    var t as int is 0
+    var i as int is 0
+    while i < xs.len:
+        set t is t + (xs at i)
+        set i is i + 1
+    return t
+
+weave main into int:
+    var arr as array of int with size 3 is array of int with size 3
+    set arr at 0 is 5
+    set arr at 1 is 6
+    set arr at 2 is 7
+    var sl as slice of int is arr at 0 to 3
+    calling print with "{calling total}\\n"
+    calling print with "{calling total with 1, 2, 3}\\n"
+    calling print with "{calling total with arr}\\n"
+    calling print with "{calling total with sl}\\n"
+    return 0

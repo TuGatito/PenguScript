@@ -1,7 +1,7 @@
 # PenguScript Language Reference
 
 PenguScript is a small, statically typed language that compiles to C. This
-reference documents the language as implemented by `psc` 0.39.0: every
+reference documents the language as implemented by `psc` 0.40.0: every
 construct, its semantics, and the C it lowers to.
 
 It is the *language* document of the documentation set:
@@ -140,7 +140,7 @@ own section (generics, memory, interop).
 * The keyword lists, type mappings and diagnostic codes are exhaustive; the
   prose is not — [PENGUNIC.md](PENGUNIC.md) covers *how to use* the language and
   [STDLIB.md](STDLIB.md) covers the standard library.
-* Version: `psc` 0.39.0. The ABI version the generated C expects is 3.
+* Version: `psc` 0.40.0. The ABI version the generated C expects is 3.
 
 ## 1. Lexical structure
 
@@ -819,17 +819,53 @@ d1_greet(pengu_string_from_cstr("Ada"), 3, false);
 
 ### 6.3 Variadic parameters
 
-`many T` is reserved in the grammar for variadic weaves, but no call syntax
-satisfies it in 0.28.0: every call is rejected with `E0005`. Until it is
-implemented, take a `slice of T` (or a `list of T`) instead:
+A `many T` parameter accepts zero or more `T` arguments. It must be the last
+parameter, only one is allowed per signature, and it cannot have a default
+(`E0024`, `E0023`, `E0074`). In C it travels as a `PenguSlice`, so the callee
+indexes it like a slice and asks for `xs.len`:
 
 ```pengu
-weave count_slice with xs as slice of int into int:
-    return (xs.len to int)
+weave total with xs as many int into int:
+    var t as int is 0
+    var i as int is 0
+    while i < xs.len:
+        set t is t + (xs at i)
+        set i is i + 1
+    return t
+
+weave main into int:
+    calling print with "{calling total with 1, 2, 3}"
+    return 0
 ```
 
-`declare` has no `many` form at all (`E0005`); use a trailing `...` there for raw
-C varargs. Call-site spread (`f(...xs)`) does not exist either.
+```c
+int32_t total(PenguSlice xs);
+
+total((PenguSlice){ (int32_t[]){ 1, 2, 3 }, 3, sizeof(int32_t) });
+```
+
+The call site packs loose arguments into a C99 compound literal and passes
+`(PenguSlice){ 0, 0, sizeof(T) }` for zero arguments. Passing an existing
+`slice`, `many` or array forwards the same view without copying:
+
+```pengu
+weave count with xs as many int into int:
+    return xs.len
+
+weave main into int:
+    var arr as array of int with size 3 is array of int with size 3
+    calling print with "{calling count with arr}"
+    return 0
+```
+
+```c
+total(pengu_slice_new(arr, sizeof(arr[0]), (int)(sizeof(arr) / sizeof(arr[0]))));
+```
+
+Elements are borrowed: the callee must not `banish` an element it did not
+create, and a `many T` cannot be stored past the call. A `many` parameter is
+not allowed in `declare` (`E0075`); use a trailing `...` for raw C varargs
+there. Call-site spread (`f(...xs)`) does not exist.
 
 ### 6.4 `declare`
 
@@ -2190,6 +2226,8 @@ Every diagnostic has a stable code. Errors stop the compilation; warnings do not
 | `E0071` | unknown, repeated or misplaced named argument |
 | `E0072` | parameter without a default after a defaulted one |
 | `E0073` | default value is not constant or does not match the type |
+| `E0074` | `many` parameter with a default value |
+| `E0075` | `many` parameter in `declare` |
 | `W0001` | `transmute` used |
 | `W0002` | `echo` field access (unchecked union) |
 | `W0004` | unreachable code |
@@ -2313,7 +2351,7 @@ call emitted on every return path.
 | `ldflag` | raw linker option |
 | `let` | immutable binding |
 | `link` | link a library |
-| `many` | variadic marker (reserved; see §6.3) |
+| `many` | variadic parameter marker (see §6.3) |
 | `maybe` | optional type / empty constructor |
 | `none` | empty `maybe` (`maybe none`) |
 | `not` | logical negation / `not in` |

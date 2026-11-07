@@ -2,6 +2,43 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.40.0] — 2026-11-06 — `many T` completo
+
+Cuarta fase del plan: un parámetro `many T` acepta cero o más argumentos, se
+empaqueta en el sitio de llamada como `PenguSlice` y el cuerpo lo recorre como
+cualquier otra vista. Las restricciones que la gramática reservaba ahora se
+comprueban.
+
+### Añadido
+
+- Llamadas variádicas: `calling total with 1, 2, 3` emite
+  `total((PenguSlice){ (int32_t[]){ 1, 2, 3 }, 3, sizeof(int32_t) });`; sin
+  argumentos emite `(PenguSlice){ 0, 0, sizeof(int32_t) }`.
+- `tests/pengu/many_args.pengu`, `tests/regress_many.sh` (6 casos) y el golden
+  `tests/golden_c/g23_many.pengu`.
+- **`E0074`**: un `many` no puede tener valor por defecto. **`E0075`**: un
+  `many` no se admite en `declare` (ahí se usa `...`).
+
+### Cambiado
+
+- En un `many T` el sitio de llamada reenvía sin copiar un `slice`, otro `many`
+  o un array; los sueltos se empaquetan en un compound literal C99. El cuerpo
+  indexa (`xs at i`) y lee `xs.len` como en un slice.
+- El tipo del elemento se infiere también en genéricos
+  (`weave first shard T with xs as many T`); antes la llamada se emitía sin
+  especializar.
+
+### Corregido
+
+- `many T` no se podía llamar: toda llamada era `E0005` y `E0023`/`E0024`
+  estaban declarados sin emisor. Ahora se emiten y la aridad exacta convive con
+  los variádicos.
+- `xs at i` sobre un `many` emitía `(xs)[i]` (C inválido); ahora usa
+  `pengu_slice_at` como un slice.
+- `var buf as array of T with size N is array of T with size N` emitía un
+  puntero nulo; ahora emite `(T[N]){0}`. `array_init_expr` no tenía ninguna rama
+  en el codegen.
+
 ## [0.39.0] — 2026-11-06 — Valores por defecto plegados y comprobados
 
 Tercera fase del plan: los defaults dejan de ser AST que el codegen reemite en

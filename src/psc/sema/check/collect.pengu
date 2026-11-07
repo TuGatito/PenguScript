@@ -1254,7 +1254,7 @@ weave collect_weave with s as ref to state.SemaState, node as int, no_body as bo
     if params_slot < calling astutil.child_count with s->ast, node:
         var pnode as int is calling astutil.node_child with s->ast, node, params_slot
         if pnode >= 0:
-            calling collect_params with s, pnode, (sigil of pr)
+            calling collect_params with s, pnode, (sigil of pr), no_body
     var ret as int is 3
     if ret_slot < calling astutil.child_count with s->ast, node:
         var rnode as int is calling astutil.node_child with s->ast, node, ret_slot
@@ -1346,15 +1346,23 @@ weave default_float_text with s as ref to state.SemaState, node as int into int:
         return calling npool.intern with s->names, signed
     return calling npool.intern with s->names, raw
 
-weave collect_params with s as ref to state.SemaState, pnode as int, out as ref to ParamRange into void:
+weave collect_params with s as ref to state.SemaState, pnode as int, out as ref to ParamRange, in_declare as bool into void:
     # Los params se acumulan aparte: convertir un tipo función (`as weave ...`)
     # añade sus propios params a `fn_params`, así que empujarlos al vuelo
     # rompería la contigüidad del rango [first, first+count).
     var tmp as list of types.SemaFnParam is list of types.SemaFnParam
     defer banish tmp
     var seen_default as bool is false
+    var seen_many as bool is false
     var i as int is 0
     var n as int is calling astutil.child_count with s->ast, pnode
+    var last_param as int is -1
+    var lp as int is 0
+    while lp < n:
+        var lpnode as int is calling astutil.node_child with s->ast, pnode, lp
+        if lpnode >= 0 and (calling astutil.kind_of with s->ast, lpnode) == pskind.NodeKind.NdParam:
+            set last_param is lp
+        set lp is lp + 1
     while i < n:
         var p as int is calling astutil.node_child with s->ast, pnode, i
         if p >= 0 and (calling astutil.kind_of with s->ast, p) == pskind.NodeKind.NdParam:
@@ -1369,6 +1377,17 @@ weave collect_params with s as ref to state.SemaState, pnode as int, out as ref 
             if ptn >= 0:
                 var ctx as convert.TypeCtx is calling collect_type_ctx with s
                 set pty is calling convert.convert with (sigil of ctx), ptn
+            var is_many as bool is false
+            if ptn >= 0 and (calling astutil.kind_of with s->ast, ptn) == pskind.NodeKind.NdManyType:
+                set is_many is true
+            if is_many:
+                if seen_many:
+                    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MANY_MULTIPLE, (calling astutil.start_of with s->ast, p), (calling astutil.end_of with s->ast, p), "only one variadic parameter is allowed", "Merge the parameters into one 'many' weave, or pass a slice.", ""
+                set seen_many is true
+                if i != last_param:
+                    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MANY_NOT_LAST, (calling astutil.start_of with s->ast, p), (calling astutil.end_of with s->ast, p), "variadic parameter must be the last parameter", "Move the 'many' parameter to the end of the parameter list.", ""
+                if in_declare:
+                    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MANY_DECLARE, (calling astutil.start_of with s->ast, p), (calling astutil.end_of with s->ast, p), "'declare' cannot take a variadic 'many' parameter", "Use a trailing '...' for a C variadic, or take a slice.", ""
             var pdef as int is calling astutil.node_child with s->ast, p, 2
             var dmidx as int is -1
             var dkind as int is types.DEF_NONE
@@ -1406,6 +1425,8 @@ weave collect_params with s as ref to state.SemaState, pnode as int, out as ref 
                     calling sdiag.node_error with s->bag, s->src, sdiag.CODE_DEFAULT_VALUE, (calling astutil.start_of with s->ast, pdef), (calling astutil.end_of with s->ast, pdef), "default value must be a compile-time constant", "Use a literal, a const, or an arithmetic expression of those.", ""
                 if dkind != types.DEF_NONE and not (calling types.default_fits with s->types, pty, dkind):
                     calling sdiag.node_error with s->bag, s->src, sdiag.CODE_DEFAULT_VALUE, (calling astutil.start_of with s->ast, pdef), (calling astutil.end_of with s->ast, pdef), "default value does not match the parameter's type", "Pass a value of the declared type.", ""
+            if pdef >= 0 and is_many:
+                calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MANY_DEFAULT, (calling astutil.start_of with s->ast, pdef), (calling astutil.end_of with s->ast, pdef), "variadic parameter cannot have a default value", "Pass the elements explicitly, or pass an empty slice.", ""
             if pdef < 0 and seen_default:
                 calling sdiag.node_error with s->bag, s->src, sdiag.CODE_DEFAULT_ORDER, (calling astutil.start_of with s->ast, p), (calling astutil.end_of with s->ast, p), "parameter without a default follows a parameter with one", "Give it a default too, or move it before the defaulted parameters.", "Python-style defaults must be the trailing parameters."
             if pdef >= 0:
@@ -1499,7 +1520,7 @@ weave collect_method_sig with s as ref to state.SemaState, m as int into int:
     if params_slot < calling astutil.child_count with s->ast, m:
         var pn as int is calling astutil.node_child with s->ast, m, params_slot
         if pn >= 0:
-            calling collect_params with s, pn, (sigil of pr2)
+            calling collect_params with s, pn, (sigil of pr2), false
     var ret as int is 3
     if ret_slot < calling astutil.child_count with s->ast, m:
         var rn as int is calling astutil.node_child with s->ast, m, ret_slot

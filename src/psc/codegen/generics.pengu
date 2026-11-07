@@ -576,7 +576,16 @@ weave spec_args_for_call with c as ref to context.CgContext, base_idx as int, re
                             var aty as int is calling call_arg_type with c, av2
                             if aty > 0:
                                 var fp as types.SemaFnParam is (c->program->types.fn_params at (info.params_first + slot2))
-                                calling unify with c, fp.type, aty, (sigil of subst)
+                                # Un `many T` se infiere por el elemento: los sueltos
+                                # aportan `T` y un slice/array reenviado su elemento.
+                                var funify as int is fp.type
+                                var fpty as tk.SemaType is calling types.at with (sigil of c->program->types), fp.type
+                                if fpty.kind == tk.SemaTypeKind.TkMany:
+                                    set funify is fpty.a
+                                    var atyt as tk.SemaType is calling types.at with (sigil of c->program->types), aty
+                                    if atyt.kind == tk.SemaTypeKind.TkSlice or atyt.kind == tk.SemaTypeKind.TkMany or atyt.kind == tk.SemaTypeKind.TkArray:
+                                        set aty is atyt.a
+                                calling unify with c, funify, aty, (sigil of subst)
                         if kind2 != pskind.NodeKind.NdNamedArg:
                             set pi is pi + 1
                     set ai is ai + 1

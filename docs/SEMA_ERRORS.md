@@ -35,8 +35,8 @@ en una fase del plan, o se elimina de la documentación.
 | `E0020` | `CODE_RETURN_TYPE` | 1 | emitido | sí |
 | `E0021` | `CODE_GENERIC_ARGS` | 1 | emitido | sí |
 | `E0022` | `CODE_TYPE_PARAM_OUTSIDE` | 0 | **sin emisor** | sí |
-| `E0023` | `CODE_MANY_MULTIPLE` | 0 | **sin emisor** | sí |
-| `E0024` | `CODE_MANY_NOT_LAST` | 0 | **sin emisor** | sí |
+| `E0023` | `CODE_MANY_MULTIPLE` | 1 | emitido | sí |
+| `E0024` | `CODE_MANY_NOT_LAST` | 1 | emitido | sí |
 | `E0026` | `CODE_MULTIPLE_INSIGNIA` | 1 | emitido | sí |
 | `E0027` | `CODE_OMEN_DUP` | 0 | **sin emisor** | sí |
 | `E0028` | `CODE_OMEN_PAYLOAD_VALUE` | 0 | **sin emisor** | sí |
@@ -76,6 +76,8 @@ en una fase del plan, o se elimina de la documentación.
 | `E0071` | `CODE_NAMED_ARG` | 5 | emitido | sí |
 | `E0072` | `CODE_DEFAULT_ORDER` | 1 | emitido | sí |
 | `E0073` | `CODE_DEFAULT_VALUE` | 3 | emitido | sí |
+| `E0074` | `CODE_MANY_DEFAULT` | 1 | emitido | sí |
+| `E0075` | `CODE_MANY_DECLARE` | 1 | emitido | sí |
 | `W0001` | `WARN_TRANSMUTE` | 0 | **sin emisor** | sí |
 | `W0002` | `WARN_ECHO_ACCESS` | 0 | **sin emisor** | sí |
 | `W0004` | `WARN_UNREACHABLE` | 0 | **sin emisor** | sí |
