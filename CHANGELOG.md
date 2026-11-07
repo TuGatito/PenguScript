@@ -2,6 +2,26 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.45.0] — 2026-11-07 — Desestructuración de runes
+
+### Añadido
+
+- **Desestructuración de runes**: `var (x, y) as Pair is point` y
+  `let (x, y) as Pair is point` ligan los campos en orden de declaración, con
+  `_` para ignorar uno. Antes cada nombre recibía el rune completo.
+- **`var (a, b) as T is …`**: el parser acepta la forma parentizada de varios
+  nombres también en `var` (sólo existía en `let`).
+- **`E0079`**: cantidad de nombres distinta de la del valor (incluida una runa
+  sin `as T`, que no se puede desestructurar porque se desconoce el orden de
+  los campos).
+- Tests `tests/pengu/destructuring.pengu` y `tests/regress_destructuring.sh`.
+
+### Pendiente
+
+- Asignación múltiple (`set a, b is b, a`), literales de tupla (`(a, b)`) y
+  acceso por posición (`t.0`) siguen sin soporte; quedan documentados como
+  tales en `LANGUAGE` §3.1 y §9.
+
 ## [0.44.0] — 2026-11-07 — `judge` completo y valores de omen
 
 ### Añadido

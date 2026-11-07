@@ -266,6 +266,13 @@ weave pstmt_parse_var with p as ref to PsParser into int:
     var start as int is calling ps_current_start with p
     var ignored as Token is calling ps_expect_kw with p, KwVar, "'var'"
     calling ps_begin_children with p
+    # `var (a, b) as T is …` desestructura, igual que `let (a, b) as T is …`.
+    if calling ps_check with p, TokLeftParen:
+        var vnames as int is calling pstmt_parse_var_names with p
+        calling ps_add_child with p, vnames
+        calling pstmt_add_optional_type with p
+        calling pstmt_parse_initializer_into with p
+        return calling ps_finish_node with p, NodeKind.NdVarDecl, start, (calling ps_previous_end with p), 0
     calling pstmt_add_name with p, "variable name"
     calling pstmt_add_optional_type with p
     calling pstmt_parse_initializer_into with p

@@ -1,7 +1,7 @@
 # The Pengunic Manual
 
 How to write PenguScript that is safe, idiomatic and fast: the engineering
-manual for the language implemented by `psc` 0.44.0.
+manual for the language implemented by `psc` 0.45.0.
 
 It is the *practice* document of the documentation set:
 
@@ -67,6 +67,7 @@ Spanish: [PENGUNIC.es.md](PENGUNIC.es.md).
   - [7.9 Reuse a receiver with `with`](#79-reuse-a-receiver-with-with)
   - [7.10 Build maps with literals](#710-build-maps-with-literals)
   - [7.11 Iterate with the container's own form](#711-iterate-with-the-containers-own-form)
+  - [7.12 Destructure a rune when its fields are the point](#712-destructure-a-rune-when-its-fields-are-the-point)
 - [8. Anti-patterns](#8-anti-patterns)
   - [8.1 String building](#81-string-building)
   - [8.2 Ownership of parameters](#82-ownership-of-parameters)
@@ -322,7 +323,7 @@ binary. From a checkout:
 $ bash tools/build_bootstrap.sh     # builds build/psc-stage0 from the C bundle
 $ ./build/psc-stage0 build .        # self-hosts build/psc
 $ ./build/psc --version
-psc 0.44.0 (F13)
+psc 0.45.0 (F13)
 ```
 
 `build/psc` is the compiler you use from then on. `psc doctor` reports what it
@@ -997,6 +998,25 @@ Prefer a labelled loop over a boolean flag to leave nested loops
 (`continue outer`), and a comprehension over an accumulator with `push`.
 Iterating a string yields borrowed one-byte views: no allocation per
 character, and no assumption about multi-byte boundaries.
+
+### 7.12 Destructure a rune when its fields are the point
+
+A rune is a record; unpack it once instead of naming the rune just to reach its
+fields. The names bind in declaration order and the count must match (`E0079`).
+
+```pengu-fragment
+# ❌ the rune exists only to be dereferenced
+var point as Pair is with left is 7, right is 3
+calling print with "{point.left} {point.right}\n"
+
+# ✅ the fields are the data; the rune is the shape
+var (left, right) as Pair is point
+calling print with "{left} {right}\n"
+```
+
+A rune needs `as T` to be destructured: the compiler must know the field order.
+When a call returns several values, bind them in one step instead of keeping an
+anonymous tuple around.
 
 ## 8. Anti-patterns
 
@@ -3258,7 +3278,7 @@ truncates, and `transmute`, which reinterprets bits.
 **Are there threads and coroutines?**
 Yes. 0.30.0 added first-class threads (`filum.start`, `join`, `detach`, `free`),
 0.31.0 added `std.coro` (explicit stackful coroutines with `resume` and `yield`
-on the same thread) and 0.44.0 adds `std.reactor`: an explicit `EventLoop` that
+on the same thread) and 0.45.0 adds `std.reactor`: an explicit `EventLoop` that
 calls `epoll_wait`/`poll` and resumes tasks. There is no `async`/`await` keyword
 and no hidden scheduler: you create the loop, `spawn` and call `run`. The stdlib
 `*_async` variants are functions that suspend the current coroutine and only

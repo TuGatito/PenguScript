@@ -90,6 +90,9 @@ const CODE_DEFAULT_ORDER as string is "E0072"
 ## Valor por defecto que no es constante o no encaja con el tipo.
 const CODE_DEFAULT_VALUE as string is "E0073"
 
+## Desestructuración con cantidad de nombres o tipo incompatible.
+const CODE_BIND_COUNT as string is "E0079"
+
 const WARN_TRANSMUTE as string is "W0001"
 const WARN_ECHO_ACCESS as string is "W0002"
 const WARN_UNREACHABLE as string is "W0004"

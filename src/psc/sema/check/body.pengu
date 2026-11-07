@@ -386,11 +386,28 @@ weave check_local with s as ref to state.SemaState, node as int, kind as pskind.
     if ty <= 0:
         set ty is 1
     var tup as tk.SemaType is calling types.at with s->types, ty
+    if name_ids.len > 1 and (tup.kind == tk.SemaTypeKind.TkTuple or tup.kind == tk.SemaTypeKind.TkRune):
+        # La aridad de la desestructuración debe casar con el valor.
+        var arity as int is -1
+        if tup.kind == tk.SemaTypeKind.TkTuple:
+            set arity is tup.count
+        else if tup.a >= 0 and tup.a < s->types->nominal_infos.len:
+            var aninfo as types.SemaNominalInfo is (s->types->nominal_infos at tup.a)
+            set arity is aninfo.fields_count
+        if arity >= 0 and arity != name_ids.len:
+            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_BIND_COUNT, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "cannot bind {name_ids.len} name(s) from a value with {arity} element(s)", "Match the number of names to the value.", ""
+            return
     var i as int is 0
     while i < name_ids.len:
         var elem as int is ty
         if tup.kind == tk.SemaTypeKind.TkTuple and tup.count == name_ids.len:
             set elem is (s->types->type_children at (tup.first + i))
+        # Desestructurar un rune liga sus campos en orden de declaración.
+        if name_ids.len > 1 and tup.kind == tk.SemaTypeKind.TkRune and tup.a >= 0 and tup.a < s->types->nominal_infos.len:
+            var ninfo as types.SemaNominalInfo is (s->types->nominal_infos at tup.a)
+            if i < ninfo.fields_count:
+                var fld as types.SemaField is (s->types->fields at (ninfo.fields_first + i))
+                set elem is fld.type
         var sv as sym.SemaSymbol is calling symbols.make_symbol with s->names, "", elem, sym.SemaSymbolKind.SkLet
         set sv.name is (name_ids at i)
         set sv.c_name is (name_ids at i)
@@ -412,6 +429,7 @@ weave check_local with s as ref to state.SemaState, node as int, kind as pskind.
         var got as int is calling state.call_infer with s, vn, ty
         if ty > 0 and not (calling compat.compatible with s->types, got, ty):
             calling mismatch with s, vn, ty, got
+
 
 ## `set target is value`.
 ##

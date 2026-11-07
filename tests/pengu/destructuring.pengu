@@ -1,0 +1,47 @@
+rune Pair:
+    a as int
+    b as int
+
+rune Line:
+    from as Pair
+    to as Pair
+    width as int
+
+weave make_pair with x as int, y as int into Pair:
+    return with a is x, b is y
+
+weave divmod with x as int, y as int into (int, int):
+    return x / y, x % y
+
+weave main into int:
+    var p as Pair is calling make_pair with 7, 3
+
+    var (x, y) as Pair is p
+    if x != 7 or y != 3:
+        return 1
+
+    let (m, n) as Pair is p
+    if m != 7 or n != 3:
+        return 2
+
+    let (_, only) as Pair is p
+    if only != 3:
+        return 3
+
+    let q, r is calling divmod with 9, 2
+    if q != 4 or r != 1:
+        return 4
+
+    var start as Pair is with a is 1, b is 2
+    var fin as Pair is with a is 5, b is 6
+    var l as Line is with from is start, to is fin, width is 2
+    var (head, tail, w) as Line is l
+    if head.a != 1 or head.b != 2:
+        return 5
+    if tail.a != 5 or tail.b != 6:
+        return 6
+    if w != 2:
+        return 7
+
+    calling print with "ok\n"
+    return 0

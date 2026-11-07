@@ -1,7 +1,7 @@
 # Referencia del lenguaje PenguScript
 
 PenguScript es un lenguaje pequeño y de tipado estático que compila a C. Esta
-referencia documenta el lenguaje tal como lo implementa `psc` 0.44.0: cada
+referencia documenta el lenguaje tal como lo implementa `psc` 0.45.0: cada
 construcción, su semántica y el C al que se reduce.
 
 Es el documento de *lenguaje* del conjunto de documentación:
@@ -144,7 +144,7 @@ rasgos que necesitan su propia sección (genéricos, memoria, interop).
   diagnóstico son exhaustivos; la prosa no lo es — [PENGUNIC.es.md](PENGUNIC.es.md)
   cubre *cómo usar* el lenguaje y [STDLIB.es.md](STDLIB.es.md) cubre la
   biblioteca estándar.
-* Versión: `psc` 0.44.0. La versión de ABI que espera el C generado es 3.
+* Versión: `psc` 0.45.0. La versión de ABI que espera el C generado es 3.
 
 ## 1. Estructura léxica
 
@@ -353,8 +353,9 @@ var total is 100                      # int inferido
 let greeting is "Hello"               # string inferido
 var buffer as array of byte with size 64 is array of byte with size 64
 
-let (x, y) is point_value             # destructuring, inferido
-let (r, g, b, a) as Color is current_color
+let (x, y) as Pair is point_value     # campos de la rune, en orden
+var (a, b) as Pair is point_value     # lo mismo, bindings mutables
+let q, r is calling divmod with 9, 2  # tupla de una llamada multi-retorno
 
 const MAX_USERS as int is 1024        # solo top level, en tiempo de compilación
 const PI is 3.14159                   # float inferido
@@ -371,8 +372,10 @@ Reglas:
   de compilación. Una constante `list` o `map` evalúa su expresión en cada uso;
   si querés un único objeto estático, usa `array of T`.
 * `null` necesita tipo explícito: `const NIL as ref to int is null`.
-* El destructuring funciona con runes (campos en orden de declaración), arrays
-  fijos, slices y listas.
+* El destructuring liga los campos de una rune (en orden de declaración) o los
+  elementos de una tupla devuelta por una llamada. La cantidad de nombres debe
+  casar con el valor (`E0079`). Una rune necesita `as T` para conocer sus
+  campos; las tuplas se infieren de la llamada.
 
 ### 3.2 Asignación y `set`
 
@@ -2415,6 +2418,7 @@ los avisos no.
 | `E0073` | default no constante o que no encaja con el tipo |
 | `E0074` | parámetro `many` con valor por defecto |
 | `E0075` | parámetro `many` en `declare` |
+| `E0079` | destructuring con cantidad de nombres incorrecta |
 | `E0076` | literal de mapa sin anotación de tipo |
 | `E0077` | el objetivo de `with` no es un lugar direccionable |
 | `W0001` | se usó `transmute` |

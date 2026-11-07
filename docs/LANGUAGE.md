@@ -1,7 +1,7 @@
 # PenguScript Language Reference
 
 PenguScript is a small, statically typed language that compiles to C. This
-reference documents the language as implemented by `psc` 0.44.0: every
+reference documents the language as implemented by `psc` 0.45.0: every
 construct, its semantics, and the C it lowers to.
 
 It is the *language* document of the documentation set:
@@ -142,7 +142,7 @@ own section (generics, memory, interop).
 * The keyword lists, type mappings and diagnostic codes are exhaustive; the
   prose is not — [PENGUNIC.md](PENGUNIC.md) covers *how to use* the language and
   [STDLIB.md](STDLIB.md) covers the standard library.
-* Version: `psc` 0.44.0. The ABI version the generated C expects is 3.
+* Version: `psc` 0.45.0. The ABI version the generated C expects is 3.
 
 ## 1. Lexical structure
 
@@ -346,8 +346,9 @@ var total is 100                      # inferred int
 let greeting is "Hello"               # inferred string
 var buffer as array of byte with size 64 is array of byte with size 64
 
-let (x, y) is point_value             # destructuring, inferred
-let (r, g, b, a) as Color is current_color
+let (x, y) as Pair is point_value     # rune fields, in declaration order
+var (a, b) as Pair is point_value     # same, mutable bindings
+let q, r is calling divmod with 9, 2  # tuple from a multi-return call
 
 const MAX_USERS as int is 1024        # top level only, compile-time
 const PI is 3.14159                   # inferred float
@@ -364,8 +365,10 @@ Rules:
   A `list` or `map` constant evaluates its expression at every use; when you
   want one static object, use `array of T`.
 * `null` needs an explicit type: `const NIL as ref to int is null`.
-* Destructuring works on runes (fields in declaration order), fixed arrays,
-  slices and lists.
+* Destructuring binds the fields of a rune (in declaration order) or the
+  elements of a tuple returned by a call. The number of names must match the
+  value (`E0079`). A rune value needs `as T` so the compiler knows its fields;
+  tuples are inferred from the call.
 
 ### 3.2 Assignment and `set`
 
@@ -2382,6 +2385,7 @@ Every diagnostic has a stable code. Errors stop the compilation; warnings do not
 | `E0073` | default value is not constant or does not match the type |
 | `E0074` | `many` parameter with a default value |
 | `E0075` | `many` parameter in `declare` |
+| `E0079` | destructuring with the wrong number of names |
 | `E0076` | map literal without a type annotation |
 | `E0077` | `with` target is not an addressable place |
 | `W0001` | `transmute` used |

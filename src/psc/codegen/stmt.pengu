@@ -1212,10 +1212,59 @@ weave emit_destructure with c as ref to context.CgContext, node as int, ast as r
         set ci is ci + 1
     if vn < 0:
         return
-    var vt as int is calling expr.node_type with c, vn
+    var vt as int is calling expr.node_type with c, vlist
+    if vt < 0:
+        set vt is calling expr.node_type with c, vn
+    # Un `var`/`let` con nombre simple de origen: el símbolo local manda,
+    # porque la anotación del nodo puede ser el tipo de un elemento.
+    if (calling astutil.kind_of with ast, vn) == pskind.NodeKind.NdVarRef:
+        var rtk as int is calling astutil.token_child with ast, vn, 0
+        if rtk >= 0:
+            var rtx as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), rtk
+            var rnid2 as int is calling npool.intern with (sigil of c->program->names), rtx
+            var lvt as int is calling context.local_type with c, rnid2
+            if lvt > 0:
+                var ltk as tk.SemaType is calling types.at with (sigil of c->program->types), lvt
+                if ltk.kind == tk.SemaTypeKind.TkRune or ltk.kind == tk.SemaTypeKind.TkTuple:
+                    set vt is lvt
+            banish rtx
     if vt < 0:
         return
     var t as tk.SemaType is calling types.at with (sigil of c->program->types), vt
+    if t.kind == tk.SemaTypeKind.TkRune:
+        # Desestructuración de rune: campos en orden de declaración.
+        var ninfo as types.SemaNominalInfo is (c->program->types.nominal_infos at t.a)
+        var valr as string is calling expr.emit_expr with c, vn
+        defer banish valr
+        var rct as string is calling ctype.c_type with (sigil of c->names), vt
+        defer banish rct
+        var rtmp as string is "_pengu_run{c->tmp_seq}"
+        set c->tmp_seq is c->tmp_seq + 1
+        calling emit.line with (sigil of c->emitter), "{rct} {rtmp} = {valr};"
+        var ri as int is 0
+        var rn as int is calling astutil.child_count with ast, vlist
+        while ri < rn and ri < ninfo.fields_count:
+            var rtok as int is calling astutil.token_child with ast, vlist, ri
+            if rtok >= 0:
+                var rnm as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), rtok
+                var fld2 as types.SemaField is (c->program->types.fields at (ninfo.fields_first + ri))
+                var fct as string is calling ctype.c_type with (sigil of c->names), fld2.type
+                if rnm == "_":
+                    banish fct
+                else:
+                    var fcd as string is calling ctype.declare with fct, rnm
+                    var fnn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), fld2.name)
+                    calling emit.line with (sigil of c->emitter), "{fcd} = {rtmp}.{fnn};"
+                    calling emit.line with (sigil of c->emitter), "(void){rnm};"
+                    var rnid as int is calling npool.intern with (sigil of c->program->names), rnm
+                    calling context.add_local with c, rnid, fld2.type, rnid
+                    banish fnn
+                    banish fcd
+                    banish fct
+                banish rnm
+            set ri is ri + 1
+        banish rtmp
+        return
     if t.kind != tk.SemaTypeKind.TkTuple:
         return
     var val as string is calling expr.emit_expr with c, vn

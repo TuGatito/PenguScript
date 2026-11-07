@@ -1,7 +1,7 @@
 # El Manual Pengunic
 
 Cómo escribir PenguScript seguro, idiomático y rápido: el manual de ingeniería
-del lenguaje que implementa `psc` 0.44.0.
+del lenguaje que implementa `psc` 0.45.0.
 
 Es el documento de *práctica* del conjunto de documentación:
 
@@ -67,6 +67,7 @@ English: [PENGUNIC.md](PENGUNIC.md).
   - [7.9 Repite un receptor con `with`](#79-repite-un-receptor-con-with)
   - [7.10 Construye mapas con literales](#710-construye-mapas-con-literales)
   - [7.11 Itera con la forma propia del contenedor](#711-itera-con-la-forma-propia-del-contenedor)
+  - [7.12 Desestructura una runa cuando sus campos son lo importante](#712-desestructura-una-runa-cuando-sus-campos-son-lo-importante)
 - [8. Anti-patrones](#8-anti-patrones)
   - [8.1 Construcción de strings](#81-construcción-de-strings)
   - [8.2 Propiedad de los parámetros](#82-propiedad-de-los-parámetros)
@@ -325,7 +326,7 @@ binario `psc`. Desde un checkout:
 $ bash tools/build_bootstrap.sh     # builds build/psc-stage0 from the C bundle
 $ ./build/psc-stage0 build .        # self-hosts build/psc
 $ ./build/psc --version
-psc 0.44.0 (F13)
+psc 0.45.0 (F13)
 ```
 
 A partir de ahí usas `build/psc`. `psc doctor` informa de lo que encontró: el
@@ -1008,6 +1009,26 @@ Prefiere un bucle etiquetado a una bandera booleana para salir de bucles
 anidados (`continue outer`), y una comprensión a un acumulador con `push`.
 Iterar un string produce vistas prestadas de un byte: sin reservar por carácter
 y sin suponer fronteras de varios bytes.
+
+### 7.12 Desestructura una runa cuando sus campos son lo importante
+
+Una runa es un registro; desempaquétala una vez en lugar de nombrarla sólo para
+llegar a sus campos. Los nombres ligan en orden de declaración y la cantidad
+debe coincidir (`E0079`).
+
+```pengu-fragment
+# ❌ la runa existe sólo para ser desreferenciada
+var point as Pair is with left is 7, right is 3
+calling print with "{point.left} {point.right}\n"
+
+# ✅ los campos son el dato; la runa es la forma
+var (left, right) as Pair is point
+calling print with "{left} {right}\n"
+```
+
+Una runa necesita `as T` para desestructurarse: el compilador debe conocer el
+orden de los campos. Cuando una llamada devuelve varios valores, lígalos de una
+vez en lugar de guardar una tupla anónima.
 
 ## 8. Anti-patrones
 
@@ -3301,7 +3322,7 @@ trunca, y `transmute`, que reinterpreta bits.
 **¿Hay hilos y corrutinas?**
 Sí. 0.30.0 añadió hilos de primera clase (`filum.start`, `join`, `detach`,
 `free`), 0.31.0 añadió `std.coro` (corrutinas stackful explícitas con `resume` y
-`yield`, en el mismo hilo) y 0.44.0 añade `std.reactor`: un `EventLoop` explícito
+`yield`, en el mismo hilo) y 0.45.0 añade `std.reactor`: un `EventLoop` explícito
 que hace `epoll_wait`/`poll` y reanuda las tareas. No hay `async`/`await` como
 palabras clave ni un planificador escondido: tú creas el loop, haces `spawn` y
 llamas `run`. Las variantes `*_async` de la stdlib son funciones que suspenden la
