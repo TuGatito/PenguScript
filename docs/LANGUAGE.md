@@ -1,7 +1,7 @@
 # PenguScript Language Reference
 
 PenguScript is a small, statically typed language that compiles to C. This
-reference documents the language as implemented by `psc` 0.43.0: every
+reference documents the language as implemented by `psc` 0.44.0: every
 construct, its semantics, and the C it lowers to.
 
 It is the *language* document of the documentation set:
@@ -142,7 +142,7 @@ own section (generics, memory, interop).
 * The keyword lists, type mappings and diagnostic codes are exhaustive; the
   prose is not — [PENGUNIC.md](PENGUNIC.md) covers *how to use* the language and
   [STDLIB.md](STDLIB.md) covers the standard library.
-* Version: `psc` 0.43.0. The ABI version the generated C expects is 3.
+* Version: `psc` 0.44.0. The ABI version the generated C expects is 3.
 
 ## 1. Lexical structure
 
@@ -694,6 +694,35 @@ Subjects: `omen`, `bool`, `int`, `string`, `char`.
 Exhaustiveness is enforced for `omen` and `bool` subjects (`E0044`); for `int`,
 `string` and `char` a missing match yields the zero value unless an `else ->` is
 present. Guarded patterns do not count as coverage.
+
+`judge` is also a statement: write it without a value position and each arm runs
+for its side effects. Guards are evaluated top to bottom, and a guarded arm that
+does not hold falls through to the next matching arm, so the same pattern may
+appear twice when the first occurrence is guarded.
+
+```pengu
+omen State:
+    Ready is 0
+    Loading is 1
+    Done is 2
+
+weave handle with state as State:
+    judge state:
+        when Ready ->
+            calling print with "run\n"
+        when Loading | Done ->
+            calling print with "waiting\n"
+        else ->
+            calling print with "unknown\n"
+
+weave main:
+    calling handle with Ready
+    calling handle with Loading
+```
+
+Emitting a `bool` subject compiles to `switch ((int)(x))` with `case true` and
+`case false`; guards compile to an `if` chain (never a `switch`), which keeps the
+generated C free of duplicate `case` labels.
 
 **`judge ... over`** matches a rune whose discriminant is one of its fields:
 
@@ -1304,8 +1333,10 @@ omen Event:                  # algebraic sum type
 | Algebraic | variants with `with` payloads | struct with `int32_t tag` + payload `union` |
 
 Variants are reachable unqualified (`Red`), qualified (`Color.Red`) or by full C
-name (`Color_Red`). Duplicate values are `E0027`, non-constant values `E0029`,
-payloads on a string-valued omen `E0028`.
+name (`Color_Red`). `is N` sets the numeric value and it is preserved in the
+emitted enum; a variant without `is` takes the previous value plus one. Duplicate
+values are `E0027`, non-constant values `E0029`, payloads on a string-valued omen
+`E0028`. Interpolating an omen prints its variant name.
 
 ```c
 typedef struct {

@@ -47,7 +47,7 @@ int32_t pengu_main(void) {
     bool ok = true;
     (void)ok;
     #line 6 "tests/golden_c/g20_interp.pengu"
-    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s: %d %s\n", (int)name.len, name.data, ((int32_t)(n)), ((ok) ? "true" : "false")); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s: %d %s\n", (int)name.len, name.data, ((int32_t)(n)), ((ok) ? "true" : "false")); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); 0; })));
     #line 7 "tests/golden_c/g20_interp.pengu"
     (void)(pengu_builtin_print(pengu_string_from_cstr_len("tab\there\n", 9)));
     #line 8 "tests/golden_c/g20_interp.pengu"

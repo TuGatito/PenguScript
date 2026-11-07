@@ -1,7 +1,7 @@
 # Referencia del lenguaje PenguScript
 
 PenguScript es un lenguaje pequeño y de tipado estático que compila a C. Esta
-referencia documenta el lenguaje tal como lo implementa `psc` 0.43.0: cada
+referencia documenta el lenguaje tal como lo implementa `psc` 0.44.0: cada
 construcción, su semántica y el C al que se reduce.
 
 Es el documento de *lenguaje* del conjunto de documentación:
@@ -144,7 +144,7 @@ rasgos que necesitan su propia sección (genéricos, memoria, interop).
   diagnóstico son exhaustivos; la prosa no lo es — [PENGUNIC.es.md](PENGUNIC.es.md)
   cubre *cómo usar* el lenguaje y [STDLIB.es.md](STDLIB.es.md) cubre la
   biblioteca estándar.
-* Versión: `psc` 0.43.0. La versión de ABI que espera el C generado es 3.
+* Versión: `psc` 0.44.0. La versión de ABI que espera el C generado es 3.
 
 ## 1. Estructura léxica
 
@@ -691,6 +691,35 @@ Sujetos: `omen`, `bool`, `int`, `string`, `char`.
 La exhaustividad se exige para sujetos `omen` y `bool` (`E0044`); para `int`,
 `string` y `char`, una coincidencia ausente produce el valor cero salvo que
 haya un `else ->`. Los patrones con guarda no cuentan como cobertura.
+
+`judge` también es una sentencia: se escribe sin posición de valor y cada brazo se
+ejecuta por sus efectos. Las guardas se evalúan de arriba abajo, y un brazo
+guardado que no se cumple pasa al siguiente brazo que case, así que un mismo
+patrón puede aparecer dos veces cuando la primera lleva guarda.
+
+```pengu
+omen State:
+    Ready is 0
+    Loading is 1
+    Done is 2
+
+weave handle with state as State:
+    judge state:
+        when Ready ->
+            calling print with "run\n"
+        when Loading | Done ->
+            calling print with "waiting\n"
+        else ->
+            calling print with "unknown\n"
+
+weave main:
+    calling handle with Ready
+    calling handle with Loading
+```
+
+Un sujeto `bool` se compila a `switch ((int)(x))` con `case true` y `case false`;
+las guardas se compilan a una cadena de `if` (nunca a un `switch`), lo que evita
+etiquetas `case` duplicadas en el C generado.
 
 **`judge ... over`** hace coincidir un rune cuyo discriminante es uno de sus
 campos:
@@ -1312,8 +1341,11 @@ omen Event:                  # tipo suma algebraico
 | Algebraica | variantes con payload `with` | struct con `int32_t tag` + `union` de payload |
 
 Las variantes son accesibles sin cualificar (`Red`), cualificadas
-(`Color.Red`) o por nombre C completo (`Color_Red`). Los valores duplicados son
-`E0027`, los no constantes `E0029`, los payloads en un omen de strings `E0028`
+(`Color.Red`) o por nombre C completo (`Color_Red`). `is N` fija el valor
+numérico y se conserva en el enum emitido; una variante sin `is` toma el valor
+anterior más uno. Los valores duplicados son `E0027`, los no constantes `E0029`,
+los payloads en un omen de strings `E0028`. Interpolar un omen imprime el nombre
+de su variante.
 
 
 ```c

@@ -166,7 +166,7 @@ weave emit_forward with c as ref to context.CgContext, t as catalog.CgType into 
                 defer banish vn2
                 if i2 > 0:
                     calling sb.append with ","
-                calling sb.append with " {cname}_{vn2} = {i2}"
+                calling sb.append with " {cname}_{vn2} = {v2.value_i}"
                 set i2 is i2 + 1
             calling sb.append with "} {cname};"
             var line2 as string is calling sb.finish

@@ -62,7 +62,7 @@ int32_t pengu_main(void) {
     int32_t b = golden_c_g19_static_bump(2);
     (void)b;
     #line 10 "tests/golden_c/g19_static.pengu"
-    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d %d\n", ((int32_t)(a)), ((int32_t)(b))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d %d\n", ((int32_t)(a)), ((int32_t)(b))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); 0; })));
     #line 11 "tests/golden_c/g19_static.pengu"
     return 0;
 }

@@ -38,9 +38,9 @@ en una fase del plan, o se elimina de la documentación.
 | `E0023` | `CODE_MANY_MULTIPLE` | 1 | emitido | sí |
 | `E0024` | `CODE_MANY_NOT_LAST` | 1 | emitido | sí |
 | `E0026` | `CODE_MULTIPLE_INSIGNIA` | 1 | emitido | sí |
-| `E0027` | `CODE_OMEN_DUP` | 0 | **sin emisor** | sí |
+| `E0027` | `CODE_OMEN_DUP` | 1 | emitido | sí |
 | `E0028` | `CODE_OMEN_PAYLOAD_VALUE` | 0 | **sin emisor** | sí |
-| `E0029` | `CODE_OMEN_CONST` | 0 | **sin emisor** | sí |
+| `E0029` | `CODE_OMEN_CONST` | 1 | emitido | sí |
 | `E0030` | `CODE_CONCEPT_SIG` | 0 | **sin emisor** | sí |
 | `E0031` | `CODE_CONCEPT_MISSING` | 0 | **sin emisor** | sí |
 | `E0032` | `CODE_CONCEPT_BOUND` | 1 | emitido | sí |

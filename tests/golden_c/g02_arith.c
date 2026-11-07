@@ -44,12 +44,12 @@ int32_t pengu_main(void) {
     int32_t b = 3;
     (void)b;
     #line 5 "tests/golden_c/g02_arith.pengu"
-    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d %d %d %d %d\n", ((int32_t)((a + b))), ((int32_t)((a - b))), ((int32_t)((a * b))), ((int32_t)((a / b))), ((int32_t)((a % b)))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d %d %d %d %d\n", ((int32_t)((a + b))), ((int32_t)((a - b))), ((int32_t)((a * b))), ((int32_t)((a / b))), ((int32_t)((a % b)))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); 0; })));
     #line 6 "tests/golden_c/g02_arith.pengu"
     float f = 1.5;
     (void)f;
     #line 7 "tests/golden_c/g02_arith.pengu"
-    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%f %f\n", ((double)((f * 2.0))), ((double)((f + 1.0)))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%f %f\n", ((double)((f * 2.0))), ((double)((f + 1.0)))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); 0; })));
     #line 8 "tests/golden_c/g02_arith.pengu"
     if ((a > b) && (b > 0)) {
         #line 9 "tests/golden_c/g02_arith.pengu"

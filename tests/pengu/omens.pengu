@@ -1,0 +1,34 @@
+# Valores de variante, orden implícito e interpolación de omens.
+
+omen Kind:
+    Lit is 0
+    Add is 5
+    Mul
+
+omen Mode:
+    Off
+
+weave code_of with k as Kind into int:
+    return k to int
+
+weave name_of with k as Kind into string:
+    return "{k}"
+
+weave main into int:
+    if (calling code_of with Lit) != 0:
+        return 1
+    if (calling code_of with Add) != 5:
+        return 2
+    if (calling code_of with Mul) != 6:
+        return 3
+    if (calling name_of with Add) != "Add":
+        return 4
+    if (calling name_of with Mul) != "Mul":
+        return 5
+    if "{calling name_of with Lit}" != "Lit":
+        return 6
+    var m as Mode is Off
+    if m to int != 0 or "{m}" != "Off":
+        return 7
+    calling print with "ok\n"
+    return 0

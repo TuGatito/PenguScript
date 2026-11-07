@@ -71,13 +71,13 @@ int32_t pengu_main(void) {
     PenguSlice sl = (PenguSlice){.data = (void*)(&(arr)[0]), .elem_size = sizeof(arr[0]), .len = (int)((3) - (0))};
     (void)sl;
     #line 16 "tests/golden_c/g23_many.pengu"
-    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d\\n", ((int32_t)(golden_c_g23_many_total((PenguSlice){ 0, 0, sizeof(int32_t) })))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d\\n", ((int32_t)(golden_c_g23_many_total((PenguSlice){ 0, 0, sizeof(int32_t) })))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); 0; })));
     #line 17 "tests/golden_c/g23_many.pengu"
-    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d\\n", ((int32_t)(golden_c_g23_many_total((PenguSlice){ (int32_t[]){ 1, 2, 3 }, 3, sizeof(int32_t) })))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d\\n", ((int32_t)(golden_c_g23_many_total((PenguSlice){ (int32_t[]){ 1, 2, 3 }, 3, sizeof(int32_t) })))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); 0; })));
     #line 18 "tests/golden_c/g23_many.pengu"
-    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d\\n", ((int32_t)(golden_c_g23_many_total((PenguSlice){ arr, 3, sizeof(int32_t) })))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d\\n", ((int32_t)(golden_c_g23_many_total((PenguSlice){ arr, 3, sizeof(int32_t) })))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); 0; })));
     #line 19 "tests/golden_c/g23_many.pengu"
-    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d\\n", ((int32_t)(golden_c_g23_many_total(sl)))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d\\n", ((int32_t)(golden_c_g23_many_total(sl)))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); 0; })));
     #line 20 "tests/golden_c/g23_many.pengu"
     return 0;
 }

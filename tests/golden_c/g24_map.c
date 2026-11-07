@@ -41,11 +41,11 @@ int32_t pengu_main(void) {
     PenguMap m = __extension__(({ PenguMap _map0 = pengu_map_new(sizeof(PenguString), sizeof(int32_t)); PenguString _mk1; int32_t _mv2; _mk1 = pengu_string_from_cstr_len("a", 1); _mv2 = 1; pengu_map_put(&_map0, &_mk1, &_mv2); _mk1 = pengu_string_from_cstr_len("b", 1); _mv2 = 2; pengu_map_put(&_map0, &_mk1, &_mv2); _map0; }));
     (void)m;
     #line 3 "tests/golden_c/g24_map.pengu"
-    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d\n", ((int32_t)(m.len))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d\n", ((int32_t)(m.len))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); 0; })));
     #line 4 "tests/golden_c/g24_map.pengu"
-    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d\n", ((int32_t)(__extension__(({ PenguString _k3 = pengu_string_from_cstr_len("a", 1); void* _p4 = pengu_map_get(&(m), &_k3); _p4 ? (*( int32_t*)_p4) : (int32_t){0}; }))))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d\n", ((int32_t)(__extension__(({ PenguString _k3 = pengu_string_from_cstr_len("a", 1); void* _p4 = pengu_map_get(&(m), &_k3); _p4 ? (*( int32_t*)_p4) : (int32_t){0}; }))))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); 0; })));
     #line 5 "tests/golden_c/g24_map.pengu"
-    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d\n", ((int32_t)(__extension__(({ PenguString _k5 = pengu_string_from_cstr_len("b", 1); void* _p6 = pengu_map_get(&(m), &_k5); _p6 ? (*( int32_t*)_p6) : (int32_t){0}; }))))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d\n", ((int32_t)(__extension__(({ PenguString _k5 = pengu_string_from_cstr_len("b", 1); void* _p6 = pengu_map_get(&(m), &_k5); _p6 ? (*( int32_t*)_p6) : (int32_t){0}; }))))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); 0; })));
     #line 6 "tests/golden_c/g24_map.pengu"
     pengu_banish_map(&(m));
     #line 7 "tests/golden_c/g24_map.pengu"

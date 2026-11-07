@@ -54,6 +54,8 @@ rune CgFunction:
     spec_args as list of int
     ## `true` si es una función genérica base.
     is_generic as bool
+    ## `true` si no devuelve valor (`void`).
+    ret_void as bool
     ## `true` si es una instancia monomorfizada.
     is_spec as bool
     ## `true` para el entry `main`.
@@ -338,7 +340,14 @@ weave add_function with p as ref to program.SemaProgram, c as ref to CgCatalog, 
                 set pi is pi + 1
         set ai2 is ai2 + 1
     var idx as int is c->functions.len
-    var f as CgFunction is with name is name, symbol is sid, node is node, module is m.id, is_declare is is_declare, is_antiquus is is_antiquus, is_method is false, recv_type is -1, self_value is false, is_ritual is false, tparams is tps, spec_args is list of int, is_generic is tps.len > 0, is_spec is false, is_main is is_main, is_generated is false, c_name is cname
+    var rvoid as bool is false
+    if sv.type > 0:
+        var cft as tk.SemaType is calling types.at with (sigil of p->types), sv.type
+        if cft.kind == tk.SemaTypeKind.TkFn:
+            var cfi as types.SemaFnInfo is (p->types.fn_infos at cft.a)
+            if cfi.return_type == (calling types.base with (sigil of p->types), "void"):
+                set rvoid is true
+    var f as CgFunction is with name is name, symbol is sid, node is node, module is m.id, is_declare is is_declare, is_antiquus is is_antiquus, is_method is false, recv_type is -1, self_value is false, is_ritual is false, tparams is tps, spec_args is list of int, is_generic is tps.len > 0, ret_void is rvoid, is_spec is false, is_main is is_main, is_generated is false, c_name is cname
     calling c->functions.push with f
     calling c->by_symbol.put with sid, idx
     if not (calling c->by_name.has with name):
@@ -651,7 +660,7 @@ weave add_method with p as ref to program.SemaProgram, c as ref to CgCatalog, m 
     if mtps.len > 0:
         set is_gen is true
     var idx as int is c->functions.len
-    var f as CgFunction is with name is name, symbol is sid, node is node, module is m.id, is_declare is false, is_antiquus is false, is_method is true, recv_type is recv, self_value is is_self_value, is_ritual is is_rit, tparams is mtps, spec_args is list of int, is_generic is is_gen, is_spec is false, is_main is is_main, is_generated is false, c_name is cname
+    var f as CgFunction is with name is name, symbol is sid, node is node, module is m.id, is_declare is false, is_antiquus is false, is_method is true, recv_type is recv, self_value is is_self_value, is_ritual is is_rit, tparams is mtps, spec_args is list of int, is_generic is is_gen, ret_void is false, is_spec is false, is_main is is_main, is_generated is false, c_name is cname
     calling c->functions.push with f
     calling c->by_symbol.put with sid, idx
     if not (calling c->by_name.has with name):

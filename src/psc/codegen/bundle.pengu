@@ -356,11 +356,23 @@ weave generate_bundle_c with c as ref to context.CgContext, live_out as ref to l
             set has_main is true
         set i is i + 1
     if has_main and not c->options.is_library:
+        # `weave main:` puede no devolver nada; en ese caso la llamada no se castea.
+        var main_void as bool is false
+        set i is 0
+        while i < c->catalog.functions.len:
+            var f4 as catalog.CgFunction is (c->catalog.functions at i)
+            if f4.is_main and f4.ret_void:
+                set main_void is true
+            set i is i + 1
         calling emit.line with (sigil of c->emitter), "int main(int argc, char** argv) {"
         calling emit.indent_more with (sigil of c->emitter)
         calling emit.line with (sigil of c->emitter), "pengu_init(argc, argv);"
         calling emit.line with (sigil of c->emitter), "pengu_install_crash_handler();"
-        calling emit.line with (sigil of c->emitter), "int pengu_status = (int)pengu_main();"
+        if main_void:
+            calling emit.line with (sigil of c->emitter), "pengu_main();"
+            calling emit.line with (sigil of c->emitter), "int pengu_status = 0;"
+        else:
+            calling emit.line with (sigil of c->emitter), "int pengu_status = (int)pengu_main();"
         calling emit.line with (sigil of c->emitter), "fflush(stdout);"
         calling emit.line with (sigil of c->emitter), "fflush(stderr);"
         calling emit.line with (sigil of c->emitter), "return pengu_status;"

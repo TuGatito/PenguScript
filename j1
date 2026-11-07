@@ -1,0 +1,19 @@
+omen State:
+    Idle
+    Running
+    Done
+    Failed with code as int
+
+weave label with s as State into string:
+    judge s:
+        when Idle:
+            return "idle"
+        when Running:
+            return "running"
+        when Done:
+            return "done"
+    return "other"
+
+weave main into int:
+    calling print with "{calling label with Idle}\n"
+    return 0

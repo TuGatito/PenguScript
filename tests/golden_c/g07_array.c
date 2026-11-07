@@ -43,7 +43,7 @@ int32_t pengu_main(void) {
     #line 4 "tests/golden_c/g07_array.pengu"
     xs[(__extension__(({ int64_t _p_idx0 = (int64_t)(0); pengu_assert_bounds(_p_idx0, (int64_t)(4), "tests/golden_c/g07_array.pengu:4"); _p_idx0; })))] = 10;
     #line 5 "tests/golden_c/g07_array.pengu"
-    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d %d\n", ((int32_t)((xs)[0])), ((int32_t)((xs)[3]))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d %d\n", ((int32_t)((xs)[0])), ((int32_t)((xs)[3]))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); 0; })));
     #line 6 "tests/golden_c/g07_array.pengu"
     return 0;
 }

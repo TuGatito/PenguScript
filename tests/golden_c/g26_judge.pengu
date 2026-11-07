@@ -1,0 +1,29 @@
+# Golden: judge sobre omens, literales, booleanos y guardas.
+
+omen State:
+    Idle is 0
+    Busy is 1
+    Failed is 2
+
+weave describe with s as State into string:
+    return judge s:
+        when Idle -> "idle"
+        when Busy -> "busy"
+        else -> "other"
+
+weave rank with s as State into int:
+    return judge s:
+        when Idle -> 1
+        when Busy -> 2
+        else -> 3
+
+weave main:
+    var s as State is Failed
+    var d as string is calling describe with s
+    var r as int is calling rank with s
+    calling print with "{d} {r} {s}\n"
+    judge 2:
+        when 2 ->
+            calling print with "two\n"
+        else ->
+            calling print with "other\n"

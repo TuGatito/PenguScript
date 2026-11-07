@@ -54,7 +54,7 @@ int32_t pengu_main(void) {
     int32_t r = golden_c_g18_lambda_apply(3, _pengu_lambda_0_32);
     (void)r;
     #line 7 "tests/golden_c/g18_lambda.pengu"
-    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d\n", ((int32_t)(r))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d\n", ((int32_t)(r))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); 0; })));
     #line 8 "tests/golden_c/g18_lambda.pengu"
     return 0;
 }

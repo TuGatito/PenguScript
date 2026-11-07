@@ -41,12 +41,12 @@ int32_t pengu_main(void) {
     PenguString s = pengu_string_from_cstr_len("pengu", 5);
     (void)s;
     #line 4 "tests/golden_c/g10_string.pengu"
-    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d %.*s\n", ((int32_t)((s).len)), (int)pengu_string_char_at(s, (int)((__extension__(({ int64_t _p_idx0 = (int64_t)(0); pengu_assert_bounds(_p_idx0, (int64_t)((s).len), "<interp>:1"); _p_idx0; }))))).len, pengu_string_char_at(s, (int)((__extension__(({ int64_t _p_idx0 = (int64_t)(0); pengu_assert_bounds(_p_idx0, (int64_t)((s).len), "<interp>:1"); _p_idx0; }))))).data); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d %.*s\n", ((int32_t)((s).len)), (int)pengu_string_char_at(s, (int)((__extension__(({ int64_t _p_idx0 = (int64_t)(0); pengu_assert_bounds(_p_idx0, (int64_t)((s).len), "<interp>:1"); _p_idx0; }))))).len, pengu_string_char_at(s, (int)((__extension__(({ int64_t _p_idx0 = (int64_t)(0); pengu_assert_bounds(_p_idx0, (int64_t)((s).len), "<interp>:1"); _p_idx0; }))))).data); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); 0; })));
     #line 5 "tests/golden_c/g10_string.pengu"
     PenguString head = pengu_string_substring(s, (int)(1), (int)(3));
     (void)head;
     #line 6 "tests/golden_c/g10_string.pengu"
-    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s\n", (int)head.len, head.data); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s\n", (int)head.len, head.data); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); 0; })));
     #line 7 "tests/golden_c/g10_string.pengu"
     if (pengu_string_equal(s, pengu_string_from_cstr_len("pengu", 5))) {
         #line 8 "tests/golden_c/g10_string.pengu"

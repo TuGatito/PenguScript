@@ -63,7 +63,7 @@ int32_t pengu_main(void) {
         PenguString s = golden_c_g03_control_classify((i - 1));
         (void)s;
         #line 13 "tests/golden_c/g03_control.pengu"
-        (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s ", (int)s.len, s.data); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
+        (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s ", (int)s.len, s.data); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); 0; })));
         #line 14 "tests/golden_c/g03_control.pengu"
         i = (i + 1);
     }
@@ -79,7 +79,7 @@ int32_t pengu_main(void) {
         total = (total + j);
     }
     #line 19 "tests/golden_c/g03_control.pengu"
-    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d\n", ((int32_t)(total))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d\n", ((int32_t)(total))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); 0; })));
     #line 20 "tests/golden_c/g03_control.pengu"
     return 0;
 }

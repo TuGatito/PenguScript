@@ -770,6 +770,77 @@ weave in_expr with c as ref to context.CgContext, node as int, ast as ref to psa
         return nres
     return inner
 
+## Condición C que casa un patrón de `judge` contra el temporal del sujeto.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave judge_cond_c with c as ref to context.CgContext, st as int, pat as int, ast as ref to psast.PsAst, stmp as string into string:
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var stt as tk.SemaType is calling types.at with (sigil of c->program->types), st
+    var layout as bool is stt.kind == tk.SemaTypeKind.TkOmen and (calling expr.omen_has_layout with c, st)
+    var is_str as bool is false
+    if stt.kind == tk.SemaTypeKind.TkBase:
+        var bn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), stt.name)
+        if bn == "string":
+            set is_str is true
+        banish bn
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var pn as int is pat
+    if (calling astutil.kind_of with ast, pat) == pskind.NodeKind.NdWhenPattern:
+        var pchild as int is calling astutil.node_child with ast, pat, 0
+        var pk as pskind.NodeKind is pskind.NodeKind.NdVarRef
+        if pchild >= 0:
+            set pk is calling astutil.kind_of with ast, pchild
+        if pk == pskind.NodeKind.NdTrueLit or pk == pskind.NodeKind.NdFalseLit:
+            if pk == pskind.NodeKind.NdFalseLit:
+                calling sb.append with "!("
+            calling sb.append with "("
+            calling sb.append with stmp
+            calling sb.append with ")"
+            if pk == pskind.NodeKind.NdFalseLit:
+                calling sb.append with ")"
+            return calling sb.finish
+        var first as bool is true
+        var ci as int is 0
+        var cn as int is calling astutil.child_count with ast, pat
+        while ci < cn:
+            var ptk as int is calling astutil.token_child with ast, pat, ci
+            if ptk >= 0:
+                var txt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), ptk
+                if txt != "|":
+                    if not first:
+                        calling sb.append with " || "
+                    set first is false
+                    var p0 as string is calling npool.copy_string with (txt at 0 to 1)
+                    var is_num as bool is p0 == "0" or p0 == "1" or p0 == "2" or p0 == "3" or p0 == "4" or p0 == "5" or p0 == "6" or p0 == "7" or p0 == "8" or p0 == "9" or p0 == "-"
+                    banish p0
+                    if layout:
+                        var vid as int is calling npool.intern with (sigil of c->program->names), txt
+                        var vc as string is calling expr.omen_variant_c_name with c, st, vid
+                        calling sb.append with "({stmp}).tag == "
+                        calling sb.append with vc
+                        banish vc
+                    else if is_num:
+                        calling sb.append with "({stmp}) == "
+                        calling sb.append with txt
+                    else if is_str:
+                        calling sb.append with "pengu_string_equal(({stmp}), pengu_string_from_cstr("
+                        calling sb.append with txt
+                        calling sb.append with "))"
+                    else:
+                        var vid2 as int is calling npool.intern with (sigil of c->program->names), txt
+                        var vc2 as string is calling expr.omen_variant_c_name with c, st, vid2
+                        calling sb.append with "({stmp}) == "
+                        calling sb.append with vc2
+                        banish vc2
+                banish txt
+            set ci is ci + 1
+        if first:
+            calling sb.append with "0"
+        return calling sb.finish
+    return "0"
+
 ## Emite una lista por comprensión (`for x in xs [when cond] then expr`).
 ##
 ## ## Memoria
@@ -2949,7 +3020,7 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
         calling ws.append with "); "
         set wi is wi + 1
     if ret_void:
-        calling ws.append with "(void)0; }))"
+        calling ws.append with "0; }))"
     else:
         calling ws.append with " _p_ret; }))"
     banish ret_c
@@ -3244,6 +3315,81 @@ weave judge_expr_c with c as ref to context.CgContext, node as int, ast as ref t
         var jr0 as string is calling emit.temp with (sigil of c->emitter), "_jx"
         defer banish jt0
         defer banish jr0
+        # Con guardas, un `switch` duplicaría `case`; se emite una cadena de `if`.
+        var has_g as bool is false
+        var qi as int is 0
+        var qn as int is calling astutil.child_count with ast, node
+        while qi < qn:
+            var qcl as int is calling astutil.node_child with ast, node, qi
+            if qcl >= 0 and (calling astutil.kind_of with ast, qcl) == pskind.NodeKind.NdWhenClause:
+                if (calling astutil.node_child with ast, qcl, 2) >= 0:
+                    set has_g is true
+            set qi is qi + 1
+        if has_g:
+            var jm0 as string is calling emit.temp with (sigil of c->emitter), "_jm"
+            defer banish jm0
+            calling sbn.append with "__extension__(({ "
+            calling sbn.append with rct0
+            calling sbn.append with " "
+            calling sbn.append with jr0
+            calling sbn.append with " = {0}; bool "
+            calling sbn.append with jm0
+            calling sbn.append with " = false; "
+            var gi0 as int is 0
+            var gn0 as int is calling astutil.child_count with ast, node
+            var elseb as int is -1
+            while gi0 < gn0:
+                var gcl0 as int is calling astutil.node_child with ast, node, gi0
+                if gcl0 >= 0:
+                    var gk0 as pskind.NodeKind is calling astutil.kind_of with ast, gcl0
+                    if gk0 == pskind.NodeKind.NdWhenClause:
+                        var gp0 as int is calling astutil.node_child with ast, gcl0, 0
+                        var gg0 as int is calling astutil.node_child with ast, gcl0, 2
+                        var gb0 as int is calling astutil.node_child with ast, gcl0, 3
+                        if gb0 < 0:
+                            set gb0 is calling astutil.node_child with ast, gcl0, 2
+                        if gp0 >= 0 and gb0 >= 0:
+                            var gc0 as string is calling judge_cond_c with c, st, gp0, ast, sub0
+                            var gv0 as string is calling emit_expr_as with c, gb0, rt
+                            calling sbn.append with "if (!"
+                            calling sbn.append with jm0
+                            calling sbn.append with " && ("
+                            calling sbn.append with gc0
+                            calling sbn.append with ")) { if ("
+                            if gg0 >= 0:
+                                var gq0 as string is calling emit_expr with c, gg0
+                                calling sbn.append with gq0
+                                banish gq0
+                            else:
+                                calling sbn.append with "1"
+                            calling sbn.append with ") { "
+                            calling sbn.append with jr0
+                            calling sbn.append with " = "
+                            calling sbn.append with gv0
+                            calling sbn.append with "; "
+                            calling sbn.append with jm0
+                            calling sbn.append with " = true; } } "
+                            banish gc0
+                            banish gv0
+                    else if gk0 == pskind.NodeKind.NdElseClause:
+                        var eb0 as int is calling astutil.node_child with ast, gcl0, 0
+                        if eb0 < 0:
+                            set eb0 is gcl0
+                        set elseb is eb0
+                set gi0 is gi0 + 1
+            if elseb >= 0:
+                var ev0 as string is calling emit_expr_as with c, elseb, rt
+                calling sbn.append with "if (!"
+                calling sbn.append with jm0
+                calling sbn.append with ") { "
+                calling sbn.append with jr0
+                calling sbn.append with " = "
+                calling sbn.append with ev0
+                calling sbn.append with "; } "
+                banish ev0
+            calling sbn.append with jr0
+            calling sbn.append with "; }))"
+            return calling sbn.finish
         calling sbn.append with "__extension__(({ int64_t "
         calling sbn.append with jt0
         calling sbn.append with " = (int64_t)("
@@ -3271,17 +3417,31 @@ weave judge_expr_c with c as ref to context.CgContext, node as int, ast as ref t
                     if pn0 >= 0 and bd0 >= 0:
                         var ptok as int is calling last_token_deep with ast, pn0
                         if ptok >= 0:
-                            var ptx as string is calling astutil.token_text with (sigil of m0.source), (sigil of m0.lex), ptok
+                            # `when A | B` cae a varios `case` con el mismo cuerpo.
                             var bv0 as string is calling emit_expr_as with c, bd0, rt
-                            var pcase as string is calling npool.copy_string with ptx
-                            if stt0.kind == tk.SemaTypeKind.TkOmen:
-                                banish pcase
-                                var ptid as int is calling npool.intern with (sigil of c->program->names), ptx
-                                set pcase is calling omen_variant_c_name with c, st, ptid
-                            calling sbn.append with "case {pcase}: {jr0} = {bv0}; break; "
-                            banish pcase
+                            var ptn as int is pn0
+                            var pcases as bool is false
+                            calling sbn.append with ""
+                            var pci as int is 0
+                            var pcn as int is calling astutil.child_count with ast, ptn
+                            while pci < pcn:
+                                var ptk2 as int is calling astutil.token_child with ast, ptn, pci
+                                if ptk2 >= 0:
+                                    var ptx as string is calling astutil.token_text with (sigil of m0.source), (sigil of m0.lex), ptk2
+                                    if ptx != "|":
+                                        var pcase as string is calling npool.copy_string with ptx
+                                        if stt0.kind == tk.SemaTypeKind.TkOmen:
+                                            banish pcase
+                                            var ptid as int is calling npool.intern with (sigil of c->program->names), ptx
+                                            set pcase is calling omen_variant_c_name with c, st, ptid
+                                        calling sbn.append with "case {pcase}: "
+                                        set pcases is true
+                                        banish pcase
+                                    banish ptx
+                                set pci is pci + 1
+                            if pcases:
+                                calling sbn.append with "{jr0} = {bv0}; break; "
                             banish bv0
-                            banish ptx
                         else:
                             # `true`/`false` no llevan token propio; el patrón es
                             # `when_pattern > true_lit|false_lit`.
@@ -5415,6 +5575,37 @@ weave append_interp_value with c as ref to context.CgContext, fmt as ref to Stri
                 return
             calling fmt.append with "%d"
             calling args.append with "((int32_t)({expr}))"
+            return
+    if ty >= 0:
+        var ot as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+        if ot.kind == tk.SemaTypeKind.TkOmen:
+            # Nombre de la variante: `%s` con un switch inline.
+            var oi as types.SemaNominalInfo is (c->program->types.nominal_infos at ot.a)
+            var lay as bool is calling omen_has_layout with c, ty
+            var sb3 as StringBuilder is calling StringBuilder.new
+            defer banish sb3
+            calling sb3.append with "__extension__(({ const char* _on; switch (("
+            calling sb3.append with expr
+            calling sb3.append with ")"
+            if lay:
+                calling sb3.append with ".tag"
+            calling sb3.append with ") { "
+            var vi as int is 0
+            while vi < oi.variants_count:
+                var vv as types.SemaVariant is (c->program->types.variants at (oi.variants_first + vi))
+                var vn3 as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), vv.name)
+                var vc3 as string is calling omen_variant_c_name with c, ty, vv.name
+                calling sb3.append with "case "
+                calling sb3.append with vc3
+                calling sb3.append with ": _on = \""
+                calling sb3.append with vn3
+                calling sb3.append with "\"; break; "
+                banish vc3
+                banish vn3
+                set vi is vi + 1
+            calling sb3.append with "default: _on = \"?\"; } _on; }))"
+            calling fmt.append with "%s"
+            calling args.append with (calling sb3.finish)
             return
     calling fmt.append with "%s"
     calling args.append with "pengu_string_from_cstr(\"\")"

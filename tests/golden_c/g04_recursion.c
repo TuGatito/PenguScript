@@ -51,7 +51,7 @@ int32_t golden_c_g04_recursion_fact(int32_t n) {
 #line 7 "tests/golden_c/g04_recursion.pengu"
 int32_t pengu_main(void) {
     #line 8 "tests/golden_c/g04_recursion.pengu"
-    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d\n", ((int32_t)(golden_c_g04_recursion_fact(5)))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d\n", ((int32_t)(golden_c_g04_recursion_fact(5)))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); 0; })));
     #line 9 "tests/golden_c/g04_recursion.pengu"
     return 0;
 }

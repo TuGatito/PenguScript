@@ -1,0 +1,80 @@
+# `judge` sobre omens numéricos, literales, booleanos, alternativas y guardas.
+
+omen Status:
+    Idle is 0
+    Busy is 1
+    Failed is 2
+
+omen Shape:
+    Dot
+    Line with len as int
+
+weave score with s as Status into int:
+    return judge s:
+        when Idle -> 1
+        when Busy -> 2
+        when Failed -> 3
+
+weave label with s as Status into string:
+    return judge s:
+        when Idle -> "idle"
+        when Busy -> "busy"
+        else -> "other"
+
+weave grade with n as int into int:
+    return judge n:
+        when 0 -> 0
+        when 1 -> 10
+        when 2 -> 20
+        else -> -1
+
+weave flag with b as bool into int:
+    return judge b:
+        when true -> 1
+        when false -> 0
+
+weave either with s as Status into int:
+    return judge s:
+        when Idle | Failed -> 1
+        when Busy -> 2
+
+weave guarded with n as int into int:
+    return judge n:
+        when 5 if n > 100 -> 9
+        when 5 -> 5
+        else -> 0
+
+weave main into int:
+    if (calling score with Failed) != 3:
+        return 1
+    if (calling label with Failed) != "other":
+        return 2
+    if (calling label with Busy) != "busy":
+        return 3
+    if (calling grade with 1) != 10:
+        return 4
+    if (calling grade with 7) != -1:
+        return 5
+    if (calling flag with true) != 1 or (calling flag with false) != 0:
+        return 6
+    if (calling either with Idle) != 1 or (calling either with Busy) != 2:
+        return 7
+    if (calling guarded with 5) != 5:
+        return 8
+    var seen as int is 0
+    judge (calling score with Idle):
+        when 1 ->
+            set seen is 11
+        else ->
+            set seen is 0
+    if seen != 11:
+        return 9
+    judge 3:
+        when 3 ->
+            set seen is seen + 1
+        else ->
+            set seen is 0
+    if seen != 12:
+        return 10
+    calling print with "ok\n"
+    return 0

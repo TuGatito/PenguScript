@@ -52,7 +52,7 @@ int32_t pengu_main(void) {
         total = (total + x);
     }
     #line 8 "tests/golden_c/g25_iteration.pengu"
-    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("list %d\n", ((int32_t)(total))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("list %d\n", ((int32_t)(total))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); 0; })));
     #line 10 "tests/golden_c/g25_iteration.pengu"
     int32_t* arr = (int32_t[3]){0};
     (void)arr;
@@ -74,7 +74,7 @@ int32_t pengu_main(void) {
         asum = (asum + v);
     }
     #line 17 "tests/golden_c/g25_iteration.pengu"
-    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("array %d\n", ((int32_t)(asum))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("array %d\n", ((int32_t)(asum))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); 0; })));
     #line 19 "tests/golden_c/g25_iteration.pengu"
     PenguSlice sl = (PenguSlice){.data = (void*)(&(arr)[0]), .elem_size = sizeof(arr[0]), .len = (int)((3) - (0))};
     (void)sl;
@@ -90,7 +90,7 @@ int32_t pengu_main(void) {
         ssum = (ssum + v);
     }
     #line 23 "tests/golden_c/g25_iteration.pengu"
-    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("slice %d\n", ((int32_t)(ssum))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("slice %d\n", ((int32_t)(ssum))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); 0; })));
     #line 25 "tests/golden_c/g25_iteration.pengu"
     PenguString txt = pengu_string_from_cstr_len("abcd", 4);
     (void)txt;
@@ -106,7 +106,7 @@ int32_t pengu_main(void) {
         tlen = (tlen + (((int32_t)(ch).len)));
     }
     #line 29 "tests/golden_c/g25_iteration.pengu"
-    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("string %d\n", ((int32_t)(tlen))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("string %d\n", ((int32_t)(tlen))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); 0; })));
     #line 31 "tests/golden_c/g25_iteration.pengu"
     int32_t rsum = 0;
     (void)rsum;
@@ -117,7 +117,7 @@ int32_t pengu_main(void) {
         rsum = (rsum + i);
     }
     #line 34 "tests/golden_c/g25_iteration.pengu"
-    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("range %d\n", ((int32_t)(rsum))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("range %d\n", ((int32_t)(rsum))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); 0; })));
     #line 36 "tests/golden_c/g25_iteration.pengu"
     PenguMap m = __extension__(({ PenguMap _map18 = pengu_map_new(sizeof(PenguString), sizeof(int32_t)); PenguString _mk19; int32_t _mv20; _mk19 = pengu_string_from_cstr_len("a", 1); _mv20 = 1; pengu_map_put(&_map18, &_mk19, &_mv20); _mk19 = pengu_string_from_cstr_len("b", 1); _mv20 = 2; pengu_map_put(&_map18, &_mk19, &_mv20); _map18; }));
     (void)m;
@@ -136,7 +136,7 @@ int32_t pengu_main(void) {
         msum = (msum + v);
     }
     #line 40 "tests/golden_c/g25_iteration.pengu"
-    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("map %d\n", ((int32_t)(msum))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("map %d\n", ((int32_t)(msum))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); 0; })));
     #line 42 "tests/golden_c/g25_iteration.pengu"
     int32_t acc = 0;
     (void)acc;
@@ -160,7 +160,7 @@ int32_t pengu_main(void) {
     }
     _pengu_label_outer_break: ;
     #line 48 "tests/golden_c/g25_iteration.pengu"
-    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("labels %d\n", ((int32_t)(acc))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("labels %d\n", ((int32_t)(acc))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); 0; })));
     #line 50 "tests/golden_c/g25_iteration.pengu"
     pengu_banish_list(&(xs));
     #line 51 "tests/golden_c/g25_iteration.pengu"

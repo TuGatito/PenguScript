@@ -905,6 +905,9 @@ weave collect_omen with s as ref to state.SemaState, node as int into void:
     # después se reservan los rangos contiguos de este omen.
     var pending_variants as list of types.SemaVariant is list of types.SemaVariant
     var pending_payloads as list of types.SemaField is list of types.SemaField
+    var used_values as list of int is list of int
+    defer banish used_values
+    var next_val as int is 0
     defer banish pending_variants
     defer banish pending_payloads
     var i as int is 0
@@ -938,7 +941,33 @@ weave collect_omen with s as ref to state.SemaState, node as int into void:
                             calling pending_payloads.push with ofld
                             set pcount is pcount + 1
                     set ci is ci + 1
-                var varnt as types.SemaVariant is with name is vname, value_i is 0, value_s is -1, payload_first is pstart, payload_count is pcount, flags is 0
+                # Valor de la variante: literal/const plegable, o el siguiente
+                # entero. Debe ser único (E0027) y constante (E0029).
+                var vval as int is calling astutil.node_child with s->ast, c, 1
+                var vnum as int is next_val
+                var vbad as bool is false
+                if vval >= 0:
+                    var cv as sym.SemaConst is calling const_literal with s, vval
+                    if cv.kind == sym.SemaConstKind.CkInt:
+                        set vnum is cv.i
+                    else:
+                        set vbad is true
+                if vbad:
+                    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_OMEN_CONST, (calling astutil.start_of with s->ast, vval), (calling astutil.end_of with s->ast, vval), "variant value must be a compile-time integer constant", "Use an integer literal, a const, or an arithmetic expression of those.", "Variant values are encoded in the ABI."
+                else:
+                    var dupe as bool is false
+                    var ui as int is 0
+                    while ui < used_values.len:
+                        if (used_values at ui) == vnum:
+                            set dupe is true
+                        set ui is ui + 1
+                    if dupe:
+                        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_OMEN_DUP, (calling astutil.start_of with s->ast, c), (calling astutil.end_of with s->ast, c), "duplicate variant value {vnum}", "Give each variant a distinct value.", "Two variants with the same value cannot be told apart."
+                    else:
+                        calling used_values.push with vnum
+                    if vnum >= next_val:
+                        set next_val is vnum + 1
+                var varnt as types.SemaVariant is with name is vname, value_i is vnum, value_s is -1, payload_first is pstart, payload_count is pcount, flags is 0
                 calling pending_variants.push with varnt
                 # Las variantes son valores del omen y se usan como identificadores
                 # (`KwAlias`, `JsonValue.Null`, ...). Se registran en el scope.

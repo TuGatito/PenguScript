@@ -45,7 +45,7 @@ int32_t pengu_main(void) {
     #line 5 "tests/golden_c/g09_map.pengu"
     (void)(__extension__(({ PenguString _k = pengu_string_from_cstr_len("b", 1); int32_t _v = 20; pengu_map_put(&(m), &_k, &_v); })));
     #line 6 "tests/golden_c/g09_map.pengu"
-    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d %d\n", ((int32_t)(__extension__(({ PenguString _k0 = pengu_string_from_cstr_len("b", 1); void* _p1 = pengu_map_get(&(m), &_k0); _p1 ? (*( int32_t*)_p1) : (int32_t){0}; })))), ((int32_t)(m.len))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d %d\n", ((int32_t)(__extension__(({ PenguString _k0 = pengu_string_from_cstr_len("b", 1); void* _p1 = pengu_map_get(&(m), &_k0); _p1 ? (*( int32_t*)_p1) : (int32_t){0}; })))), ((int32_t)(m.len))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); 0; })));
     #line 7 "tests/golden_c/g09_map.pengu"
     pengu_banish_map(&(m));
     #line 8 "tests/golden_c/g09_map.pengu"

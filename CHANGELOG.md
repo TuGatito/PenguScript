@@ -2,6 +2,40 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.44.0] — 2026-11-07 — `judge` completo y valores de omen
+
+### Añadido
+
+- **`judge` como sentencia sobre `bool`, literales y alternativas**: los brazos
+  `when true` / `when false` se emiten como `case true` / `case false` con el
+  sujeto casteado a `int` (evita `-Wswitch-bool`), y `when A | B` produce dos
+  `case` con el mismo cuerpo. Antes, un `judge` de sentencia sobre `bool`
+  compilaba a `switch (x) { default: break; }` y no hacía nada.
+- **Guardas en `judge` de expresión y de sentencia**: cuando algún brazo lleva
+  `if`, se emite una cadena de `if` (con `goto` al final en la forma de
+  sentencia) en vez de un `switch`; así un patrón guardado y el mismo patrón sin
+  guarda conviven sin etiquetas `case` duplicadas.
+- **Valores de variante de omen respetados**: `is N` se conserva en el enum C
+  emitido y una variante sin `is` toma el valor anterior más uno. Antes el enum
+  usaba la posición, así que `Add is 5` valía 1.
+- **`E0027` (valor duplicado) y `E0029` (valor no constante)** en la
+  declaración del omen, con el span de la variante.
+- **Interpolar un omen imprime el nombre de su variante** (`"{state}"` →
+  `"Failed"`), con o sin payload, en lugar de la cadena vacía.
+- **`weave main:` sin retorno**: el envoltorio de `main` ya no castea
+  `(int)pengu_main()` sobre una función `void`, que era C inválido; ahora llama
+  y usa estado 0.
+- Tests `tests/pengu/judge.pengu`, `tests/pengu/omens.pengu`,
+  `tests/regress_omens.sh` y el golden `tests/golden_c/g26_judge`.
+
+### Corregido
+
+- El envoltorio de temporales de llamada terminaba en `(void)0;`, así que una
+  llamada `void` con argumentos temporales generaba `(void)({…; (void)0;})`
+  (expresión `void` usada como valor). Ahora termina en `0;`.
+- `judge` de sentencia ignoraba la guarda del brazo y ejecutaba el cuerpo
+  siempre que el patrón casara.
+
 ## [0.43.0] — 2026-11-07 — Iteración completa, etiquetas y rangos
 
 ### Añadido

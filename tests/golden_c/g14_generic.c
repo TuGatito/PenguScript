@@ -66,7 +66,7 @@ int32_t pengu_main(void) {
     PenguList xs = __extension__(({ PenguList _list0 = pengu_list_new(sizeof(int32_t), 3); int32_t _lv1; _lv1 = 4; pengu_list_push(&_list0, &_lv1); _lv1 = 5; pengu_list_push(&_list0, &_lv1); _lv1 = 6; pengu_list_push(&_list0, &_lv1); _list0; }));
     (void)xs;
     #line 14 "tests/golden_c/g14_generic.pengu"
-    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d\n", ((int32_t)(golden_c_g14_generic_first_inst4(xs)))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d\n", ((int32_t)(golden_c_g14_generic_first_inst4(xs)))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); 0; })));
     #line 15 "tests/golden_c/g14_generic.pengu"
     Box__string b = (Box__string){.value = pengu_string_from_cstr_len("in", 2)};
     (void)b;
