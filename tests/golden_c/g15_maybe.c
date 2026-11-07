@@ -42,7 +42,7 @@ PenguMaybe golden_c_g15_maybe_find(int32_t id) {
     #line 3 "tests/golden_c/g15_maybe.pengu"
     if (id == 1) {
         #line 4 "tests/golden_c/g15_maybe.pengu"
-        return __extension__(({ PenguString _p = pengu_string_from_cstr("Admin"); PenguString* _h = (PenguString*)malloc(sizeof(PenguString)); if (!_h) abort(); *_h = _p; PenguMaybe _r = pengu_maybe_some(_h); _r; }));
+        return __extension__(({ PenguString _p = pengu_string_from_cstr_len("Admin", 5); PenguString* _h = (PenguString*)malloc(sizeof(PenguString)); if (!_h) abort(); *_h = _p; PenguMaybe _r = pengu_maybe_some(_h); _r; }));
     }
     #line 5 "tests/golden_c/g15_maybe.pengu"
     return pengu_maybe_none();
@@ -58,7 +58,7 @@ int32_t pengu_main(void) {
         #line 10 "tests/golden_c/g15_maybe.pengu"
         (void)(pengu_builtin_print((*( PenguString*)((m).value))));
         #line 11 "tests/golden_c/g15_maybe.pengu"
-        (void)(pengu_builtin_print(pengu_string_from_cstr("\n")));
+        (void)(pengu_builtin_print(pengu_string_from_cstr_len("\n", 1)));
     }
     #line 12 "tests/golden_c/g15_maybe.pengu"
     pengu_banish_maybe(&(m));
@@ -68,7 +68,7 @@ int32_t pengu_main(void) {
     #line 14 "tests/golden_c/g15_maybe.pengu"
     if (!(n).is_present) {
         #line 15 "tests/golden_c/g15_maybe.pengu"
-        (void)(pengu_builtin_print(pengu_string_from_cstr("missing\n")));
+        (void)(pengu_builtin_print(pengu_string_from_cstr_len("missing\n", 8)));
     }
     #line 16 "tests/golden_c/g15_maybe.pengu"
     return 0;

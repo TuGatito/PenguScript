@@ -1,7 +1,7 @@
 # PenguScript Language Reference
 
 PenguScript is a small, statically typed language that compiles to C. This
-reference documents the language as implemented by `psc` 0.40.0: every
+reference documents the language as implemented by `psc` 0.41.0: every
 construct, its semantics, and the C it lowers to.
 
 It is the *language* document of the documentation set:
@@ -101,8 +101,9 @@ Spanish: [LANGUAGE.es.md](LANGUAGE.es.md).
   - [13.2 `banish`](#132-banish)
   - [13.3 `defer` and `errdefer`](#133-defer-and-errdefer)
   - [13.4 What the compiler does not do](#134-what-the-compiler-does-not-do)
-  - [13.5 Boxed values move](#135-boxed-values-move)
-  - [13.6 Returned values and parameters](#136-returned-values-and-parameters)
+  - [13.5 Owned temporaries in expressions](#135-owned-temporaries-in-expressions)
+  - [13.6 Boxed values move](#136-boxed-values-move)
+  - [13.7 Returned values and parameters](#137-returned-values-and-parameters)
   - [13.7 Debugging leaks](#137-debugging-leaks)
 - [14. Attributes](#14-attributes)
   - [14.1 Threads](#141-threads)
@@ -140,7 +141,7 @@ own section (generics, memory, interop).
 * The keyword lists, type mappings and diagnostic codes are exhaustive; the
   prose is not — [PENGUNIC.md](PENGUNIC.md) covers *how to use* the language and
   [STDLIB.md](STDLIB.md) covers the standard library.
-* Version: `psc` 0.40.0. The ABI version the generated C expects is 3.
+* Version: `psc` 0.41.0. The ABI version the generated C expects is 3.
 
 ## 1. Lexical structure
 
@@ -223,7 +224,15 @@ element lists — never a statement terminator.
 
 Escapes in ordinary strings: `\n \t \r \\ \" \' \0 \xNN \u{...}`. Interpolation
 takes an expression: `"{name} v{version}"`; `{{` and `}}` produce literal
-braces.
+braces. A `:` inside the braces selects a `printf` format: `"{ratio:.2f}"`,
+`"{id:04d}"`, `"{n:x}"`, `"{name:10s}"`. The spec is validated at compile time
+(`E0019`) and must match the value: `d i o u x X` for integers, `f e g` for
+floats and `s` for strings.
+
+```pengu-fragment
+var ratio as float is 1.23456
+calling print with "{ratio:.2f}\n"     # 1.23
+```
 
 A float literal is single precision until its target type says otherwise: in a
 `f64` slot the same literal is emitted as a C `double` with all digits kept.
@@ -1806,12 +1815,28 @@ defer banish buf
 * It does not free the elements of a `list`/`map` when the container is
   banished.
 
-### 13.5 Boxed values move
+### 13.5 Owned temporaries in expressions
+
+Interpolation (`"{x}"`), string concatenation (`+`) and a string view
+(`s at a to b`) produce a fresh owning `string`. When such a value is used as a
+call argument the compiler frees it right after the call, in the same
+statement:
+
+```pengu-fragment
+calling print with "hi {i}!\n"     # the formatted string is freed
+set acc += "{i}"                    # appends without leaking the old buffer
+```
+
+`+=` on a `string` lowers to `pengu_string_append`, which releases the previous
+buffer only when the variable owned it, so appending to a borrowed parameter
+never frees the caller's memory.
+
+### 13.6 Boxed values move
 
 `some x`, `ok_of x`, `err_of x` empty a live owning source slot (see §12.7).
 After boxing, the source is empty; banishing it is a no-op, using it is a bug.
 
-### 13.6 Returned values and parameters
+### 13.7 Returned values and parameters
 
 * A weave that returns a `string`, `list` or `map` returns ownership to the
   caller; the caller banishes it.

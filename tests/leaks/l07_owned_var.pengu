@@ -1,0 +1,8 @@
+# El valor guardado en una variable es del usuario y se libera a mano.
+weave main into int:
+    var i as int is 3
+    var s as string is "x{i}"
+    banish s
+    var t as string is "y{i}"
+    banish t
+    return 0

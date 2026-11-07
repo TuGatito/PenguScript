@@ -46,14 +46,14 @@ PenguString golden_c_g12_judge_label(Kind k) {
     #line 8 "tests/golden_c/g12_judge.pengu"
     if ((k == Kind_A) || (k == Kind_B)) {
         #line 9 "tests/golden_c/g12_judge.pengu"
-        return pengu_string_from_cstr("ab");
+        return pengu_string_from_cstr_len("ab", 2);
     } else
     if (k == Kind_C) {
         #line 11 "tests/golden_c/g12_judge.pengu"
-        return pengu_string_from_cstr("c");
+        return pengu_string_from_cstr_len("c", 1);
     }
     #line 12 "tests/golden_c/g12_judge.pengu"
-    return pengu_string_from_cstr("?");
+    return pengu_string_from_cstr_len("?", 1);
 }
 
 #line 14 "tests/golden_c/g12_judge.pengu"
@@ -61,7 +61,7 @@ int32_t pengu_main(void) {
     #line 15 "tests/golden_c/g12_judge.pengu"
     (void)(pengu_builtin_print(golden_c_g12_judge_label(Kind_B)));
     #line 16 "tests/golden_c/g12_judge.pengu"
-    (void)(pengu_builtin_print(pengu_string_from_cstr("\n")));
+    (void)(pengu_builtin_print(pengu_string_from_cstr_len("\n", 1)));
     #line 17 "tests/golden_c/g12_judge.pengu"
     return 0;
 }

@@ -38,7 +38,7 @@ int32_t pengu_main(void);
 #line 2 "tests/golden_c/g20_interp.pengu"
 int32_t pengu_main(void) {
     #line 3 "tests/golden_c/g20_interp.pengu"
-    PenguString name = pengu_string_from_cstr("pengu");
+    PenguString name = pengu_string_from_cstr_len("pengu", 5);
     (void)name;
     #line 4 "tests/golden_c/g20_interp.pengu"
     int32_t n = 42;
@@ -47,9 +47,9 @@ int32_t pengu_main(void) {
     bool ok = true;
     (void)ok;
     #line 6 "tests/golden_c/g20_interp.pengu"
-    (void)(pengu_builtin_print(pengu_string_format_ex("%.*s: %d %s\n", (int)name.len, name.data, ((int32_t)(n)), ((ok) ? "true" : "false"))));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s: %d %s\n", (int)name.len, name.data, ((int32_t)(n)), ((ok) ? "true" : "false")); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
     #line 7 "tests/golden_c/g20_interp.pengu"
-    (void)(pengu_builtin_print(pengu_string_from_cstr("tab\there\n")));
+    (void)(pengu_builtin_print(pengu_string_from_cstr_len("tab\there\n", 9)));
     #line 8 "tests/golden_c/g20_interp.pengu"
     return 0;
 }

@@ -44,7 +44,7 @@ int32_t pengu_main(void) {
     PenguSlice view = pengu_slice_new(pengu_list_at(&(xs), (int)(1)), sizeof(int32_t), (int)((3) - (1)));
     (void)view;
     #line 5 "tests/golden_c/g17_slice.pengu"
-    (void)(pengu_builtin_print(pengu_string_format_ex("%d %d\n", ((int32_t)(pengu_slice_len(&(view)))), ((int32_t)((*( int32_t*)pengu_slice_at(&(view), (int)((__extension__(({ int64_t _p_idx2 = (int64_t)(0); pengu_assert_bounds(_p_idx2, (int64_t)((view).len), "<interp>:1"); _p_idx2; })))))))))));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d %d\n", ((int32_t)(pengu_slice_len(&(view)))), ((int32_t)((*( int32_t*)pengu_slice_at(&(view), (int)((__extension__(({ int64_t _p_idx2 = (int64_t)(0); pengu_assert_bounds(_p_idx2, (int64_t)((view).len), "<interp>:1"); _p_idx2; }))))))))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
     #line 6 "tests/golden_c/g17_slice.pengu"
     pengu_banish_list(&(xs));
     #line 7 "tests/golden_c/g17_slice.pengu"

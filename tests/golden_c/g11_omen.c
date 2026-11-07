@@ -46,14 +46,14 @@ PenguString golden_c_g11_omen_label(Phase p) {
     #line 8 "tests/golden_c/g11_omen.pengu"
     if (p == Phase_Ready) {
         #line 9 "tests/golden_c/g11_omen.pengu"
-        return pengu_string_from_cstr("ready");
+        return pengu_string_from_cstr_len("ready", 5);
     } else
     if (p == Phase_Loading) {
         #line 11 "tests/golden_c/g11_omen.pengu"
-        return pengu_string_from_cstr("loading");
+        return pengu_string_from_cstr_len("loading", 7);
     }
     #line 12 "tests/golden_c/g11_omen.pengu"
-    return pengu_string_from_cstr("done");
+    return pengu_string_from_cstr_len("done", 4);
 }
 
 #line 14 "tests/golden_c/g11_omen.pengu"
@@ -61,7 +61,7 @@ int32_t pengu_main(void) {
     #line 15 "tests/golden_c/g11_omen.pengu"
     (void)(pengu_builtin_print(golden_c_g11_omen_label(Phase_Loading)));
     #line 16 "tests/golden_c/g11_omen.pengu"
-    (void)(pengu_builtin_print(pengu_string_from_cstr("\n")));
+    (void)(pengu_builtin_print(pengu_string_from_cstr_len("\n", 1)));
     #line 17 "tests/golden_c/g11_omen.pengu"
     return 0;
 }

@@ -1,0 +1,6 @@
+# La vista `at a to b` sobre un string asigna un buffer nuevo.
+weave main into int:
+    var s as string is "abcdef"
+    calling print with s at 1 to 4
+    calling print with "\n"
+    return 0

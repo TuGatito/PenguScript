@@ -64,16 +64,16 @@ void golden_c_g21_named_greet(PenguString name, int32_t times, bool loud) {
         #line 5 "tests/golden_c/g21_named.pengu"
         if (loud) {
             #line 6 "tests/golden_c/g21_named.pengu"
-            (void)(pengu_builtin_print(pengu_string_format_ex("%.*s!", (int)name.len, name.data)));
+            (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s!", (int)name.len, name.data); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
         } else {
             #line 8 "tests/golden_c/g21_named.pengu"
-            (void)(pengu_builtin_print(pengu_string_format_ex("%.*s.", (int)name.len, name.data)));
+            (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s.", (int)name.len, name.data); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
         }
         #line 9 "tests/golden_c/g21_named.pengu"
         i = (i + 1);
     }
     #line 10 "tests/golden_c/g21_named.pengu"
-    (void)(pengu_builtin_print(pengu_string_from_cstr("\n")));
+    (void)(pengu_builtin_print(pengu_string_from_cstr_len("\n", 1)));
 }
 
 #line 12 "tests/golden_c/g21_named.pengu"
@@ -96,20 +96,20 @@ int32_t Point_shift(Point* self, int32_t dy) {
 #line 27 "tests/golden_c/g21_named.pengu"
 int32_t pengu_main(void) {
     #line 28 "tests/golden_c/g21_named.pengu"
-    (void)(golden_c_g21_named_greet(pengu_string_from_cstr("ada"), 2, false));
+    (void)(golden_c_g21_named_greet(pengu_string_from_cstr_len("ada", 3), 2, false));
     #line 29 "tests/golden_c/g21_named.pengu"
-    (void)(golden_c_g21_named_greet(pengu_string_from_cstr("bo"), 3, false));
+    (void)(golden_c_g21_named_greet(pengu_string_from_cstr_len("bo", 2), 3, false));
     #line 30 "tests/golden_c/g21_named.pengu"
-    (void)(golden_c_g21_named_greet(pengu_string_from_cstr("cy"), 2, true));
+    (void)(golden_c_g21_named_greet(pengu_string_from_cstr_len("cy", 2), 2, true));
     #line 31 "tests/golden_c/g21_named.pengu"
-    (void)(pengu_builtin_print(pengu_string_format_ex("%d\n", ((int32_t)(golden_c_g21_named_sub(12, 5))))));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d\n", ((int32_t)(golden_c_g21_named_sub(12, 5)))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
     #line 32 "tests/golden_c/g21_named.pengu"
     Point p = (Point){.x = 1, .y = 2};
     (void)p;
     #line 33 "tests/golden_c/g21_named.pengu"
-    (void)(pengu_builtin_print(pengu_string_format_ex("%d\n", ((int32_t)(Point_shift(&(p), 5))))));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d\n", ((int32_t)(Point_shift(&(p), 5)))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
     #line 34 "tests/golden_c/g21_named.pengu"
-    (void)(pengu_builtin_print(pengu_string_format_ex("%d\n", ((int32_t)(golden_c_g21_named_first_of_inst5(4, 8))))));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d\n", ((int32_t)(golden_c_g21_named_first_of_inst5(4, 8)))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
     #line 35 "tests/golden_c/g21_named.pengu"
     return 0;
 }

@@ -2,6 +2,43 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.41.0] — 2026-11-06 — Cuerdas, formatos y temporales con dueño
+
+Quinta fase del plan: los temporales de `string` dejan de filtrarse, la
+interpolación acepta formatos `printf` y `+=` funciona sobre cadenas.
+
+### Añadido
+
+- Formatos en la interpolación: `"{ratio:.2f}"`, `"{id:04d}"`, `"{n:x}"`,
+  `"{name:10s}"`. El sema valida la gramática `printf` y la emisión castea el
+  argumento según la conversión (`E0019` si el formato es inválido).
+- `tests/leaks/` con 12 programas y `run.sh`: compila con
+  `--sanitize=address` y falla si LeakSanitizer reporta algo.
+- `tests/pengu/strings_temporaries.pengu` (temporales, `+=`, formatos) y
+  `pengu_string_append`/`pengu_string_append_owned` en el runtime.
+- `set s += v` sobre `string` emite `pengu_string_append(&s, v);` en vez de un
+  `+=` de C que no existe para `PenguString`.
+
+### Cambiado
+
+- Los literales de cadena se emiten con `pengu_string_from_cstr_len` (sin
+  `strlen` en tiempo de ejecución); los 23 goldens de C se regeneraron.
+- Un temporal usado como argumento se libera en la misma sentencia con un
+  statement expression; la concatenación sólo hoistea los operandos que ya
+  eran temporales.
+
+### Corregido
+
+- Fugas C4/C5: `calling print with "hi {i}"` y las concatenaciones como
+  argumento filtraban una asignación por llamada; los `for` sobre una lista o
+  un mapa temporales filtraban el contenedor completo.
+- `for k in essence of self` liberaba el mapa del receptor (corrupción y
+  SIGSEGV en `std.atlas.entries`); el bucle ahora sólo libera valores propios
+  (llamada o literal), nunca vistas.
+- `n = 7; "{n:04d}"` desincronizaba los varargs del formateador y leía un `int`
+  como `char*`; la rama genérica de `pengu_string_format_ex` ya consume el
+  especificador completo.
+
 ## [0.40.0] — 2026-11-06 — `many T` completo
 
 Cuarta fase del plan: un parámetro `many T` acepta cero o más argumentos, se

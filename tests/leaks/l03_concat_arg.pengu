@@ -1,0 +1,5 @@
+# La concatenación es un temporal con dueño cuando se pasa a una llamada.
+weave main into int:
+    calling print with "a" + "b" + "c"
+    calling print with "\n"
+    return 0

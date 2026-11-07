@@ -1,0 +1,13 @@
+# Cada string empujado se libera; la lista libera su buffer.
+weave main into int:
+    var xs as list of string is list of string
+    calling xs.push with "a"
+    calling xs.push with "b"
+    calling xs.push with "c"
+    var i as int is 0
+    while i < xs.len:
+        calling print with (xs at i)
+        set i is i + 1
+    calling print with "\n"
+    banish xs
+    return 0

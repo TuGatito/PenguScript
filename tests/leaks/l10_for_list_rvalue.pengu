@@ -1,0 +1,7 @@
+# El bucle sobre una lista temporal libera el buffer al terminar.
+weave main into int:
+    var total as int is 0
+    for x in [1, 2, 3, 4]:
+        set total is total + x
+    calling print with "{total}\n"
+    return 0

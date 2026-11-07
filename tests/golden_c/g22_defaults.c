@@ -46,10 +46,10 @@ void golden_c_g22_defaults_describe(int32_t n, bool loud, PenguString tag, float
     #line 5 "tests/golden_c/g22_defaults.pengu"
     if (loud) {
         #line 6 "tests/golden_c/g22_defaults.pengu"
-        (void)(pengu_builtin_print(pengu_string_format_ex("%.*s:%d:%f!\n", (int)tag.len, tag.data, ((int32_t)(n)), ((double)(ratio)))));
+        (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s:%d:%f!\n", (int)tag.len, tag.data, ((int32_t)(n)), ((double)(ratio))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
     } else {
         #line 8 "tests/golden_c/g22_defaults.pengu"
-        (void)(pengu_builtin_print(pengu_string_format_ex("%.*s:%d:%f\n", (int)tag.len, tag.data, ((int32_t)(n)), ((double)(ratio)))));
+        (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s:%d:%f\n", (int)tag.len, tag.data, ((int32_t)(n)), ((double)(ratio))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
     }
 }
 
@@ -60,7 +60,7 @@ int32_t pengu_main(void) {
     #line 12 "tests/golden_c/g22_defaults.pengu"
     (void)(golden_c_g22_defaults_describe(5, false, pengu_string_from_cstr("hi"), 1.5));
     #line 13 "tests/golden_c/g22_defaults.pengu"
-    (void)(golden_c_g22_defaults_describe(1, true, pengu_string_from_cstr("yo"), 1.5));
+    (void)(golden_c_g22_defaults_describe(1, true, pengu_string_from_cstr_len("yo", 2), 1.5));
     #line 14 "tests/golden_c/g22_defaults.pengu"
     return 0;
 }

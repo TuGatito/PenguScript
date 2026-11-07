@@ -42,14 +42,14 @@ PenguString golden_c_g03_control_classify(int32_t n) {
     #line 3 "tests/golden_c/g03_control.pengu"
     if (n < 0) {
         #line 4 "tests/golden_c/g03_control.pengu"
-        return pengu_string_from_cstr("neg");
+        return pengu_string_from_cstr_len("neg", 3);
     } else
     if (n == 0) {
         #line 6 "tests/golden_c/g03_control.pengu"
-        return pengu_string_from_cstr("zero");
+        return pengu_string_from_cstr_len("zero", 4);
     }
     #line 7 "tests/golden_c/g03_control.pengu"
-    return pengu_string_from_cstr("pos");
+    return pengu_string_from_cstr_len("pos", 3);
 }
 
 #line 9 "tests/golden_c/g03_control.pengu"
@@ -63,12 +63,12 @@ int32_t pengu_main(void) {
         PenguString s = golden_c_g03_control_classify((i - 1));
         (void)s;
         #line 13 "tests/golden_c/g03_control.pengu"
-        (void)(pengu_builtin_print(pengu_string_format_ex("%.*s ", (int)s.len, s.data)));
+        (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s ", (int)s.len, s.data); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
         #line 14 "tests/golden_c/g03_control.pengu"
         i = (i + 1);
     }
     #line 15 "tests/golden_c/g03_control.pengu"
-    (void)(pengu_builtin_print(pengu_string_from_cstr("\n")));
+    (void)(pengu_builtin_print(pengu_string_from_cstr_len("\n", 1)));
     #line 16 "tests/golden_c/g03_control.pengu"
     int32_t total = 0;
     (void)total;
@@ -79,7 +79,7 @@ int32_t pengu_main(void) {
         total = (total + j);
     }
     #line 19 "tests/golden_c/g03_control.pengu"
-    (void)(pengu_builtin_print(pengu_string_format_ex("%d\n", ((int32_t)(total)))));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d\n", ((int32_t)(total))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
     #line 20 "tests/golden_c/g03_control.pengu"
     return 0;
 }

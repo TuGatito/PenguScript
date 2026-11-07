@@ -1,0 +1,5 @@
+# Una interpolación anidada también libera el temporal interior.
+weave main into int:
+    var i as int is 2
+    calling print with "[{ "[{i}]" }]\n"
+    return 0

@@ -40,7 +40,7 @@ int32_t pengu_main(void);
 PenguString golden_c_g16_defer_make(int32_t seed) {
     (void)seed;
     #line 3 "tests/golden_c/g16_defer.pengu"
-    PenguString s = pengu_string_from_cstr("built");
+    PenguString s = pengu_string_from_cstr_len("built", 5);
     (void)s;
     #line 4 "tests/golden_c/g16_defer.pengu"
     #line 5 "tests/golden_c/g16_defer.pengu"
@@ -55,7 +55,7 @@ int32_t pengu_main(void) {
     #line 8 "tests/golden_c/g16_defer.pengu"
     (void)(pengu_builtin_print(golden_c_g16_defer_make(1)));
     #line 9 "tests/golden_c/g16_defer.pengu"
-    (void)(pengu_builtin_print(pengu_string_from_cstr("\n")));
+    (void)(pengu_builtin_print(pengu_string_from_cstr_len("\n", 1)));
     #line 10 "tests/golden_c/g16_defer.pengu"
     return 0;
 }

@@ -70,7 +70,7 @@ int32_t pengu_main(void) {
     Point p = Point_make(3, 4);
     (void)p;
     #line 15 "tests/golden_c/g06_rune.pengu"
-    (void)(pengu_builtin_print(pengu_string_format_ex("%d\n", ((int32_t)(Point_sum(&(p), 10))))));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d\n", ((int32_t)(Point_sum(&(p), 10)))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
     #line 16 "tests/golden_c/g06_rune.pengu"
     return 0;
 }

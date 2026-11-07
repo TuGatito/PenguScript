@@ -1,7 +1,7 @@
 # The Pengunic Manual
 
 How to write PenguScript that is safe, idiomatic and fast: the engineering
-manual for the language implemented by `psc` 0.40.0.
+manual for the language implemented by `psc` 0.41.0.
 
 It is the *practice* document of the documentation set:
 
@@ -319,7 +319,7 @@ binary. From a checkout:
 $ bash tools/build_bootstrap.sh     # builds build/psc-stage0 from the C bundle
 $ ./build/psc-stage0 build .        # self-hosts build/psc
 $ ./build/psc --version
-psc 0.40.0 (F13)
+psc 0.41.0 (F13)
 ```
 
 `build/psc` is the compiler you use from then on. `psc doctor` reports what it
@@ -1409,6 +1409,12 @@ message text.
 | `defer stmt` | at every exit from the scope, LIFO | releasing owned values |
 | `errdefer stmt` | only when the scope returns an error | undoing partial work |
 | `banish x` | immediately | releasing at a known point |
+
+String temporaries are the exception that proves the rule: interpolation
+(`"{x}"`), concatenation (`+`) and a view (`s at a to b`) hand you an owning
+`string`, and the compiler releases it at the end of the statement when you use
+it as a call argument. `set s += v` appends in place, so the handle you hold
+stays valid. You never write `banish` for those.
 
 ### 12.2 `defer`
 
@@ -3182,7 +3188,7 @@ truncates, and `transmute`, which reinterprets bits.
 **Are there threads and coroutines?**
 Yes. 0.30.0 added first-class threads (`filum.start`, `join`, `detach`, `free`),
 0.31.0 added `std.coro` (explicit stackful coroutines with `resume` and `yield`
-on the same thread) and 0.40.0 adds `std.reactor`: an explicit `EventLoop` that
+on the same thread) and 0.41.0 adds `std.reactor`: an explicit `EventLoop` that
 calls `epoll_wait`/`poll` and resumes tasks. There is no `async`/`await` keyword
 and no hidden scheduler: you create the loop, `spawn` and call `run`. The stdlib
 `*_async` variants are functions that suspend the current coroutine and only

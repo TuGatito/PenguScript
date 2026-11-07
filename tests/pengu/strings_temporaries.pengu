@@ -1,0 +1,37 @@
+## Regresión: temporales de cadena, formato de interpolación y `+=` (0.41.0).
+##
+## Cada productor de `string` con dueño (interpolación, concatenación y vista
+## `at a to b`) se libera cuando se usa como argumento de una llamada.
+weave label with s as string into string:
+    return "[{s}]"
+
+weave count with s as string into int:
+    return s length
+
+weave main into int:
+    if (calling label with "a") != "[a]":
+        return 1
+    var acc as string is ""
+    set acc += "a"
+    set acc += "b"
+    if acc != "ab":
+        return 2
+    var i as int is 0
+    while i < 3:
+        set acc += "{i}"
+        set i is i + 1
+    if acc != "ab012":
+        return 3
+    banish acc
+    var cat as string is "x" + "y"
+    if cat != "xy":
+        return 4
+    banish cat
+    var sub as string is "abcdef" at 1 to 4
+    if sub != "bcd":
+        return 5
+    banish sub
+    if (calling count with "a{i}") != 2:
+        return 6
+    calling print with "ok\n"
+    return 0

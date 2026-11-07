@@ -1,7 +1,7 @@
 # El Manual Pengunic
 
 Cómo escribir PenguScript seguro, idiomático y rápido: el manual de ingeniería
-del lenguaje que implementa `psc` 0.40.0.
+del lenguaje que implementa `psc` 0.41.0.
 
 Es el documento de *práctica* del conjunto de documentación:
 
@@ -322,7 +322,7 @@ binario `psc`. Desde un checkout:
 $ bash tools/build_bootstrap.sh     # builds build/psc-stage0 from the C bundle
 $ ./build/psc-stage0 build .        # self-hosts build/psc
 $ ./build/psc --version
-psc 0.40.0 (F13)
+psc 0.41.0 (F13)
 ```
 
 A partir de ahí usas `build/psc`. `psc doctor` informa de lo que encontró: el
@@ -1421,6 +1421,13 @@ texto del mensaje.
 | `defer stmt` | en cada salida del ámbito, LIFO | liberar valores propios |
 | `errdefer stmt` | solo cuando el ámbito retorna un error | deshacer trabajo parcial |
 | `banish x` | inmediatamente | liberar en un punto conocido |
+
+Los temporales de cadena son la excepción que confirma la regla: la
+interpolación (`"{x}"`), la concatenación (`+`) y una vista (`s at a to b`) te
+entregan un `string` con dueño, y el compilador lo libera al final de la
+sentencia cuando lo usas como argumento. `set s += v` añade en el sitio, así
+que el manejador que tienes sigue siendo válido. Para esos casos nunca escribes
+`banish`.
 
 ### 12.2 `defer`
 
@@ -3222,7 +3229,7 @@ trunca, y `transmute`, que reinterpreta bits.
 **¿Hay hilos y corrutinas?**
 Sí. 0.30.0 añadió hilos de primera clase (`filum.start`, `join`, `detach`,
 `free`), 0.31.0 añadió `std.coro` (corrutinas stackful explícitas con `resume` y
-`yield`, en el mismo hilo) y 0.40.0 añade `std.reactor`: un `EventLoop` explícito
+`yield`, en el mismo hilo) y 0.41.0 añade `std.reactor`: un `EventLoop` explícito
 que hace `epoll_wait`/`poll` y reanuda las tareas. No hay `async`/`await` como
 palabras clave ni un planificador escondido: tú creas el loop, haces `spawn` y
 llamas `run`. Las variantes `*_async` de la stdlib son funciones que suspenden la

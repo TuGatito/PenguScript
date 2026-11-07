@@ -58,12 +58,12 @@ PenguString Dog_greet(Dog* self, PenguString target) {
 #line 12 "tests/golden_c/g13_concept.pengu"
 int32_t pengu_main(void) {
     #line 13 "tests/golden_c/g13_concept.pengu"
-    Dog d = (Dog){.name = pengu_string_from_cstr("Rex")};
+    Dog d = (Dog){.name = pengu_string_from_cstr_len("Rex", 3)};
     (void)d;
     #line 14 "tests/golden_c/g13_concept.pengu"
-    (void)(pengu_builtin_print(Dog_greet(&(d), pengu_string_from_cstr("Ada"))));
+    (void)(pengu_builtin_print(Dog_greet(&(d), pengu_string_from_cstr_len("Ada", 3))));
     #line 15 "tests/golden_c/g13_concept.pengu"
-    (void)(pengu_builtin_print(pengu_string_from_cstr("\n")));
+    (void)(pengu_builtin_print(pengu_string_from_cstr_len("\n", 1)));
     #line 16 "tests/golden_c/g13_concept.pengu"
     return 0;
 }

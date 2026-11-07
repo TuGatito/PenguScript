@@ -31,7 +31,7 @@ en una fase del plan, o se elimina de la documentación.
 | `E0009` | `CODE_WITH_TARGET` | 0 | **sin emisor** | sí |
 | `E0014` | `CODE_BUILDER` | 0 | **sin emisor** | sí |
 | `E0015` | `CODE_ARRAY_UNKNOWN` | 1 | emitido | sí |
-| `E0019` | `CODE_INTERP_PARSE` | 2 | emitido | sí |
+| `E0019` | `CODE_INTERP_PARSE` | 3 | emitido | sí |
 | `E0020` | `CODE_RETURN_TYPE` | 1 | emitido | sí |
 | `E0021` | `CODE_GENERIC_ARGS` | 1 | emitido | sí |
 | `E0022` | `CODE_TYPE_PARAM_OUTSIDE` | 0 | **sin emisor** | sí |

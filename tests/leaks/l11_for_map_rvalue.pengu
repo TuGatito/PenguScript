@@ -1,0 +1,12 @@
+# El bucle sobre un mapa temporal libera la tabla al terminar.
+weave empty_map into map of string to int:
+    var m as map of string to int is map of string to int
+    return m
+
+weave main into int:
+    var n as int is 0
+    for k in calling empty_map:
+        if k.len == 0:
+            set n is n + 1
+    calling print with "{n}\n"
+    return 0

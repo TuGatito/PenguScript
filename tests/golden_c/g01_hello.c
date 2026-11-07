@@ -38,7 +38,7 @@ int32_t pengu_main(void);
 #line 2 "tests/golden_c/g01_hello.pengu"
 int32_t pengu_main(void) {
     #line 3 "tests/golden_c/g01_hello.pengu"
-    (void)(pengu_builtin_print(pengu_string_from_cstr("hello, pengu\n")));
+    (void)(pengu_builtin_print(pengu_string_from_cstr_len("hello, pengu\n", 13)));
     #line 4 "tests/golden_c/g01_hello.pengu"
     return 0;
 }

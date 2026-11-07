@@ -1,7 +1,7 @@
 # Referencia del lenguaje PenguScript
 
 PenguScript es un lenguaje pequeño y de tipado estático que compila a C. Esta
-referencia documenta el lenguaje tal como lo implementa `psc` 0.40.0: cada
+referencia documenta el lenguaje tal como lo implementa `psc` 0.41.0: cada
 construcción, su semántica y el C al que se reduce.
 
 Es el documento de *lenguaje* del conjunto de documentación:
@@ -101,8 +101,9 @@ English: [LANGUAGE.md](LANGUAGE.md).
   - [13.2 `banish`](#132-banish)
   - [13.3 `defer` y `errdefer`](#133-defer-y-errdefer)
   - [13.4 Lo que el compilador no hace](#134-lo-que-el-compilador-no-hace)
-  - [13.5 Los valores boxeados se mueven](#135-los-valores-boxeados-se-mueven)
-  - [13.6 Valores devueltos y parámetros](#136-valores-devueltos-y-parámetros)
+  - [13.5 Temporales con dueño en expresiones](#135-temporales-con-dueño-en-expresiones)
+  - [13.6 Los valores boxeados se mueven](#136-los-valores-boxeados-se-mueven)
+  - [13.7 Valores devueltos y parámetros](#137-valores-devueltos-y-parámetros)
   - [13.7 Depurar fugas](#137-depurar-fugas)
 - [14. Atributos](#14-atributos)
   - [14.1 Hilos](#141-hilos)
@@ -142,7 +143,7 @@ rasgos que necesitan su propia sección (genéricos, memoria, interop).
   diagnóstico son exhaustivos; la prosa no lo es — [PENGUNIC.es.md](PENGUNIC.es.md)
   cubre *cómo usar* el lenguaje y [STDLIB.es.md](STDLIB.es.md) cubre la
   biblioteca estándar.
-* Versión: `psc` 0.40.0. La versión de ABI que espera el C generado es 3.
+* Versión: `psc` 0.41.0. La versión de ABI que espera el C generado es 3.
 
 ## 1. Estructura léxica
 
@@ -226,7 +227,15 @@ parámetros, campos y elementos — nunca termina una sentencia.
 
 Escapes en strings normales: `\n \t \r \\ \" \' \0 \xNN \u{...}`. La
 interpolación toma una expresión: `"{name} v{version}"`; `{{` y `}}` producen
-llaves literales.
+llaves literales. Un `:` dentro de las llaves selecciona un formato `printf`:
+`"{ratio:.2f}"`, `"{id:04d}"`, `"{n:x}"`, `"{name:10s}"`. El formato se valida
+en compilación (`E0019`) y debe casar con el valor: `d i o u x X` para enteros,
+`f e g` para flotantes y `s` para cadenas.
+
+```pengu-fragment
+var ratio as float is 1.23456
+calling print with "{ratio:.2f}\n"     # 1.23
+```
 
 Un literal float es de precisión simple hasta que su tipo destino diga otra
 cosa: en un hueco `f64` el mismo literal se emite como `double` de C con todos
@@ -1843,12 +1852,28 @@ defer banish buf
   quién libera, y la API debe documentarlo.
 * No libera los elementos de un `list`/`map` cuando se banishea el contenedor.
 
-### 13.5 Los valores boxeados se mueven
+### 13.5 Temporales con dueño en expresiones
+
+La interpolación (`"{x}"`), la concatenación (`+`) y una vista de cadena
+(`s at a to b`) producen un `string` nuevo con dueño. Cuando ese valor se usa
+como argumento de una llamada, el compilador lo libera justo después de la
+llamada, en la misma sentencia:
+
+```pengu-fragment
+calling print with "hi {i}!\n"     # la cadena formateada se libera
+set acc += "{i}"                    # añade sin filtrar el búfer anterior
+```
+
+`+=` sobre un `string` se baja a `pengu_string_append`, que libera el búfer
+anterior sólo cuando la variable era su dueña; añadir a un parámetro prestado
+nunca libera la memoria del llamador.
+
+### 13.6 Los valores boxeados se mueven
 
 `some x`, `ok_of x`, `err_of x` vacían un hueco vivo con propiedad (ver §12.7).
 Tras boxear, la fuente queda vacía; banishearla es un no-op, usarla es un bug.
 
-### 13.6 Valores devueltos y parámetros
+### 13.7 Valores devueltos y parámetros
 
 * Un weave que devuelve un `string`, `list` o `map` transfiere la propiedad al
   llamador; el llamador lo banishea.

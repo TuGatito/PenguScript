@@ -1312,7 +1312,58 @@ weave binary_expr with c as ref to context.CgContext, node as int, ast as ref to
                     set str_add is true
                 banish rnn
         if str_add:
-            return "pengu_string_concat({l}, {r})"
+            # Los operandos que son temporales (interpolación, vista `at a to
+            # b`) se liberan tras concatenar; los que son variables prestadas
+            # se pasan tal cual.
+            var lowns as bool is calling expr_owns_temp with c, ln1
+            var rowns as bool is calling expr_owns_temp with c, rn1
+            if not lowns and not rowns:
+                return "pengu_string_concat({l}, {r})"
+            var lname as string is calling emit.temp with (sigil of c->emitter), "_scl"
+            defer banish lname
+            var rname as string is calling emit.temp with (sigil of c->emitter), "_scr"
+            defer banish rname
+            var oname as string is calling emit.temp with (sigil of c->emitter), "_sco"
+            defer banish oname
+            var ac as StringBuilder is calling StringBuilder.new
+            defer banish ac
+            calling ac.append with "({ "
+            if lowns:
+                calling ac.append with "PenguString "
+                calling ac.append with lname
+                calling ac.append with " = "
+                calling ac.append with l
+                calling ac.append with "; "
+            if rowns:
+                calling ac.append with "PenguString "
+                calling ac.append with rname
+                calling ac.append with " = "
+                calling ac.append with r
+                calling ac.append with "; "
+            calling ac.append with "PenguString "
+            calling ac.append with oname
+            calling ac.append with " = pengu_string_concat("
+            if lowns:
+                calling ac.append with lname
+            else:
+                calling ac.append with l
+            calling ac.append with ", "
+            if rowns:
+                calling ac.append with rname
+            else:
+                calling ac.append with r
+            calling ac.append with "); "
+            if lowns:
+                calling ac.append with "pengu_banish_string(&"
+                calling ac.append with lname
+                calling ac.append with "); "
+            if rowns:
+                calling ac.append with "pengu_banish_string(&"
+                calling ac.append with rname
+                calling ac.append with "); "
+            calling ac.append with oname
+            calling ac.append with "; })"
+            return calling ac.finish
     return "({l} {op} {r})"
 
 ## Último token de un subárbol (el nombre del método en un target).
@@ -1618,6 +1669,96 @@ weave generic_ref with c as ref to context.CgContext, node as int, ast as ref to
         return "NULL"
     var f as catalog.CgFunction is (c->catalog.functions at spec)
     return calling npool.copy_string with (calling npool.text with (sigil of c->program->names), f.c_name)
+
+## `true` si `node` produce un `string` con dueño que hay que liberar.
+##
+## Hoy cubre las tres fuentes de temporales de cadena: interpolación,
+## concatenación (`+`) y vista `at a to b`. El resto de expresiones devuelven
+## vistas prestadas o valores que no asignan.
+##
+## ## Memoria
+## O(1) salvo la búsqueda de `StringInfo` (O(literales)).
+weave expr_owns_temp with c as ref to context.CgContext, node as int into bool:
+    if node < 0:
+        return false
+    var mm as loader.SemaModule is (c->program->modules at c->current_module)
+    var kk as pskind.NodeKind is calling astutil.kind_of with (sigil of mm.parse.ast), node
+    if kk == pskind.NodeKind.NdStringLit:
+        return (calling find_string_info with c, node) >= 0
+    if kk == pskind.NodeKind.NdAdd or kk == pskind.NodeKind.NdAtExpr:
+        var ty as int is calling node_type with c, node
+        if ty > 0:
+            var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+            if t.kind == tk.SemaTypeKind.TkBase:
+                var nm as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), t.name)
+                defer banish nm
+                if nm == "string":
+                    return true
+    return false
+
+## `true` si el texto C `t` produce un `string` con dueño.
+##
+## Se usa cuando el nodo no tiene tipo anotado (fallback del sema). Sólo los
+## productores de temporales emiten estos nombres, así que no hay falsos
+## positivos sobre variables prestadas.
+##
+## ## Memoria
+## O(n).
+weave text_owns_temp with c as ref to context.CgContext, t as string into bool:
+    # Sólo el productor en la raíz de la expresión: un `==` que compara dos
+    # concatenaciones contiene el nombre pero produce un `bool`.
+    if calling scrolls.starts_with with t, "pengu_string_format_ex(":
+        return true
+    if calling scrolls.starts_with with t, "pengu_string_substring(":
+        return true
+    if calling scrolls.starts_with with t, "pengu_string_concat(":
+        return true
+    # Concatenación con operandos temporales: el codegen la envuelve en un
+    # statement expression `({ PenguString _sclN = ...; ... })` (sin el
+    # `__extension__` de los índices de mapa, que devuelven valores prestados).
+    if calling scrolls.starts_with with t, "({ PenguString _sc":
+        return true
+    return false
+
+## `true` cuando el id de tipo `ty` es exactamente el `string` base.
+##
+## Los temporales con dueño sólo existen para `string`; sin esta guarda un
+## `maybe` o un `int` con texto de statement expression se envolvería como si
+## fuera una cadena y el C no compilaría.
+##
+## ## Memoria
+## O(1).
+weave is_string_type with c as ref to context.CgContext, ty as int into bool:
+    if ty <= 0:
+        return false
+    return ty == (calling types.base with (sigil of c->program->types), "string")
+
+## Emite un argumento y, si es un temporal de cadena, lo cambia por una
+## variable local que el envoltorio de la llamada libera después.
+##
+## ## Memoria
+## `inits` toma el dueño del texto emitido; `names` recibe una copia.
+weave push_arg with c as ref to context.CgContext, sb as ref to StringBuilder, names as ref to list of string, inits as ref to list of string, anode as int, expected as int into void:
+    var sv as string is ""
+    if expected > 0 and expected != types.TYPE_ID_CVARARGS:
+        set sv is calling emit_expr_as with c, anode, expected
+    else:
+        set sv is calling emit_expr with c, anode
+    var sty as int is expected
+    if sty <= 0 or sty == types.TYPE_ID_CVARARGS:
+        set sty is calling node_type with c, anode
+    var own as bool is false
+    if calling is_string_type with c, sty:
+        set own is calling text_owns_temp with c, sv
+    if own:
+        var nm as string is "p_t{names->len}"
+        calling names->push with (calling npool.copy_string with nm)
+        calling inits->push with sv
+        calling sb.append with nm
+        banish nm
+    else:
+        calling sb.append with sv
+        banish sv
 
 weave call_expr with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst into string:
     var m as loader.SemaModule is (c->program->modules at c->current_module)
@@ -2414,6 +2555,8 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
         banish chain_call
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb
+    var tmp_names as list of string is list of string
+    var tmp_inits as list of string is list of string
     calling sb.append with cname
     banish cname
     calling sb.append with "("
@@ -2519,13 +2662,7 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
                     var spsub as int is calling generics.subst_spec_type_of with c, scfm, spty
                     if spsub > 0:
                         set spty is spsub
-            var sv as string is ""
-            if spty > 0 and spty != types.TYPE_ID_CVARARGS:
-                set sv is calling emit_expr_as with c, anode, spty
-            else:
-                set sv is calling emit_expr with c, anode
-            calling sb.append with sv
-            banish sv
+            calling push_arg with c, (sigil of sb), (sigil of tmp_names), (sigil of tmp_inits), anode, spty
             set wrote is true
         else:
             if sp.default_node >= 0 and sp.type > 0:
@@ -2597,9 +2734,7 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
             while xi < extras.len:
                 if xi > 0:
                     calling sb.append with ", "
-                var xv2 as string is calling emit_expr_as with c, (extras at xi), ety_id
-                calling sb.append with xv2
-                banish xv2
+                calling push_arg with c, (sigil of sb), (sigil of tmp_names), (sigil of tmp_inits), (extras at xi), ety_id
                 set xi is xi + 1
             calling sb.append with " }, "
             calling sb.append with "{extras.len}"
@@ -2612,13 +2747,76 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
         while xi2 < extras.len:
             if wrote:
                 calling sb.append with ", "
-            var xv3 as string is calling emit_expr with c, (extras at xi2)
-            calling sb.append with xv3
-            banish xv3
+            calling push_arg with c, (sigil of sb), (sigil of tmp_names), (sigil of tmp_inits), (extras at xi2), 0
             set wrote is true
             set xi2 is xi2 + 1
     calling sb.append with ")"
-    return calling sb.finish
+    var final as string is calling sb.finish
+    if tmp_names->len == 0:
+        banish tmp_names
+        banish tmp_inits
+        return final
+    # Envoltorio con expresión de sentencia: los temporales viven lo que la
+    # llamada y se liberan justo después, sin cambiar la semántica del lenguaje.
+    var ret_void as bool is true
+    var ret_c as string is "void"
+    if fslot >= 0:
+        var wfm as catalog.CgFunction is (c->catalog.functions at fslot)
+        if wfm.symbol >= 0:
+            var wsv as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), wfm.symbol
+            if wsv.type > 0:
+                var wfty as tk.SemaType is calling types.at with (sigil of c->program->types), wsv.type
+                if wfty.kind == tk.SemaTypeKind.TkFn:
+                    var wfinfo as types.SemaFnInfo is (c->program->types.fn_infos at wfty.a)
+                    var wrty as int is wfinfo.return_type
+                    if wfm.is_spec and wfm.spec_args.len > 0:
+                        var wsub as int is calling generics.subst_spec_type_of with c, wfm, wrty
+                        if wsub > 0:
+                            set wrty is wsub
+                    if wrty > 0 and wrty != calling types.base with (sigil of c->program->types), "void":
+                        set ret_void is false
+                        set ret_c is calling ctype.c_type with (sigil of c->names), wrty
+    var ws as StringBuilder is calling StringBuilder.new
+    defer banish ws
+    calling ws.append with "__extension__(({ "
+    var wi as int is 0
+    while wi < tmp_names->len:
+        calling ws.append with "PenguString "
+        calling ws.append with (tmp_names at wi)
+        calling ws.append with " = "
+        calling ws.append with (tmp_inits at wi)
+        calling ws.append with "; "
+        set wi is wi + 1
+    if ret_void:
+        calling ws.append with final
+        calling ws.append with "; "
+    else:
+        calling ws.append with ret_c
+        calling ws.append with " _p_ret = "
+        calling ws.append with final
+        calling ws.append with "; "
+    set wi is 0
+    while wi < tmp_names->len:
+        calling ws.append with "pengu_banish_string(&"
+        calling ws.append with (tmp_names at wi)
+        calling ws.append with "); "
+        set wi is wi + 1
+    if ret_void:
+        calling ws.append with "(void)0; }))"
+    else:
+        calling ws.append with " _p_ret; }))"
+    banish ret_c
+    banish final
+    var wj as int is 0
+    while wj < tmp_names->len:
+        var tns as string is (tmp_names at wj)
+        banish tns
+        var tis as string is (tmp_inits at wj)
+        banish tis
+        set wj is wj + 1
+    banish tmp_names
+    banish tmp_inits
+    return calling ws.finish
 
 ## Texto C del valor por defecto del parámetro global `gidx`.
 ##
@@ -4984,7 +5182,8 @@ weave c_string_expr with c as ref to context.CgContext, node as int, raw as stri
         return "\"{esc}\""
     if dnul:
         return "pengu_string_owned(\"{esc}\", {decoded length})"
-    return "pengu_string_from_cstr(\"{esc}\")"
+    # La longitud la conoce el compilador: sin `strlen` en cada literal.
+    return "pengu_string_from_cstr_len(\"{esc}\", {decoded length})"
 
 ## `true` si el contenido tiene una interpolación simple.
 ##
@@ -5010,8 +5209,35 @@ weave has_interp with s as string into bool:
 ##
 ## ## Memoria
 ## O(1) strings owned.
-weave append_interp_value with c as ref to context.CgContext, fmt as ref to StringBuilder, args as ref to StringBuilder, expr as string, ty as int into void:
+weave append_interp_value with c as ref to context.CgContext, fmt as ref to StringBuilder, args as ref to StringBuilder, expr as string, ty as int, spec as string into void:
     if ty >= 0:
+        var st as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+        if st.kind == tk.SemaTypeKind.TkBase and spec != "":
+            var sn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), st.name)
+            defer banish sn
+            if sn == "string":
+                calling fmt.append with "%{spec}"
+                calling args.append with "(char*)({expr}).data"
+                return
+            if sn == "bool":
+                # El sema ya lo rechaza; degradar a `true`/`false` sin formato.
+                calling fmt.append with "%s"
+                calling args.append with "(({expr}) ? \"true\" : \"false\")"
+                return
+            var conv as int is 0
+            var sb2 as ref to frozen byte is bytes of spec
+            set conv is ((sb2 at ((spec length) - 1)) to int)
+            if conv == 111 or conv == 117 or conv == 120 or conv == 88:
+                calling fmt.append with "%{spec}"
+                calling args.append with "((unsigned int)({expr}))"
+                return
+            if conv == 101 or conv == 69 or conv == 102 or conv == 70 or conv == 103 or conv == 71:
+                calling fmt.append with "%{spec}"
+                calling args.append with "((double)({expr}))"
+                return
+            calling fmt.append with "%{spec}"
+            calling args.append with "((int32_t)({expr}))"
+            return
         var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
         if t.kind == tk.SemaTypeKind.TkBase:
             var bn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), t.name)
@@ -5258,12 +5484,12 @@ weave interp_expr with c as ref to context.CgContext, node as int, content as st
                         var lcn as int is calling context.local_c_name with c, pid
                         if lcn >= 0:
                             var ltxt as string is calling npool.text with (sigil of c->program->names), lcn
-                            calling append_interp_value with c, (sigil of fmt), (sigil of args), ltxt, lty
+                            calling append_interp_value with c, (sigil of fmt), (sigil of args), ltxt, lty, ""
                             set used is true
                 if not used:
                     var path as CgTarget is calling interp_path_c with c, ptxt
                     if path.type_id > 0 and path.text length > 0:
-                        calling append_interp_value with c, (sigil of fmt), (sigil of args), path.text, path.type_id
+                        calling append_interp_value with c, (sigil of fmt), (sigil of args), path.text, path.type_id, ""
                         set used is true
                     banish path.text
                 banish ptxt
@@ -5294,7 +5520,7 @@ weave interp_expr with c as ref to context.CgContext, node as int, content as st
                     calling fmt.append with "%s"
                     calling args.append with "pengu_string_from_cstr(\"\")"
                 else:
-                    calling append_interp_value with c, (sigil of fmt), (sigil of args), expr_c, ty
+                    calling append_interp_value with c, (sigil of fmt), (sigil of args), expr_c, ty, it.spec
                 banish expr_c
             set nargs is nargs + 1
         set pi is pi + 1

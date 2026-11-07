@@ -1,0 +1,12 @@
+# El temporal interpolado que recibe una llamada se libera tras la llamada.
+weave count with s as string into int:
+    return s length
+
+weave main into int:
+    var i as int is 0
+    var total as int is 0
+    while i < 20:
+        set total is total + (calling count with "n={i}")
+        set i is i + 1
+    calling print with "{total}\n"
+    return 0

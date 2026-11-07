@@ -1,0 +1,8 @@
+# `+=` con literal reemplaza el buffer y libera el anterior.
+weave main into int:
+    var s as string is "a"
+    set s += "b"
+    set s += "c"
+    calling print with "{s}\n"
+    banish s
+    return 0

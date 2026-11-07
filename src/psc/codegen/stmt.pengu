@@ -357,7 +357,22 @@ weave emit_stmt with c as ref to context.CgContext, node as int into void:
             else:
                 set cvtxt is calling expr.emit_expr with c, cval
             defer banish cvtxt
-            calling emit.line with (sigil of c->emitter), "{cttxt} {cop} {cvtxt};"
+            # `set s += v` sobre `string` no es una suma de punteros: concatena
+            # y libera el buffer anterior si era del valor.
+            var c_is_str as bool is false
+            if ci0.type_id > 0:
+                var cty as tk.SemaType is calling types.at with (sigil of c->program->types), ci0.type_id
+                if cty.kind == tk.SemaTypeKind.TkBase:
+                    var cnm as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), cty.name)
+                    if cnm == "string":
+                        set c_is_str is true
+                    banish cnm
+            if c_is_str and cop == "+=" and (calling expr.text_owns_temp with c, cvtxt):
+                calling emit.line with (sigil of c->emitter), "pengu_string_append_owned(&({cttxt}), {cvtxt});"
+            else if c_is_str and cop == "+=":
+                calling emit.line with (sigil of c->emitter), "pengu_string_append(&({cttxt}), {cvtxt});"
+            else:
+                calling emit.line with (sigil of c->emitter), "{cttxt} {cop} {cvtxt};"
         return
     if k == pskind.NodeKind.NdBreakStmt or k == pskind.NodeKind.NdBreakSimple:
         calling emit_loop_exit_defers with c
@@ -601,6 +616,10 @@ weave emit_for_in with c as ref to context.CgContext, node as int, ast as ref to
         calling emit_loop_block with c, body
         calling emit.indent_less with (sigil of c->emitter)
         calling emit.line with (sigil of c->emitter), "}"
+        # Sólo un valor propio: una llamada o un literal. `essence of x` es una
+        # vista prestada del mapa original y liberarla corrompería el dueño.
+        if rk == pskind.NodeKind.NdCallingExpr or rk == pskind.NodeKind.NdMapLit:
+            calling emit.line with (sigil of c->emitter), "pengu_banish_map(&{mtmp});"
         return
     if lty.kind != tk.SemaTypeKind.TkList:
         return
@@ -630,6 +649,11 @@ weave emit_for_in with c as ref to context.CgContext, node as int, ast as ref to
     calling emit_loop_block with c, body
     calling emit.indent_less with (sigil of c->emitter)
     calling emit.line with (sigil of c->emitter), "}"
+    # Una lista temporal (`[1, 2]` o el retorno de una llamada) es dueña de su
+    # buffer: se libera al terminar el bucle para no filtrarla. Un `at` o un
+    # campo son vistas prestadas y no se tocan.
+    if rk == pskind.NodeKind.NdCallingExpr or rk == pskind.NodeKind.NdListInitExpr or rk == pskind.NodeKind.NdArrayLit:
+        calling emit.line with (sigil of c->emitter), "pengu_banish_list(&{tmp});"
 
 ## Emite una rama de `when` (bloque o statement).
 ##

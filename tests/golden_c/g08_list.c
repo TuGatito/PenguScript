@@ -53,7 +53,7 @@ int32_t pengu_main(void) {
         total = (total + x);
     }
     #line 8 "tests/golden_c/g08_list.pengu"
-    (void)(pengu_builtin_print(pengu_string_format_ex("%d %d\n", ((int32_t)(total)), ((int32_t)((xs).len)))));
+    (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%d %d\n", ((int32_t)(total)), ((int32_t)((xs).len))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); (void)0; })));
     #line 9 "tests/golden_c/g08_list.pengu"
     pengu_banish_list(&(xs));
     #line 10 "tests/golden_c/g08_list.pengu"

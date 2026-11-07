@@ -1460,6 +1460,52 @@ extern "C"
         p += 4;
         continue;
       }
+      /* Explicit format specifier from `{expr:spec}`: flags, width, optional
+       * precision and a conversion. `%f` without modifiers keeps the historical
+       * `%g` rendering (see below), so only richer specs take this branch. */
+      {
+        const char *_q = p + 1;
+        while (*_q == '-' || *_q == '+' || *_q == ' ' || *_q == '0' || *_q == '#')
+          _q++;
+        while (*_q >= '0' && *_q <= '9')
+          _q++;
+        if (*_q == '.') {
+          _q++;
+          while (*_q >= '0' && *_q <= '9')
+            _q++;
+        }
+        char _conv = *_q;
+        size_t _slen = (size_t)(_q - p) + 1;
+        bool _known = (_conv == 'd' || _conv == 'i' || _conv == 'o' || _conv == 'u' ||
+                       _conv == 'x' || _conv == 'X' || _conv == 'e' || _conv == 'E' ||
+                       _conv == 'f' || _conv == 'F' || _conv == 'g' || _conv == 'G' ||
+                       _conv == 'c' || _conv == 's');
+        if (_known && _slen >= 2 && _slen < 24 && (_slen > 2 || _conv != 'f')) {
+          char _spec[24];
+          memcpy(_spec, p, _slen);
+          _spec[_slen] = 0;
+          if (_conv == 'd' || _conv == 'i') {
+            int v = va_arg(ap, int);
+            PENGU_FMT_APPEND_FORMATTED(_spec, v);
+          } else if (_conv == 'o' || _conv == 'u' || _conv == 'x' || _conv == 'X') {
+            unsigned int v = va_arg(ap, unsigned int);
+            PENGU_FMT_APPEND_FORMATTED(_spec, v);
+          } else if (_conv == 'e' || _conv == 'E' || _conv == 'f' || _conv == 'F' ||
+                     _conv == 'g' || _conv == 'G') {
+            double v = va_arg(ap, double);
+            PENGU_FMT_APPEND_FORMATTED(_spec, v);
+          } else if (_conv == 'c') {
+            int v = va_arg(ap, int);
+            PENGU_FMT_APPEND_FORMATTED(_spec, v);
+          } else {
+            const char *sv = va_arg(ap, const char *);
+            if (sv)
+              PENGU_FMT_APPEND_FORMATTED(_spec, sv);
+          }
+          p = _q + 1;
+          continue;
+        }
+      }
       if (p[1] == 'l' && p[2] == 'l' && (p[3] == 'd' || p[3] == 'u')) {
         if (p[3] == 'd') {
           long long v = va_arg(ap, long long);
@@ -1645,6 +1691,48 @@ extern "C"
     s->data = NULL;
     s->len = 0;
     s->is_owned = 0;
+  }
+
+  /**
+   * @brief Appends `v` to `*dst`, freeing the previous value when it was owned.
+   *
+   * PenguScript lowers `set s += v` on a `string` to this helper: the result of
+   * `pengu_string_concat` is a fresh owned buffer, and the old buffer is freed
+   * only when `dst` owned it, so a borrowed view is never passed to `sdsfree`.
+   *
+   * @param dst Destination string (may alias an owned local or field).
+   * @param v Value appended; its bytes are copied into the new buffer.
+   */
+  static inline void pengu_string_append(PenguString *dst, PenguString v)
+  {
+    if (!dst)
+      return;
+    PenguString out = pengu_string_concat(*dst, v);
+    if (dst->is_owned)
+      pengu_banish_string(dst);
+    *dst = out;
+  }
+
+  /**
+   * @brief Appends `v` to `*dst`, releasing `v` afterwards when it was owned.
+   *
+   * Used by `set s += <temporary>`: the right-hand side may be an interpolated
+   * or concatenated string, whose buffer belongs to the expression. The helper
+   * copies it into the result and frees it, so the temporary never escapes.
+   *
+   * @param dst Destination string.
+   * @param v Value appended and consumed.
+   */
+  static inline void pengu_string_append_owned(PenguString *dst, PenguString v)
+  {
+    if (!dst)
+      return;
+    PenguString out = pengu_string_concat(*dst, v);
+    if (dst->is_owned)
+      pengu_banish_string(dst);
+    *dst = out;
+    if (v.is_owned)
+      pengu_banish_string(&v);
   }
 
   /**

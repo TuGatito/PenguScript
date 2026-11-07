@@ -1,0 +1,10 @@
+# `+=` con interpolación consume el temporal del lado derecho.
+weave main into int:
+    var s as string is ""
+    var i as int is 0
+    while i < 10:
+        set s += "{i},"
+        set i is i + 1
+    calling print with "{s}\n"
+    banish s
+    return 0

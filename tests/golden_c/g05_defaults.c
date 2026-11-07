@@ -53,13 +53,13 @@ PenguString golden_c_g05_defaults_greet(PenguString name, int32_t times, bool lo
 #line 7 "tests/golden_c/g05_defaults.pengu"
 int32_t pengu_main(void) {
     #line 8 "tests/golden_c/g05_defaults.pengu"
-    (void)(pengu_builtin_print(golden_c_g05_defaults_greet(pengu_string_from_cstr("Ada"), 2, false)));
+    (void)(pengu_builtin_print(golden_c_g05_defaults_greet(pengu_string_from_cstr_len("Ada", 3), 2, false)));
     #line 9 "tests/golden_c/g05_defaults.pengu"
-    (void)(pengu_builtin_print(pengu_string_from_cstr("\n")));
+    (void)(pengu_builtin_print(pengu_string_from_cstr_len("\n", 1)));
     #line 10 "tests/golden_c/g05_defaults.pengu"
-    (void)(pengu_builtin_print(golden_c_g05_defaults_greet(pengu_string_from_cstr("Ada"), 1, false)));
+    (void)(pengu_builtin_print(golden_c_g05_defaults_greet(pengu_string_from_cstr_len("Ada", 3), 1, false)));
     #line 11 "tests/golden_c/g05_defaults.pengu"
-    (void)(pengu_builtin_print(pengu_string_from_cstr("\n")));
+    (void)(pengu_builtin_print(pengu_string_from_cstr_len("\n", 1)));
     #line 12 "tests/golden_c/g05_defaults.pengu"
     return 0;
 }
