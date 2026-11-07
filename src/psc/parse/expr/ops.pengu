@@ -356,14 +356,20 @@ weave pexpr_parse_comparison with p as ref to PsParser into int:
             else if kw == KwIn:
                 var opi5 as int is p->pos
                 var ignored10 as Token is calling ps_advance with p
+                var wasr as bool is p->range_to
+                set p->range_to is true
                 var right as int is calling pexpr_parse_range with p
+                set p->range_to is wasr
                 set left is calling putil.pexpr_binary with p, NodeKind.NdInExpr, left, opi5, right
             else if kw == KwNot:
                 if (calling ps_kw_at_offset with p, 1) == KwIn:
                     var opi6 as int is p->pos
                     var ignored11 as Token is calling ps_advance with p
                     var ignored12 as Token is calling ps_expect_kw with p, KwIn, "'in'"
+                    var wasr2 as bool is p->range_to
+                    set p->range_to is true
                     var right2 as int is calling pexpr_parse_range with p
+                    set p->range_to is wasr2
                     set left is calling putil.pexpr_binary with p, NodeKind.NdNotInExpr, left, opi6, right2
                 else:
                     set more is false
@@ -403,6 +409,15 @@ weave pexpr_parse_range with p as ref to PsParser into int:
     if calling ps_check_kw with p, KwTo:
         var opi2 as int is p->pos
         var ignored2 as Token is calling ps_advance with p
+        if p->range_to:
+            # En un `for … in` o a la derecha de `in`, `to` cierra un rango.
+            var rright as int is calling pexpr_parse_bit_or with p
+            var rstart as int is calling putil.pexpr_start_of with p, left
+            calling ps_begin_children with p
+            calling ps_add_child with p, left
+            calling ps_add_token with p, opi2
+            calling ps_add_child with p, rright
+            return calling ps_finish_node with p, NodeKind.NdRangeDotdot, rstart, (calling putil.pexpr_end_of with p, rright), opi2
         # El lado derecho de `to` es un tipo (`f32`, `list of T`, ...), no una
         # expresión: `f32` es un identificador, no un keyword de tipo base.
         var right2 as int is calling ptypes.ptype_parse_type with p

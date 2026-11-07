@@ -2,6 +2,29 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.46.0] — 2026-11-07 — Rangos con `to` y enlaces `as`
+
+### Añadido
+
+- **`a to b` como rango** en `for … in`, a la derecha de `in` y en
+  comprensiones: `for i in 0 to 4` y `3 in 0 to 10`. Dentro de esos contextos
+  `to` separa un rango (semiabierto, igual que `..`); fuera sigue siendo el cast
+  `x to int`.
+- **Comprensión numérica**: `for i in 0 to 3 then i * 2` construye la lista.
+- Docs: §4.6 corrige la forma de enlace a `if n as T is v` (la que el parser
+  implementa), §5.3 documenta `for i in a to b` y §4.3 el `to` de rango.
+
+### Corregido
+
+- El miembro superior de un rango en `in` se leía del hijo equivocado del AST
+  (el token `to`), así que `3 in 0 to 10` era siempre falso.
+- `in` sobre `a .. b` ahora usa los mismos extremos que la forma `to`.
+
+### Pendiente
+
+- El azúcar `xs[1 to 3]` (usar `xs at 1 to 3`) y la validación de tipos de los
+  extremos de un rango (`E0005`) siguen pendientes.
+
 ## [0.45.0] — 2026-11-07 — Desestructuración de runes
 
 ### Añadido

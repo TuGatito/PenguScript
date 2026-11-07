@@ -1,7 +1,7 @@
 # Referencia del lenguaje PenguScript
 
 PenguScript es un lenguaje pequeño y de tipado estático que compila a C. Esta
-referencia documenta el lenguaje tal como lo implementa `psc` 0.45.0: cada
+referencia documenta el lenguaje tal como lo implementa `psc` 0.46.0: cada
 construcción, su semántica y el C al que se reduce.
 
 Es el documento de *lenguaje* del conjunto de documentación:
@@ -144,7 +144,7 @@ rasgos que necesitan su propia sección (genéricos, memoria, interop).
   diagnóstico son exhaustivos; la prosa no lo es — [PENGUNIC.es.md](PENGUNIC.es.md)
   cubre *cómo usar* el lenguaje y [STDLIB.es.md](STDLIB.es.md) cubre la
   biblioteca estándar.
-* Versión: `psc` 0.45.0. La versión de ABI que espera el C generado es 3.
+* Versión: `psc` 0.46.0. La versión de ABI que espera el C generado es 3.
 
 ## 1. Estructura léxica
 
@@ -536,7 +536,7 @@ var back as string is chr 65    # "A"
 | Forma | Significado | Comprobación en runtime |
 | --- | --- | --- |
 | `x to T` | conversión numérica o nominal (estrecha en silencio) | no |
-| `if v as T is n:` | estrecha un `maybe`/`result` y liga `n` | sí, test de presencia |
+| `if n as T is v:` | estrecha un `maybe`/`result` y liga `n` | sí, test de presencia |
 | `transmute x to T` | reinterpreta los bits | no, inseguro |
 
 ```pengu-fragment
@@ -544,7 +544,7 @@ var i as int is 65
 var c as char is i to char
 var f as float is 1 to float
 var v as maybe int is some 3
-if v as int is n:
+if n as int is v:
     calling print with "{n}"
 ```
 
@@ -635,6 +635,7 @@ for _, v in values:              # descarta el índice
 | `for k in map` | claves de `map of K to V`, en orden de hash | `K` |
 | `for k, v in map` | clave y valor, en orden de hash (sin índice) | `K`, `V` |
 | `for x in a .. b` | rango entero `[a, b)` | `int` |
+| `for i in a to b` | rango entero `[a, b)` (igual que `..`) | `int` |
 
 La forma con índice `for i, v in col` exige nombres distintos (`E0037`); `_`
 descarta cualquiera de los dos bindings. Un mapa no tiene índice con
@@ -642,8 +643,11 @@ significado: dos bindings sobre un mapa son la **clave y el valor**, y la forma
 `for kk, vv` liga lo mismo. Iterar un mapa recorre su orden de hash, que no
 está especificado.
 
-`a .. b` es la forma de expresión de un rango (la misma que `for i from a to b`);
-produce `range of int` y es semiabierto: `1 .. 4` da `1`, `2`, `3`.
+`a .. b` y `a to b` son las formas de expresión de un rango (la misma que
+`for i from a to b`); producen `range of int` y son semiabiertas: `1 .. 4` y
+`1 to 4` dan `1`, `2`, `3`. Dentro de `for … in` y a la derecha de `in`, `to`
+separa un rango, no es un cast; fuera de esos sitios sigue significando "cast
+a tipo" (`x to int`).
 
 Las **comprensiones** construyen una lista a partir de una expresión:
 

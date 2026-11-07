@@ -1,0 +1,61 @@
+# Rangos: `a to b` y `a .. b` son semiabiertos, en `for`, en `in` y en
+# comprensiones.
+
+weave range_to_sum into int:
+    var t as int is 0
+    for i in 0 to 5:
+        set t is t + i
+    return t
+
+weave range_dotdot_sum into int:
+    var t as int is 0
+    for i in 0 .. 5:
+        set t is t + i
+    return t
+
+weave range_variable into int:
+    var lo as int is 2
+    var hi as int is 6
+    var t as int is 0
+    for i in lo to hi:
+        set t is t + i
+    return t
+
+weave range_empty into int:
+    var t as int is 0
+    for i in 5 to 2:
+        set t is t + 1
+    return t
+
+weave range_member into int:
+    var inside as int is 0
+    if 0 in 0 to 4:
+        set inside is inside + 1
+    if 3 in 0 to 4:
+        set inside is inside + 10
+    if 4 in 0 to 4:
+        set inside is inside + 100
+    if not (4 in 0 to 4):
+        set inside is inside + 1000
+    if 7 not in 0 to 4:
+        set inside is inside + 10000
+    return inside
+
+weave range_comp into int:
+    var doubled as list of int is for i in 0 to 4 then i * 2
+    return doubled.len * 100 + (doubled at 3)
+
+weave main into int:
+    if (calling range_to_sum) != 10:
+        return 1
+    if (calling range_dotdot_sum) != 10:
+        return 2
+    if (calling range_variable) != 14:
+        return 3
+    if (calling range_empty) != 0:
+        return 4
+    if (calling range_member) != 11011:
+        return 5
+    if (calling range_comp) != 406:
+        return 6
+    return 0

@@ -1,0 +1,13 @@
+weave sum_to into int:
+    var t as int is 0
+    for i in 0 to 4:
+        set t is t + i
+    return t
+
+weave main into int:
+    calling print with "{calling sum_to}\n"
+    if 3 in 0 to 10:
+        calling print with "in\n"
+    if 10 not in 0 to 10:
+        calling print with "out\n"
+    return 0

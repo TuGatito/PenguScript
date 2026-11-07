@@ -645,9 +645,13 @@ weave in_expr with c as ref to context.CgContext, node as int, ast as ref to psa
     var col_ty as int is calling node_type with c, coln
     if col_ty <= 0:
         set col_ty is calling guess_type with c, coln, ast
-    if (calling astutil.kind_of with ast, coln) == pskind.NodeKind.NdToExpr:
+    if (calling astutil.kind_of with ast, coln) == pskind.NodeKind.NdToExpr or (calling astutil.kind_of with ast, coln) == pskind.NodeKind.NdRangeDotdot:
         var lo as int is calling astutil.node_child with ast, coln, 0
         var hi as int is calling astutil.node_child with ast, coln, 1
+        if (calling astutil.kind_of with ast, coln) == pskind.NodeKind.NdRangeDotdot:
+            var hi2 as int is calling astutil.node_child with ast, coln, 2
+            if hi2 >= 0:
+                set hi is hi2
         var lo_c as string is calling emit_expr with c, lo
         var hi_c as string is calling emit_expr with c, hi
         defer banish lo_c

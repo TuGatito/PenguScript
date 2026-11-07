@@ -1,7 +1,7 @@
 # PenguScript Language Reference
 
 PenguScript is a small, statically typed language that compiles to C. This
-reference documents the language as implemented by `psc` 0.45.0: every
+reference documents the language as implemented by `psc` 0.46.0: every
 construct, its semantics, and the C it lowers to.
 
 It is the *language* document of the documentation set:
@@ -142,7 +142,7 @@ own section (generics, memory, interop).
 * The keyword lists, type mappings and diagnostic codes are exhaustive; the
   prose is not — [PENGUNIC.md](PENGUNIC.md) covers *how to use* the language and
   [STDLIB.md](STDLIB.md) covers the standard library.
-* Version: `psc` 0.45.0. The ABI version the generated C expects is 3.
+* Version: `psc` 0.46.0. The ABI version the generated C expects is 3.
 
 ## 1. Lexical structure
 
@@ -526,7 +526,7 @@ one-character `string`.
 | Form | Meaning | Runtime check |
 | --- | --- | --- |
 | `x to T` | numeric or nominal conversion (narrows silently) | no |
-| `if v as T is n:` | narrows a `maybe`/`result` and binds `n` | yes, presence test |
+| `if n as T is v:` | narrows a `maybe`/`result` and binds `n` | yes, presence test |
 | `transmute x to T` | reinterpret the bits | no, unsafe |
 
 ```pengu-fragment
@@ -534,13 +534,14 @@ var i as int is 65
 var c as char is i to char
 var f as float is 1 to float
 var v as maybe int is some 3
-if v as int is n:
+if n as int is v:
     calling print with "{n}"
 ```
 
-`as` is only valid in a condition (`if`, `while`, `judge` guard), where it
-narrows a `maybe`/`result` payload and binds it; it is not a general-purpose
-numeric cast. `to` converts between numeric types (truncating: `300 to u8` is
+The binding comes first: `if n as T is v` tests that `v` holds a `T` and, only
+if it does, binds `n` for the branch. The reversed spelling (`if v as T is n`)
+is not a binding. `as` is only valid in a condition (`if`, `while`, `judge`
+guard); it is not a general-purpose numeric cast. `to` converts between numeric types (truncating: `300 to u8` is
 `44`) and between `seal` and its representation. `transmute` is reserved for FFI
 layout tricks and is covered in §9.6.
 
@@ -623,14 +624,18 @@ for _, v in values:              # discard the index
 | `for k in map` | `map of K to V` keys, hash order | `K` |
 | `for k, v in map` | key and value, hash order (no index) | `K`, `V` |
 | `for x in a .. b` | integer range `[a, b)` | `int` |
+| `for i in a to b` | integer range `[a, b)` (same as `..`) | `int` |
 
 The indexed form `for i, v in col` requires distinct names (`E0037`); `_`
 discards either binding. A map has no meaningful index: two bindings over a
 map are the **key and the value**, and the third form (`for kk, vv`) is the
 same. Iterating a map walks its hash order, so the order is unspecified.
 
-`a .. b` is the expression form of a range (the same as `for i from a to b`);
-it evaluates to `range of int` and is half-open: `1 .. 4` yields `1`, `2`, `3`.
+`a .. b` and `a to b` are the expression forms of a range (the same as
+`for i from a to b`); both evaluate to `range of int` and are half-open:
+`1 .. 4` and `1 to 4` yield `1`, `2`, `3`. Inside `for … in` and to the right
+of `in`, `to` is a range separator, not a cast; outside them it keeps meaning
+"cast to type" (`x to int`).
 
 **Comprehensions** build a list from an expression:
 

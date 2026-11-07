@@ -87,7 +87,10 @@ weave pvalues_parse_for with p as ref to PsParser into int:
     calling ps_begin_children with p
     calling pvalues_add_name with p
     var ignored2 as Token is calling ps_expect_kw with p, KwIn, "'in'"
+    var wasrange as bool is p->range_to
+    set p->range_to is true
     var iterable as int is calling pexpr.pexpr_parse_expr with p
+    set p->range_to is wasrange
     calling ps_add_child with p, iterable
     var has_cond as bool is false
     if calling ps_check_kw with p, KwWhen:
