@@ -652,7 +652,8 @@ extern "C"
 #define PENGU_OOM_ABORT 1
 #endif
 
-/* Integer-overflow checks are opt-out via --release-unsafe (roadmap 5.1). */
+/* Reserved for checked arithmetic (roadmap); codegen does not emit checked
+ * operations yet, so overflow currently wraps like C. */
 #ifndef PENGU_OVERFLOW_CHECK
 #define PENGU_OVERFLOW_CHECK 1
 #endif

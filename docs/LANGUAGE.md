@@ -1,7 +1,7 @@
 # PenguScript Language Reference
 
 PenguScript is a small, statically typed language that compiles to C. This
-reference documents the language as implemented by `psc` 0.48.0: every
+reference documents the language as implemented by `psc` 0.49.0: every
 construct, its semantics, and the C it lowers to.
 
 It is the *language* document of the documentation set:
@@ -142,7 +142,7 @@ own section (generics, memory, interop).
 * The keyword lists, type mappings and diagnostic codes are exhaustive; the
   prose is not — [PENGUNIC.md](PENGUNIC.md) covers *how to use* the language and
   [STDLIB.md](STDLIB.md) covers the standard library.
-* Version: `psc` 0.48.0. The ABI version the generated C expects is 3.
+* Version: `psc` 0.49.0. The ABI version the generated C expects is 3.
 
 ## 1. Lexical structure
 
@@ -421,9 +421,11 @@ weave main into int:
 
 ### 3.4 Safety guarantees and opt-outs
 
-Bounds, integer-overflow and null checks are on by default. They are disabled
-per build with `--release-unsafe` (release profile), never per statement. See
-§16 for the build profiles and §14 for what stays manual even with checks on.
+Bounds checks are on by default (indexing a list, slice, array, string or map
+aborts with a message on out-of-range indices). Integer-overflow checks are
+**not implemented yet**: arithmetic wraps like C. `--release-unsafe` turns the
+bounds check off for a release build, never per statement. See §16 for the
+build profiles and §14 for what stays manual even with checks on.
 
 ## 4. Operators
 
@@ -467,8 +469,9 @@ var s as int is a << 2
 (remainder keeps the sign of the dividend). `%` on `float` is `E0005`. Use
 `std.fractio` for floating-point helpers.
 
-Integer overflow is checked in debug and release (it aborts); `--release-unsafe`
-turns the check off and leaves C wraparound.
+Integer arithmetic is unchecked in this release: `int` wraps like C
+(`2147483647 + 1` is `-2147483648`). Checked arithmetic is planned; division by
+zero still aborts (`SIGFPE`). `--release-unsafe` only affects bounds checks.
 
 ### 4.3 Comparison, membership, word tests
 
@@ -2188,7 +2191,7 @@ $ psc test --diagnostics=json   # JSON Lines events for CI
 | `--out=PATH` | artifact path |
 | `--exe` | link an executable even for a library project |
 | `--strict-c99` | portable C99 (no statement expressions) |
-| `--release-unsafe` | disable bounds/overflow checks |
+| `--release-unsafe` | disable bounds checks |
 | `--verbose` | print the compiler command |
 
 `--diagnostics=json` on `check`/`build`/`test` emits machine-readable diagnostics. Exit

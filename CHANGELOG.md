@@ -2,6 +2,22 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.49.0] — 2026-11-07 — Memoria y aritmética: documentar lo real
+
+### Añadido
+
+- `tests/pengu/overflow.pengu` (la aritmética entera da la vuelta como C) y
+  `tests/regress_bounds.sh` (indexar fuera de rango aborta con mensaje y
+  código 134).
+
+### Corregido
+
+- `LANGUAGE` §3.4/§4.2/§19 ya no afirman que el desbordamiento de enteros se
+  comprueba: en esta versión la aritmética envuelve como C y sólo las
+  comprobaciones de límites están activas. El comentario de
+  `PENGU_OVERFLOW_CHECK` en `pengu_runtime.h` dice lo mismo (reservado para la
+  aritmética comprobada).
+
 ## [0.48.0] — 2026-11-07 — Diagnósticos honestos de asignación y `transmute`
 
 ### Añadido

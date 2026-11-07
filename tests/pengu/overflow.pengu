@@ -1,0 +1,13 @@
+## La aritmética entera da la vuelta como C (documentado en §4.2).
+
+weave main into int:
+    var a as int is 2147483647
+    var b as int is a + 1
+    if b != -2147483648:
+        return 1
+    var c as int is -2147483648
+    var d as int is c - 1
+    if d != 2147483647:
+        return 2
+    calling print with "ok\n"
+    return 0

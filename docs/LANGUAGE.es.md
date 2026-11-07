@@ -1,7 +1,7 @@
 # Referencia del lenguaje PenguScript
 
 PenguScript es un lenguaje pequeño y de tipado estático que compila a C. Esta
-referencia documenta el lenguaje tal como lo implementa `psc` 0.48.0: cada
+referencia documenta el lenguaje tal como lo implementa `psc` 0.49.0: cada
 construcción, su semántica y el C al que se reduce.
 
 Es el documento de *lenguaje* del conjunto de documentación:
@@ -144,7 +144,7 @@ rasgos que necesitan su propia sección (genéricos, memoria, interop).
   diagnóstico son exhaustivos; la prosa no lo es — [PENGUNIC.es.md](PENGUNIC.es.md)
   cubre *cómo usar* el lenguaje y [STDLIB.es.md](STDLIB.es.md) cubre la
   biblioteca estándar.
-* Versión: `psc` 0.48.0. La versión de ABI que espera el C generado es 3.
+* Versión: `psc` 0.49.0. La versión de ABI que espera el C generado es 3.
 
 ## 1. Estructura léxica
 
@@ -428,10 +428,12 @@ función (`E0008`).
 
 ### 3.4 Garantías de seguridad y renuncias
 
-Las comprobaciones de límites, de desbordamiento de enteros y de nulos están
-activas por defecto. Se desactivan por build con `--release-unsafe` (perfil
-release), nunca por sentencia. Consulta §16 para los perfiles de build y §14
-para lo que sigue siendo manual incluso con las comprobaciones activas.
+Las comprobaciones de límites están activas por defecto (indexar fuera de rango
+una lista, slice, array, string o mapa aborta con un mensaje). Las de
+desbordamiento de enteros **aún no se implementan**: la aritmética da la vuelta
+como en C. `--release-unsafe` desactiva la comprobación de límites en un build
+release, nunca por sentencia. Consulta §16 para los perfiles de build y §14 para
+lo que sigue siendo manual incluso con las comprobaciones activas.
 
 ## 4. Operadores
 
@@ -475,8 +477,10 @@ var s as int is a << 2
 (el resto conserva el signo del dividendo). `%` sobre `float` es `E0005`. Usa
 `std.fractio` para utilidades de coma flotante.
 
-El desbordamiento entero se comprueba en debug y en release (aborta);
-`--release-unsafe` desactiva la comprobación y deja el desbordamiento de C.
+La aritmética entera no se comprueba en esta versión: un `int` da la vuelta
+como en C (`2147483647 + 1` es `-2147483648`). La aritmética comprobada está
+planificada; dividir por cero sí aborta (`SIGFPE`). `--release-unsafe` sólo
+afecta a las comprobaciones de límites.
 
 ### 4.3 Comparación, pertenencia y tests de palabras
 
@@ -2216,7 +2220,7 @@ $ psc test --diagnostics=json   # eventos JSON Lines para CI
 | `--out=PATH` | ruta del artefacto |
 | `--exe` | enlaza un ejecutable incluso en un proyecto de librería |
 | `--strict-c99` | C99 portable (sin statement expressions) |
-| `--release-unsafe` | desactiva comprobaciones de límites/desbordamiento |
+| `--release-unsafe` | desactiva las comprobaciones de límites |
 | `--verbose` | imprime el comando del compilador |
 
 `--diagnostics=json` en `check`/`build`/`test` emite diagnósticos legibles por máquina.
