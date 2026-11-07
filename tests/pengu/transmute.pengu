@@ -1,0 +1,16 @@
+## `transmute` reinterpreta bits, no convierte valores.
+
+weave main into int:
+    var f as f32 is 1.0
+    var bits as int is transmute f to int
+    if bits != 1065353216:
+        return 1
+    var g as f32 is 1.5
+    var bits2 as int is transmute g to int
+    if bits2 != 1069547520:
+        return 2
+    var back as f32 is transmute bits to f32
+    if back != 1.0:
+        return 3
+    calling print with "ok\n"
+    return 0

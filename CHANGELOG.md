@@ -2,6 +2,26 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.48.0] — 2026-11-07 — Diagnósticos honestos de asignación y `transmute`
+
+### Añadido
+
+- `set nombre is …` sobre un nombre no declarado ahora es `E0004`
+  ("assignment to an undeclared name"), con el span del destino. Antes el
+  sema lo aceptaba y sólo fallaba el compilador de C.
+- `banish` exige un lugar direccionable (`var`, campo, `->`, índice o
+  `essence of`) y rechaza literales y temporales con `E0008`, como ya decía
+  §13.2.
+- `tests/pengu/transmute.pengu`, `tests/regress_assign_undeclared.sh`,
+  `tests/regress_banish_literal.sh`.
+
+### Corregido
+
+- `transmute x to T` ahora **reinterpreta bits**: copia `min(sizeof(T),
+  sizeof(x))` bytes con `pengu_transmute_copy`, así que `transmute 1.0 to int`
+  es `1065353216` (antes emitía un cast de C y daba `1`). También funciona con
+  punteros a función y tipos declarados con `ctype.declare`.
+
 ## [0.47.0] — 2026-11-07 — Honestidad en omens de cadena y `seal`
 
 ### Añadido

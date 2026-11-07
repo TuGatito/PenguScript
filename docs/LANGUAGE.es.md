@@ -1,7 +1,7 @@
 # Referencia del lenguaje PenguScript
 
 PenguScript es un lenguaje pequeño y de tipado estático que compila a C. Esta
-referencia documenta el lenguaje tal como lo implementa `psc` 0.47.0: cada
+referencia documenta el lenguaje tal como lo implementa `psc` 0.48.0: cada
 construcción, su semántica y el C al que se reduce.
 
 Es el documento de *lenguaje* del conjunto de documentación:
@@ -144,7 +144,7 @@ rasgos que necesitan su propia sección (genéricos, memoria, interop).
   diagnóstico son exhaustivos; la prosa no lo es — [PENGUNIC.es.md](PENGUNIC.es.md)
   cubre *cómo usar* el lenguaje y [STDLIB.es.md](STDLIB.es.md) cubre la
   biblioteca estándar.
-* Versión: `psc` 0.47.0. La versión de ABI que espera el C generado es 3.
+* Versión: `psc` 0.48.0. La versión de ABI que espera el C generado es 3.
 
 ## 1. Estructura léxica
 
@@ -1229,7 +1229,9 @@ weave bits_of with f as float into u32:
     return transmute f to u32
 ```
 
-`transmute x to T` reinterpreta los bits (sin comprobación). `@packed` elimina
+`transmute x to T` reinterpreta los bits (sin comprobación): copia
+`min(sizeof(T), sizeof(x))` bytes a través de un temporal, así que
+`transmute 1.0 to int` es `1065353216`, no `1`. `@packed` elimina
 el relleno del struct; `@align(N)` fija la alineación. Ambos cambian el layout
 de C y están pensados para formatos en disco o de red — consulta §14.
 

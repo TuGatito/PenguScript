@@ -300,6 +300,15 @@ weave check_stmt with s as ref to state.SemaState, node as int into void:
     if k == pskind.NodeKind.NdBanishStmt:
         var e3 as int is calling astutil.node_child with s->ast, node, 0
         if e3 >= 0:
+            var bw3 as int is e3
+            while (calling astutil.kind_of with s->ast, bw3) == pskind.NodeKind.NdParenExpr:
+                var bwn as int is calling astutil.node_child with s->ast, bw3, 0
+                if bwn < 0:
+                    break
+                set bw3 is bwn
+            var bk3 as pskind.NodeKind is calling astutil.kind_of with s->ast, bw3
+            if not (bk3 == pskind.NodeKind.NdVarRef or bk3 == pskind.NodeKind.NdFieldAccess or bk3 == pskind.NodeKind.NdArrowAccess or bk3 == pskind.NodeKind.NdAtExpr or bk3 == pskind.NodeKind.NdAtAccess or bk3 == pskind.NodeKind.NdDotAccess or bk3 == pskind.NodeKind.NdEssenceOf or bk3 == pskind.NodeKind.NdSelfRef):
+                calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MEMORY_OP, (calling astutil.start_of with s->ast, e3), (calling astutil.end_of with s->ast, e3), "banish needs a place it can take the address of", "Bind the value first: 'var tmp as T is …', then 'banish tmp'.", ""
             var bt as int is calling state.call_infer with s, e3, -1
             var bty as tk.SemaType is calling types.at with s->types, bt
             if bty.kind == tk.SemaTypeKind.TkRune or bty.kind == tk.SemaTypeKind.TkEcho:
@@ -501,6 +510,8 @@ weave check_set with s as ref to state.SemaState, node as int, compound as bool 
                 var ttxt as string is calling astutil.token_text with s->src, s->lex, ttok
                 defer banish ttxt
                 var tsid as int is calling symbols.lookup_name with s->symbols, ttxt
+                if tsid < 0 and (calling astutil.child_count with s->ast, tnode) == 1:
+                    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_UNDEFINED, (calling astutil.start_of with s->ast, tnode), (calling astutil.end_of with s->ast, tnode), "assignment to an undeclared name '{ttxt}'", "Declare it with 'var {ttxt} as T is …' first.", ""
                 if tsid >= 0:
                     var tsym as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, tsid
                     if (tsym.flags & sym.SYM_MOVED) != 0:

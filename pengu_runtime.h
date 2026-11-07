@@ -1703,7 +1703,13 @@ extern "C"
    * @param dst Destination string (may alias an owned local or field).
    * @param v Value appended; its bytes are copied into the new buffer.
    */
-  static inline void pengu_string_append(PenguString *dst, PenguString v)
+  /* `transmute` reinterpreta bits: copia el mínimo de los dos tamaños sin leer
+   fuera del origen. */
+static inline void pengu_transmute_copy(void *dst, const void *src, size_t dst_size, size_t src_size) {
+    memcpy(dst, src, dst_size < src_size ? dst_size : src_size);
+}
+
+static inline void pengu_string_append(PenguString *dst, PenguString v)
   {
     if (!dst)
       return;

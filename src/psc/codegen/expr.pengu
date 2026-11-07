@@ -275,7 +275,29 @@ weave emit_expr with c as ref to context.CgContext, node as int into string:
             return tmvn
         var tmct as string is calling ctype.c_type with (sigil of c->names), tmty
         defer banish tmct
-        return "(({tmct})({tmvn}))"
+        # `transmute` reinterpreta bits (no convierte): temp + memcpy del tamaño
+        # menor, para no leer fuera del origen cuando los tamaños difieren.
+        var tmst as int is calling node_type with c, tmv
+        var tmsc as string is ""
+        if tmst > 0:
+            set tmsc is calling ctype.c_type with (sigil of c->names), tmst
+        defer banish tmsc
+        if tmsc == "" or tmsc == tmct:
+            return "(({tmct})({tmvn}))"
+        var tsb as StringBuilder is calling StringBuilder.new
+        defer banish tsb
+        var tmdecl as string is calling ctype.declare with tmsc, "_tm"
+        defer banish tmdecl
+        var tddecl as string is calling ctype.declare with tmct, "_td"
+        defer banish tddecl
+        calling tsb.append with "__extension__(({ "
+        calling tsb.append with tmdecl
+        calling tsb.append with " = "
+        calling tsb.append with tmvn
+        calling tsb.append with "; "
+        calling tsb.append with tddecl
+        calling tsb.append with "; pengu_transmute_copy(&_td, &_tm, sizeof(_td), sizeof(_tm)); _td; }))"
+        return calling tsb.finish
     if k == pskind.NodeKind.NdSizeOf:
         var stn as int is calling astutil.node_child with ast, node, 0
         var sty as int is calling tast.type_from_ast_subst with c, m, stn
