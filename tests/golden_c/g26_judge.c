@@ -69,8 +69,9 @@ void pengu_main(void) {
     #line 24 "tests/golden_c/g26_judge.pengu"
     (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s %d %s\n", (int)d.len, d.data, ((int32_t)(r)), __extension__(({ const char* _on; switch ((s)) { case State_Idle: _on = "Idle"; break; case State_Busy: _on = "Busy"; break; case State_Failed: _on = "Failed"; break; default: _on = "?"; } _on; }))); pengu_builtin_print(p_t0); pengu_banish_string(&p_t0); 0; })));
     #line 25 "tests/golden_c/g26_judge.pengu"
-    int32_t _js4 = 2;
-    switch (_js4) {
+    int32_t _jd4 = 2;
+    (void)_jd4;
+    switch ((int64_t)(_jd4)) {
         case 2: {
             #line 27 "tests/golden_c/g26_judge.pengu"
             (void)(pengu_builtin_print(pengu_string_from_cstr_len("two\n", 4)));

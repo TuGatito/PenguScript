@@ -1,0 +1,57 @@
+# Golden: `judge` en sus cuatro formas (valor con bloque, sentencia, guardas
+# y sujeto string). Regresión de tres bugs: cadenas emitidas como `switch`,
+# alternancia colapsada a la última variante y `else` ignorado en modo valor.
+
+import std.spark
+
+omen Color:
+    Red is 0
+    Green is 1
+    Blue is 2
+
+# Sujeto string, modo valor, cuerpo en bloque.
+weave pick with s as string into int:
+    let x as int is judge s:
+        when "a" ->
+            calling spark.println with "arm a"
+            5
+        else ->
+            0
+    return x
+
+# Sujeto string, modo sentencia, con alternancia.
+weave name_stmt with s as string:
+    judge s:
+        when "a" | "b" ->
+            calling spark.println with "ab"
+        else ->
+            calling spark.println with "other"
+
+# Guardas en modo valor: la cadena de `if` decide y el temporal recoge.
+weave guarded with n as int into string:
+    let r as string is judge n:
+        when 1 if n > 0 ->
+            "one"
+        when 1 ->
+            "minus-one"
+        else ->
+            "other"
+    return r
+
+# Modo sentencia sobre omen con etiquetas múltiples.
+weave color_stmt with c as Color:
+    judge c:
+        when Color.Red | Color.Blue ->
+            calling spark.println with "rb"
+        else ->
+            calling spark.println with "g"
+
+weave main:
+    calling spark.println with "{calling pick with "a"} {calling pick with "z"}"
+    calling name_stmt with "a"
+    calling name_stmt with "b"
+    calling name_stmt with "z"
+    calling spark.println with "{calling guarded with 1} {calling guarded with 2}"
+    calling color_stmt with Red
+    calling color_stmt with Green
+    calling color_stmt with Blue

@@ -28,7 +28,6 @@ en una fase del plan, o se elimina de la documentación.
 | `E0006` | `CODE_MUTABILITY` | 5 | emitido | sí |
 | `E0007` | `CODE_CONTROL_FLOW` | 2 | emitido | sí |
 | `E0008` | `CODE_MEMORY_OP` | 15 | emitido | sí |
-| `E0009` | `CODE_WITH_TARGET` | 2 | emitido | sí |
 | `E0014` | `CODE_BUILDER` | 0 | **sin emisor** | sí |
 | `E0015` | `CODE_ARRAY_UNKNOWN` | 1 | emitido | sí |
 | `E0019` | `CODE_INTERP_PARSE` | 3 | emitido | sí |
@@ -79,7 +78,7 @@ en una fase del plan, o se elimina de la documentación.
 | `E0074` | `CODE_MANY_DEFAULT` | 1 | emitido | sí |
 | `E0075` | `CODE_MANY_DECLARE` | 1 | emitido | sí |
 | `E0076` | `CODE_MAP_LITERAL_TYPE` | 2 | emitido | sí |
-| `E0077` | `CODE_WITH_TARGET` | 2 | emitido | sí |
+| `E0077` | `CODE_WITH_TARGET` | 1 | emitido | sí |
 | `E0079` | `CODE_BIND_COUNT` | 1 | emitido | sí |
 | `W0001` | `WARN_TRANSMUTE` | 0 | **sin emisor** | sí |
 | `W0002` | `WARN_ECHO_ACCESS` | 0 | **sin emisor** | sí |

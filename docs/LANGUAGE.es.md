@@ -2378,7 +2378,6 @@ los avisos no.
 | `E0006` | violación de mutabilidad |
 | `E0007` | `break`/`continue` fuera de un bucle, o etiqueta que no lo envuelve |
 | `E0008` | operación de memoria inválida (`banish` de un temporal, literal, `frozen`, …) |
-| `E0009` | destino `with` inválido |
 | `E0014` | sentencia inválida dentro de un constructor `with:` |
 | `E0015` | dimensión de array desconocida |
 | `E0019` | expresión de interpolación inválida |

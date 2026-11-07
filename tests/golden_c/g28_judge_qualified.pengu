@@ -1,0 +1,34 @@
+# Golden: judge con patrones cualificados y alternativas.
+
+omen Color:
+    Red is 0
+    Green is 1
+    Blue is 2
+
+# `judge` como valor: cada brazo cualificado emite su `case` con el nombre
+# C de la variante. Regresión: antes del arreglo solo se emitía `default:`.
+weave name_of with c as Color into string:
+    return judge c:
+        when Color.Red -> "red"
+        when Color.Green -> "green"
+        when Color.Blue -> "blue"
+        else -> "unknown"
+
+# `judge` como sentencia sobre el mismo omen, con un brazo compartido.
+weave describe with c as Color into void:
+    judge c:
+        when Color.Red ->
+            calling print with "warm\n"
+        when Color.Green | Color.Blue ->
+            calling print with "cool\n"
+        else ->
+            calling print with "unknown\n"
+
+weave main:
+    var r as Color is Red
+    var g as Color is Green
+    var b as Color is Blue
+    calling print with "{calling name_of with r} {calling name_of with g} {calling name_of with b}\n"
+    calling describe with r
+    calling describe with g
+    calling describe with b

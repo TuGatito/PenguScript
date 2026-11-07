@@ -44,6 +44,47 @@ weave guarded with n as int into int:
         when 5 -> 5
         else -> 0
 
+# Guarda que sí se cumple: la cadena de `if` debe elegir este brazo.
+weave guarded_hit with n as int into int:
+    return judge n:
+        when 5 if n == 5 -> 9
+        else -> 0
+
+# Sujeto `string` en modo valor, con alternancia de literales.
+weave str_label with s as string into string:
+    return judge s:
+        when "a" -> "A"
+        when "b" | "c" -> "BC"
+        else -> "?"
+
+# Sujeto `string` en modo sentencia.
+weave str_stmt with s as string into int:
+    var seen as int is 0
+    judge s:
+        when "a" | "b" ->
+            set seen is 1
+        else ->
+            set seen is 2
+    return seen
+
+# `judge` en modo valor con cuerpo en bloque y `else` que sí debe recogerse.
+weave block_val with n as int into int:
+    let x as int is judge n:
+        when 1 ->
+            10
+        else ->
+            0
+    return x
+
+# Guarda en modo valor con cuerpo en bloque.
+weave block_guard with n as int into int:
+    let y as int is judge n:
+        when 1 if n == 1 ->
+            7
+        else ->
+            0
+    return y
+
 weave main into int:
     if (calling score with Failed) != 3:
         return 1
@@ -76,5 +117,15 @@ weave main into int:
             set seen is 0
     if seen != 12:
         return 10
+    if (calling guarded_hit with 5) != 9:
+        return 11
+    if (calling str_label with "a") != "A" or (calling str_label with "b") != "BC" or (calling str_label with "c") != "BC" or (calling str_label with "z") != "?":
+        return 12
+    if (calling str_stmt with "a") != 1 or (calling str_stmt with "z") != 2:
+        return 13
+    if (calling block_val with 1) != 10 or (calling block_val with 9) != 0:
+        return 14
+    if (calling block_guard with 1) != 7 or (calling block_guard with 2) != 0:
+        return 15
     calling print with "ok\n"
     return 0

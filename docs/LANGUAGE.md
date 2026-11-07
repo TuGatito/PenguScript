@@ -2344,7 +2344,6 @@ Every diagnostic has a stable code. Errors stop the compilation; warnings do not
 | `E0006` | mutability violation |
 | `E0007` | `break`/`continue` outside a loop, or a label that does not enclose |
 | `E0008` | invalid memory operation (`banish` of a temporary, literal, `frozen`, …) |
-| `E0009` | invalid `with` target |
 | `E0014` | invalid statement inside a `with:` builder |
 | `E0015` | array dimension unknown |
 | `E0019` | invalid interpolation expression |

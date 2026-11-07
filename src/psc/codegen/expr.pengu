@@ -796,6 +796,36 @@ weave in_expr with c as ref to context.CgContext, node as int, ast as ref to psa
         return nres
     return inner
 
+## Devuelve el token que nombra la variante `idx` de un patrón `when`.
+##
+## `when Color.Red` guarda el nombre cualificado en un nodo `when_variant`, así
+## que sus tokens no cuelgan del patrón sino del hijo; `when A | B` los cuelga
+## del patrón separados por `|`. Esta rutina aplana ambos casos.
+##
+## ## Memoria
+## Solo lee el AST; no reserva y devuelve un índice de token (-1 si no hay).
+weave pattern_variant_token with m as loader.SemaModule, ast as ref to psast.PsAst, pat as int, idx as int into int:
+    var seen as int is 0
+    var i as int is 0
+    var n as int is calling astutil.child_count with ast, pat
+    while i < n:
+        var cand as int is -1
+        var t as int is calling astutil.token_child with ast, pat, i
+        if t >= 0:
+            var txt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), t
+            if txt != "|":
+                set cand is t
+            banish txt
+        else:
+            var ch as int is calling astutil.node_child with ast, pat, i
+            if ch >= 0:
+                set cand is calling last_token_deep with ast, ch
+        if cand >= 0:
+            if seen == idx:
+                return cand
+            set seen is seen + 1
+        set i is i + 1
+    return -1
 ## Condición C que casa un patrón de `judge` contra el temporal del sujeto.
 ##
 ## ## Memoria
@@ -829,10 +859,12 @@ weave judge_cond_c with c as ref to context.CgContext, st as int, pat as int, as
             return calling sb.finish
         var first as bool is true
         var ci as int is 0
-        var cn as int is calling astutil.child_count with ast, pat
-        while ci < cn:
-            var ptk as int is calling astutil.token_child with ast, pat, ci
-            if ptk >= 0:
+        var more as bool is true
+        while more:
+            var ptk as int is calling pattern_variant_token with m, ast, pat, ci
+            if ptk < 0:
+                set more is false
+            else:
                 var txt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), ptk
                 if txt != "|":
                     if not first:
@@ -861,7 +893,7 @@ weave judge_cond_c with c as ref to context.CgContext, st as int, pat as int, as
                         calling sb.append with vc2
                         banish vc2
                 banish txt
-            set ci is ci + 1
+                set ci is ci + 1
         if first:
             calling sb.append with "0"
         return calling sb.finish
@@ -3233,82 +3265,14 @@ weave judge_expr_c with c as ref to context.CgContext, node as int, ast as ref t
     if rt <= 0:
         set rt is 1
     var stt0 as tk.SemaType is calling types.at with (sigil of c->program->types), st
+    # Sujeto `string`: se despacha con la cadena de `if` (no hay `switch`
+    # sobre cadenas); `judge_cond_c` emite `pengu_string_equal`.
+    var subj_str as bool is false
     if stt0.kind == tk.SemaTypeKind.TkBase:
         var sbnm as string is calling npool.text with (sigil of c->program->names), stt0.name
         if sbnm == "string":
-            var mstr as loader.SemaModule is (c->program->modules at c->current_module)
-            var ssub as string is calling emit_expr with c, subj
-            defer banish ssub
-            var srct as string is calling ctype.c_type with (sigil of c->names), rt
-            defer banish srct
-            var sjt as string is calling emit.temp with (sigil of c->emitter), "_js"
-            var sjr as string is calling emit.temp with (sigil of c->emitter), "_jo"
-            defer banish sjt
-            defer banish sjr
-            var jsb as StringBuilder is calling StringBuilder.new
-            defer banish jsb
-            calling jsb.append with "__extension__(({ PenguString "
-            calling jsb.append with sjt
-            calling jsb.append with " = "
-            calling jsb.append with ssub
-            calling jsb.append with "; "
-            calling jsb.append with srct
-            calling jsb.append with " "
-            calling jsb.append with sjr
-            calling jsb.append with r" = {0}; "
-            var firsts as bool is true
-            var has_elses as bool is false
-            var si as int is 0
-            var sn as int is calling astutil.child_count with ast, node
-            while si < sn:
-                var scl as int is calling astutil.node_child with ast, node, si
-                if scl >= 0:
-                    var sck as pskind.NodeKind is calling astutil.kind_of with ast, scl
-                    if sck == pskind.NodeKind.NdWhenClause:
-                        var spn as int is calling astutil.node_child with ast, scl, 0
-                        var sbd as int is calling astutil.node_child with ast, scl, 3
-                        if sbd < 0:
-                            set sbd is calling astutil.node_child with ast, scl, 2
-                        if spn >= 0 and sbd >= 0:
-                            var spt as int is calling last_token_deep with ast, spn
-                            if spt >= 0:
-                                var sptx as string is calling astutil.token_text with (sigil of mstr.source), (sigil of mstr.lex), spt
-                                var sbv as string is calling emit_expr_as with c, sbd, rt
-                                if firsts:
-                                    calling jsb.append with "if (pengu_string_equal("
-                                    set firsts is false
-                                else:
-                                    calling jsb.append with "else if (pengu_string_equal("
-                                calling jsb.append with sjt
-                                calling jsb.append with ", pengu_string_from_cstr("
-                                calling jsb.append with sptx
-                                calling jsb.append with "))) { "
-                                calling jsb.append with sjr
-                                calling jsb.append with " = "
-                                calling jsb.append with sbv
-                                calling jsb.append with "; } "
-                                banish sbv
-                                banish sptx
-                    else if sck == pskind.NodeKind.NdElseClause:
-                        var sbe as int is calling astutil.node_child with ast, scl, 0
-                        if sbe < 0:
-                            set sbe is scl
-                        var sbv2 as string is calling emit_expr_as with c, sbe, rt
-                        if firsts:
-                            calling jsb.append with "{ "
-                        else:
-                            calling jsb.append with "else { "
-                        calling jsb.append with sjr
-                        calling jsb.append with " = "
-                        calling jsb.append with sbv2
-                        calling jsb.append with "; } "
-                        set has_elses is true
-                        set firsts is false
-                        banish sbv2
-                set si is si + 1
-            calling jsb.append with sjr
-            calling jsb.append with r"; }))"
-            return calling jsb.finish
+            set subj_str is true
+        banish sbnm
     if stt0.kind != tk.SemaTypeKind.TkOmen or not (calling omen_has_layout with c, st):
         var m0 as loader.SemaModule is (c->program->modules at c->current_module)
         var ci0 as int is 0
@@ -3342,13 +3306,14 @@ weave judge_expr_c with c as ref to context.CgContext, node as int, ast as ref t
         defer banish jt0
         defer banish jr0
         # Con guardas, un `switch` duplicaría `case`; se emite una cadena de `if`.
-        var has_g as bool is false
+        var has_g as bool is subj_str
         var qi as int is 0
         var qn as int is calling astutil.child_count with ast, node
         while qi < qn:
             var qcl as int is calling astutil.node_child with ast, node, qi
             if qcl >= 0 and (calling astutil.kind_of with ast, qcl) == pskind.NodeKind.NdWhenClause:
-                if (calling astutil.node_child with ast, qcl, 2) >= 0:
+                var qg as int is calling astutil.node_child with ast, qcl, 2
+                if subj_str or (qg >= 0 and (calling astutil.kind_of with ast, qg) == pskind.NodeKind.NdWhenGuard):
                     set has_g is true
             set qi is qi + 1
         if has_g:
@@ -3358,7 +3323,7 @@ weave judge_expr_c with c as ref to context.CgContext, node as int, ast as ref t
             calling sbn.append with rct0
             calling sbn.append with " "
             calling sbn.append with jr0
-            calling sbn.append with " = {0}; bool "
+            calling sbn.append with r" = {0}; bool "
             calling sbn.append with jm0
             calling sbn.append with " = false; "
             var gi0 as int is 0
@@ -3370,8 +3335,10 @@ weave judge_expr_c with c as ref to context.CgContext, node as int, ast as ref t
                     var gk0 as pskind.NodeKind is calling astutil.kind_of with ast, gcl0
                     if gk0 == pskind.NodeKind.NdWhenClause:
                         var gp0 as int is calling astutil.node_child with ast, gcl0, 0
-                        var gg0 as int is calling astutil.node_child with ast, gcl0, 2
                         var gb0 as int is calling astutil.node_child with ast, gcl0, 3
+                        var gg0 as int is calling astutil.node_child with ast, gcl0, 2
+                        if gg0 >= 0 and (calling astutil.kind_of with ast, gg0) != pskind.NodeKind.NdWhenGuard:
+                            set gg0 is -1
                         if gb0 < 0:
                             set gb0 is calling astutil.node_child with ast, gcl0, 2
                         if gp0 >= 0 and gb0 >= 0:
@@ -3383,7 +3350,10 @@ weave judge_expr_c with c as ref to context.CgContext, node as int, ast as ref t
                             calling sbn.append with gc0
                             calling sbn.append with ")) { if ("
                             if gg0 >= 0:
-                                var gq0 as string is calling emit_expr with c, gg0
+                                var gnq as int is gg0
+                                if (calling astutil.kind_of with ast, gg0) == pskind.NodeKind.NdWhenGuard:
+                                    set gnq is calling astutil.node_child with ast, gg0, 0
+                                var gq0 as string is calling emit_expr with c, gnq
                                 calling sbn.append with gq0
                                 banish gq0
                             else:
@@ -3449,10 +3419,12 @@ weave judge_expr_c with c as ref to context.CgContext, node as int, ast as ref t
                             var pcases as bool is false
                             calling sbn.append with ""
                             var pci as int is 0
-                            var pcn as int is calling astutil.child_count with ast, ptn
-                            while pci < pcn:
-                                var ptk2 as int is calling astutil.token_child with ast, ptn, pci
-                                if ptk2 >= 0:
+                            var pmore as bool is true
+                            while pmore:
+                                var ptk2 as int is calling pattern_variant_token with m0, ast, ptn, pci
+                                if ptk2 < 0:
+                                    set pmore is false
+                                else:
                                     var ptx as string is calling astutil.token_text with (sigil of m0.source), (sigil of m0.lex), ptk2
                                     if ptx != "|":
                                         var pcase as string is calling npool.copy_string with ptx
@@ -3464,7 +3436,7 @@ weave judge_expr_c with c as ref to context.CgContext, node as int, ast as ref t
                                         set pcases is true
                                         banish pcase
                                     banish ptx
-                                set pci is pci + 1
+                                    set pci is pci + 1
                             if pcases:
                                 calling sbn.append with "{jr0} = {bv0}; break; "
                             banish bv0
