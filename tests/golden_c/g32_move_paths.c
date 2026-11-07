@@ -50,6 +50,7 @@ static inline void _pengu_cleanup_Label(Label* p) {
     pengu_banish_string(&(p->name));
     memset(p, 0, sizeof(*p));
 }
+static inline void _pengu_rc_drop_Label(void* p) { _pengu_cleanup_Label((Label*)p); }
 
 
 void spark_pengu_println(PenguString s) {

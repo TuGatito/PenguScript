@@ -216,9 +216,14 @@ weave infer with s as ref to state.SemaState, node as int, expected as int into 
     else if kind == pskind.NodeKind.NdBytesExpr:
         var frozen_byte as int is calling types.frozen with s->types, (calling types.base with s->types, "byte")
         set t is calling types.ref_to with s->types, frozen_byte
-    else if kind == pskind.NodeKind.NdSizeOf:
-        set t is calling types.base with s->types, "usize"
-    else if kind == pskind.NodeKind.NdAlignOf:
+    else if kind == pskind.NodeKind.NdSizeOf or kind == pskind.NodeKind.NdAlignOf:
+        # El tipo del `size of` debe quedar instanciado en F3: si solo lo
+        # resuelve el codegen, el catálogo de tipos ya está cerrado y la
+        # especialización (`Pair of string`) no se emite.
+        var szn as int is calling astutil.node_child with s->ast, node, 0
+        if szn >= 0:
+            var sztc as convert.TypeCtx is with types is s->types, symbols is s->symbols, names is s->names, bag is s->bag, src is s->src, lex is s->lex, ast is s->ast
+            var ignored_sz as int is calling convert.convert with (sigil of sztc), szn
         set t is calling types.base with s->types, "usize"
     else if kind == pskind.NodeKind.NdTypeOf:
         var tof as int is calling astutil.node_child with s->ast, node, 0

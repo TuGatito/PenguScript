@@ -1,0 +1,15 @@
+## `Rc`/`Arc`: el C generado muestra el thunk, el retain y el release.
+import std.consortium
+import std.spark
+
+rune Node:
+    value as int
+
+weave main into int:
+    var n as Node is with value is 5
+    var a as Rc of Node is calling Rc.new with n
+    var b as Rc of Node is a
+    var c as Arc of Node is calling Arc.new with n
+    var d as Arc of Node is calling c.clone
+    calling spark.println with "{calling a.strong_count}{calling c.strong_count}"
+    return 0
