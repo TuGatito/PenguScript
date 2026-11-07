@@ -1,0 +1,8 @@
+## Golden: lambda sin capturas pasada como parámetro función.
+weave apply with x as int, f as weave with y as int into int into int:
+    return calling f with x
+
+weave main into int:
+    var r as int is calling apply with 3, lambda n as int into n * 2
+    calling print with "{r}\n"
+    return 0

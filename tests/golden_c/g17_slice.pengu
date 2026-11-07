@@ -1,0 +1,7 @@
+## Golden: vista `at a to b`, longitud e índice.
+weave main into int:
+    var xs as list of int is [10, 20, 30, 40]
+    var view as slice of int is xs at 1 to 3
+    calling print with "{view.len} {view at 0}\n"
+    banish xs
+    return 0

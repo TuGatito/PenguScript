@@ -1,0 +1,10 @@
+## Golden: lista, push, recorrido y liberación.
+weave main into int:
+    var xs as list of int is [1, 2, 3]
+    calling xs.push with 4
+    var total as int is 0
+    for x in xs:
+        set total is total + x
+    calling print with "{total} {xs.len}\n"
+    banish xs
+    return 0

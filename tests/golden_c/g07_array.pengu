@@ -1,0 +1,6 @@
+## Golden: array de tamaño fijo, `at`, asignación por índice y `len`.
+weave main into int:
+    var xs as array of int with size 4 is [1, 2, 3, 4]
+    set xs at 0 is 10
+    calling print with "{xs at 0} {xs at 3}\n"
+    return 0

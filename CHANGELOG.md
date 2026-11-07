@@ -2,6 +2,44 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.37.0] — 2026-11-06 — Documentación verificable y catálogo de diagnósticos
+
+Primera fase del plan de lenguaje: la documentación deja de ser una promesa y
+pasa a tener *gates* que la comparan con el compilador, y el C emitido queda
+fijado por pruebas doradas.
+
+### Añadido
+
+- **`tests/golden_c/`**: 20 programas con su C versionado y su salida esperada.
+  El runner verifica que `psc emit-c` sigue produciendo el mismo C, que ese C
+  compila con `-std=c11 -pedantic -Wall -Wextra -Werror` y que el binario
+  imprime exactamente lo esperado. `tests/golden_c/regen.sh` regenera los
+  goldens tras un cambio de codegen intencional.
+- **`tools/docs/check_codes.py`** y **`docs/SEMA_ERRORS.md`**: catálogo generado
+  a partir de las constantes `CODE_*`/`WARN_*` (61 códigos), con la cuenta de
+  emisores por código. El chequeo falla si alguien cita un código inexistente
+  en `LANGUAGE.md`/`LANGUAGE.es.md` o si un código del compilador falta de la
+  tabla §18.
+- **`tools/docs/parity.py`**: verifica que las versiones en inglés y español de
+  la documentación conservan la misma estructura (secciones por nivel,
+  bloques de código y códigos citados).
+- CI: pasos nuevos para los goldens de C, el catálogo de diagnósticos y la
+  paridad ES/EN.
+
+### Cambiado
+
+- `LANGUAGE`/`LANGUAGE.es`: §3.1 lista las formas de declaración que el parser
+  acepta de verdad (se quitó `var (a, b)`, que no existe), documenta que una
+  constante `list`/`map` se evalúa en cada uso, §4.5 aclara que `chr` devuelve
+  un `string` de un carácter, §6.1 corrige `weave inline` y elimina la promesa
+  de inline automático, §15/§19 usan `--diagnostics=json`, y el apéndice C
+  describe `static var`, `weave inline` y el tipo `many`.
+- `docs/SEMA_ERRORS.md` existía solo como referencia rota; ahora se genera y se
+  verifica. El enlace de `docs/psc/README.md` apunta al archivo correcto.
+- Se eliminaron de la prosa las citas a `E0017`, `E0040`, `E0045`, `E0012` y
+  `E0046`, códigos que el compilador no emite todavía; vuelven cuando existan.
+- El LSP documenta `many T` (no `many of T`) y `chr` como string.
+
 ## [0.36.0] — 2026-11-06 — Cierre de los límites del reactor
 
 Cierra los cinco límites que quedaron documentados en 0.35.0: campos de runas

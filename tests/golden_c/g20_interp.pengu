@@ -1,0 +1,8 @@
+## Golden: interpolación con varios valores, literales y escapes.
+weave main into int:
+    var name as string is "pengu"
+    var n as int is 42
+    var ok as bool is true
+    calling print with "{name}: {n} {ok}\n"
+    calling print with "tab\there\n"
+    return 0

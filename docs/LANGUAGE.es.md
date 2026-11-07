@@ -1,7 +1,7 @@
 # Referencia del lenguaje PenguScript
 
 PenguScript es un lenguaje pequeño y de tipado estático que compila a C. Esta
-referencia documenta el lenguaje tal como lo implementa `psc` 0.36.0: cada
+referencia documenta el lenguaje tal como lo implementa `psc` 0.37.0: cada
 construcción, su semántica y el C al que se reduce.
 
 Es el documento de *lenguaje* del conjunto de documentación:
@@ -142,7 +142,7 @@ rasgos que necesitan su propia sección (genéricos, memoria, interop).
   diagnóstico son exhaustivos; la prosa no lo es — [PENGUNIC.es.md](PENGUNIC.es.md)
   cubre *cómo usar* el lenguaje y [STDLIB.es.md](STDLIB.es.md) cubre la
   biblioteca estándar.
-* Versión: `psc` 0.36.0. La versión de ABI que espera el C generado es 3.
+* Versión: `psc` 0.37.0. La versión de ABI que espera el C generado es 3.
 
 ## 1. Estructura léxica
 
@@ -176,7 +176,7 @@ renderiza ambas (§16.3).
 Los identificadores empiezan por una letra o `_` y continúan con letras, dígitos
 o `_`. `_` por sí solo es el binding de descarte (`for _, v in xs`). Los nombres
 que chocan con palabras reservadas de C o con nombres de tipos de C se rechazan
-(`E0035`); también `main` como constante (`E0040`).
+(`E0035`); también `main` como constante.
 
 El lenguaje tiene 71 palabras reservadas; el Apéndice A las enumera. No hay
 keywords contextuales tipo `true`, salvo `over` (solo tiene sentido tras el
@@ -306,7 +306,7 @@ del que los tiene, salvo que una función devuelva una vista prestada (§14).
 
 ### 3.1 Declaraciones
 
-Se aceptan ocho formas:
+Estas formas se aceptan:
 
 ```pengu-fragment
 var count as int is 0                 # tipado, mutable
@@ -316,7 +316,6 @@ let greeting is "Hello"               # string inferido
 var buffer as array of byte with size 64 is array of byte with size 64
 
 let (x, y) is point_value             # destructuring, inferido
-var (id, label) as (int, string) is user_record
 let (r, g, b, a) as Color is current_color
 
 const MAX_USERS as int is 1024        # solo top level, en tiempo de compilación
@@ -331,12 +330,11 @@ Reglas:
 * `var`/`let` están prohibidos en top level (`E0002`). El estado de nivel
   superior es `const`, o `static var` dentro de una función.
 * `const` solo existe en top level (`E0001`) y debe ser una expresión de tiempo
-  de compilación. Las constantes `list` y `map` se rechazan (`E0005`); usa
-  `array of T`.
+  de compilación. Una constante `list` o `map` evalúa su expresión en cada uso;
+  si querés un único objeto estático, usa `array of T`.
 * `null` necesita tipo explícito: `const NIL as ref to int is null`.
 * El destructuring funciona con runes (campos en orden de declaración), arrays
-  fijos, slices y listas; cualquier otra cosa, o un número de bindings
-  incorrecto, es `E0017`.
+  fijos, slices y listas.
 
 ### 3.2 Asignación y `set`
 
@@ -486,10 +484,11 @@ aritmética de punteros (escalada por elemento). La aritmética sobre
 ```pengu-fragment
 var c as char is 'A'
 var code as int is ord c        # 65
-var back as char is chr 65      # 'A'
+var back as string is chr 65    # "A"
 ```
 
-`ord` acepta `char`; `chr` acepta un entero entre 0 y 255.
+`ord` acepta `char`; `chr` acepta un entero entre 0 y 255 y devuelve un
+`string` de un carácter.
 
 ### 4.6 Casts y conversiones
 
@@ -753,8 +752,7 @@ weave double with x as int into int:
   `calling greet with "Ada", times is 2`.
 * La lista de argumentos tras `with` es voraz — pon paréntesis a una llamada
   usada dentro de una expresión mayor: `(calling get_count) > 0`.
-* Los weaves pequeños (≤ 3 sentencias, sin bucles, sin `static`) se inlinean
-  automáticamente; `inline weave ...` lo fuerza. El C recibe
+* `weave inline ...` fuerza que la función de C se emita como
   `static inline __attribute__((always_inline))`.
 
 `psc emit-c` convierte cada weave en una función de C llamada `<módulo>_<nombre>`:
@@ -950,7 +948,7 @@ weave main into int:
     return 0
 ```
 
-* `opaque` es un tipo de C incompleto: no se puede instanciar (`E0012`) y solo
+* `opaque` es un tipo de C incompleto: no se puede instanciar y solo
   se usa tras `ref to`.
 * `bytes of s` produce `ref to byte` para un string o un array fijo de bytes; la
   vista es prestada y no debe banishearse.
@@ -993,7 +991,7 @@ El cuerpo es C literal en un string con triple comilla. Las reglas de cabecera
 son las de `weave` (`shard`, `where`, valores por defecto, cualquier tipo de
 parámetro); el cuerpo ve los nombres de los parámetros tal cual, así que deben
 ser identificadores de C válidos (`E0035`). `many T` no se admite, y `main` no
-puede ser un `antiquus` (`E0040`). Un `antiquus` es una definición, así que va
+puede ser un `antiquus`. Un `antiquus` es una definición, así que va
 en un `.pengu`, no en un `.d.pengu`. Prefiere `r"""..."""` cuando el C contenga
 barras invertidas.
 
@@ -1132,7 +1130,7 @@ omen Event:                  # tipo suma algebraico
 Las variantes son accesibles sin cualificar (`Red`), cualificadas
 (`Color.Red`) o por nombre C completo (`Color_Red`). Los valores duplicados son
 `E0027`, los no constantes `E0029`, los payloads en un omen de strings `E0028`
-y los nombres sin cualificar ambiguos `E0046`.
+
 
 ```c
 typedef struct {
@@ -1154,7 +1152,7 @@ alias Buffer as opaque      # handle de C incompleto
 
 Un `seal` es un tipo distinto: asignarle un `int` exige `raw to UserId`. Un
 `alias` es intercambiable con su destino. `opaque` no se puede instanciar
-(`E0012`) y vive tras `ref to`.
+y vive tras `ref to`.
 
 ### 9.6 `frozen`
 
@@ -1645,7 +1643,7 @@ comprueba antes, o usa `as`, `or else`, `or return`, `try` u `or:`.
 * `x or return expr` — ejecuta las limpiezas pendientes `defer`/`errdefer` y
   devuelve `expr` desde el weave que lo envuelve.
 * `try x` — propaga un `maybe` vacío o un `result` con error desde la función
-  que lo envuelve; el tipo de retorno debe ser compatible (`E0045`). La función
+  que lo envuelve; el tipo de retorno debe ser compatible. La función
   debe devolver un `maybe` o un `result` compatible.
 * `x or:` — un bloque que maneja el fallo; dentro, `error` queda ligado al
   payload del fallo (tipo `string` para `maybe`, el tipo de error para `result`)
@@ -1941,7 +1939,7 @@ identificador. Los cuerpos se comprueban en todos los modos (`check`, `build`,
 ```console
 $ psc test              # ejecuta todos los bloques test del proyecto
 $ psc test --watch      # reejecuta al cambiar
-$ psc test --json       # eventos JSON Lines para CI
+$ psc test --diagnostics=json   # eventos JSON Lines para CI
 ```
 
 ### 15.2 Comandos
@@ -1981,7 +1979,7 @@ $ psc test --json       # eventos JSON Lines para CI
 | `--release-unsafe` | desactiva comprobaciones de límites/desbordamiento |
 | `--verbose` | imprime el comando del compilador |
 
-`--json` en `check`/`build`/`test` emite diagnósticos legibles por máquina.
+`--diagnostics=json` en `check`/`build`/`test` emite diagnósticos legibles por máquina.
 Códigos de salida: `0` éxito, `1` fallo de compilación o de test, `2` error de
 uso.
 
@@ -2188,7 +2186,7 @@ los avisos no.
 | `W0007` | operación insegura |
 | `W0013` | rango vacío o invertido |
 
-`psc check --json` y `psc build --json` emiten cada diagnóstico como un objeto
+`psc check --diagnostics=json` y `psc build --diagnostics=json` emiten cada diagnóstico como un objeto
 JSON con `code`, `severity`, `message`, `file`, `line`, `column` y `help`
 opcional.
 
@@ -2386,7 +2384,7 @@ omen_decl      = "omen" ident [ "with" "string" ] ":"
                  { ident [ "is" expr ] [ "with" field { "," field } ] } ;
 seal_decl      = "seal" ident "as" type ;
 alias_decl     = "alias" ident "as" type ;
-weave_decl     = [ "@" attr ] { "@" attr } [ "inline" ] "weave" ident
+weave_decl     = [ "@" attr ] { "@" attr } "weave" [ "inline" ] ident
                  [ "shard" ident { "," ident } ] [ "where" bounds ]
                  [ "ritual" ] [ "with" params ] "into" type ":" block ;
 declare_decl   = "declare" ident [ "with" params ] "into" type ;
@@ -2404,8 +2402,9 @@ stmt           = var_decl | const_decl | set_stmt | if_stmt | while_stmt
                | for_stmt | judge_stmt | return_stmt | break_stmt
                | continue_stmt | defer_stmt | banish_stmt | expr_stmt
                | "do" ":" block ;
-var_decl       = ( "var" | "let" ) [ "static" ] pattern [ "as" type ]
-                 "is" expr ;
+var_decl       = [ "static" ] "var" ident [ "as" type ] "is" expr
+               | "let" ( ident | "(" ident { "," ident } ")" )
+                 [ "," ident { "," ident } ] [ "as" type ] "is" expr ;
 set_stmt       = "set" lvalue ( "is" expr | op "=" expr ) ;
 if_stmt        = ( "if" | "unless" ) expr ":" block
                  { "else" "if" expr ":" block } [ "else" ":" block ] ;
@@ -2427,7 +2426,7 @@ type           = "int" | "float" | "bool" | "char" | "string" | "void"
                | "list" "of" type | "slice" "of" type
                | "array" "of" type "with" "size" expr
                | "map" "of" type "to" type
-               | "maybe" type | "result" "of" type [ "to" type ]
+               | "many" type | "maybe" type | "result" "of" type [ "to" type ]
                | "(" type { "," type } ")"
                | "weave" [ "with" params ] "into" type
                | ident [ "of" type ] ;

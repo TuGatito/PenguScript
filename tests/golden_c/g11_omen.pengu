@@ -1,0 +1,17 @@
+## Golden: omen numérico y judge exhaustivo.
+omen Phase:
+    Ready is 0
+    Loading is 1
+    Done is 2
+
+weave label with p as Phase into string:
+    if p == Ready:
+        return "ready"
+    else if p == Loading:
+        return "loading"
+    return "done"
+
+weave main into int:
+    calling print with calling label with Loading
+    calling print with "\n"
+    return 0

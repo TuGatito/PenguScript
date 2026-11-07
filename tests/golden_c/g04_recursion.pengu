@@ -1,0 +1,9 @@
+## Golden: recursión y llamada con expresión como argumento.
+weave fact with n as int into int:
+    if n <= 1:
+        return 1
+    return n * (calling fact with n - 1)
+
+weave main into int:
+    calling print with "{calling fact with 5}\n"
+    return 0

@@ -1,0 +1,4 @@
+## Golden: el programa mínimo. Un `print` y un `return`.
+weave main into int:
+    calling print with "hello, pengu\n"
+    return 0

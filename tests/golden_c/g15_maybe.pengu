@@ -1,0 +1,16 @@
+## Golden: maybe, `some`/`none` e inspección con `is present`.
+weave find with id as int into maybe string:
+    if id == 1:
+        return some "Admin"
+    return maybe none
+
+weave main into int:
+    var m as maybe string is calling find with 1
+    if m is present:
+        calling print with m.value
+        calling print with "\n"
+    banish m
+    var n as maybe string is calling find with 2
+    if n is not present:
+        calling print with "missing\n"
+    return 0

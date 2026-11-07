@@ -1,0 +1,9 @@
+## Golden: cadenas — longitud, índice, subcadena y comparación.
+weave main into int:
+    var s as string is "pengu"
+    calling print with "{s.len} {s at 0}\n"
+    var head as string is s at 1 to 3
+    calling print with "{head}\n"
+    if s == "pengu":
+        calling print with "eq\n"
+    return 0

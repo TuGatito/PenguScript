@@ -1,0 +1,16 @@
+## Golden: concepto, bind y despacho estático.
+concept Speaker:
+    weave greet with target as string into string
+
+rune Dog:
+    name as string
+
+bind Dog with Speaker:
+    weave greet with target as string into string:
+        return "Woof from {self->name}, {target}!"
+
+weave main into int:
+    var d as Dog is with name is "Rex"
+    calling print with calling d.greet with "Ada"
+    calling print with "\n"
+    return 0

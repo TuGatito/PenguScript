@@ -62,6 +62,10 @@ jobs:
         shell: bash
         run: ./tests/run.sh
 
+      - name: Golden C tests
+        shell: bash
+        run: bash ./tests/golden_c/run.sh
+
       - name: Compiler benchmark gate
         shell: bash
         run: ./tools/bench.sh . --runs 2 --gate-warm 2000 --gate-check 1000
@@ -186,6 +190,14 @@ jobs:
       - name: Validate documents
         shell: bash
         run: python3 ./tools/docs/validate_docs.py docs/LANGUAGE.md docs/LANGUAGE.es.md docs/PENGUNIC.md docs/PENGUNIC.es.md docs/STDLIB.md docs/STDLIB.es.md docs/BUILD_CACHE.md docs/CROSS_COMPILE.md docs/COVERAGE.md docs/SANITIZERS.md docs/DEBUGGER.md
+
+      - name: Diagnostics catalog is current
+        shell: bash
+        run: python3 ./tools/docs/check_codes.py --check
+
+      - name: Spanish/English docs keep the same shape
+        shell: bash
+        run: python3 ./tools/docs/parity.py
 
       - name: Links resolve
         shell: bash

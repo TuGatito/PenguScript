@@ -1,0 +1,10 @@
+## Golden: aritmética entera y flotante, precedencia y comparaciones.
+weave main into int:
+    var a as int is 7
+    var b as int is 3
+    calling print with "{a + b} {a - b} {a * b} {a / b} {a % b}\n"
+    var f as float is 1.5
+    calling print with "{f * 2.0} {f + 1.0}\n"
+    if a > b and b > 0:
+        calling print with "gt\n"
+    return 0

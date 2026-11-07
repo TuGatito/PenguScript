@@ -1,0 +1,20 @@
+## Golden: if/else if/else, for con rango y while.
+weave classify with n as int into string:
+    if n < 0:
+        return "neg"
+    else if n == 0:
+        return "zero"
+    return "pos"
+
+weave main into int:
+    var i as int is 0
+    while i < 3:
+        var s as string is calling classify with i - 1
+        calling print with "{s} "
+        set i is i + 1
+    calling print with "\n"
+    var total as int is 0
+    for j from 0 to 3:
+        set total is total + j
+    calling print with "{total}\n"
+    return 0

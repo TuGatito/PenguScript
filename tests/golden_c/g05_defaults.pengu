@@ -1,0 +1,12 @@
+## Golden: valores por defecto literales (int, float, string).
+weave greet with name as string, times as int is 2, loud as bool is false into string:
+    if loud:
+        return "{name}!"
+    return name
+
+weave main into int:
+    calling print with calling greet with "Ada"
+    calling print with "\n"
+    calling print with calling greet with "Ada", 1
+    calling print with "\n"
+    return 0

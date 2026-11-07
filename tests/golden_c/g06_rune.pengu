@@ -1,0 +1,16 @@
+## Golden: runa, ritual constructor y método de instancia.
+rune Point:
+    x as int
+    y as int
+
+enchanting Point:
+    weave ritual make with x as int, y as int into Point:
+        return with x is x, y is y
+
+    weave sum with bonus as int into int:
+        return self->x + self->y + bonus
+
+weave main into int:
+    var p as Point is calling Point.make with 3, 4
+    calling print with "{calling p.sum with 10}\n"
+    return 0

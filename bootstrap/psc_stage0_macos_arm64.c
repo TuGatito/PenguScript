@@ -87067,7 +87067,7 @@ PenguString psc_pkg_lock_dumps(Lock lock) {
     (void)sb;
     #line 149 "src/psc/pkg/lock.pengu"
     #line 150 "src/psc/pkg/lock.pengu"
-    (void)(StringBuilder_append(&(sb), pengu_string_from_cstr("schema = 2\ngenerated_by = \"psc 0.36.0\"\n")));
+    (void)(StringBuilder_append(&(sb), pengu_string_from_cstr("schema = 2\ngenerated_by = \"psc 0.37.0\"\n")));
     #line 151 "src/psc/pkg/lock.pengu"
     if (((int32_t)(lock.target).len) > 0) {
         #line 152 "src/psc/pkg/lock.pengu"
@@ -101594,7 +101594,7 @@ PenguString psc_lsp_docs_keyword_doc(PenguString word) {
     #line 93 "src/psc/lsp/docs.pengu"
     if (pengu_string_equal(word, pengu_string_from_cstr("many"))) {
         #line 94 "src/psc/lsp/docs.pengu"
-        return pengu_string_from_cstr("**many** \xe2\x80\x94 Marks a variadic parameter: the function accepts zero or more values of the given type.\n\nExample: `weave log with parts as many of string`.");
+        return pengu_string_from_cstr("**many** \xe2\x80\x94 Marks a variadic parameter: the function accepts zero or more values of the given type.\n\nExample: `weave log with parts as many string`.");
     }
     #line 95 "src/psc/lsp/docs.pengu"
     if (pengu_string_equal(word, pengu_string_from_cstr("return"))) {
@@ -101819,7 +101819,7 @@ PenguString psc_lsp_docs_keyword_doc(PenguString word) {
     #line 183 "src/psc/lsp/docs.pengu"
     if (pengu_string_equal(word, pengu_string_from_cstr("chr"))) {
         #line 184 "src/psc/lsp/docs.pengu"
-        return pengu_string_from_cstr("**chr** \xe2\x80\x94 The character with a numeric code: `chr 65` is `'A'`.");
+        return pengu_string_from_cstr("**chr** \xe2\x80\x94 The character with a numeric code, as a one-character `string`: `chr 65` produces `A`.");
     }
     #line 185 "src/psc/lsp/docs.pengu"
     if (pengu_string_equal(word, pengu_string_from_cstr("ref"))) {
@@ -105308,7 +105308,7 @@ JsonValue psc_lsp_server_initialize_result(void) {
     #line 411 "src/psc/lsp/server.pengu"
     (void)(JsonValue_put_json(&(info), pengu_string_from_cstr("name"), JsonValue_string_val(psc_lsp_server_copy(pengu_string_from_cstr("psc")))));
     #line 412 "src/psc/lsp/server.pengu"
-    (void)(JsonValue_put_json(&(info), pengu_string_from_cstr("version"), JsonValue_string_val(psc_lsp_server_copy(pengu_string_from_cstr("0.36.0")))));
+    (void)(JsonValue_put_json(&(info), pengu_string_from_cstr("version"), JsonValue_string_val(psc_lsp_server_copy(pengu_string_from_cstr("0.37.0")))));
     #line 413 "src/psc/lsp/server.pengu"
     (void)(JsonValue_put_json(&(out), pengu_string_from_cstr("serverInfo"), info));
     #line 414 "src/psc/lsp/server.pengu"
@@ -115880,7 +115880,7 @@ int32_t main_dispatch(PenguList args) {
     #line 107 "src/main.pengu"
     if ((pengu_string_equal(cmd, pengu_string_from_cstr("version")) || pengu_string_equal(cmd, pengu_string_from_cstr("--version"))) || pengu_string_equal(cmd, pengu_string_from_cstr("-V"))) {
         #line 108 "src/main.pengu"
-        (void)(spark_println(pengu_string_from_cstr("psc 0.36.0 (F13)")));
+        (void)(spark_println(pengu_string_from_cstr("psc 0.37.0 (F13)")));
         #line 109 "src/main.pengu"
         return 0;
     }
@@ -117657,7 +117657,7 @@ bool main_starts_dash(PenguString s) {
 #line 870 "src/main.pengu"
 void main_print_help(void) {
     #line 871 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr("psc 0.36.0 \xe2\x80\x94 PenguScript compiler")));
+    (void)(spark_println(pengu_string_from_cstr("psc 0.37.0 \xe2\x80\x94 PenguScript compiler")));
     #line 872 "src/main.pengu"
     (void)(spark_println(pengu_string_from_cstr("")));
     #line 873 "src/main.pengu"

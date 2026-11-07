@@ -1,0 +1,17 @@
+## Golden: omen numérico comparado por variante (`==`).
+omen Kind:
+    A is 0
+    B is 1
+    C is 2
+
+weave label with k as Kind into string:
+    if k == A or k == B:
+        return "ab"
+    else if k == C:
+        return "c"
+    return "?"
+
+weave main into int:
+    calling print with calling label with B
+    calling print with "\n"
+    return 0

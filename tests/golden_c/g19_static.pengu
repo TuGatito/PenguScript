@@ -1,0 +1,11 @@
+## Golden: `static var` dentro de un weave persiste entre llamadas.
+weave bump with seed as int into int:
+    static var calls as int is 0
+    set calls is calls + seed
+    return calls
+
+weave main into int:
+    var a as int is calling bump with 1
+    var b as int is calling bump with 2
+    calling print with "{a} {b}\n"
+    return 0

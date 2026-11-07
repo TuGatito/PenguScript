@@ -1,0 +1,10 @@
+## Golden: defer para liberar en todos los caminos.
+weave make with seed as int into string:
+    var s as string is "built"
+    defer banish s
+    return "done {seed}"
+
+weave main into int:
+    calling print with calling make with 1
+    calling print with "\n"
+    return 0

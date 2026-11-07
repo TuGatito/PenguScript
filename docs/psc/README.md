@@ -241,7 +241,7 @@ psc/tools/                           oráculos/golden (dev-only)
 - [`docs/SEMA.md`](SEMA.md): pipeline semántico, tipos, símbolos y checker.
 - [`docs/TYPES.md`](TYPES.md): modelo de tipos, interning y compatibilidad.
 - [`docs/MODULES.md`](MODULES.md): imports, bindings C y `when`.
-- [`docs/SEMA_ERRORS.md`](SEMA_ERRORS.md): códigos y formato.
+- [`docs/SEMA_ERRORS.md`](../SEMA_ERRORS.md): códigos y formato.
 - [`docs/AST.md`](AST.md): modelo del AST, codificación, nodos y rarezas.
 - [`docs/PARITY.md`](PARITY.md): cómo se compara con stage0 y qué difiere.
 - [`docs/OWNERSHIP.md`](OWNERSHIP.md): quién libera cada recurso.

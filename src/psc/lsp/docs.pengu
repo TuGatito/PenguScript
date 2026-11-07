@@ -91,7 +91,7 @@ weave keyword_doc with word as string into string:
     if word == "in":
         return "**in** — Iterates a container (`for item in items`) or tests membership (`if x in items`)."
     if word == "many":
-        return "**many** — Marks a variadic parameter: the function accepts zero or more values of the given type.\n\nExample: `weave log with parts as many of string`."
+        return "**many** — Marks a variadic parameter: the function accepts zero or more values of the given type.\n\nExample: `weave log with parts as many string`."
     if word == "return":
         return "**return** — Returns a value from the enclosing function and stops its execution."
     if word == "break":
@@ -181,7 +181,7 @@ weave keyword_doc with word as string into string:
     if word == "ord":
         return "**ord** — The numeric code of a character: `ord 'A'` is `65`."
     if word == "chr":
-        return "**chr** — The character with a numeric code: `chr 65` is `'A'`."
+        return "**chr** — The character with a numeric code, as a one-character `string`: `chr 65` produces `A`."
     if word == "ref":
         return "**ref** — A pointer to a value (`ref to T`).\n\nDereference it with `essence of`; take an address with `sigil of`."
     if word == "frozen":
