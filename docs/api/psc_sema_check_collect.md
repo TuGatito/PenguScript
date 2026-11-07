@@ -369,14 +369,27 @@ Presta `SemaState`; los símbolos/tipos viven en las tablas del programa.
  ## Memoria
  Añade FnType/símbolo; `check` valida el cuerpo.
 
-### `collect_params`
+### `default_float_text`
 
-> **collect_params**(s: ref to SemaState, pnode: int, out: ref to ParamRange) -> void
+> **default_float_text**(s: ref to SemaState, node: int) -> int
 
  Recolecta params de una lista.
 
  ## Memoria
  Añade `SemaFnParam` y actualiza `first/count` por referencia.
+ Texto token de un default float (con signo), o `-1`.
+
+ Los defaults float conservan el token original para no perder precisión al
+ emitir C; el resto de kinds se pliega a un valor y se emite desde la tabla.
+
+ ## Memoria
+ El texto se interna en el pool de nombres.
+
+### `collect_params`
+
+> **collect_params**(s: ref to SemaState, pnode: int, out: ref to ParamRange, in_declare: bool) -> void
+
+_Undocumented._
 
 ### `find_attribute`
 

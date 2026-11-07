@@ -50,6 +50,7 @@ emisor y scopes C. No muta F3.
     scope_loops as list of bool
     with_targets as list of string
     with_types as list of int
+    loop_names as list of string
     unsafe_depth as int
     return_type as int
     current_module as int
@@ -235,4 +236,22 @@ emisor y scopes C. No muta F3.
 
  ## Memoria
  Devuelve string owned.
+
+### `push_loop`
+
+> **push_loop**(c: ref to CgContext, label: string) -> void
+
+ Abre un nivel de loop con su etiqueta ("" si no tiene).
+
+ ## Memoria
+ Transfiere `label`.
+
+### `pop_loop`
+
+> **pop_loop**(c: ref to CgContext) -> void
+
+ Cierra el loop más interno y libera su etiqueta.
+
+ ## Memoria
+ Libera el string transferido por `push_loop`.
 

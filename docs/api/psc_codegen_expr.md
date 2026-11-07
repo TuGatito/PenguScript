@@ -70,6 +70,15 @@ sin cambiar la interfaz `emit_expr`.
  ## Memoria
  Devuelve un string owned.
 
+### `judge_cond_c`
+
+> **judge_cond_c**(c: ref to CgContext, st: int, pat: int, ast: ref to PsAst, stmp: string) -> string
+
+ Condición C que casa un patrón de `judge` contra el temporal del sujeto.
+
+ ## Memoria
+ Devuelve un string owned; liberar con `banish`.
+
 ### `for_comp_expr`
 
 > **for_comp_expr**(c: ref to CgContext, node: int, ast: ref to PsAst) -> string
@@ -88,6 +97,19 @@ sin cambiar la interfaz `emit_expr`.
 
  ## Memoria
  Strings owned.
+
+### `map_lit_expr`
+
+> **map_lit_expr**(c: ref to CgContext, node: int, ast: ref to PsAst, ty: int) -> string
+
+ Emite un literal de mapa como statement expression C99.
+
+ Cada entrada se copia a un temporal del tipo de la clave/valor y se inserta
+ con `pengu_map_put`, así el literal funciona con claves y valores de
+ cualquier tipo (incluidas runas) y el mapa queda listo antes de devolverlo.
+
+ ## Memoria
+ Strings del texto emitido.
 
 ### `emit_expr_as`
 
@@ -159,11 +181,72 @@ _Undocumented._
  ## Memoria
  Puede crear especializaciones y tipos.
 
+### `expr_owns_temp`
+
+> **expr_owns_temp**(c: ref to CgContext, node: int) -> bool
+
+ `true` si `node` produce un `string` con dueño que hay que liberar.
+
+ Hoy cubre las tres fuentes de temporales de cadena: interpolación,
+ concatenación (`+`) y vista `at a to b`. El resto de expresiones devuelven
+ vistas prestadas o valores que no asignan.
+
+ ## Memoria
+ O(1) salvo la búsqueda de `StringInfo` (O(literales)).
+
+### `text_owns_temp`
+
+> **text_owns_temp**(c: ref to CgContext, t: string) -> bool
+
+ `true` si el texto C `t` produce un `string` con dueño.
+
+ Se usa cuando el nodo no tiene tipo anotado (fallback del sema). Sólo los
+ productores de temporales emiten estos nombres, así que no hay falsos
+ positivos sobre variables prestadas.
+
+ ## Memoria
+ O(n).
+
+### `is_string_type`
+
+> **is_string_type**(c: ref to CgContext, ty: int) -> bool
+
+ `true` cuando el id de tipo `ty` es exactamente el `string` base.
+
+ Los temporales con dueño sólo existen para `string`; sin esta guarda un
+ `maybe` o un `int` con texto de statement expression se envolvería como si
+ fuera una cadena y el C no compilaría.
+
+ ## Memoria
+ O(1).
+
+### `push_arg`
+
+> **push_arg**(c: ref to CgContext, sb: ref to StringBuilder, names: ref to list of string, inits: ref to list of string, anode: int, expected: int) -> void
+
+ Emite un argumento y, si es un temporal de cadena, lo cambia por una
+ variable local que el envoltorio de la llamada libera después.
+
+ ## Memoria
+ `inits` toma el dueño del texto emitido; `names` recibe una copia.
+
 ### `call_expr`
 
 > **call_expr**(c: ref to CgContext, node: int, ast: ref to PsAst) -> string
 
 _Undocumented._
+
+### `param_default_text`
+
+> **param_default_text**(c: ref to CgContext, gidx: int) -> string
+
+ Texto C del valor por defecto del parámetro global `gidx`.
+
+ Los defaults plegados a texto no dependen del AST de la llamada; los demás
+ se emiten en el módulo que los declaró.
+
+ ## Memoria
+ Devuelve un string owned; liberar con `banish`.
 
 ### `omen_payload_field_type`
 
@@ -592,7 +675,7 @@ _Undocumented._
 
 ### `append_interp_value`
 
-> **append_interp_value**(c: ref to CgContext, fmt: ref to StringBuilder, args: ref to StringBuilder, expr: string, ty: int) -> void
+> **append_interp_value**(c: ref to CgContext, fmt: ref to StringBuilder, args: ref to StringBuilder, expr: string, ty: int, spec: string) -> void
 
  Emite una interpolación simple.
 

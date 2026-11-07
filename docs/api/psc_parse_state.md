@@ -85,6 +85,7 @@ ejecuta, el parser falla de forma controlada.
     errors as int
     panic as bool
     guard_mode as bool
+    range_to as bool
     stop as bool
     last_error_pos as int
     root as int

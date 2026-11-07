@@ -38,6 +38,30 @@ temporales se liberan en la misma función.
  ## Memoria
  O(n); no asigna.
 
+### `format_spec_colon`
+
+> **format_spec_colon**(text: string) -> int
+
+ Índice del `:` de un especificador de formato `{expr:spec}`, o `-1`.
+
+ Ignora los `:` dentro de paréntesis, corchetes y literales de cadena, para
+ que `{f with "a:b"}` siga siendo válido.
+
+ ## Memoria
+ O(n).
+
+### `format_spec_ok`
+
+> **format_spec_ok**(spec: string) -> bool
+
+ `true` si `spec` es un especificador printf soportado.
+
+ Gramática: banderas `-+ 0#`, ancho, precisión y una conversión de
+ `diouxXeEfFgGsc`. El codegen lo usa tal cual tras el `%`.
+
+ ## Memoria
+ O(n).
+
 ### `check_string_literal`
 
 > **check_string_literal**(s: ref to SemaState, node: int) -> void
@@ -262,6 +286,15 @@ _Undocumented._
 
  ## Memoria
  O(profundidad).
+
+### `infer_with_field`
+
+> **infer_with_field**(s: ref to SemaState, node: int) -> int
+
+ Tipo del campo `.campo` leído dentro de un `with`.
+
+ ## Memoria
+ No asigna.
 
 ### `infer_with_call`
 

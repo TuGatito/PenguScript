@@ -28,6 +28,7 @@ No interpreta cuerpos: eso es trabajo de `emit`/`stmt`/`expr`.
     tparams as list of int
     spec_args as list of int
     is_generic as bool
+    ret_void as bool
     is_spec as bool
     is_main as bool
     c_name as int

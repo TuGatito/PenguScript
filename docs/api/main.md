@@ -10,7 +10,7 @@ psc lex <file> [--comments] [--no-indent] [--check]
 psc lex --stdin ...
 psc parse <file> [--check] [--no-header] [--stdin]
 psc ast <file> ...
-psc check <file> [--diagnostics=plain|json] [-D NAME] [--stdin]
+psc check <file> [--diagnostics=plain|json] [--json] [-D NAME] [--stdin]
 psc version
 ```
 

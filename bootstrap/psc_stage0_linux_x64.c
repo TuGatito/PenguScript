@@ -90962,7 +90962,7 @@ PenguString psc_pkg_lock_dumps(Lock lock) {
     (void)sb;
     #line 149 "src/psc/pkg/lock.pengu"
     #line 150 "src/psc/pkg/lock.pengu"
-    (void)(StringBuilder_append(&(sb), pengu_string_from_cstr_len("schema = 2\ngenerated_by = \"psc 0.50.0\"\n", 39)));
+    (void)(StringBuilder_append(&(sb), pengu_string_from_cstr_len("schema = 2\ngenerated_by = \"psc 0.51.0\"\n", 39)));
     #line 151 "src/psc/pkg/lock.pengu"
     if (((int32_t)(lock.target).len) > 0) {
         #line 152 "src/psc/pkg/lock.pengu"
@@ -109284,7 +109284,7 @@ JsonValue psc_lsp_server_initialize_result(void) {
     #line 411 "src/psc/lsp/server.pengu"
     (void)(JsonValue_put_json(&(info), pengu_string_from_cstr_len("name", 4), JsonValue_string_val(psc_lsp_server_copy(pengu_string_from_cstr_len("psc", 3)))));
     #line 412 "src/psc/lsp/server.pengu"
-    (void)(JsonValue_put_json(&(info), pengu_string_from_cstr_len("version", 7), JsonValue_string_val(psc_lsp_server_copy(pengu_string_from_cstr_len("0.50.0", 6)))));
+    (void)(JsonValue_put_json(&(info), pengu_string_from_cstr_len("version", 7), JsonValue_string_val(psc_lsp_server_copy(pengu_string_from_cstr_len("0.51.0", 6)))));
     #line 413 "src/psc/lsp/server.pengu"
     (void)(JsonValue_put_json(&(out), pengu_string_from_cstr_len("serverInfo", 10), info));
     #line 414 "src/psc/lsp/server.pengu"
@@ -119896,7 +119896,7 @@ int32_t main_dispatch(PenguList args) {
     #line 107 "src/main.pengu"
     if ((pengu_string_equal(cmd, pengu_string_from_cstr_len("version", 7)) || pengu_string_equal(cmd, pengu_string_from_cstr_len("--version", 9))) || pengu_string_equal(cmd, pengu_string_from_cstr_len("-V", 2))) {
         #line 108 "src/main.pengu"
-        (void)(spark_println(pengu_string_from_cstr_len("psc 0.50.0 (F13)", 16)));
+        (void)(spark_println(pengu_string_from_cstr_len("psc 0.51.0 (F13)", 16)));
         #line 109 "src/main.pengu"
         return 0;
     }
@@ -121675,7 +121675,7 @@ bool main_starts_dash(PenguString s) {
 #line 870 "src/main.pengu"
 void main_print_help(void) {
     #line 871 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("psc 0.50.0 \xe2\x80\x94 PenguScript compiler", 35)));
+    (void)(spark_println(pengu_string_from_cstr_len("psc 0.51.0 \xe2\x80\x94 PenguScript compiler", 35)));
     #line 872 "src/main.pengu"
     (void)(spark_println(pengu_string_from_cstr_len("", 0)));
     #line 873 "src/main.pengu"

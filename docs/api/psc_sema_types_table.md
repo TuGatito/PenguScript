@@ -32,6 +32,42 @@ planas, sin recorrer un grafo de punteros.
  `new_table` inserta los singletons en este orden: error, any, null, void,
  opaque y cvarargs; el resto de IDs son dinámicos.
 
+### `DEF_NONE`
+
+> **DEF_NONE** : int
+
+ Kinds plegados de un valor por defecto (`SemaFnParam.default_kind`).
+
+### `DEF_INT`
+
+> **DEF_INT** : int
+
+_Undocumented._
+
+### `DEF_FLOAT`
+
+> **DEF_FLOAT** : int
+
+_Undocumented._
+
+### `DEF_BOOL`
+
+> **DEF_BOOL** : int
+
+_Undocumented._
+
+### `DEF_STRING`
+
+> **DEF_STRING** : int
+
+_Undocumented._
+
+### `DEF_CHAR`
+
+> **DEF_CHAR** : int
+
+_Undocumented._
+
 ### `SemaNominalInfo`
 
 > rune SemaNominalInfo
@@ -113,6 +149,11 @@ planas, sin recorrer un grafo de punteros.
     default_node as int
     default_module as int
     default_text as int
+    default_kind as int
+    default_i as i64
+    default_f as f64
+    default_b as bool
+    default_name as int
 ```
 
  Parámetro de una función.
@@ -764,6 +805,18 @@ _Undocumented._
 > **is_error**(t: ref to SemaTypeTable, id: int) -> bool
 
  `true` si el tipo es `TkError`.
+
+ ## Memoria
+ O(1), no asigna.
+
+### `default_fits`
+
+> **default_fits**(t: ref to SemaTypeTable, pty: int, dkind: int) -> bool
+
+ ¿Un valor por defecto plegado (`DEF_*`) encaja con el tipo del parámetro?
+
+ Los primitivos se comparan por nombre canónico; runas, omens, genéricos y
+ alias se dejan a la llamada (C hace la conversión).
 
  ## Memoria
  O(1), no asigna.

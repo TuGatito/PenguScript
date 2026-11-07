@@ -185,6 +185,49 @@ El resto de statements se añade por subfases manteniendo `emit_stmt`.
  ## Memoria
  Vacía el tramo de defers; los nodos son del AST.
 
+### `loop_label_c`
+
+> **loop_label_c**(c: ref to CgContext, ast: ref to PsAst, node: int) -> string
+
+ Nombre C de la etiqueta del loop (`""` si no tiene).
+
+ ## Memoria
+ Devuelve un string owned; liberar con `banish`.
+
+### `emit_loop_mark`
+
+> **emit_loop_mark**(c: ref to CgContext, lbl: string) -> void
+
+ Declara usadas las etiquetas `break`/`continue` de un loop etiquetado.
+
+ Un `goto` muerto bajo `if (0)` evita `-Wunused-label` sin cambiar la
+ semántica; sólo se emite para loops que declaran etiqueta.
+
+ ## Memoria
+ Strings owned.
+
+### `emit_continue_label`
+
+> **emit_continue_label**(c: ref to CgContext, lbl: string) -> void
+
+ Emite la etiqueta `continue` al final del cuerpo de un loop con etiqueta.
+
+ ## Memoria
+ Strings owned.
+
+### `emit_loop_close`
+
+> **emit_loop_close**(c: ref to CgContext, lbl: string) -> void
+
+ Cierra el `}` del loop y emite su etiqueta `break` si se usa.
+
+ Sólo se emite la etiqueta si el cuerpo tiene un `break label`/`continue
+ label` que la nombre: una etiqueta sin usar dispara `-Wunused-label` y los
+ goldens compilan con `-Werror`.
+
+ ## Memoria
+ Strings owned.
+
 ### `emit_errdefers`
 
 > **emit_errdefers**(c: ref to CgContext) -> void
@@ -229,6 +272,33 @@ El resto de statements se añade por subfases manteniendo `emit_stmt`.
 
  ## Memoria
  O(1).
+
+### `emit_judge_body`
+
+> **emit_judge_body**(c: ref to CgContext, body: int, ast: ref to PsAst) -> void
+
+ Emite el cuerpo de un brazo de `judge` (bloque, retorno o sentencia).
+
+ ## Memoria
+ Strings owned; el cuerpo es del AST.
+
+### `judge_bind_payload`
+
+> **judge_bind_payload**(c: ref to CgContext, st: int, payload: int, ast: ref to PsAst, stmp: string, variant: string) -> void
+
+ Enlaza los campos del payload de un brazo en el scope actual.
+
+ ## Memoria
+ Strings owned; los nombres son del pool.
+
+### `emit_judge_chain`
+
+> **emit_judge_chain**(c: ref to CgContext, node: int, ast: ref to PsAst, st: int, stmp: string) -> void
+
+ Emite un `judge` como cadena de `if` (necesario cuando hay guardas).
+
+ ## Memoria
+ Strings owned; el AST es del programa.
 
 ### `emit_judge_stmt`
 

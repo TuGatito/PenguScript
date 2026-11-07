@@ -128,6 +128,24 @@ _Undocumented._
 
 _Undocumented._
 
+### `CODE_MANY_DEFAULT`
+
+> **CODE_MANY_DEFAULT** : string
+
+_Undocumented._
+
+### `CODE_MANY_DECLARE`
+
+> **CODE_MANY_DECLARE** : string
+
+_Undocumented._
+
+### `CODE_MAP_LITERAL_TYPE`
+
+> **CODE_MAP_LITERAL_TYPE** : string
+
+_Undocumented._
+
 ### `CODE_MULTIPLE_INSIGNIA`
 
 > **CODE_MULTIPLE_INSIGNIA** : string
@@ -337,6 +355,30 @@ _Undocumented._
 > **CODE_DUP_TYPE** : string
 
 _Undocumented._
+
+### `CODE_NAMED_ARG`
+
+> **CODE_NAMED_ARG** : string
+
+ Argumento nombrado inválido (desconocido, duplicado o fuera de orden).
+
+### `CODE_DEFAULT_ORDER`
+
+> **CODE_DEFAULT_ORDER** : string
+
+ Valor por defecto después de un parámetro sin él.
+
+### `CODE_DEFAULT_VALUE`
+
+> **CODE_DEFAULT_VALUE** : string
+
+ Valor por defecto que no es constante o no encaja con el tipo.
+
+### `CODE_BIND_COUNT`
+
+> **CODE_BIND_COUNT** : string
+
+ Desestructuración con cantidad de nombres o tipo incompatible.
 
 ### `WARN_TRANSMUTE`
 

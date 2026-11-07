@@ -23,6 +23,7 @@ lex, fuente y path en ese orden. El bag es prestado y no se libera aquí.
     node as int
     part_start as int
     part_end as int
+    spec as string
     parse as InterpParseResult
     annotations as SemaAnnotations
 ```

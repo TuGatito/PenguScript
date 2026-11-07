@@ -2,6 +2,19 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.51.0] — 2026-11-07 — Cierre documental
+
+### Añadido
+
+- `docs/api/` regenerada con `tools/docs/gen_api.sh` (187 módulos) para que el
+  job de documentación del CI vuelva a estar al día.
+
+### Cambiado
+
+- El documento de auditoría y plan (`scratch/auditoria-y-plan-lenguaje.md`)
+  gana una sección de estado con las quince fases, sus commits y la lista
+  explícita de lo que quedó pendiente.
+
 ## [0.50.0] — 2026-11-07 — Paridad de CLI: `psc check --json`
 
 ### Añadido
