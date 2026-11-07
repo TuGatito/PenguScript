@@ -11,6 +11,10 @@
 ## ## Memoria
 ## Emite C; los strings C que construye son owned.
 
+import psc.ast.kind as pskind
+import psc.sema.ast as astutil
+import psc.sema.modules.loader as loader
+import psc.ast.node as psast
 import psc.sema.types.kind as tk
 import psc.sema.types.table as types
 import psc.sema.names as npool
@@ -80,3 +84,107 @@ weave omen_has_payload with c as ref to context.CgContext, nominal as int into b
             return true
         set i is i + 1
     return false
+
+## Anota que el valor de `node` sale del binding que lo contiene.
+##
+## Un `Drop` se mueve al enlazarlo, asignarlo o devolverlo: el destructor del
+## binding de origen no debe ejecutarse (el destino pasa a ser el dueño).
+##
+## ## Memoria
+## Sin asignaciones.
+weave note_move_source with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst into void:
+    if node < 0:
+        return
+    var v as int is node
+    var guard as int is 0
+    while (calling astutil.kind_of with ast, v) == pskind.NodeKind.NdParenExpr and guard < 8:
+        var inner as int is calling astutil.node_child with ast, v, 0
+        if inner < 0:
+            return
+        set v is inner
+        set guard is guard + 1
+    if (calling astutil.kind_of with ast, v) != pskind.NodeKind.NdVarRef:
+        return
+    var tok as int is calling astutil.token_child with ast, v, 0
+    if tok < 0:
+        return
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var txt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), tok
+    defer banish txt
+    var nid as int is calling npool.intern with (sigil of c->program->names), txt
+    var cc as int is calling context.local_c_name with c, nid
+    if cc >= 0:
+        calling context.remove_drop with c, cc
+
+## Emite la copia profunda de un valor de `src` a `dst`.
+##
+## Es la pieza que hace de `.clone()` una copia de verdad: los búferes owned
+## (strings, listas, mapas) se duplican y los runes con `derive Drop` se clonan
+## recursivamente. Los tipos sin propiedad (`ref`, punteros, escalares) se
+## copian tal cual.
+##
+## ## Memoria
+## Emite C; los strings C que construye son owned.
+weave clone_value with c as ref to context.CgContext, ty as int, dst as string, src as string into void:
+    if ty <= 0 or ty >= c->program->types.types.len:
+        calling emit.line with (sigil of c->emitter), "{dst} = {src};"
+        return
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    if t.kind == tk.SemaTypeKind.TkAlias or t.kind == tk.SemaTypeKind.TkSeal:
+        calling clone_value with c, t.b, dst, src
+        return
+    if t.kind == tk.SemaTypeKind.TkBase:
+        var nm as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), t.name)
+        defer banish nm
+        if nm == "string":
+            calling emit.line with (sigil of c->emitter), "{dst} = pengu_string_copy({src});"
+            return
+    if t.kind == tk.SemaTypeKind.TkRune:
+        if t.a >= 0 and t.a < c->program->types.nominal_infos.len:
+            var info as types.SemaNominalInfo is (c->program->types.nominal_infos at t.a)
+            if (info.flags & types.NIF_DROP) != 0:
+                var cname as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), info.c_name)
+                defer banish cname
+                calling emit.line with (sigil of c->emitter), "{dst} = _pengu_deepclone_{cname}(&({src}));"
+                return
+    if t.kind == tk.SemaTypeKind.TkList:
+        var et as string is calling ctype.c_type with (sigil of c->names), t.a
+        defer banish et
+        var idx as string is calling emit.temp with (sigil of c->emitter), "_ci"
+        defer banish idx
+        var el as string is calling emit.temp with (sigil of c->emitter), "_ce"
+        defer banish el
+        calling emit.line with (sigil of c->emitter), "{dst} = pengu_list_new(sizeof({et}), 0);"
+        calling emit.line with (sigil of c->emitter), "for (int {idx} = 0; {idx} < ({src}).len; {idx}++) {{"
+        calling emit.indent_more with (sigil of c->emitter)
+        calling emit.line with (sigil of c->emitter), "{et} {el};"
+        calling clone_value with c, t.a, el, "(({et}*)(({src}).data))[{idx}]"
+        calling emit.line with (sigil of c->emitter), "pengu_list_push(&({dst}), &{el});"
+        calling emit.indent_less with (sigil of c->emitter)
+        calling emit.line with (sigil of c->emitter), "}"
+        return
+    if t.kind == tk.SemaTypeKind.TkMap:
+        var kt as string is calling ctype.c_type with (sigil of c->names), t.a
+        defer banish kt
+        var vt as string is calling ctype.c_type with (sigil of c->names), t.b
+        defer banish vt
+        var it as string is calling emit.temp with (sigil of c->emitter), "_mi"
+        defer banish it
+        var kn as string is calling emit.temp with (sigil of c->emitter), "_mk"
+        defer banish kn
+        var vn as string is calling emit.temp with (sigil of c->emitter), "_mv"
+        defer banish vn
+        calling emit.line with (sigil of c->emitter), "{dst} = pengu_map_new(sizeof({kt}), sizeof({vt}));"
+        calling emit.line with (sigil of c->emitter), "PenguMapIter {it} = pengu_map_iter_begin(&({src}));"
+        calling emit.line with (sigil of c->emitter), "while (pengu_map_iter_valid(&{it})) {{"
+        calling emit.indent_more with (sigil of c->emitter)
+        calling emit.line with (sigil of c->emitter), "{kt} {kn};"
+        calling clone_value with c, t.a, kn, "(*(const {kt}*)pengu_map_iter_key(&{it}))"
+        calling emit.line with (sigil of c->emitter), "{vt} {vn};"
+        calling clone_value with c, t.b, vn, "(*(const {vt}*)pengu_map_iter_value(&{it}))"
+        calling emit.line with (sigil of c->emitter), "pengu_map_put(&({dst}), &{kn}, &{vn});"
+        calling emit.line with (sigil of c->emitter), "pengu_map_iter_advance(&{it});"
+        calling emit.indent_less with (sigil of c->emitter)
+        calling emit.line with (sigil of c->emitter), "}"
+        return
+    calling emit.line with (sigil of c->emitter), "{dst} = {src};"

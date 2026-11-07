@@ -24,7 +24,7 @@ en una fase del plan, o se elimina de la documentación.
 | `E0002` | `CODE_VAR_TOP_LEVEL` | 1 | emitido | sí |
 | `E0003` | `CODE_SELF_DOT` | 1 | emitido | sí |
 | `E0004` | `CODE_UNDEFINED` | 15 | emitido | sí |
-| `E0005` | `CODE_TYPE_MISMATCH` | 40 | emitido | sí |
+| `E0005` | `CODE_TYPE_MISMATCH` | 43 | emitido | sí |
 | `E0006` | `CODE_MUTABILITY` | 5 | emitido | sí |
 | `E0007` | `CODE_CONTROL_FLOW` | 2 | emitido | sí |
 | `E0008` | `CODE_MEMORY_OP` | 15 | emitido | sí |
@@ -80,12 +80,18 @@ en una fase del plan, o se elimina de la documentación.
 | `E0076` | `CODE_MAP_LITERAL_TYPE` | 2 | emitido | sí |
 | `E0077` | `CODE_WITH_TARGET` | 1 | emitido | sí |
 | `E0079` | `CODE_BIND_COUNT` | 1 | emitido | sí |
+| `E0080` | `CODE_USE_AFTER_MOVE` | 1 | emitido | **falta** |
+| `E0081` | `CODE_IMPLICIT_COPY` | 2 | emitido | **falta** |
+| `E0082` | `CODE_RC_CROSS_THREAD` | 0 | **sin emisor** | **falta** |
+| `E0083` | `CODE_ARC_NOT_SHARED` | 0 | **sin emisor** | **falta** |
+| `E0084` | `CODE_EXPORT_DROP` | 1 | emitido | **falta** |
 | `W0001` | `WARN_TRANSMUTE` | 0 | **sin emisor** | sí |
 | `W0002` | `WARN_ECHO_ACCESS` | 0 | **sin emisor** | sí |
 | `W0004` | `WARN_UNREACHABLE` | 0 | **sin emisor** | sí |
 | `W0005` | `WARN_SHADOW`, `PSC_W_INDENT` | 1 | emitido | sí |
 | `W0006` | `WARN_DEPRECATED` | 0 | **sin emisor** | sí |
 | `W0007` | `WARN_UNSAFE` | 0 | **sin emisor** | sí |
+| `W0008` | `WARN_COW_LOOP` | 0 | **sin emisor** | **falta** |
 | `W0013` | `WARN_RANGE` | 0 | **sin emisor** | sí |
 
 ## Cómo agregar un código

@@ -25,6 +25,7 @@ import psc.sema.ast as astutil
 import psc.sema.infer.core as infer
 import psc.sema.annotate as ann
 import psc.sema.diagnostics as sdiag
+import psc.sema.check.moves as moves
 
 insignia sema_body_
 
@@ -472,6 +473,9 @@ weave check_local with s as ref to state.SemaState, node as int, kind as pskind.
         var got as int is calling state.call_infer with s, vn, ty
         if ty > 0 and not (calling compat.compatible with s->types, got, ty):
             calling mismatch with s, vn, ty, got
+        # Enlazar un valor `Drop` lo mueve: el binding de origen queda inutilizable.
+        if calling moves.type_is_drop with s, got:
+            calling moves.consume_value with s, vn
 
 
 ## `set target is value`.
@@ -524,6 +528,8 @@ weave check_set with s as ref to state.SemaState, node as int, compound as bool 
             if pat.kind == tk.SemaTypeKind.TkRef:
                 set exp is calling types.strip_frozen with s->types, pat.a
         var got as int is calling state.call_infer with s, value, exp
+        if not compound and (calling moves.type_is_drop with s, got):
+            calling moves.consume_value with s, value
         if tt > 0 and not (calling compat.compatible with s->types, got, tt):
             if pat.kind == tk.SemaTypeKind.TkRef:
                 var pointee as int is calling types.strip_frozen with s->types, pat.a
@@ -874,6 +880,8 @@ weave check_return with s as ref to state.SemaState, node as int into void:
         else:
             set got is calling state.call_infer with s, e, expected
         calling check_dangling_return with s, e
+        if calling moves.type_is_drop with s, got:
+            calling moves.consume_value with s, e
         if not (calling compat.compatible with s->types, got, expected):
             var en as int is calling canon.canonical_name with s->types, expected
             var gn as int is calling canon.canonical_name with s->types, got

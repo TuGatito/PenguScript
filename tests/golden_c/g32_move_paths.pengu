@@ -1,0 +1,30 @@
+## Golden: move-by-default y `.clone()` (fase 3 del plan de memoria).
+##
+## El `.c` debe mostrar que mover suprime el destructor del origen
+## (`Label b = a;` y `a` sin `_pengu_cleanup_Label`), que asignar a un
+## `Drop` libera el valor anterior antes del `=`, y que `.clone()` baja a
+## `_pengu_deepclone_Label(&(x))`. Cualquier cambio en el movimiento o en la
+## copia profunda se ve aquí.
+import std.spark
+
+rune Label derive Drop:
+    name as string
+    weight as int
+
+antiquus own_str with s as string into string:
+    r"""
+    return pengu_string_copy(s);
+    """
+
+weave make_label with n as int into Label:
+    return with name is (calling own_str with "L{n}"), weight is n
+
+weave main into int:
+    var a as Label is calling make_label with 1
+    var b as Label is a
+    var c as Label is calling b.clone
+    var d as Label is calling make_label with 2
+    set d is calling make_label with 3
+    calling d.drop
+    calling spark.println with "{c.weight}{b.weight}{d.weight}"
+    return 0

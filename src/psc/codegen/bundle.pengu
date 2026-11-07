@@ -265,6 +265,13 @@ weave generate_bundle_c with c as ref to context.CgContext, live_out as ref to l
             calling ctypes.emit_clone with c, tcl
         set i is i + 1
     calling emit.blank with (sigil of c->emitter)
+    # Copias profundas de los runes `derive Drop` (las usa `.clone()`).
+    set i is 0
+    while i < c->catalog.types.len:
+        var td as catalog.CgType is (c->catalog.types at i)
+        if not c->options.prune_types or calling dce.type_live with (sigil of reach), td.type_id:
+            calling ctypes.emit_deepclone with c, td
+        set i is i + 1
     # Prototipos de los cleanups: los tipos con ciclos (A dentro de B y
     # `list of A` dentro de A) no pueden ordenarse por dependencia de cleanup.
     set i is 0

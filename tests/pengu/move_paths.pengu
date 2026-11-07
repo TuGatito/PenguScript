@@ -1,0 +1,50 @@
+import std.spark
+
+## Rutas del movimiento por defecto (fase 3 del plan de memoria):
+## mover al declarar, mover al asignar, prestamo al pasar por parametro,
+## copia explicita con `.clone()`, y `.drop()` explicito idempotente.
+##
+## La comprobacion de `E0080`/`E0081` vive en los tests negativos
+## (`tests/regress_use_after_move.sh`, `tests/regress_move_param.sh`).
+
+rune Label derive Drop:
+    name as string
+    weight as int
+
+antiquus own_str with s as string into string:
+    r"""
+    return pengu_string_copy(s);
+    """
+
+weave make_label with n as int into Label:
+    return with name is (calling own_str with "L{n}"), weight is n
+
+weave weight_of with l as Label into int:
+    return l.weight
+
+weave main into int:
+    var a as Label is calling make_label with 1
+    # Mover a la declaracion: `a` queda movido (su destructor se suprime).
+    var b as Label is a
+    # Copia explicita: `c` es independiente de `b`.
+    var c as Label is calling b.clone
+    if c.weight != 1:
+        return 1
+    # Asignar a un `Drop` libera el valor anterior y mueve el nuevo.
+    var d as Label is calling make_label with 0
+    set d is calling make_label with 9
+    if d.weight != 9:
+        return 2
+    # Pasar por parametro es prestamo: `d` sigue siendo del llamador.
+    var n as int is calling weight_of with d
+    if n != 9:
+        return 3
+    # `.drop()` explicito: libera y deja el valor en cero; el destructor
+    # automatico del final del scope no vuelve a liberar nada.
+    calling d.drop
+    if d.weight != 0:
+        return 4
+    if d.name.len != 0:
+        return 5
+    calling spark.println with "ok"
+    return 0

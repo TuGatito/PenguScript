@@ -34,6 +34,7 @@ import psc.sema.ast as astutil
 import psc.sema.state as state
 import psc.sema.annotate as ann
 import psc.sema.diagnostics as sdiag
+import psc.sema.check.moves as moves
 import psc.parse.api as parse_api
 import psc.diag_compat as diag_compat
 import psc.span as pspan
@@ -546,6 +547,8 @@ weave infer_name with s as ref to state.SemaState, node as int, name as string, 
             return 0
         if (sv.flags & sym.SYM_MOVED_CORO) != 0:
             calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MEMORY_OP, (calling astutil.start_of with s->ast, at_node), (calling astutil.end_of with s->ast, at_node), "value was moved into a coroutine", "The coroutine owns it now; do not use it here. Reassign it first if you need a new value.", ""
+            return 0
+        if calling moves.check_moved_use with s, sv, at_node, name:
             return 0
         calling ann.ann_set_symbol with s->annotations, node, sid
         return sv.type

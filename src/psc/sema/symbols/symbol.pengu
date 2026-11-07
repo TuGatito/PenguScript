@@ -66,6 +66,8 @@ const SYM_GET_ALIAS as int is 1 << 12
 const SYM_MOVED as int is 1 << 13
 ## El valor se movió a una corrutina y no debe usarse otra vez.
 const SYM_MOVED_CORO as int is 1 << 14
+## El valor se movió a otro binding y no debe usarse otra vez (`E0080`).
+const SYM_DROP_MOVED as int is 1 << 15
 
 ## Clase de valor constante.
 omen SemaConstKind:

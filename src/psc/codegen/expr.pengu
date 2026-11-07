@@ -2683,6 +2683,51 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
         var gty as int is calling guess_type with c, tgt_node, ast
         if gty > 0:
             set tgt.type_id is gty
+    # `.clone()` y `.drop()` de un rune con `derive Drop`: la copia profunda y
+    # la liberación explícita, con el receptor como dirección.
+    if (method_name == "clone" or method_name == "drop") and tgt.type_id >= 0:
+        var dt as int is tgt.type_id
+        var dtref as bool is false
+        var dtg as int is 0
+        var dtype as tk.SemaType is calling types.at with (sigil of c->program->types), dt
+        while dtg < 8 and (dtype.kind == tk.SemaTypeKind.TkRef or dtype.kind == tk.SemaTypeKind.TkFrozen):
+            set dtref is true
+            set dt is dtype.a
+            set dtype is calling types.at with (sigil of c->program->types), dt
+            set dtg is dtg + 1
+        if dtype.kind == tk.SemaTypeKind.TkRune and dtype.a >= 0 and dtype.a < c->program->types.nominal_infos.len:
+            var dinfo as types.SemaNominalInfo is (c->program->types.nominal_infos at dtype.a)
+            if (dinfo.flags & types.NIF_DROP) != 0:
+                var dcn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), dinfo.c_name)
+                defer banish dcn
+                var daddr as string is ""
+                if dtref or (tgt.text == "self" and not c->self_value):
+                    set daddr is calling npool.copy_string with tgt.text
+                else:
+                    var asb as StringBuilder is calling StringBuilder.new
+                    defer banish asb
+                    calling asb.append with "&("
+                    calling asb.append with tgt.text
+                    calling asb.append with ")"
+                    set daddr is calling asb.finish
+                defer banish daddr
+                if method_name == "clone":
+                    var csb2 as StringBuilder is calling StringBuilder.new
+                    defer banish csb2
+                    calling csb2.append with "_pengu_deepclone_"
+                    calling csb2.append with dcn
+                    calling csb2.append with "("
+                    calling csb2.append with daddr
+                    calling csb2.append with ")"
+                    return calling csb2.finish
+                var dsb2 as StringBuilder is calling StringBuilder.new
+                defer banish dsb2
+                calling dsb2.append with "__extension__(({ _pengu_cleanup_"
+                calling dsb2.append with dcn
+                calling dsb2.append with "("
+                calling dsb2.append with daddr
+                calling dsb2.append with "); }))"
+                return calling dsb2.finish
     if tgt.type_id >= 0:
         var tt as tk.SemaType is calling types.at with (sigil of c->program->types), tgt.type_id
         var tct0 as string is calling ctype.c_type with (sigil of c->names), tgt.type_id

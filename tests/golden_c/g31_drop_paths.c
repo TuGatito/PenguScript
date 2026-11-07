@@ -38,6 +38,12 @@ static inline void _pengu_clone_Label(Label* out, const Label* v) {
     *out = *v;
 }
 
+static inline Label _pengu_deepclone_Label(Label* p) {
+    Label out = *p;
+    out.name = pengu_string_copy(p->name);
+    out.weight = p->weight;
+    return out;
+}
 static inline void _pengu_cleanup_Label(Label* p);
 static inline void _pengu_cleanup_Label(Label* p) {
     (void)p;

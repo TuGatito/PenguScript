@@ -905,6 +905,88 @@ weave collect_derives with s as ref to state.SemaState, node as int, ty as int, 
     set dinfo.derived_first is dfirst
     set dinfo.derived_count is dcount
     set s->types->nominal_infos at (info_idx) is dinfo
+    if wants_drop:
+        calling register_drop_methods with s, ty, dinfo
+        calling validate_drop_fields with s, node, dinfo, 0
+
+## Comprueba que los campos de un rune `derive Drop` se puedan copiar en
+## profundo y liberar sin ambigüedad.
+##
+## `maybe`/`result` guardan su contenido en una caja que el cleanup libera, y
+## el compilador aún no sabe clonarlas: copiarlas en superficial sería un
+## doble-free. Los runes genéricos tampoco se pueden clonar por instancia.
+##
+## ## Memoria
+## Puede emitir diagnósticos; no posee recursos.
+weave validate_drop_fields with s as ref to state.SemaState, node as int, info as types.SemaNominalInfo, depth as int into void:
+    if info.tparams_count > 0:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "concept 'Drop' does not support generic runes yet", "Clone the payload by hand, or use a concrete rune.", ""
+        return
+    if depth > 8:
+        return
+    var fi as int is 0
+    while fi < info.fields_count:
+        var f as types.SemaField is (s->types->fields at (info.fields_first + fi))
+        var bad as bool is calling drop_field_unclonable with s, f.type, 0
+        if bad:
+            var fname as string is calling npool.text with s->names, f.name
+            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "'maybe' and 'result' fields cannot be cloned yet", "Field '{fname}': store the payload in a nested rune with 'derive Drop', or use a list of the payload type.", ""
+        set fi is fi + 1
+
+## `true` si un tipo contiene `maybe`/`result` (directamente o en contenedores).
+##
+## ## Memoria
+## Sigue alias/seal hasta 32 pasos.
+weave drop_field_unclonable with s as ref to state.SemaState, ty as int, depth as int into bool:
+    if ty <= 0 or depth > 8:
+        return false
+    var t as tk.SemaType is calling types.at with s->types, ty
+    var steps as int is 0
+    while steps < 32 and (t.kind == tk.SemaTypeKind.TkAlias or t.kind == tk.SemaTypeKind.TkSeal):
+        set t is calling types.at with s->types, t.b
+        set steps is steps + 1
+    if t.kind == tk.SemaTypeKind.TkMaybe or t.kind == tk.SemaTypeKind.TkResult:
+        return true
+    if t.kind == tk.SemaTypeKind.TkList:
+        return calling drop_field_unclonable with s, t.a, depth + 1
+    if t.kind == tk.SemaTypeKind.TkMap:
+        if calling drop_field_unclonable with s, t.a, depth + 1:
+            return true
+        return calling drop_field_unclonable with s, t.b, depth + 1
+    return false
+
+## Registra `.clone()` y `.drop()` en un rune con `derive Drop`.
+##
+## Se declaran como métodos `ritual` sin parámetros (el `self` es implícito y
+## llega como puntero), así que la llamada es la normal del compilador:
+## `_pengu_deepclone_T(&(x))` y `_pengu_cleanup_T(&(x))`.
+##
+## ## Memoria
+## Añade símbolos y firmas a las tablas.
+weave register_drop_methods with s as ref to state.SemaState, ty as int, info as types.SemaNominalInfo into void:
+    var cbase as string is calling npool.text with s->names, info.c_name
+    var clone_nid as int is calling npool.intern with s->names, "clone"
+    var drop_nid as int is calling npool.intern with s->names, "drop"
+    if (calling symbols.lookup_method_exact with s->symbols, ty, clone_nid) < 0:
+        var csb as StringBuilder is calling StringBuilder.new
+        defer banish csb
+        calling csb.append with "_pengu_deepclone_"
+        calling csb.append with cbase
+        var cnm as string is calling csb.finish
+        defer banish cnm
+        var cinfo as types.SemaFnInfo is with params_first is 0, params_count is 0, return_type is ty, tparams_first is 0, tparams_count is 0, flags is types.FN_METHOD | types.FN_RITUAL, attrs_node is -1
+        var cfty as int is calling types.fn_type with s->types, cinfo
+        var ignored_c as int is calling symbols.symbol_define_method_cname with s->symbols, ty, clone_nid, cfty, cnm
+    if (calling symbols.lookup_method_exact with s->symbols, ty, drop_nid) < 0:
+        var dsb as StringBuilder is calling StringBuilder.new
+        defer banish dsb
+        calling dsb.append with "_pengu_cleanup_"
+        calling dsb.append with cbase
+        var dnm as string is calling dsb.finish
+        defer banish dnm
+        var dinfo2 as types.SemaFnInfo is with params_first is 0, params_count is 0, return_type is 3, tparams_first is 0, tparams_count is 0, flags is types.FN_METHOD | types.FN_RITUAL, attrs_node is -1
+        var dfty as int is calling types.fn_type with s->types, dinfo2
+        var ignored_d as int is calling symbols.symbol_define_method_cname with s->symbols, ty, drop_nid, dfty, dnm
 
 ## `omen`.
 ##

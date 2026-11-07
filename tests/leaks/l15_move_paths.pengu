@@ -1,0 +1,34 @@
+# Mover y clonar no deben filtrar ni liberar dos veces (ASan/LSan).
+#
+# Cubre: mover a la declaracion (el destructor del origen se suprime),
+# asignar a un `Drop` (libera el valor anterior), `.clone()` (copia
+# profunda del `string`) y `.drop()` explicito seguido del destructor
+# automatico. Los contenedores dentro de un `Drop` se cubren en la fase 6
+# (drop recursivo): aqui solo hay campos escalares y strings.
+
+antiquus own_str with s as string into string:
+    r"""
+return pengu_string_copy(s);
+"""
+
+rune Label derive Drop:
+    name as string
+    weight as int
+
+weave make_label with n as string into Label:
+    return with name is (calling own_str with n), weight is 1
+
+weave main into int:
+    var a as Label is calling make_label with "a"
+    var b as Label is a
+    var c as Label is calling b.clone
+    var d as Label is calling make_label with "d"
+    set d is calling make_label with "e"
+    if c.name.len != 1:
+        return 1
+    if d.name.len != 1:
+        return 2
+    calling d.drop
+    if d.name.len != 0:
+        return 3
+    return 0
