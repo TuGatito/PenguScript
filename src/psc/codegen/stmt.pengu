@@ -19,6 +19,7 @@ import psc.sema.types.compat as compat
 
 import psc.codegen.context as context
 import psc.codegen.ctype as ctype
+import psc.codegen.drop as drop
 import psc.codegen.emit as emit
 import psc.codegen.expr as expr
 import psc.codegen.origin as origin
@@ -1170,27 +1171,7 @@ weave emit_defer with c as ref to context.CgContext, node as int into void:
                 var vnid as int is calling npool.intern with (sigil of c->program->names), vtxt
                 set ty is calling context.local_type with c, vnid
                 banish vtxt
-        if ty >= 0:
-            var t is calling types.at with (sigil of c->program->types), ty
-            if t.kind == tk.SemaTypeKind.TkBase:
-                var bn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), t.name)
-                defer banish bn
-                if bn == "string":
-                    calling emit.line with (sigil of c->emitter), "pengu_banish_string(&({vn}));"
-                else:
-                    var noop as int is 0
-            else if t.kind == tk.SemaTypeKind.TkList:
-                calling emit.line with (sigil of c->emitter), "pengu_banish_list(&({vn}));"
-            else if t.kind == tk.SemaTypeKind.TkMap:
-                calling emit.line with (sigil of c->emitter), "pengu_banish_map(&({vn}));"
-            else if t.kind == tk.SemaTypeKind.TkMaybe:
-                calling emit.line with (sigil of c->emitter), "pengu_banish_maybe(&({vn}));"
-            else if t.kind == tk.SemaTypeKind.TkResult:
-                calling emit.line with (sigil of c->emitter), "pengu_banish_result(&({vn}));"
-            else if t.kind == tk.SemaTypeKind.TkRune or t.kind == tk.SemaTypeKind.TkEcho or t.kind == tk.SemaTypeKind.TkOmen:
-                var ct as string is calling ctype.c_type with (sigil of c->names), ty
-                defer banish ct
-                calling emit.line with (sigil of c->emitter), "_pengu_cleanup_{ct}(&({vn}));"
+        calling drop.emit_drop_value with c, ty, vn
         return
     var call as string is calling expr.emit_expr with c, node
     defer banish call

@@ -1,0 +1,82 @@
+## psc/codegen/drop.pengu — el lowering de liberar un valor, por tipo.
+##
+## Una sola tabla para `banish`, `defer` y los `_pengu_cleanup_T` derivados:
+## cada tipo tiene UNA forma de liberarse y se ve en `psc emit-c`.
+##
+## El modelo actual es de handles prestados: liberar un contenedor libera su
+## búfer, no sus elementos (§13.4 de `docs/LANGUAGE.md`). El bucle que libera
+## elementos entra cuando el contenedor pase a ser dueño de lo que guarda
+## (fase COW), porque sólo entonces el drop recursivo es seguro.
+##
+## ## Memoria
+## Emite C; los strings C que construye son owned.
+
+import psc.sema.types.kind as tk
+import psc.sema.types.table as types
+import psc.sema.names as npool
+
+import psc.codegen.context as context
+import psc.codegen.ctype as ctype
+import psc.codegen.emit as emit
+
+insignia psc_codegen_drop_
+
+## Emite la liberación del valor que vive en `target`.
+##
+## `target` es una expresión C direccionable (`x`, `p->campo`,
+## `xs.data[i]`). Un `TypeId` inválido o `-1` no emite nada: los tipos
+## escalares no tienen nada que liberar.
+##
+## ## Memoria
+## Emite C; los strings C que construye son owned.
+weave emit_drop_value with c as ref to context.CgContext, ty as int, target as string into void:
+    if ty < 0 or ty >= c->program->types.types.len:
+        return
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    if t.kind == tk.SemaTypeKind.TkAlias or t.kind == tk.SemaTypeKind.TkSeal:
+        if t.b > 0:
+            calling emit_drop_value with c, t.b, target
+        return
+    if t.kind == tk.SemaTypeKind.TkBase:
+        var bn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), t.name)
+        defer banish bn
+        if bn == "string":
+            calling emit.line with (sigil of c->emitter), "pengu_banish_string(&({target}));"
+        return
+    if t.kind == tk.SemaTypeKind.TkList:
+        calling emit.line with (sigil of c->emitter), "pengu_banish_list(&({target}));"
+        return
+    if t.kind == tk.SemaTypeKind.TkMap:
+        calling emit.line with (sigil of c->emitter), "pengu_banish_map(&({target}));"
+        return
+    if t.kind == tk.SemaTypeKind.TkMaybe:
+        calling emit.line with (sigil of c->emitter), "pengu_banish_maybe(&({target}));"
+        return
+    if t.kind == tk.SemaTypeKind.TkResult:
+        calling emit.line with (sigil of c->emitter), "pengu_banish_result(&({target}));"
+        return
+    if t.kind == tk.SemaTypeKind.TkOmen:
+        # Un omen numérico no tiene `_pengu_cleanup_T`: sólo se emite para
+        # omens algebraicos con payload (`emit_omen_cleanup`).
+        if not calling omen_has_payload with c, t.a:
+            return
+    if t.kind == tk.SemaTypeKind.TkRune or t.kind == tk.SemaTypeKind.TkEcho or t.kind == tk.SemaTypeKind.TkOmen:
+        var ct as string is calling ctype.c_type with (sigil of c->names), ty
+        defer banish ct
+        calling emit.line with (sigil of c->emitter), "_pengu_cleanup_{ct}(&({target}));"
+
+## `true` si alguna variante del omen `nominal` lleva payload.
+##
+## ## Memoria
+## No asigna.
+weave omen_has_payload with c as ref to context.CgContext, nominal as int into bool:
+    if nominal <= 0 or nominal >= c->program->types.nominal_infos.len:
+        return false
+    var info as types.SemaNominalInfo is (c->program->types.nominal_infos at nominal)
+    var i as int is 0
+    while i < info.variants_count:
+        var v as types.SemaVariant is (c->program->types.variants at (info.variants_first + i))
+        if v.payload_count > 0:
+            return true
+        set i is i + 1
+    return false

@@ -1,0 +1,41 @@
+## Golden: la tabla de liberación (`banish`) por tipo, en un solo archivo.
+##
+## Cubre string, list, map, maybe, result, un omen con payload string y un
+## rune con `derive Nexus` cuyos campos son string y list of int. Cualquier
+## cambio de lowering en `codegen/drop.pengu` se ve aquí.
+import std.spark
+
+rune Label derive Nexus:
+    name as string
+    weight as int
+
+omen Slot:
+    Empty
+    Filled with text as string
+
+weave pick with good as bool into result of string to string:
+    if good:
+        var good_text as string is "x" + "y"
+        return calling ok_of with good_text
+    var bad_text as string is "b" + "d"
+    return calling err_of with bad_text
+
+weave main into int:
+    var s as string is "a" + "b"
+    banish s
+    var xs as list of int is list of int
+    calling xs.push with 1
+    banish xs
+    var m as map of string to int is map of string to int
+    calling m.put with "k", 1
+    banish m
+    var mb as maybe string is some ("x" + "y")
+    banish mb
+    var r as result of string to string is calling pick with true
+    banish r
+    var o as Slot is with Filled is with text is ("p" + "q")
+    banish o
+    var l as Label is with name is ("n" + "1"), weight is 2
+    banish l
+    calling spark.println with "drop table ok"
+    return 0
