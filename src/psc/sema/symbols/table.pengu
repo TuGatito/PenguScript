@@ -828,6 +828,9 @@ weave init_builtins with s as ref to SemaSymbols into void:
     calling builtin_concept with s, "Vinculum"
     calling builtin_concept with s, "Imago"
     calling builtin_concept with s, "Nexus"
+    # `derive Drop` = `Nexus` + destrucción al salir del scope + no copiable
+    # de forma implícita (ver `docs/LANGUAGE.md` §13.8).
+    calling builtin_concept with s, "Drop"
     calling builtin_concept with s, "Forma"
     calling builtin_concept with s, "Iterabilis"
     calling builtin_concept with s, "Donum"

@@ -52,6 +52,8 @@ static inline void _pengu_clone_Slot(Slot* out, const Slot* v) {
     *out = *v;
 }
 
+static inline void _pengu_cleanup_Label(Label* p);
+static inline void _pengu_cleanup_Slot(Slot* p);
 static inline void _pengu_cleanup_Label(Label* p) {
     (void)p;
     pengu_banish_string(&(p->name));

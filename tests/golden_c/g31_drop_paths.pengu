@@ -1,0 +1,46 @@
+## Golden: `derive Drop` destruye el local en cada salida de scope.
+##
+## El `.c` debe mostrar `_pengu_cleanup_Label` antes de cada `return`,
+## `break` y `continue`, en orden inverso a la declaración, y una limpieza
+## idempotente (`memset`) dentro de `_pengu_cleanup_Label`. Cualquier cambio
+## en la inserción de destructores automáticos se ve aquí.
+import std.spark
+
+rune Label derive Drop:
+    name as string
+    weight as int
+
+weave make_label with n as string into Label:
+    return with name is n, weight is 1
+
+weave by_return with flag as bool into int:
+    var a as Label is calling make_label with "a"
+    var b as Label is calling make_label with "b"
+    if flag:
+        return b.weight
+    return a.weight
+
+weave by_loop into int:
+    var total as int is 0
+    var i as int is 0
+    while i < 3:
+        var l as Label is calling make_label with "loop"
+        set i is i + 1
+        if i == 1:
+            continue
+        if i == 3:
+            break
+        set total is total + l.weight
+    return total
+
+weave by_banish into int:
+    var l as Label is calling make_label with "bi"
+    banish l
+    return 0
+
+weave main into int:
+    var r as int is calling by_return with true
+    var l as int is calling by_loop
+    var b as int is calling by_banish
+    calling spark.println with "{r}{l}{b}"
+    return 0

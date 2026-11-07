@@ -238,6 +238,34 @@ weave emit_omen_cleanup with c as ref to context.CgContext, ty as tk.SemaType, c
     calling emit.indent_less with (sigil of c->emitter)
     calling emit.line with (sigil of c->emitter), "}"
 
+## Emite la declaración adelantada del cleanup derivado.
+##
+## Hace falta porque dos runas pueden tener un ciclo de tipos (A contiene B y
+## B contiene `list of A`): el orden topológico rompe el ciclo poniendo A
+## antes que B, pero el cleanup de A llama al de B por valor. Se declaran
+## todos los cleanups antes de definirlos, igual que los tipos.
+##
+## ## Memoria
+## Strings temporales liberados.
+weave emit_cleanup_forward with c as ref to context.CgContext, t as catalog.CgType into void:
+    if not t.is_struct and not t.is_omen:
+        return
+    var ty as tk.SemaType is calling types.at with (sigil of c->program->types), t.type_id
+    if t.is_omen:
+        var info2 as types.SemaNominalInfo is (c->program->types.nominal_infos at ty.a)
+        var hp as bool is false
+        var pi as int is 0
+        while pi < info2.variants_count:
+            var pv as types.SemaVariant is (c->program->types.variants at (info2.variants_first + pi))
+            if pv.payload_count > 0:
+                set hp is true
+            set pi is pi + 1
+        if not hp:
+            return
+    var cname as string is calling type_name with c, t
+    defer banish cname
+    calling emit.line with (sigil of c->emitter), "static inline void _pengu_cleanup_{cname}({cname}* p);"
+
 ## Emite el cleanup derivado de un rune/echo.
 ##
 ## ## Memoria
@@ -262,6 +290,10 @@ weave emit_cleanup with c as ref to context.CgContext, t as catalog.CgType into 
         defer banish fname
         calling drop.emit_drop_value with c, f.type, "p->{fname}"
         set i is i + 1
+    if (info.flags & types.NIF_DROP) != 0:
+        # Limpieza idempotente: tras liberar, el valor queda en cero, así que
+        # `banish x` seguido del destructor automático no libera dos veces.
+        calling emit.line with (sigil of c->emitter), "memset(p, 0, sizeof(*p));"
     calling emit.indent_less with (sigil of c->emitter)
     calling emit.line with (sigil of c->emitter), "}"
 

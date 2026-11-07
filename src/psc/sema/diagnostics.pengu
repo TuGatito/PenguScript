@@ -35,6 +35,16 @@ const CODE_CONTROL_FLOW as string is "E0007"
 const CODE_INTERP_PARSE as string is "E0019"
 const CODE_RETURN_TYPE as string is "E0020"
 const CODE_MEMORY_OP as string is "E0008"
+## `derive Drop`: uso de un valor movido.
+const CODE_USE_AFTER_MOVE as string is "E0080"
+## `derive Drop`: copia implícita de un tipo que no se copia.
+const CODE_IMPLICIT_COPY as string is "E0081"
+## `Rc`/`WeakRc` no pueden cruzar `filum.start`/`coro.start`.
+const CODE_RC_CROSS_THREAD as string is "E0082"
+## `Arc of T` exige que `T` sea `@shared`.
+const CODE_ARC_NOT_SHARED as string is "E0083"
+## Un `weave` con `@export` no puede devolver un `Drop` por valor.
+const CODE_EXPORT_DROP as string is "E0084"
 const CODE_BUILDER as string is "E0014"
 const CODE_ARRAY_UNKNOWN as string is "E0015"
 const CODE_GENERIC_ARGS as string is "E0021"
@@ -99,6 +109,9 @@ const WARN_SHADOW as string is "W0005"
 const WARN_DEPRECATED as string is "W0006"
 const WARN_UNSAFE as string is "W0007"
 const WARN_RANGE as string is "W0013"
+## Copia de contenedor seguida de mutación dentro de un bucle (sólo con
+## `--lint=cow`).
+const WARN_COW_LOOP as string is "W0008"
 
 ## Emite un error en `[start, end)` de `src`.
 ##

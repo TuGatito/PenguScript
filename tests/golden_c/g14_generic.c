@@ -43,6 +43,8 @@ static inline void _pengu_clone_Box__string(Box__string* out, const Box__string*
     *out = *v;
 }
 
+static inline void _pengu_cleanup_Box(Box* p);
+static inline void _pengu_cleanup_Box__string(Box__string* p);
 static inline void _pengu_cleanup_Box(Box* p) {
     (void)p;
 }

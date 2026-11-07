@@ -842,6 +842,7 @@ weave collect_derives with s as ref to state.SemaState, node as int, ty as int, 
     var dfirst as int is s->types->derived.len
     var dcount as int is 0
     var wants_json as bool is false
+    var wants_drop as bool is false
     var di as int is 0
     while di < n:
         var dc as int is calling astutil.node_child with s->ast, node, di
@@ -858,6 +859,11 @@ weave collect_derives with s as ref to state.SemaState, node as int, ty as int, 
                         var dname as string is calling npool.text with s->names, dty2.name
                         if dname == "Json":
                             set wants_json is true
+                        if dname == "Drop":
+                            set wants_drop is true
+                            var dinfo0 as types.SemaNominalInfo is (s->types->nominal_infos at info_idx)
+                            if dinfo0.kind != tk.SemaNominalKind.NkRune:
+                                calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, dt), (calling astutil.end_of with s->ast, dt), "concept 'Drop' can only be derived by a rune", "Declare the type with 'rune' or drop the concept.", ""
                         if dname == "Real":
                             calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, dt), (calling astutil.end_of with s->ast, dt), "concept 'Real' cannot be derived", "Implement Real explicitly or derive Nexus/Par/Ordo.", ""
                         else:
@@ -880,6 +886,21 @@ weave collect_derives with s as ref to state.SemaState, node as int, ty as int, 
                 set hi2 is hi2 + 1
             if not has_nexus:
                 calling types.add_derived with s->types, nexus_id
+                set dcount is dcount + 1
+    if wants_drop:
+        # `derive Drop` implica el cleanup de `Nexus`: una sola derivación
+        # basta para que `banish` y la destrucción automática tengan lowering.
+        set dinfo.flags is dinfo.flags | types.NIF_DROP
+        var nexus2 as int is calling symbols.lookup_type_name with s->symbols, "Nexus"
+        if nexus2 > 0:
+            var has_nexus2 as bool is false
+            var hi3 as int is 0
+            while hi3 < dcount:
+                if (s->types->derived at (dfirst + hi3)) == nexus2:
+                    set has_nexus2 is true
+                set hi3 is hi3 + 1
+            if not has_nexus2:
+                calling types.add_derived with s->types, nexus2
                 set dcount is dcount + 1
     set dinfo.derived_first is dfirst
     set dinfo.derived_count is dcount

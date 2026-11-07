@@ -265,6 +265,14 @@ weave generate_bundle_c with c as ref to context.CgContext, live_out as ref to l
             calling ctypes.emit_clone with c, tcl
         set i is i + 1
     calling emit.blank with (sigil of c->emitter)
+    # Prototipos de los cleanups: los tipos con ciclos (A dentro de B y
+    # `list of A` dentro de A) no pueden ordenarse por dependencia de cleanup.
+    set i is 0
+    while i < c->catalog.types.len:
+        var tf as catalog.CgType is (c->catalog.types at i)
+        if not c->options.prune_types or calling dce.type_live with (sigil of reach), tf.type_id:
+            calling ctypes.emit_cleanup_forward with c, tf
+        set i is i + 1
     # Cleanup derivado de runes/ecos (lo usa `banish`).
     set i is 0
     while i < c->catalog.types.len:

@@ -51,6 +51,21 @@ weave check_weave_body with s as ref to state.SemaState, node as int into void:
         if rn >= 0:
             var ctx as convert.TypeCtx is calling body_type_ctx with s
             set ret is calling convert.convert with (sigil of ctx), rn
+    # Un `@export` atraviesa la frontera C: devolver un `Drop` por valor deja
+    # al llamador sin forma de liberarlo (no hay destructor en C). Se comprueba
+    # aquí, con todas las runas ya recolectadas (una runa puede declararse
+    # después de la función que la usa).
+    if calling has_attribute with s, (calling astutil.node_child with s->ast, node, 0), "export":
+        if calling body_type_has_drop with s, ret:
+            var rstart as int is calling astutil.start_of with s->ast, node
+            var rend as int is calling astutil.end_of with s->ast, node
+            var rex as int is -1
+            if ret_slot < calling astutil.child_count with s->ast, node:
+                set rex is calling astutil.node_child with s->ast, node, ret_slot
+            if rex >= 0:
+                set rstart is calling astutil.start_of with s->ast, rex
+                set rend is calling astutil.end_of with s->ast, rex
+            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_EXPORT_DROP, rstart, rend, "an exported weave cannot return a 'Drop' value by value", "Return 'ref to T' and export a `_drop` helper, or drop @export.", ""
     var params_slot as int is slot + 2
     var body_start as int is slot + 4
     var start as int is calling astutil.start_of with s->ast, node
@@ -71,6 +86,25 @@ weave check_weave_body with s as ref to state.SemaState, node as int into void:
             calling check_stmt with s, body
         set bi is bi + 1
     calling symbols.pop_scope with s->symbols, end
+
+## `true` si el tipo es una runa con `derive Drop` (siguiendo alias y seals).
+##
+## ## Memoria
+## O(profundidad del alias).
+weave body_type_has_drop with s as ref to state.SemaState, ty as int into bool:
+    var cur as int is ty
+    var guard as int is 0
+    while cur >= 0 and guard < 32:
+        var t as tk.SemaType is calling types.at with s->types, cur
+        if t.kind == tk.SemaTypeKind.TkRune or t.kind == tk.SemaTypeKind.TkEcho:
+            var info as types.SemaNominalInfo is (s->types->nominal_infos at t.a)
+            return (info.flags & types.NIF_DROP) != 0
+        if t.kind == tk.SemaTypeKind.TkAlias or t.kind == tk.SemaTypeKind.TkSeal:
+            set cur is t.b
+        else:
+            return false
+        set guard is guard + 1
+    return false
 
 ## Define los parámetros en el scope actual.
 ##

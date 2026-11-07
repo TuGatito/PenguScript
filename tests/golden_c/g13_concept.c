@@ -35,6 +35,7 @@ static inline void _pengu_clone_Dog(Dog* out, const Dog* v) {
     *out = *v;
 }
 
+static inline void _pengu_cleanup_Dog(Dog* p);
 static inline void _pengu_cleanup_Dog(Dog* p) {
     (void)p;
     pengu_banish_string(&(p->name));

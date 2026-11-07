@@ -1,0 +1,102 @@
+# `derive Drop`: destrucción automática en todas las salidas de scope.
+#
+# Cada función alberga un local `Drop` y sale por una ruta distinta; si el
+# destructor automático no se emitiera (o se emitiera dos veces) el test
+# fallaría con ASan o con un contador de limpiezas descontrolado.
+
+antiquus own_str with s as string into string:
+    r"""
+return pengu_string_copy(s);
+"""
+
+rune Label derive Drop:
+    name as string
+    weight as int
+
+weave make_label with n as string, w as int into Label:
+    return with name is (calling own_str with n), weight is w
+
+# Salida por `return` dentro de un `if`.
+weave by_return with flag as bool into int:
+    var a as Label is calling make_label with "a", 1
+    var b as Label is calling make_label with "b", 2
+    if flag:
+        return b.weight
+    return a.weight
+
+# Salida por `break`.
+weave by_break into int:
+    var total as int is 0
+    var i as int is 0
+    while i < 4:
+        var l as Label is calling make_label with "bloop", 1
+        if i == 2:
+            break
+        set total is total + l.weight
+        set i is i + 1
+    return total
+
+# Salida por `continue`.
+weave by_continue into int:
+    var total as int is 0
+    var i as int is 0
+    while i < 4:
+        var l as Label is calling make_label with "cloop", 1
+        set i is i + 1
+        if i == 2:
+            continue
+        set total is total + l.weight
+    return total
+
+# Salida por `or return` (propagación de fallo de un `maybe`).
+weave always_none into maybe int:
+    return maybe none
+
+weave by_or_return into int:
+    var l as Label is calling make_label with "or", 5
+    var v as int is calling always_none or return 9
+    return v + l.weight
+
+# Salida por el final del scope, sin `return` explícito.
+weave by_fallthrough into int:
+    var total as int is 0
+    var l as Label is calling make_label with "fall", 3
+    set total is total + l.weight
+    return total
+
+# `banish` explícito seguido del destructor automático: la limpieza es
+# idempotente (deja el valor en cero), así que no hay doble free.
+weave by_banish into int:
+    var l as Label is calling make_label with "bi", 4
+    var w as int is l.weight
+    banish l
+    return w
+
+# Devolver un local `Drop` lo mueve: no se destruye dentro de la función.
+weave moved_out into Label:
+    var l as Label is calling make_label with "moved", 6
+    return l
+
+weave consume with v as Label into int:
+    return v.weight
+
+weave main into int:
+    if (calling by_return with true) != 2:
+        return 1
+    if (calling by_return with false) != 1:
+        return 2
+    if (calling by_break) != 2:
+        return 3
+    if (calling by_continue) != 3:
+        return 4
+    if (calling by_or_return) != 9:
+        return 5
+    if (calling by_fallthrough) != 3:
+        return 6
+    if (calling by_banish) != 4:
+        return 7
+    var m as Label is calling moved_out
+    if (calling consume with m) != 6:
+        return 8
+    calling print with "ok\n"
+    return 0

@@ -36,6 +36,7 @@ static inline void _pengu_clone_Point(Point* out, const Point* v) {
     *out = *v;
 }
 
+static inline void _pengu_cleanup_Point(Point* p);
 static inline void _pengu_cleanup_Point(Point* p) {
     (void)p;
 }

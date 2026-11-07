@@ -183,6 +183,8 @@ const NIF_DERIVED as int is 1 << 7
 const NIF_SHARED as int is 1 << 8
 ## La runa declaró `derive Json`.
 const NIF_JSON as int is 1 << 9
+## La runa declaró `derive Drop`: se destruye al salir del scope y no se copia.
+const NIF_DROP as int is 1 << 10
 
 const FIELD_READONLY as int is 1 << 0
 const FIELD_PRIVATE as int is 1 << 1

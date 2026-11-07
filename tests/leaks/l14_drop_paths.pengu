@@ -1,0 +1,67 @@
+# `derive Drop` no debe filtrar en ninguna ruta de salida (ASan/LSan).
+#
+# Cada función crea un local con un `string` owned y sale por un camino
+# distinto: `return`, `break`, `continue`, `or return` y final del scope.
+
+antiquus own_str with s as string into string:
+    r"""
+return pengu_string_copy(s);
+"""
+
+rune Label derive Drop:
+    name as string
+    weight as int
+
+weave make_label with n as string into Label:
+    return with name is (calling own_str with n), weight is 1
+
+weave by_return with flag as bool into int:
+    var a as Label is calling make_label with "a"
+    if flag:
+        return a.weight
+    var b as Label is calling make_label with "b"
+    return b.weight
+
+weave by_loop into int:
+    var total as int is 0
+    var i as int is 0
+    while i < 3:
+        var l as Label is calling make_label with "loop"
+        set i is i + 1
+        if i == 1:
+            continue
+        if i == 3:
+            break
+        set total is total + l.weight
+    return total
+
+weave maybe_none into maybe int:
+    return maybe none
+
+weave by_or_return into int:
+    var l as Label is calling make_label with "or"
+    var v as int is calling maybe_none or return 9
+    return v + l.weight
+
+weave by_banish into int:
+    var l as Label is calling make_label with "bi"
+    banish l
+    return 0
+
+weave moved_out into Label:
+    var l as Label is calling make_label with "moved"
+    return l
+
+weave main into int:
+    if (calling by_return with true) != 1:
+        return 1
+    if (calling by_loop) != 1:
+        return 2
+    if (calling by_or_return) != 9:
+        return 3
+    if (calling by_banish) != 0:
+        return 4
+    var m as Label is calling moved_out
+    if m.weight != 1:
+        return 5
+    return 0
