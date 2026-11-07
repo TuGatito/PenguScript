@@ -147,7 +147,7 @@ weave read with base as string into maybe Lock:
 weave dumps with lock as Lock into string:
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb
-    calling sb.append with "schema = 2\ngenerated_by = \"psc 0.49.0\"\n"
+    calling sb.append with "schema = 2\ngenerated_by = \"psc 0.50.0\"\n"
     if lock.target length > 0:
         calling sb.append with "target = \""
         calling sb.append with lock.target

@@ -2,6 +2,18 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.50.0] — 2026-11-07 — Paridad de CLI: `psc check --json`
+
+### Añadido
+
+- `psc check --json` como alias de `--diagnostics=json` (el compilador viejo
+  aceptaba `--json`); test `tests/cli/check_json.sh`.
+
+### Cambiado
+
+- `LANGUAGE` §16/§19 documentan el alias y siguen usando `--diagnostics=json`
+  como forma canónica.
+
 ## [0.49.0] — 2026-11-07 — Memoria y aritmética: documentar lo real
 
 ### Añadido

@@ -1,7 +1,7 @@
 # Referencia del lenguaje PenguScript
 
 PenguScript es un lenguaje pequeño y de tipado estático que compila a C. Esta
-referencia documenta el lenguaje tal como lo implementa `psc` 0.49.0: cada
+referencia documenta el lenguaje tal como lo implementa `psc` 0.50.0: cada
 construcción, su semántica y el C al que se reduce.
 
 Es el documento de *lenguaje* del conjunto de documentación:
@@ -144,7 +144,7 @@ rasgos que necesitan su propia sección (genéricos, memoria, interop).
   diagnóstico son exhaustivos; la prosa no lo es — [PENGUNIC.es.md](PENGUNIC.es.md)
   cubre *cómo usar* el lenguaje y [STDLIB.es.md](STDLIB.es.md) cubre la
   biblioteca estándar.
-* Versión: `psc` 0.49.0. La versión de ABI que espera el C generado es 3.
+* Versión: `psc` 0.50.0. La versión de ABI que espera el C generado es 3.
 
 ## 1. Estructura léxica
 
@@ -2223,7 +2223,8 @@ $ psc test --diagnostics=json   # eventos JSON Lines para CI
 | `--release-unsafe` | desactiva las comprobaciones de límites |
 | `--verbose` | imprime el comando del compilador |
 
-`--diagnostics=json` en `check`/`build`/`test` emite diagnósticos legibles por máquina.
+`--diagnostics=json` en `check`/`build`/`test` emite diagnósticos legibles por máquina;
+`psc check` acepta además `--json` como alias (paridad con versiones anteriores).
 Códigos de salida: `0` éxito, `1` fallo de compilación o de test, `2` error de
 uso.
 
