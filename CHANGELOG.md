@@ -2,6 +2,28 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.47.0] — 2026-11-07 — Honestidad en omens de cadena y `seal`
+
+### Añadido
+
+- **Diagnóstico claro para `omen X with string:`**: la declaración se rechaza
+  con `E0005` ("string-valued omens are not implemented yet") en vez de dejar
+  que el tipo quede sin definir y falle más adelante con `E0004`.
+- Test `tests/regress_string_omens.sh`.
+
+### Corregido
+
+- `LANGUAGE` §9.4 ya no promete omens de cadena ni `E0028`: la tabla marca la
+  forma como rechazada y el texto remite a una variante algebraica con payload
+  `string`. §9.5 describe `seal` como lo que el compilador hace hoy (sinónimo
+  transparente) y deja la comprobación nominal como pendiente, en vez de
+  afirmar una conversión explícita que no se exige.
+
+### Pendiente
+
+- Omens de cadena (struct + `#define` por variante, comparación por contenido,
+  `E0028`) y comprobación nominal de `seal` (`E0005` al asignar el tipo base).
+
 ## [0.46.0] — 2026-11-07 — Rangos con `to` y enlaces `as`
 
 ### Añadido

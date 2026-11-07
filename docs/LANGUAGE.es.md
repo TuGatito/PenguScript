@@ -1,7 +1,7 @@
 # Referencia del lenguaje PenguScript
 
 PenguScript es un lenguaje pequeño y de tipado estático que compila a C. Esta
-referencia documenta el lenguaje tal como lo implementa `psc` 0.46.0: cada
+referencia documenta el lenguaje tal como lo implementa `psc` 0.47.0: cada
 construcción, su semántica y el C al que se reduce.
 
 Es el documento de *lenguaje* del conjunto de documentación:
@@ -144,7 +144,7 @@ rasgos que necesitan su propia sección (genéricos, memoria, interop).
   diagnóstico son exhaustivos; la prosa no lo es — [PENGUNIC.es.md](PENGUNIC.es.md)
   cubre *cómo usar* el lenguaje y [STDLIB.es.md](STDLIB.es.md) cubre la
   biblioteca estándar.
-* Versión: `psc` 0.46.0. La versión de ABI que espera el C generado es 3.
+* Versión: `psc` 0.47.0. La versión de ABI que espera el C generado es 3.
 
 ## 1. Estructura léxica
 
@@ -1331,10 +1331,6 @@ omen Direction:              # enum numérico
     North is 0
     South is 1
 
-omen Color with string:      # con valores de string
-    Red
-    Green
-
 omen Event:                  # tipo suma algebraico
     Disconnected
     Connecting with attempt as int
@@ -1344,15 +1340,17 @@ omen Event:                  # tipo suma algebraico
 | Variante | Escritura | C |
 | --- | --- | --- |
 | Numérica | `omen X:` con `is N` | `typedef enum { X_A = 0, ... } X;` |
-| De string | `omen X with string:` | `#define X_A pengu_string_from_cstr("A")` |
+| De string | `omen X with string:` | rechazado con `E0005` (aún no implementado) |
 | Algebraica | variantes con payload `with` | struct con `int32_t tag` + `union` de payload |
 
 Las variantes son accesibles sin cualificar (`Red`), cualificadas
 (`Color.Red`) o por nombre C completo (`Color_Red`). `is N` fija el valor
 numérico y se conserva en el enum emitido; una variante sin `is` toma el valor
-anterior más uno. Los valores duplicados son `E0027`, los no constantes `E0029`,
-los payloads en un omen de strings `E0028`. Interpolar un omen imprime el nombre
-de su variante.
+anterior más uno. Los valores duplicados son `E0027`, los no constantes `E0029`.
+Interpolar un omen imprime el nombre de su variante. Los omens con valores de
+cadena (`omen X with string:`) aún no se implementan: la declaración se rechaza
+con `E0005`, así que usa una variante algebraica con payload `string`
+(`case as string`).
 
 
 ```c
@@ -1373,9 +1371,10 @@ alias Inches as int         # sinónimo transparente
 alias Buffer as opaque      # handle de C incompleto
 ```
 
-Un `seal` es un tipo distinto: asignarle un `int` exige `raw to UserId`. Un
-`alias` es intercambiable con su destino. `opaque` no se puede instanciar
-y vive tras `ref to`.
+En esta versión un `seal` es un sinónimo transparente como `alias`: el valor es
+intercambiable con su destino y la comprobación nominal que exigiría `raw to
+UserId` sigue pendiente. Prefiere `alias` mientras llega esa comprobación.
+`opaque` no se puede instanciar y vive tras `ref to`.
 
 ### 9.6 `frozen`
 
@@ -2383,7 +2382,7 @@ los avisos no.
 | `E0024` | `many` no es el último parámetro |
 | `E0026` | más de un `insignia` |
 | `E0027` | valor de variante de omen duplicado |
-| `E0028` | payload en un omen de strings |
+| `E0028` | payload en un omen de strings (pendiente junto con esa forma) |
 | `E0029` | valor de variante de omen no constante |
 | `E0030` | firma de método de concepto incorrecta |
 | `E0031` | método de concepto no implementado |

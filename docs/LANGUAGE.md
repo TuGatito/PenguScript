@@ -1,7 +1,7 @@
 # PenguScript Language Reference
 
 PenguScript is a small, statically typed language that compiles to C. This
-reference documents the language as implemented by `psc` 0.46.0: every
+reference documents the language as implemented by `psc` 0.47.0: every
 construct, its semantics, and the C it lowers to.
 
 It is the *language* document of the documentation set:
@@ -142,7 +142,7 @@ own section (generics, memory, interop).
 * The keyword lists, type mappings and diagnostic codes are exhaustive; the
   prose is not — [PENGUNIC.md](PENGUNIC.md) covers *how to use* the language and
   [STDLIB.md](STDLIB.md) covers the standard library.
-* Version: `psc` 0.46.0. The ABI version the generated C expects is 3.
+* Version: `psc` 0.47.0. The ABI version the generated C expects is 3.
 
 ## 1. Lexical structure
 
@@ -1324,10 +1324,6 @@ omen Direction:              # numeric enum
     North is 0
     South is 1
 
-omen Color with string:      # string-valued
-    Red
-    Green
-
 omen Event:                  # algebraic sum type
     Disconnected
     Connecting with attempt as int
@@ -1337,7 +1333,7 @@ omen Event:                  # algebraic sum type
 | Flavour | Spelling | C |
 | --- | --- | --- |
 | Numeric | `omen X:` with `is N` | `typedef enum { X_A = 0, ... } X;` |
-| String | `omen X with string:` | `#define X_A pengu_string_from_cstr("A")` |
+| String | `omen X with string:` | rejected with `E0005` (not implemented yet) |
 | Algebraic | variants with `with` payloads | struct with `int32_t tag` + payload `union` |
 
 Variants are reachable unqualified (`Red`), qualified (`Color.Red`) or by full C
@@ -1364,8 +1360,10 @@ alias Inches as int         # transparent synonym
 alias Buffer as opaque      # incomplete C handle
 ```
 
-A `seal` is a distinct type: assigning an `int` needs `raw to UserId`. An `alias`
-is interchangeable with its target. `opaque` cannot be instantiated
+In this release a `seal` is a transparent synonym like `alias`: the value is
+interchangeable with its target, and the nominal check that would require an
+explicit `raw to UserId` is still pending (documented as `E0005` in the plan).
+Prefer `alias` while that check lands. `opaque` cannot be instantiated
 and lives behind `ref to`.
 
 ### 9.6 `frozen`

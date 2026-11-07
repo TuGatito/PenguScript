@@ -890,6 +890,16 @@ weave collect_derives with s as ref to state.SemaState, node as int, ty as int, 
 ## ## Memoria
 ## Añade tipo/variantes.
 weave collect_omen with s as ref to state.SemaState, node as int into void:
+    # Los omens con valores de cadena aún no se implementan: mejor un error
+    # claro que un tipo inexistente más adelante.
+    var si as int is 0
+    var sn as int is calling astutil.child_count with s->ast, node
+    while si < sn:
+        var sc as int is calling astutil.node_child with s->ast, node, si
+        if sc >= 0 and (calling astutil.kind_of with s->ast, sc) == pskind.NodeKind.NdOmenStringKind:
+            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "string-valued omens are not implemented yet", "Declare an algebraic omen with a 'string' payload field instead.", ""
+            return
+        set si is si + 1
     var name as int is calling decl_name with s, node
     var ty as int is -1
     if calling s->module->type_ids.has with node:

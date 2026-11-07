@@ -50331,865 +50331,886 @@ void sema_collect_collect_derives(SemaState* s, int32_t node, int32_t ty, int32_
 void sema_collect_collect_omen(SemaState* s, int32_t node) {
     (void)s;
     (void)node;
-    #line 893 "src/psc/sema/check/collect.pengu"
+    #line 895 "src/psc/sema/check/collect.pengu"
+    int32_t si = 0;
+    (void)si;
+    #line 896 "src/psc/sema/check/collect.pengu"
+    int32_t sn = sema_ast_child_count(s->ast, node);
+    (void)sn;
+    #line 897 "src/psc/sema/check/collect.pengu"
+    while ((si < sn)) {
+        #line 898 "src/psc/sema/check/collect.pengu"
+        int32_t sc = sema_ast_node_child(s->ast, node, si);
+        (void)sc;
+        #line 899 "src/psc/sema/check/collect.pengu"
+        if ((sc >= 0) && ((sema_ast_kind_of(s->ast, sc)) == NodeKind_NdOmenStringKind)) {
+            #line 900 "src/psc/sema/check/collect.pengu"
+            (void)(sema_diag_node_error(s->bag, s->src, sema_diag_CODE_TYPE_MISMATCH, sema_ast_start_of(s->ast, node), sema_ast_end_of(s->ast, node), pengu_string_from_cstr_len("string-valued omens are not implemented yet", 43), pengu_string_from_cstr_len("Declare an algebraic omen with a 'string' payload field instead.", 64), pengu_string_from_cstr_len("", 0)));
+            #line 901 "src/psc/sema/check/collect.pengu"
+            return;
+        }
+        #line 902 "src/psc/sema/check/collect.pengu"
+        si = (si + 1);
+    }
+    #line 903 "src/psc/sema/check/collect.pengu"
     int32_t name = sema_collect_decl_name(s, node);
     (void)name;
-    #line 894 "src/psc/sema/check/collect.pengu"
+    #line 904 "src/psc/sema/check/collect.pengu"
     int32_t ty = (-1);
     (void)ty;
-    #line 895 "src/psc/sema/check/collect.pengu"
+    #line 905 "src/psc/sema/check/collect.pengu"
     if (__extension__(({ int32_t _k = node; pengu_map_contains(&(s->module->type_ids), &_k); }))) {
-        #line 896 "src/psc/sema/check/collect.pengu"
+        #line 906 "src/psc/sema/check/collect.pengu"
         ty = __extension__(({ int32_t _k = node; void* _p851 = pengu_map_get(&(s->module->type_ids), &_k); _p851 ? (*( int32_t*)_p851) : (int32_t){0}; }));
     } else {
-        #line 898 "src/psc/sema/check/collect.pengu"
+        #line 908 "src/psc/sema/check/collect.pengu"
         ty = sema_collect_new_nominal(s, SemaNominalKind_NkOmen, name, name, true);
-        #line 899 "src/psc/sema/check/collect.pengu"
+        #line 909 "src/psc/sema/check/collect.pengu"
         (void)(__extension__(({ int32_t _k = node; int32_t _v = ty; pengu_map_put(&(s->module->type_ids), &_k, &_v); })));
-        #line 900 "src/psc/sema/check/collect.pengu"
+        #line 910 "src/psc/sema/check/collect.pengu"
         (void)(sema_collect_register_type(s, SemaSymbolKind_SkOmen, name, ty, node));
     }
-    #line 901 "src/psc/sema/check/collect.pengu"
+    #line 911 "src/psc/sema/check/collect.pengu"
     (void)(sema_collect_apply_nominal_attrs(s, ty, node));
-    #line 902 "src/psc/sema/check/collect.pengu"
+    #line 912 "src/psc/sema/check/collect.pengu"
     int32_t info_idx = (sema_type_table_at(s->types, ty)).a;
     (void)info_idx;
-    #line 906 "src/psc/sema/check/collect.pengu"
+    #line 916 "src/psc/sema/check/collect.pengu"
     PenguList pending_variants = pengu_list_new(sizeof(SemaVariant), 0);
     (void)pending_variants;
-    #line 907 "src/psc/sema/check/collect.pengu"
+    #line 917 "src/psc/sema/check/collect.pengu"
     PenguList pending_payloads = pengu_list_new(sizeof(SemaField), 0);
     (void)pending_payloads;
-    #line 908 "src/psc/sema/check/collect.pengu"
+    #line 918 "src/psc/sema/check/collect.pengu"
     PenguList used_values = pengu_list_new(sizeof(int32_t), 0);
     (void)used_values;
-    #line 909 "src/psc/sema/check/collect.pengu"
-    #line 910 "src/psc/sema/check/collect.pengu"
+    #line 919 "src/psc/sema/check/collect.pengu"
+    #line 920 "src/psc/sema/check/collect.pengu"
     int32_t next_val = 0;
     (void)next_val;
-    #line 911 "src/psc/sema/check/collect.pengu"
-    #line 912 "src/psc/sema/check/collect.pengu"
-    #line 913 "src/psc/sema/check/collect.pengu"
+    #line 921 "src/psc/sema/check/collect.pengu"
+    #line 922 "src/psc/sema/check/collect.pengu"
+    #line 923 "src/psc/sema/check/collect.pengu"
     int32_t i = 0;
     (void)i;
-    #line 914 "src/psc/sema/check/collect.pengu"
+    #line 924 "src/psc/sema/check/collect.pengu"
     int32_t n = sema_ast_child_count(s->ast, node);
     (void)n;
-    #line 915 "src/psc/sema/check/collect.pengu"
+    #line 925 "src/psc/sema/check/collect.pengu"
     while ((i < n)) {
-        #line 916 "src/psc/sema/check/collect.pengu"
+        #line 926 "src/psc/sema/check/collect.pengu"
         int32_t c = sema_ast_node_child(s->ast, node, i);
         (void)c;
-        #line 917 "src/psc/sema/check/collect.pengu"
+        #line 927 "src/psc/sema/check/collect.pengu"
         if ((c >= 0) && ((sema_ast_kind_of(s->ast, c)) == NodeKind_NdOmenVariant)) {
-            #line 918 "src/psc/sema/check/collect.pengu"
+            #line 928 "src/psc/sema/check/collect.pengu"
             int32_t vs = sema_ast_token_child(s->ast, c, 0);
             (void)vs;
-            #line 919 "src/psc/sema/check/collect.pengu"
+            #line 929 "src/psc/sema/check/collect.pengu"
             if (vs >= 0) {
-                #line 920 "src/psc/sema/check/collect.pengu"
+                #line 930 "src/psc/sema/check/collect.pengu"
                 PenguString vtxt = sema_ast_token_text(s->src, s->lex, vs);
                 (void)vtxt;
-                #line 921 "src/psc/sema/check/collect.pengu"
-                #line 922 "src/psc/sema/check/collect.pengu"
+                #line 931 "src/psc/sema/check/collect.pengu"
+                #line 932 "src/psc/sema/check/collect.pengu"
                 int32_t vname = sema_names_intern(s->names, vtxt);
                 (void)vname;
-                #line 923 "src/psc/sema/check/collect.pengu"
+                #line 933 "src/psc/sema/check/collect.pengu"
                 int32_t pstart = (pending_payloads).len;
                 (void)pstart;
-                #line 924 "src/psc/sema/check/collect.pengu"
+                #line 934 "src/psc/sema/check/collect.pengu"
                 int32_t pcount = 0;
                 (void)pcount;
-                #line 925 "src/psc/sema/check/collect.pengu"
+                #line 935 "src/psc/sema/check/collect.pengu"
                 int32_t ci = 2;
                 (void)ci;
-                #line 926 "src/psc/sema/check/collect.pengu"
+                #line 936 "src/psc/sema/check/collect.pengu"
                 int32_t cn = sema_ast_child_count(s->ast, c);
                 (void)cn;
-                #line 927 "src/psc/sema/check/collect.pengu"
+                #line 937 "src/psc/sema/check/collect.pengu"
                 while ((ci < cn)) {
-                    #line 928 "src/psc/sema/check/collect.pengu"
+                    #line 938 "src/psc/sema/check/collect.pengu"
                     int32_t of = sema_ast_node_child(s->ast, c, ci);
                     (void)of;
-                    #line 929 "src/psc/sema/check/collect.pengu"
+                    #line 939 "src/psc/sema/check/collect.pengu"
                     if ((of >= 0) && ((sema_ast_kind_of(s->ast, of)) == NodeKind_NdOmenField)) {
-                        #line 930 "src/psc/sema/check/collect.pengu"
+                        #line 940 "src/psc/sema/check/collect.pengu"
                         int32_t oft = sema_ast_token_child(s->ast, of, 0);
                         (void)oft;
-                        #line 931 "src/psc/sema/check/collect.pengu"
+                        #line 941 "src/psc/sema/check/collect.pengu"
                         int32_t ofty = 0;
                         (void)ofty;
-                        #line 932 "src/psc/sema/check/collect.pengu"
+                        #line 942 "src/psc/sema/check/collect.pengu"
                         int32_t oftn = sema_ast_node_child(s->ast, of, 1);
                         (void)oftn;
-                        #line 933 "src/psc/sema/check/collect.pengu"
+                        #line 943 "src/psc/sema/check/collect.pengu"
                         if (oftn >= 0) {
-                            #line 934 "src/psc/sema/check/collect.pengu"
+                            #line 944 "src/psc/sema/check/collect.pengu"
                             TypeCtx ofctx = sema_collect_collect_type_ctx(s);
                             (void)ofctx;
-                            #line 935 "src/psc/sema/check/collect.pengu"
+                            #line 945 "src/psc/sema/check/collect.pengu"
                             ofty = sema_type_convert_convert((&(ofctx)), oftn);
                         }
-                        #line 936 "src/psc/sema/check/collect.pengu"
+                        #line 946 "src/psc/sema/check/collect.pengu"
                         if (oft >= 0) {
-                            #line 937 "src/psc/sema/check/collect.pengu"
+                            #line 947 "src/psc/sema/check/collect.pengu"
                             PenguString oftxt = sema_ast_token_text(s->src, s->lex, oft);
                             (void)oftxt;
-                            #line 938 "src/psc/sema/check/collect.pengu"
-                            #line 939 "src/psc/sema/check/collect.pengu"
+                            #line 948 "src/psc/sema/check/collect.pengu"
+                            #line 949 "src/psc/sema/check/collect.pengu"
                             int32_t ofnid = sema_names_intern(s->names, oftxt);
                             (void)ofnid;
-                            #line 940 "src/psc/sema/check/collect.pengu"
+                            #line 950 "src/psc/sema/check/collect.pengu"
                             SemaField ofld = (SemaField){.name = ofnid, .type = ofty, .flags = 0, .attrs_node = (-1), .align_override = 0, .decl_node = of};
                             (void)ofld;
-                            #line 941 "src/psc/sema/check/collect.pengu"
+                            #line 951 "src/psc/sema/check/collect.pengu"
                             (void)(__extension__(({ SemaField _push_tmp = ofld; pengu_list_push(&(pending_payloads), &_push_tmp); })));
-                            #line 942 "src/psc/sema/check/collect.pengu"
+                            #line 952 "src/psc/sema/check/collect.pengu"
                             pcount = (pcount + 1);
                             pengu_banish_string(&(oftxt));
                         }
                     }
-                    #line 943 "src/psc/sema/check/collect.pengu"
+                    #line 953 "src/psc/sema/check/collect.pengu"
                     ci = (ci + 1);
                 }
-                #line 946 "src/psc/sema/check/collect.pengu"
+                #line 956 "src/psc/sema/check/collect.pengu"
                 int32_t vval = sema_ast_node_child(s->ast, c, 1);
                 (void)vval;
-                #line 947 "src/psc/sema/check/collect.pengu"
+                #line 957 "src/psc/sema/check/collect.pengu"
                 int32_t vnum = next_val;
                 (void)vnum;
-                #line 948 "src/psc/sema/check/collect.pengu"
+                #line 958 "src/psc/sema/check/collect.pengu"
                 bool vbad = false;
                 (void)vbad;
-                #line 949 "src/psc/sema/check/collect.pengu"
+                #line 959 "src/psc/sema/check/collect.pengu"
                 if (vval >= 0) {
-                    #line 950 "src/psc/sema/check/collect.pengu"
+                    #line 960 "src/psc/sema/check/collect.pengu"
                     SemaConst cv = sema_collect_const_literal(s, vval);
                     (void)cv;
-                    #line 951 "src/psc/sema/check/collect.pengu"
+                    #line 961 "src/psc/sema/check/collect.pengu"
                     if (cv.kind == SemaConstKind_CkInt) {
-                        #line 952 "src/psc/sema/check/collect.pengu"
+                        #line 962 "src/psc/sema/check/collect.pengu"
                         vnum = cv.i;
                     } else {
-                        #line 954 "src/psc/sema/check/collect.pengu"
+                        #line 964 "src/psc/sema/check/collect.pengu"
                         vbad = true;
                     }
                 }
-                #line 955 "src/psc/sema/check/collect.pengu"
+                #line 965 "src/psc/sema/check/collect.pengu"
                 if (vbad) {
-                    #line 956 "src/psc/sema/check/collect.pengu"
+                    #line 966 "src/psc/sema/check/collect.pengu"
                     (void)(sema_diag_node_error(s->bag, s->src, sema_diag_CODE_OMEN_CONST, sema_ast_start_of(s->ast, vval), sema_ast_end_of(s->ast, vval), pengu_string_from_cstr_len("variant value must be a compile-time integer constant", 53), pengu_string_from_cstr_len("Use an integer literal, a const, or an arithmetic expression of those.", 70), pengu_string_from_cstr_len("Variant values are encoded in the ABI.", 38)));
                 } else {
-                    #line 958 "src/psc/sema/check/collect.pengu"
+                    #line 968 "src/psc/sema/check/collect.pengu"
                     bool dupe = false;
                     (void)dupe;
-                    #line 959 "src/psc/sema/check/collect.pengu"
+                    #line 969 "src/psc/sema/check/collect.pengu"
                     int32_t ui = 0;
                     (void)ui;
-                    #line 960 "src/psc/sema/check/collect.pengu"
+                    #line 970 "src/psc/sema/check/collect.pengu"
                     while ((ui < (used_values).len)) {
-                        #line 961 "src/psc/sema/check/collect.pengu"
-                        if (((*( int32_t*)pengu_list_at(&(used_values), (int)((__extension__(({ int64_t _p_idx852 = (int64_t)(ui); pengu_assert_bounds(_p_idx852, (int64_t)((used_values).len), "src/psc/sema/check/collect.pengu:961"); _p_idx852; }))))))) == vnum) {
-                            #line 962 "src/psc/sema/check/collect.pengu"
+                        #line 971 "src/psc/sema/check/collect.pengu"
+                        if (((*( int32_t*)pengu_list_at(&(used_values), (int)((__extension__(({ int64_t _p_idx852 = (int64_t)(ui); pengu_assert_bounds(_p_idx852, (int64_t)((used_values).len), "src/psc/sema/check/collect.pengu:971"); _p_idx852; }))))))) == vnum) {
+                            #line 972 "src/psc/sema/check/collect.pengu"
                             dupe = true;
                         }
-                        #line 963 "src/psc/sema/check/collect.pengu"
+                        #line 973 "src/psc/sema/check/collect.pengu"
                         ui = (ui + 1);
                     }
-                    #line 964 "src/psc/sema/check/collect.pengu"
+                    #line 974 "src/psc/sema/check/collect.pengu"
                     if (dupe) {
-                        #line 965 "src/psc/sema/check/collect.pengu"
+                        #line 975 "src/psc/sema/check/collect.pengu"
                         (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("duplicate variant value %d", ((int32_t)(vnum))); sema_diag_node_error(s->bag, s->src, sema_diag_CODE_OMEN_DUP, sema_ast_start_of(s->ast, c), sema_ast_end_of(s->ast, c), p_t0, pengu_string_from_cstr_len("Give each variant a distinct value.", 35), pengu_string_from_cstr_len("Two variants with the same value cannot be told apart.", 54)); pengu_banish_string(&p_t0); 0; })));
                     } else {
-                        #line 967 "src/psc/sema/check/collect.pengu"
+                        #line 977 "src/psc/sema/check/collect.pengu"
                         (void)(__extension__(({ int32_t _push_tmp = vnum; pengu_list_push(&(used_values), &_push_tmp); })));
                     }
-                    #line 968 "src/psc/sema/check/collect.pengu"
+                    #line 978 "src/psc/sema/check/collect.pengu"
                     if (vnum >= next_val) {
-                        #line 969 "src/psc/sema/check/collect.pengu"
+                        #line 979 "src/psc/sema/check/collect.pengu"
                         next_val = (vnum + 1);
                     }
                 }
-                #line 970 "src/psc/sema/check/collect.pengu"
+                #line 980 "src/psc/sema/check/collect.pengu"
                 SemaVariant varnt = (SemaVariant){.name = vname, .value_i = vnum, .value_s = (-1), .payload_first = pstart, .payload_count = pcount, .flags = 0};
                 (void)varnt;
-                #line 971 "src/psc/sema/check/collect.pengu"
+                #line 981 "src/psc/sema/check/collect.pengu"
                 (void)(__extension__(({ SemaVariant _push_tmp = varnt; pengu_list_push(&(pending_variants), &_push_tmp); })));
-                #line 974 "src/psc/sema/check/collect.pengu"
+                #line 984 "src/psc/sema/check/collect.pengu"
                 SemaSymbol vsym = sema_symbols_make_symbol(s->names, pengu_string_from_cstr_len("", 0), ty, SemaSymbolKind_SkConst);
                 (void)vsym;
-                #line 975 "src/psc/sema/check/collect.pengu"
+                #line 985 "src/psc/sema/check/collect.pengu"
                 vsym.name = vname;
-                #line 976 "src/psc/sema/check/collect.pengu"
+                #line 986 "src/psc/sema/check/collect.pengu"
                 vsym.c_name = vname;
-                #line 977 "src/psc/sema/check/collect.pengu"
+                #line 987 "src/psc/sema/check/collect.pengu"
                 (void)(sema_symbols_symbol_define_in(s->symbols, 0, vsym));
                 pengu_banish_string(&(vtxt));
             }
         }
-        #line 978 "src/psc/sema/check/collect.pengu"
+        #line 988 "src/psc/sema/check/collect.pengu"
         i = (i + 1);
     }
-    #line 979 "src/psc/sema/check/collect.pengu"
+    #line 989 "src/psc/sema/check/collect.pengu"
     int32_t first = (s->types->variants).len;
     (void)first;
-    #line 980 "src/psc/sema/check/collect.pengu"
+    #line 990 "src/psc/sema/check/collect.pengu"
     int32_t count = 0;
     (void)count;
-    #line 981 "src/psc/sema/check/collect.pengu"
+    #line 991 "src/psc/sema/check/collect.pengu"
     int32_t pvi = 0;
     (void)pvi;
-    #line 982 "src/psc/sema/check/collect.pengu"
+    #line 992 "src/psc/sema/check/collect.pengu"
     while ((pvi < (pending_variants).len)) {
-        #line 983 "src/psc/sema/check/collect.pengu"
-        SemaVariant pv = (*( SemaVariant*)pengu_list_at(&(pending_variants), (int)((__extension__(({ int64_t _p_idx853 = (int64_t)(pvi); pengu_assert_bounds(_p_idx853, (int64_t)((pending_variants).len), "src/psc/sema/check/collect.pengu:983"); _p_idx853; }))))));
+        #line 993 "src/psc/sema/check/collect.pengu"
+        SemaVariant pv = (*( SemaVariant*)pengu_list_at(&(pending_variants), (int)((__extension__(({ int64_t _p_idx853 = (int64_t)(pvi); pengu_assert_bounds(_p_idx853, (int64_t)((pending_variants).len), "src/psc/sema/check/collect.pengu:993"); _p_idx853; }))))));
         (void)pv;
-        #line 984 "src/psc/sema/check/collect.pengu"
+        #line 994 "src/psc/sema/check/collect.pengu"
         int32_t pfirst = (s->types->fields).len;
         (void)pfirst;
-        #line 985 "src/psc/sema/check/collect.pengu"
+        #line 995 "src/psc/sema/check/collect.pengu"
         int32_t pki = 0;
         (void)pki;
-        #line 986 "src/psc/sema/check/collect.pengu"
+        #line 996 "src/psc/sema/check/collect.pengu"
         while ((pki < pv.payload_count)) {
-            #line 987 "src/psc/sema/check/collect.pengu"
-            SemaField ppf = (*( SemaField*)pengu_list_at(&(pending_payloads), (int)((__extension__(({ int64_t _p_idx854 = (int64_t)(((pv.payload_first + pki))); pengu_assert_bounds(_p_idx854, (int64_t)((pending_payloads).len), "src/psc/sema/check/collect.pengu:987"); _p_idx854; }))))));
+            #line 997 "src/psc/sema/check/collect.pengu"
+            SemaField ppf = (*( SemaField*)pengu_list_at(&(pending_payloads), (int)((__extension__(({ int64_t _p_idx854 = (int64_t)(((pv.payload_first + pki))); pengu_assert_bounds(_p_idx854, (int64_t)((pending_payloads).len), "src/psc/sema/check/collect.pengu:997"); _p_idx854; }))))));
             (void)ppf;
-            #line 988 "src/psc/sema/check/collect.pengu"
+            #line 998 "src/psc/sema/check/collect.pengu"
             (void)(sema_type_table_add_field(s->types, ppf));
-            #line 989 "src/psc/sema/check/collect.pengu"
+            #line 999 "src/psc/sema/check/collect.pengu"
             pki = (pki + 1);
         }
-        #line 990 "src/psc/sema/check/collect.pengu"
+        #line 1000 "src/psc/sema/check/collect.pengu"
         SemaVariant nv = (SemaVariant){.name = pv.name, .value_i = pv.value_i, .value_s = pv.value_s, .payload_first = pfirst, .payload_count = pv.payload_count, .flags = pv.flags};
         (void)nv;
-        #line 991 "src/psc/sema/check/collect.pengu"
+        #line 1001 "src/psc/sema/check/collect.pengu"
         (void)(sema_type_table_add_variant(s->types, nv));
-        #line 992 "src/psc/sema/check/collect.pengu"
+        #line 1002 "src/psc/sema/check/collect.pengu"
         count = (count + 1);
-        #line 993 "src/psc/sema/check/collect.pengu"
+        #line 1003 "src/psc/sema/check/collect.pengu"
         pvi = (pvi + 1);
     }
-    #line 994 "src/psc/sema/check/collect.pengu"
+    #line 1004 "src/psc/sema/check/collect.pengu"
     (void)(sema_type_table_set_nominal_variants(s->types, info_idx, first, count));
-    #line 995 "src/psc/sema/check/collect.pengu"
+    #line 1005 "src/psc/sema/check/collect.pengu"
     (void)(sema_collect_collect_derives(s, node, ty, info_idx));
-    #line 997 "src/psc/sema/check/collect.pengu"
+    #line 1007 "src/psc/sema/check/collect.pengu"
     int32_t tpc = 0;
     (void)tpc;
-    #line 998 "src/psc/sema/check/collect.pengu"
+    #line 1008 "src/psc/sema/check/collect.pengu"
     int32_t tpfirst = (s->types->tparams).len;
     (void)tpfirst;
-    #line 999 "src/psc/sema/check/collect.pengu"
+    #line 1009 "src/psc/sema/check/collect.pengu"
     int32_t ti = 0;
     (void)ti;
-    #line 1000 "src/psc/sema/check/collect.pengu"
+    #line 1010 "src/psc/sema/check/collect.pengu"
     while ((ti < n)) {
-        #line 1001 "src/psc/sema/check/collect.pengu"
+        #line 1011 "src/psc/sema/check/collect.pengu"
         int32_t tc = sema_ast_node_child(s->ast, node, ti);
         (void)tc;
-        #line 1002 "src/psc/sema/check/collect.pengu"
+        #line 1012 "src/psc/sema/check/collect.pengu"
         if ((tc >= 0) && ((sema_ast_kind_of(s->ast, tc)) == NodeKind_NdShardParams)) {
-            #line 1003 "src/psc/sema/check/collect.pengu"
+            #line 1013 "src/psc/sema/check/collect.pengu"
             int32_t sci = 0;
             (void)sci;
-            #line 1004 "src/psc/sema/check/collect.pengu"
+            #line 1014 "src/psc/sema/check/collect.pengu"
             int32_t scn = sema_ast_child_count(s->ast, tc);
             (void)scn;
-            #line 1005 "src/psc/sema/check/collect.pengu"
+            #line 1015 "src/psc/sema/check/collect.pengu"
             while ((sci < scn)) {
-                #line 1006 "src/psc/sema/check/collect.pengu"
+                #line 1016 "src/psc/sema/check/collect.pengu"
                 int32_t tptok = sema_ast_token_child(s->ast, tc, sci);
                 (void)tptok;
-                #line 1007 "src/psc/sema/check/collect.pengu"
+                #line 1017 "src/psc/sema/check/collect.pengu"
                 if (tptok >= 0) {
-                    #line 1008 "src/psc/sema/check/collect.pengu"
+                    #line 1018 "src/psc/sema/check/collect.pengu"
                     PenguString tptxt = sema_ast_token_text(s->src, s->lex, tptok);
                     (void)tptxt;
-                    #line 1009 "src/psc/sema/check/collect.pengu"
+                    #line 1019 "src/psc/sema/check/collect.pengu"
                     int32_t tpnid = sema_names_intern(s->names, tptxt);
                     (void)tpnid;
-                    #line 1010 "src/psc/sema/check/collect.pengu"
+                    #line 1020 "src/psc/sema/check/collect.pengu"
                     pengu_banish_string(&(tptxt));
-                    #line 1011 "src/psc/sema/check/collect.pengu"
+                    #line 1021 "src/psc/sema/check/collect.pengu"
                     SemaTypeParamInfo tpi = (SemaTypeParamInfo){.name = tpnid, .bounds_first = 0, .bounds_count = 0, .flags = 0};
                     (void)tpi;
-                    #line 1012 "src/psc/sema/check/collect.pengu"
+                    #line 1022 "src/psc/sema/check/collect.pengu"
                     int32_t ignored_tp = sema_type_table_add_tparam(s->types, tpi);
                     (void)ignored_tp;
-                    #line 1013 "src/psc/sema/check/collect.pengu"
+                    #line 1023 "src/psc/sema/check/collect.pengu"
                     tpc = (tpc + 1);
                 }
-                #line 1014 "src/psc/sema/check/collect.pengu"
+                #line 1024 "src/psc/sema/check/collect.pengu"
                 sci = (sci + 1);
             }
         }
-        #line 1015 "src/psc/sema/check/collect.pengu"
+        #line 1025 "src/psc/sema/check/collect.pengu"
         ti = (ti + 1);
     }
-    #line 1016 "src/psc/sema/check/collect.pengu"
-    SemaNominalInfo dinfo = (*( SemaNominalInfo*)pengu_list_at(&(s->types->nominal_infos), (int)((__extension__(({ int64_t _p_idx855 = (int64_t)(info_idx); pengu_assert_bounds(_p_idx855, (int64_t)((s->types->nominal_infos).len), "src/psc/sema/check/collect.pengu:1016"); _p_idx855; }))))));
+    #line 1026 "src/psc/sema/check/collect.pengu"
+    SemaNominalInfo dinfo = (*( SemaNominalInfo*)pengu_list_at(&(s->types->nominal_infos), (int)((__extension__(({ int64_t _p_idx855 = (int64_t)(info_idx); pengu_assert_bounds(_p_idx855, (int64_t)((s->types->nominal_infos).len), "src/psc/sema/check/collect.pengu:1026"); _p_idx855; }))))));
     (void)dinfo;
-    #line 1017 "src/psc/sema/check/collect.pengu"
+    #line 1027 "src/psc/sema/check/collect.pengu"
     dinfo.tparams_first = tpfirst;
-    #line 1018 "src/psc/sema/check/collect.pengu"
+    #line 1028 "src/psc/sema/check/collect.pengu"
     dinfo.tparams_count = tpc;
-    #line 1019 "src/psc/sema/check/collect.pengu"
-    (*( SemaNominalInfo*)pengu_list_at(&(s->types->nominal_infos), (int)((__extension__(({ int64_t _p_idx856 = (int64_t)((info_idx)); pengu_assert_bounds(_p_idx856, (int64_t)((s->types->nominal_infos).len), "src/psc/sema/check/collect.pengu:1019"); _p_idx856; })))))) = dinfo;
+    #line 1029 "src/psc/sema/check/collect.pengu"
+    (*( SemaNominalInfo*)pengu_list_at(&(s->types->nominal_infos), (int)((__extension__(({ int64_t _p_idx856 = (int64_t)((info_idx)); pengu_assert_bounds(_p_idx856, (int64_t)((s->types->nominal_infos).len), "src/psc/sema/check/collect.pengu:1029"); _p_idx856; })))))) = dinfo;
     pengu_banish_list(&(pending_payloads));
     pengu_banish_list(&(pending_variants));
     pengu_banish_list(&(used_values));
 }
 
-#line 1025 "src/psc/sema/check/collect.pengu"
+#line 1035 "src/psc/sema/check/collect.pengu"
 void sema_collect_collect_alias(SemaState* s, int32_t node, bool is_seal) {
     (void)s;
     (void)node;
     (void)is_seal;
-    #line 1026 "src/psc/sema/check/collect.pengu"
+    #line 1036 "src/psc/sema/check/collect.pengu"
     int32_t name = sema_collect_decl_name(s, node);
     (void)name;
-    #line 1027 "src/psc/sema/check/collect.pengu"
+    #line 1037 "src/psc/sema/check/collect.pengu"
     int32_t ty_node = (-1);
     (void)ty_node;
-    #line 1028 "src/psc/sema/check/collect.pengu"
+    #line 1038 "src/psc/sema/check/collect.pengu"
     int32_t n = sema_ast_child_count(s->ast, node);
     (void)n;
-    #line 1029 "src/psc/sema/check/collect.pengu"
+    #line 1039 "src/psc/sema/check/collect.pengu"
     if (is_seal) {
-        #line 1030 "src/psc/sema/check/collect.pengu"
+        #line 1040 "src/psc/sema/check/collect.pengu"
         ty_node = sema_ast_node_child(s->ast, node, 1);
     } else {
-        #line 1032 "src/psc/sema/check/collect.pengu"
+        #line 1042 "src/psc/sema/check/collect.pengu"
         ty_node = sema_ast_node_child(s->ast, node, (n - 1));
     }
-    #line 1033 "src/psc/sema/check/collect.pengu"
+    #line 1043 "src/psc/sema/check/collect.pengu"
     TypeCtx ctx = sema_collect_collect_type_ctx(s);
     (void)ctx;
-    #line 1034 "src/psc/sema/check/collect.pengu"
+    #line 1044 "src/psc/sema/check/collect.pengu"
     int32_t target = sema_type_convert_convert((&(ctx)), ty_node);
     (void)target;
-    #line 1035 "src/psc/sema/check/collect.pengu"
+    #line 1045 "src/psc/sema/check/collect.pengu"
     SemaNominalKind nk = SemaNominalKind_NkAlias;
     (void)nk;
-    #line 1036 "src/psc/sema/check/collect.pengu"
+    #line 1046 "src/psc/sema/check/collect.pengu"
     if (is_seal) {
-        #line 1037 "src/psc/sema/check/collect.pengu"
+        #line 1047 "src/psc/sema/check/collect.pengu"
         nk = SemaNominalKind_NkSeal;
     }
-    #line 1038 "src/psc/sema/check/collect.pengu"
+    #line 1048 "src/psc/sema/check/collect.pengu"
     SemaNominalInfo info = (SemaNominalInfo){.kind = nk, .base_name = name, .c_name = name, .module = s->module->id, .flags = sema_type_table_NIF_PUBLIC, .fields_first = 0, .fields_count = 0, .variants_first = 0, .variants_count = 0, .tparams_first = 0, .tparams_count = 0, .derived_first = 0, .derived_count = 0, .template_info = (-1), .attrs_node = (-1), .is_packed = false, .align_override = 0};
     (void)info;
-    #line 1039 "src/psc/sema/check/collect.pengu"
+    #line 1049 "src/psc/sema/check/collect.pengu"
     int32_t ty = sema_type_table_named_with_target(s->types, info, target);
     (void)ty;
-    #line 1040 "src/psc/sema/check/collect.pengu"
+    #line 1050 "src/psc/sema/check/collect.pengu"
     SemaSymbolKind sk = SemaSymbolKind_SkAlias;
     (void)sk;
-    #line 1041 "src/psc/sema/check/collect.pengu"
+    #line 1051 "src/psc/sema/check/collect.pengu"
     if (is_seal) {
-        #line 1042 "src/psc/sema/check/collect.pengu"
+        #line 1052 "src/psc/sema/check/collect.pengu"
         sk = SemaSymbolKind_SkSeal;
     }
-    #line 1043 "src/psc/sema/check/collect.pengu"
+    #line 1053 "src/psc/sema/check/collect.pengu"
     (void)(sema_collect_register_type(s, sk, name, ty, node));
 }
 
-#line 1049 "src/psc/sema/check/collect.pengu"
+#line 1059 "src/psc/sema/check/collect.pengu"
 void sema_collect_collect_concept(SemaState* s, int32_t node) {
     (void)s;
     (void)node;
-    #line 1050 "src/psc/sema/check/collect.pengu"
+    #line 1060 "src/psc/sema/check/collect.pengu"
     int32_t name = sema_collect_decl_name(s, node);
     (void)name;
-    #line 1051 "src/psc/sema/check/collect.pengu"
+    #line 1061 "src/psc/sema/check/collect.pengu"
     int32_t ty = (-1);
     (void)ty;
-    #line 1052 "src/psc/sema/check/collect.pengu"
+    #line 1062 "src/psc/sema/check/collect.pengu"
     if (__extension__(({ int32_t _k = node; pengu_map_contains(&(s->module->type_ids), &_k); }))) {
-        #line 1053 "src/psc/sema/check/collect.pengu"
+        #line 1063 "src/psc/sema/check/collect.pengu"
         ty = __extension__(({ int32_t _k = node; void* _p858 = pengu_map_get(&(s->module->type_ids), &_k); _p858 ? (*( int32_t*)_p858) : (int32_t){0}; }));
     } else {
-        #line 1055 "src/psc/sema/check/collect.pengu"
+        #line 1065 "src/psc/sema/check/collect.pengu"
         ty = sema_collect_new_nominal(s, SemaNominalKind_NkConcept, name, name, true);
-        #line 1056 "src/psc/sema/check/collect.pengu"
+        #line 1066 "src/psc/sema/check/collect.pengu"
         (void)(__extension__(({ int32_t _k = node; int32_t _v = ty; pengu_map_put(&(s->module->type_ids), &_k, &_v); })));
-        #line 1057 "src/psc/sema/check/collect.pengu"
+        #line 1067 "src/psc/sema/check/collect.pengu"
         (void)(sema_collect_register_type(s, SemaSymbolKind_SkConcept, name, ty, node));
     }
-    #line 1058 "src/psc/sema/check/collect.pengu"
+    #line 1068 "src/psc/sema/check/collect.pengu"
     int32_t info_idx = (sema_type_table_at(s->types, ty)).a;
     (void)info_idx;
-    #line 1059 "src/psc/sema/check/collect.pengu"
+    #line 1069 "src/psc/sema/check/collect.pengu"
     int32_t first = (s->types->concept_methods).len;
     (void)first;
-    #line 1060 "src/psc/sema/check/collect.pengu"
+    #line 1070 "src/psc/sema/check/collect.pengu"
     int32_t count = 0;
     (void)count;
-    #line 1061 "src/psc/sema/check/collect.pengu"
+    #line 1071 "src/psc/sema/check/collect.pengu"
     int32_t i = 0;
     (void)i;
-    #line 1062 "src/psc/sema/check/collect.pengu"
+    #line 1072 "src/psc/sema/check/collect.pengu"
     int32_t n = sema_ast_child_count(s->ast, node);
     (void)n;
-    #line 1063 "src/psc/sema/check/collect.pengu"
+    #line 1073 "src/psc/sema/check/collect.pengu"
     while ((i < n)) {
-        #line 1064 "src/psc/sema/check/collect.pengu"
+        #line 1074 "src/psc/sema/check/collect.pengu"
         int32_t c = sema_ast_node_child(s->ast, node, i);
         (void)c;
-        #line 1065 "src/psc/sema/check/collect.pengu"
+        #line 1075 "src/psc/sema/check/collect.pengu"
         if ((c >= 0) && ((sema_ast_kind_of(s->ast, c)) == NodeKind_NdConceptMethod)) {
-            #line 1066 "src/psc/sema/check/collect.pengu"
+            #line 1076 "src/psc/sema/check/collect.pengu"
             int32_t mslot = sema_ast_token_child(s->ast, c, 0);
             (void)mslot;
-            #line 1067 "src/psc/sema/check/collect.pengu"
+            #line 1077 "src/psc/sema/check/collect.pengu"
             if (mslot >= 0) {
-                #line 1068 "src/psc/sema/check/collect.pengu"
+                #line 1078 "src/psc/sema/check/collect.pengu"
                 PenguString mtxt = sema_ast_token_text(s->src, s->lex, mslot);
                 (void)mtxt;
-                #line 1069 "src/psc/sema/check/collect.pengu"
-                #line 1070 "src/psc/sema/check/collect.pengu"
+                #line 1079 "src/psc/sema/check/collect.pengu"
+                #line 1080 "src/psc/sema/check/collect.pengu"
                 int32_t mname = sema_names_intern(s->names, mtxt);
                 (void)mname;
-                #line 1071 "src/psc/sema/check/collect.pengu"
+                #line 1081 "src/psc/sema/check/collect.pengu"
                 SemaConceptMethod cm = (SemaConceptMethod){.name = mname, .fn_type = 0, .flags = sema_type_table_CM_REQUIRED};
                 (void)cm;
-                #line 1072 "src/psc/sema/check/collect.pengu"
+                #line 1082 "src/psc/sema/check/collect.pengu"
                 (void)(sema_type_table_add_concept_method(s->types, cm));
-                #line 1073 "src/psc/sema/check/collect.pengu"
+                #line 1083 "src/psc/sema/check/collect.pengu"
                 count = (count + 1);
                 pengu_banish_string(&(mtxt));
             }
         }
-        #line 1074 "src/psc/sema/check/collect.pengu"
+        #line 1084 "src/psc/sema/check/collect.pengu"
         i = (i + 1);
     }
 }
 
-#line 1089 "src/psc/sema/check/collect.pengu"
+#line 1099 "src/psc/sema/check/collect.pengu"
 SemaConst sema_collect_const_literal(SemaState* s, int32_t node) {
     (void)s;
     (void)node;
-    #line 1090 "src/psc/sema/check/collect.pengu"
+    #line 1100 "src/psc/sema/check/collect.pengu"
     SemaConst cv = (SemaConst){.kind = SemaConstKind_CkNone, .i = 0, .f = 0.0, .b = false, .name = (-1)};
     (void)cv;
-    #line 1091 "src/psc/sema/check/collect.pengu"
+    #line 1101 "src/psc/sema/check/collect.pengu"
     if (node < 0) {
-        #line 1092 "src/psc/sema/check/collect.pengu"
+        #line 1102 "src/psc/sema/check/collect.pengu"
         return cv;
     }
-    #line 1093 "src/psc/sema/check/collect.pengu"
+    #line 1103 "src/psc/sema/check/collect.pengu"
     NodeKind k = sema_ast_kind_of(s->ast, node);
     (void)k;
-    #line 1094 "src/psc/sema/check/collect.pengu"
+    #line 1104 "src/psc/sema/check/collect.pengu"
     if (k == NodeKind_NdTrueLit) {
-        #line 1095 "src/psc/sema/check/collect.pengu"
+        #line 1105 "src/psc/sema/check/collect.pengu"
         cv.kind = SemaConstKind_CkBool;
-        #line 1096 "src/psc/sema/check/collect.pengu"
+        #line 1106 "src/psc/sema/check/collect.pengu"
         cv.b = true;
-        #line 1097 "src/psc/sema/check/collect.pengu"
+        #line 1107 "src/psc/sema/check/collect.pengu"
         return cv;
     }
-    #line 1098 "src/psc/sema/check/collect.pengu"
+    #line 1108 "src/psc/sema/check/collect.pengu"
     if (k == NodeKind_NdFalseLit) {
-        #line 1099 "src/psc/sema/check/collect.pengu"
+        #line 1109 "src/psc/sema/check/collect.pengu"
         cv.kind = SemaConstKind_CkBool;
-        #line 1100 "src/psc/sema/check/collect.pengu"
+        #line 1110 "src/psc/sema/check/collect.pengu"
         return cv;
     }
-    #line 1101 "src/psc/sema/check/collect.pengu"
+    #line 1111 "src/psc/sema/check/collect.pengu"
     if (k == NodeKind_NdStringLit) {
-        #line 1102 "src/psc/sema/check/collect.pengu"
+        #line 1112 "src/psc/sema/check/collect.pengu"
         PenguString raw = sema_ast_child_token_text(s->src, s->lex, s->ast, node, 0);
         (void)raw;
-        #line 1103 "src/psc/sema/check/collect.pengu"
+        #line 1113 "src/psc/sema/check/collect.pengu"
         if (((int32_t)(raw).len) >= 2) {
-            #line 1104 "src/psc/sema/check/collect.pengu"
+            #line 1114 "src/psc/sema/check/collect.pengu"
             PenguString content = pengu_string_substring(raw, (int)(1), (int)(((((int32_t)(raw).len) - 1))));
             (void)content;
-            #line 1105 "src/psc/sema/check/collect.pengu"
+            #line 1115 "src/psc/sema/check/collect.pengu"
             cv.kind = SemaConstKind_CkString;
-            #line 1106 "src/psc/sema/check/collect.pengu"
+            #line 1116 "src/psc/sema/check/collect.pengu"
             cv.name = sema_names_intern(s->names, content);
-            #line 1107 "src/psc/sema/check/collect.pengu"
+            #line 1117 "src/psc/sema/check/collect.pengu"
             pengu_banish_string(&(content));
         }
-        #line 1108 "src/psc/sema/check/collect.pengu"
-        pengu_banish_string(&(raw));
-        #line 1109 "src/psc/sema/check/collect.pengu"
-        return cv;
-    }
-    #line 1110 "src/psc/sema/check/collect.pengu"
-    if (k == NodeKind_NdCharLit) {
-        #line 1111 "src/psc/sema/check/collect.pengu"
-        PenguString rawc = sema_ast_child_token_text(s->src, s->lex, s->ast, node, 0);
-        (void)rawc;
-        #line 1112 "src/psc/sema/check/collect.pengu"
-        if (((int32_t)(rawc).len) >= 3) {
-            #line 1113 "src/psc/sema/check/collect.pengu"
-            PenguString ch = pengu_string_substring(rawc, (int)(1), (int)(2));
-            (void)ch;
-            #line 1114 "src/psc/sema/check/collect.pengu"
-            const uint8_t* b = ((const uint8_t*)((ch).data));
-            (void)b;
-            #line 1115 "src/psc/sema/check/collect.pengu"
-            cv.kind = SemaConstKind_CkChar;
-            #line 1116 "src/psc/sema/check/collect.pengu"
-            cv.i = ((int64_t)(((b)[0])));
-            #line 1117 "src/psc/sema/check/collect.pengu"
-            pengu_banish_string(&(ch));
-        }
         #line 1118 "src/psc/sema/check/collect.pengu"
-        pengu_banish_string(&(rawc));
+        pengu_banish_string(&(raw));
         #line 1119 "src/psc/sema/check/collect.pengu"
         return cv;
     }
     #line 1120 "src/psc/sema/check/collect.pengu"
-    if (k == NodeKind_NdFloatLit) {
-        #line 1123 "src/psc/sema/check/collect.pengu"
-        cv.kind = SemaConstKind_CkFloat;
-        #line 1124 "src/psc/sema/check/collect.pengu"
+    if (k == NodeKind_NdCharLit) {
+        #line 1121 "src/psc/sema/check/collect.pengu"
+        PenguString rawc = sema_ast_child_token_text(s->src, s->lex, s->ast, node, 0);
+        (void)rawc;
+        #line 1122 "src/psc/sema/check/collect.pengu"
+        if (((int32_t)(rawc).len) >= 3) {
+            #line 1123 "src/psc/sema/check/collect.pengu"
+            PenguString ch = pengu_string_substring(rawc, (int)(1), (int)(2));
+            (void)ch;
+            #line 1124 "src/psc/sema/check/collect.pengu"
+            const uint8_t* b = ((const uint8_t*)((ch).data));
+            (void)b;
+            #line 1125 "src/psc/sema/check/collect.pengu"
+            cv.kind = SemaConstKind_CkChar;
+            #line 1126 "src/psc/sema/check/collect.pengu"
+            cv.i = ((int64_t)(((b)[0])));
+            #line 1127 "src/psc/sema/check/collect.pengu"
+            pengu_banish_string(&(ch));
+        }
+        #line 1128 "src/psc/sema/check/collect.pengu"
+        pengu_banish_string(&(rawc));
+        #line 1129 "src/psc/sema/check/collect.pengu"
         return cv;
     }
-    #line 1125 "src/psc/sema/check/collect.pengu"
+    #line 1130 "src/psc/sema/check/collect.pengu"
+    if (k == NodeKind_NdFloatLit) {
+        #line 1133 "src/psc/sema/check/collect.pengu"
+        cv.kind = SemaConstKind_CkFloat;
+        #line 1134 "src/psc/sema/check/collect.pengu"
+        return cv;
+    }
+    #line 1135 "src/psc/sema/check/collect.pengu"
     if (k == NodeKind_NdParenExpr) {
-        #line 1126 "src/psc/sema/check/collect.pengu"
+        #line 1136 "src/psc/sema/check/collect.pengu"
         return sema_collect_const_literal(s, sema_ast_node_child(s->ast, node, 0));
     }
-    #line 1127 "src/psc/sema/check/collect.pengu"
+    #line 1137 "src/psc/sema/check/collect.pengu"
     if (k == NodeKind_NdNeg) {
-        #line 1128 "src/psc/sema/check/collect.pengu"
+        #line 1138 "src/psc/sema/check/collect.pengu"
         SemaConst negv = sema_collect_const_literal(s, sema_ast_node_child(s->ast, node, 0));
         (void)negv;
-        #line 1129 "src/psc/sema/check/collect.pengu"
+        #line 1139 "src/psc/sema/check/collect.pengu"
         if (negv.kind == SemaConstKind_CkInt) {
-            #line 1130 "src/psc/sema/check/collect.pengu"
+            #line 1140 "src/psc/sema/check/collect.pengu"
             negv.i = (0 - negv.i);
         }
-        #line 1131 "src/psc/sema/check/collect.pengu"
+        #line 1141 "src/psc/sema/check/collect.pengu"
         return negv;
     }
-    #line 1132 "src/psc/sema/check/collect.pengu"
+    #line 1142 "src/psc/sema/check/collect.pengu"
     if (k == NodeKind_NdBitNot) {
-        #line 1133 "src/psc/sema/check/collect.pengu"
+        #line 1143 "src/psc/sema/check/collect.pengu"
         SemaConst bnv = sema_collect_const_literal(s, sema_ast_node_child(s->ast, node, 0));
         (void)bnv;
-        #line 1134 "src/psc/sema/check/collect.pengu"
+        #line 1144 "src/psc/sema/check/collect.pengu"
         if (bnv.kind == SemaConstKind_CkInt) {
-            #line 1135 "src/psc/sema/check/collect.pengu"
+            #line 1145 "src/psc/sema/check/collect.pengu"
             bnv.i = (~bnv.i);
         }
-        #line 1136 "src/psc/sema/check/collect.pengu"
+        #line 1146 "src/psc/sema/check/collect.pengu"
         return bnv;
     }
-    #line 1137 "src/psc/sema/check/collect.pengu"
+    #line 1147 "src/psc/sema/check/collect.pengu"
     if (k == NodeKind_NdVarRef) {
-        #line 1138 "src/psc/sema/check/collect.pengu"
+        #line 1148 "src/psc/sema/check/collect.pengu"
         PenguString rtxt = sema_ast_first_token_text(s->src, s->lex, s->ast, node);
         (void)rtxt;
-        #line 1139 "src/psc/sema/check/collect.pengu"
+        #line 1149 "src/psc/sema/check/collect.pengu"
         int32_t rsid = sema_symbols_lookup_name(s->symbols, rtxt);
         (void)rsid;
-        #line 1140 "src/psc/sema/check/collect.pengu"
+        #line 1150 "src/psc/sema/check/collect.pengu"
         pengu_banish_string(&(rtxt));
-        #line 1141 "src/psc/sema/check/collect.pengu"
+        #line 1151 "src/psc/sema/check/collect.pengu"
         if (rsid >= 0) {
-            #line 1142 "src/psc/sema/check/collect.pengu"
-            SemaSymbol rsv = (*( SemaSymbol*)pengu_list_at(&(s->symbols->symbols), (int)((__extension__(({ int64_t _p_idx859 = (int64_t)(rsid); pengu_assert_bounds(_p_idx859, (int64_t)((s->symbols->symbols).len), "src/psc/sema/check/collect.pengu:1142"); _p_idx859; }))))));
+            #line 1152 "src/psc/sema/check/collect.pengu"
+            SemaSymbol rsv = (*( SemaSymbol*)pengu_list_at(&(s->symbols->symbols), (int)((__extension__(({ int64_t _p_idx859 = (int64_t)(rsid); pengu_assert_bounds(_p_idx859, (int64_t)((s->symbols->symbols).len), "src/psc/sema/check/collect.pengu:1152"); _p_idx859; }))))));
             (void)rsv;
-            #line 1143 "src/psc/sema/check/collect.pengu"
+            #line 1153 "src/psc/sema/check/collect.pengu"
             if ((rsv.kind == SemaSymbolKind_SkConst) && (rsv.const_id >= 0)) {
-                #line 1144 "src/psc/sema/check/collect.pengu"
-                return (*( SemaConst*)pengu_list_at(&(s->symbols->const_values), (int)((__extension__(({ int64_t _p_idx860 = (int64_t)(rsv.const_id); pengu_assert_bounds(_p_idx860, (int64_t)((s->symbols->const_values).len), "src/psc/sema/check/collect.pengu:1144"); _p_idx860; }))))));
+                #line 1154 "src/psc/sema/check/collect.pengu"
+                return (*( SemaConst*)pengu_list_at(&(s->symbols->const_values), (int)((__extension__(({ int64_t _p_idx860 = (int64_t)(rsv.const_id); pengu_assert_bounds(_p_idx860, (int64_t)((s->symbols->const_values).len), "src/psc/sema/check/collect.pengu:1154"); _p_idx860; }))))));
             }
         }
-        #line 1145 "src/psc/sema/check/collect.pengu"
+        #line 1155 "src/psc/sema/check/collect.pengu"
         return cv;
     }
-    #line 1146 "src/psc/sema/check/collect.pengu"
+    #line 1156 "src/psc/sema/check/collect.pengu"
     if ((((((((((k == NodeKind_NdShl) || (k == NodeKind_NdShr)) || (k == NodeKind_NdBitwiseAnd)) || (k == NodeKind_NdBitwiseOr)) || (k == NodeKind_NdBitwiseXor)) || (k == NodeKind_NdAdd)) || (k == NodeKind_NdSub)) || (k == NodeKind_NdMul)) || (k == NodeKind_NdDiv)) || (k == NodeKind_NdMod)) {
-        #line 1147 "src/psc/sema/check/collect.pengu"
+        #line 1157 "src/psc/sema/check/collect.pengu"
         SemaConst lv = sema_collect_const_literal(s, sema_ast_node_child(s->ast, node, 0));
         (void)lv;
-        #line 1148 "src/psc/sema/check/collect.pengu"
+        #line 1158 "src/psc/sema/check/collect.pengu"
         SemaConst rv = sema_collect_const_literal(s, sema_ast_node_child(s->ast, node, 1));
         (void)rv;
-        #line 1149 "src/psc/sema/check/collect.pengu"
+        #line 1159 "src/psc/sema/check/collect.pengu"
         if ((lv.kind == SemaConstKind_CkInt) && (rv.kind == SemaConstKind_CkInt)) {
-            #line 1150 "src/psc/sema/check/collect.pengu"
+            #line 1160 "src/psc/sema/check/collect.pengu"
             cv.kind = SemaConstKind_CkInt;
-            #line 1151 "src/psc/sema/check/collect.pengu"
+            #line 1161 "src/psc/sema/check/collect.pengu"
             if (k == NodeKind_NdShl) {
-                #line 1152 "src/psc/sema/check/collect.pengu"
+                #line 1162 "src/psc/sema/check/collect.pengu"
                 int64_t mul2 = 1;
                 (void)mul2;
-                #line 1153 "src/psc/sema/check/collect.pengu"
+                #line 1163 "src/psc/sema/check/collect.pengu"
                 int64_t shl = 0;
                 (void)shl;
-                #line 1154 "src/psc/sema/check/collect.pengu"
+                #line 1164 "src/psc/sema/check/collect.pengu"
                 while ((shl < rv.i)) {
-                    #line 1155 "src/psc/sema/check/collect.pengu"
+                    #line 1165 "src/psc/sema/check/collect.pengu"
                     mul2 = (mul2 * 2);
-                    #line 1156 "src/psc/sema/check/collect.pengu"
+                    #line 1166 "src/psc/sema/check/collect.pengu"
                     shl = (shl + 1);
                 }
-                #line 1157 "src/psc/sema/check/collect.pengu"
+                #line 1167 "src/psc/sema/check/collect.pengu"
                 if (rv.i >= 0) {
-                    #line 1158 "src/psc/sema/check/collect.pengu"
+                    #line 1168 "src/psc/sema/check/collect.pengu"
                     cv.i = (lv.i * mul2);
                 }
             } else
             if (k == NodeKind_NdShr) {
-                #line 1160 "src/psc/sema/check/collect.pengu"
+                #line 1170 "src/psc/sema/check/collect.pengu"
                 int64_t div2 = 2;
                 (void)div2;
-                #line 1161 "src/psc/sema/check/collect.pengu"
+                #line 1171 "src/psc/sema/check/collect.pengu"
                 int64_t sh = 0;
                 (void)sh;
-                #line 1162 "src/psc/sema/check/collect.pengu"
+                #line 1172 "src/psc/sema/check/collect.pengu"
                 while ((sh < rv.i)) {
-                    #line 1163 "src/psc/sema/check/collect.pengu"
+                    #line 1173 "src/psc/sema/check/collect.pengu"
                     div2 = (div2 * 2);
-                    #line 1164 "src/psc/sema/check/collect.pengu"
+                    #line 1174 "src/psc/sema/check/collect.pengu"
                     sh = (sh + 1);
                 }
-                #line 1165 "src/psc/sema/check/collect.pengu"
+                #line 1175 "src/psc/sema/check/collect.pengu"
                 if (rv.i >= 0) {
-                    #line 1166 "src/psc/sema/check/collect.pengu"
+                    #line 1176 "src/psc/sema/check/collect.pengu"
                     cv.i = (lv.i / div2);
                 }
             } else
             if (k == NodeKind_NdBitwiseAnd) {
-                #line 1168 "src/psc/sema/check/collect.pengu"
+                #line 1178 "src/psc/sema/check/collect.pengu"
                 cv.i = (lv.i & rv.i);
             } else
             if (k == NodeKind_NdBitwiseOr) {
-                #line 1170 "src/psc/sema/check/collect.pengu"
+                #line 1180 "src/psc/sema/check/collect.pengu"
                 cv.i = (lv.i | rv.i);
             } else
             if (k == NodeKind_NdBitwiseXor) {
-                #line 1172 "src/psc/sema/check/collect.pengu"
+                #line 1182 "src/psc/sema/check/collect.pengu"
                 cv.i = (lv.i ^ rv.i);
             } else
             if (k == NodeKind_NdAdd) {
-                #line 1174 "src/psc/sema/check/collect.pengu"
+                #line 1184 "src/psc/sema/check/collect.pengu"
                 cv.i = (lv.i + rv.i);
             } else
             if (k == NodeKind_NdSub) {
-                #line 1176 "src/psc/sema/check/collect.pengu"
+                #line 1186 "src/psc/sema/check/collect.pengu"
                 cv.i = (lv.i - rv.i);
             } else
             if (k == NodeKind_NdMul) {
-                #line 1178 "src/psc/sema/check/collect.pengu"
+                #line 1188 "src/psc/sema/check/collect.pengu"
                 cv.i = (lv.i * rv.i);
             } else
             if ((k == NodeKind_NdDiv) && (rv.i != 0)) {
-                #line 1180 "src/psc/sema/check/collect.pengu"
+                #line 1190 "src/psc/sema/check/collect.pengu"
                 cv.i = (lv.i / rv.i);
             } else
             if ((k == NodeKind_NdMod) && (rv.i != 0)) {
-                #line 1182 "src/psc/sema/check/collect.pengu"
+                #line 1192 "src/psc/sema/check/collect.pengu"
                 cv.i = (lv.i % rv.i);
             }
         }
-        #line 1183 "src/psc/sema/check/collect.pengu"
+        #line 1193 "src/psc/sema/check/collect.pengu"
         return cv;
     }
-    #line 1184 "src/psc/sema/check/collect.pengu"
+    #line 1194 "src/psc/sema/check/collect.pengu"
     if (k != NodeKind_NdIntLit) {
-        #line 1185 "src/psc/sema/check/collect.pengu"
+        #line 1195 "src/psc/sema/check/collect.pengu"
         return cv;
     }
-    #line 1186 "src/psc/sema/check/collect.pengu"
+    #line 1196 "src/psc/sema/check/collect.pengu"
     PenguString text = sema_ast_child_token_text(s->src, s->lex, s->ast, node, 0);
     (void)text;
-    #line 1187 "src/psc/sema/check/collect.pengu"
+    #line 1197 "src/psc/sema/check/collect.pengu"
     const uint8_t* b2 = ((const uint8_t*)((text).data));
     (void)b2;
-    #line 1188 "src/psc/sema/check/collect.pengu"
+    #line 1198 "src/psc/sema/check/collect.pengu"
     int32_t i = 0;
     (void)i;
-    #line 1189 "src/psc/sema/check/collect.pengu"
+    #line 1199 "src/psc/sema/check/collect.pengu"
     bool neg = false;
     (void)neg;
-    #line 1190 "src/psc/sema/check/collect.pengu"
+    #line 1200 "src/psc/sema/check/collect.pengu"
     if ((((int32_t)(text).len) > 0) && ((((int32_t)(((b2)[0])))) == 45)) {
-        #line 1191 "src/psc/sema/check/collect.pengu"
+        #line 1201 "src/psc/sema/check/collect.pengu"
         neg = true;
-        #line 1192 "src/psc/sema/check/collect.pengu"
+        #line 1202 "src/psc/sema/check/collect.pengu"
         i = 1;
     }
-    #line 1193 "src/psc/sema/check/collect.pengu"
+    #line 1203 "src/psc/sema/check/collect.pengu"
     int64_t base = 10;
     (void)base;
-    #line 1194 "src/psc/sema/check/collect.pengu"
+    #line 1204 "src/psc/sema/check/collect.pengu"
     if ((((i + 1) < ((int32_t)(text).len)) && ((((int32_t)(((b2)[i])))) == 48)) && ((((((int32_t)(((b2)[((i + 1))])))) == 120) || ((((int32_t)(((b2)[((i + 1))])))) == 88)))) {
-        #line 1195 "src/psc/sema/check/collect.pengu"
+        #line 1205 "src/psc/sema/check/collect.pengu"
         base = 16;
-        #line 1196 "src/psc/sema/check/collect.pengu"
+        #line 1206 "src/psc/sema/check/collect.pengu"
         i = (i + 2);
     }
-    #line 1197 "src/psc/sema/check/collect.pengu"
+    #line 1207 "src/psc/sema/check/collect.pengu"
     int64_t v = 0;
     (void)v;
-    #line 1198 "src/psc/sema/check/collect.pengu"
+    #line 1208 "src/psc/sema/check/collect.pengu"
     while ((i < ((int32_t)(text).len))) {
-        #line 1199 "src/psc/sema/check/collect.pengu"
+        #line 1209 "src/psc/sema/check/collect.pengu"
         int32_t code = ((int32_t)(((b2)[i])));
         (void)code;
-        #line 1200 "src/psc/sema/check/collect.pengu"
+        #line 1210 "src/psc/sema/check/collect.pengu"
         if (code == 95) {
-            #line 1201 "src/psc/sema/check/collect.pengu"
+            #line 1211 "src/psc/sema/check/collect.pengu"
             i = (i + 1);
-            #line 1202 "src/psc/sema/check/collect.pengu"
+            #line 1212 "src/psc/sema/check/collect.pengu"
             continue;
         }
-        #line 1203 "src/psc/sema/check/collect.pengu"
+        #line 1213 "src/psc/sema/check/collect.pengu"
         int32_t d = (-1);
         (void)d;
-        #line 1204 "src/psc/sema/check/collect.pengu"
+        #line 1214 "src/psc/sema/check/collect.pengu"
         if ((code >= 48) && (code <= 57)) {
-            #line 1205 "src/psc/sema/check/collect.pengu"
+            #line 1215 "src/psc/sema/check/collect.pengu"
             d = (code - 48);
         } else
         if ((code >= 97) && (code <= 102)) {
-            #line 1207 "src/psc/sema/check/collect.pengu"
+            #line 1217 "src/psc/sema/check/collect.pengu"
             d = (code - 87);
         } else
         if ((code >= 65) && (code <= 70)) {
-            #line 1209 "src/psc/sema/check/collect.pengu"
+            #line 1219 "src/psc/sema/check/collect.pengu"
             d = (code - 55);
         }
-        #line 1210 "src/psc/sema/check/collect.pengu"
+        #line 1220 "src/psc/sema/check/collect.pengu"
         if (d >= 0) {
-            #line 1211 "src/psc/sema/check/collect.pengu"
+            #line 1221 "src/psc/sema/check/collect.pengu"
             v = ((v * base) + (((int64_t)(d))));
         }
-        #line 1212 "src/psc/sema/check/collect.pengu"
+        #line 1222 "src/psc/sema/check/collect.pengu"
         i = (i + 1);
     }
-    #line 1213 "src/psc/sema/check/collect.pengu"
+    #line 1223 "src/psc/sema/check/collect.pengu"
     if (neg) {
-        #line 1214 "src/psc/sema/check/collect.pengu"
+        #line 1224 "src/psc/sema/check/collect.pengu"
         v = (-v);
     }
-    #line 1215 "src/psc/sema/check/collect.pengu"
+    #line 1225 "src/psc/sema/check/collect.pengu"
     cv.kind = SemaConstKind_CkInt;
-    #line 1216 "src/psc/sema/check/collect.pengu"
+    #line 1226 "src/psc/sema/check/collect.pengu"
     cv.i = v;
-    #line 1217 "src/psc/sema/check/collect.pengu"
+    #line 1227 "src/psc/sema/check/collect.pengu"
     pengu_banish_string(&(text));
-    #line 1218 "src/psc/sema/check/collect.pengu"
+    #line 1228 "src/psc/sema/check/collect.pengu"
     return cv;
 }
 
-#line 1221 "src/psc/sema/check/collect.pengu"
+#line 1231 "src/psc/sema/check/collect.pengu"
 void sema_collect_collect_const(SemaState* s, int32_t node) {
     (void)s;
     (void)node;
-    #line 1222 "src/psc/sema/check/collect.pengu"
+    #line 1232 "src/psc/sema/check/collect.pengu"
     int32_t name = sema_collect_decl_name(s, node);
     (void)name;
-    #line 1223 "src/psc/sema/check/collect.pengu"
+    #line 1233 "src/psc/sema/check/collect.pengu"
     int32_t type_node = sema_ast_node_child(s->ast, node, 1);
     (void)type_node;
-    #line 1224 "src/psc/sema/check/collect.pengu"
+    #line 1234 "src/psc/sema/check/collect.pengu"
     int32_t value_node = sema_ast_node_child(s->ast, node, 2);
     (void)value_node;
-    #line 1225 "src/psc/sema/check/collect.pengu"
+    #line 1235 "src/psc/sema/check/collect.pengu"
     int32_t ty = 0;
     (void)ty;
-    #line 1226 "src/psc/sema/check/collect.pengu"
+    #line 1236 "src/psc/sema/check/collect.pengu"
     if (type_node >= 0) {
-        #line 1227 "src/psc/sema/check/collect.pengu"
+        #line 1237 "src/psc/sema/check/collect.pengu"
         TypeCtx ctx = sema_collect_collect_type_ctx(s);
         (void)ctx;
-        #line 1228 "src/psc/sema/check/collect.pengu"
+        #line 1238 "src/psc/sema/check/collect.pengu"
         ty = sema_type_convert_convert((&(ctx)), type_node);
     }
-    #line 1229 "src/psc/sema/check/collect.pengu"
+    #line 1239 "src/psc/sema/check/collect.pengu"
     if (ty <= 0) {
-        #line 1230 "src/psc/sema/check/collect.pengu"
+        #line 1240 "src/psc/sema/check/collect.pengu"
         ty = sema_infer_infer(s, value_node, (-1));
     }
-    #line 1231 "src/psc/sema/check/collect.pengu"
+    #line 1241 "src/psc/sema/check/collect.pengu"
     SemaConst cv = sema_collect_const_literal(s, value_node);
     (void)cv;
-    #line 1232 "src/psc/sema/check/collect.pengu"
+    #line 1242 "src/psc/sema/check/collect.pengu"
     int32_t cid = sema_symbols_symbol_define_const(s->symbols, name, ty, cv);
     (void)cid;
-    #line 1233 "src/psc/sema/check/collect.pengu"
+    #line 1243 "src/psc/sema/check/collect.pengu"
     (void)(sema_collect_tag_decl(s, cid, node));
 }
 
-#line 1239 "src/psc/sema/check/collect.pengu"
+#line 1249 "src/psc/sema/check/collect.pengu"
 bool sema_collect_starts_with_text(PenguString s, PenguString prefix) {
     (void)s;
     (void)prefix;
-    #line 1240 "src/psc/sema/check/collect.pengu"
+    #line 1250 "src/psc/sema/check/collect.pengu"
     int32_t n = ((int32_t)(s).len);
     (void)n;
-    #line 1241 "src/psc/sema/check/collect.pengu"
+    #line 1251 "src/psc/sema/check/collect.pengu"
     int32_t m = ((int32_t)(prefix).len);
     (void)m;
-    #line 1242 "src/psc/sema/check/collect.pengu"
+    #line 1252 "src/psc/sema/check/collect.pengu"
     if (m > n) {
-        #line 1243 "src/psc/sema/check/collect.pengu"
+        #line 1253 "src/psc/sema/check/collect.pengu"
         return false;
     }
-    #line 1244 "src/psc/sema/check/collect.pengu"
+    #line 1254 "src/psc/sema/check/collect.pengu"
     const uint8_t* sb = ((const uint8_t*)((s).data));
     (void)sb;
-    #line 1245 "src/psc/sema/check/collect.pengu"
+    #line 1255 "src/psc/sema/check/collect.pengu"
     const uint8_t* pb = ((const uint8_t*)((prefix).data));
     (void)pb;
-    #line 1246 "src/psc/sema/check/collect.pengu"
+    #line 1256 "src/psc/sema/check/collect.pengu"
     int32_t i = 0;
     (void)i;
-    #line 1247 "src/psc/sema/check/collect.pengu"
+    #line 1257 "src/psc/sema/check/collect.pengu"
     while ((i < m)) {
-        #line 1248 "src/psc/sema/check/collect.pengu"
+        #line 1258 "src/psc/sema/check/collect.pengu"
         if ((((int32_t)(((sb)[i])))) != (((int32_t)(((pb)[i]))))) {
-            #line 1249 "src/psc/sema/check/collect.pengu"
+            #line 1259 "src/psc/sema/check/collect.pengu"
             return false;
         }
-        #line 1250 "src/psc/sema/check/collect.pengu"
+        #line 1260 "src/psc/sema/check/collect.pengu"
         i = (i + 1);
     }
-    #line 1251 "src/psc/sema/check/collect.pengu"
+    #line 1261 "src/psc/sema/check/collect.pengu"
     return true;
 }
 
-#line 1257 "src/psc/sema/check/collect.pengu"
+#line 1267 "src/psc/sema/check/collect.pengu"
 bool sema_collect_has_attribute(SemaState* s, int32_t attrs, PenguString name) {
     (void)s;
     (void)attrs;
     (void)name;
-    #line 1258 "src/psc/sema/check/collect.pengu"
+    #line 1268 "src/psc/sema/check/collect.pengu"
     int32_t i = 0;
     (void)i;
-    #line 1259 "src/psc/sema/check/collect.pengu"
+    #line 1269 "src/psc/sema/check/collect.pengu"
     int32_t n = sema_ast_child_count(s->ast, attrs);
     (void)n;
-    #line 1260 "src/psc/sema/check/collect.pengu"
+    #line 1270 "src/psc/sema/check/collect.pengu"
     while ((i < n)) {
-        #line 1261 "src/psc/sema/check/collect.pengu"
+        #line 1271 "src/psc/sema/check/collect.pengu"
         int32_t a = sema_ast_node_child(s->ast, attrs, i);
         (void)a;
-        #line 1262 "src/psc/sema/check/collect.pengu"
+        #line 1272 "src/psc/sema/check/collect.pengu"
         if (a >= 0) {
-            #line 1263 "src/psc/sema/check/collect.pengu"
+            #line 1273 "src/psc/sema/check/collect.pengu"
             int32_t t = sema_ast_token_child(s->ast, a, 0);
             (void)t;
-            #line 1264 "src/psc/sema/check/collect.pengu"
+            #line 1274 "src/psc/sema/check/collect.pengu"
             if (t >= 0) {
-                #line 1265 "src/psc/sema/check/collect.pengu"
+                #line 1275 "src/psc/sema/check/collect.pengu"
                 PenguString txt = sema_ast_token_text(s->src, s->lex, t);
                 (void)txt;
-                #line 1266 "src/psc/sema/check/collect.pengu"
-                #line 1267 "src/psc/sema/check/collect.pengu"
+                #line 1276 "src/psc/sema/check/collect.pengu"
+                #line 1277 "src/psc/sema/check/collect.pengu"
                 if (pengu_string_equal(txt, pengu_string_format_ex("@%.*s", (int)name.len, name.data)) || pengu_string_equal(txt, name)) {
-                    #line 1268 "src/psc/sema/check/collect.pengu"
+                    #line 1278 "src/psc/sema/check/collect.pengu"
                     bool _ret861 = true;
                     pengu_banish_string(&(txt));
                     return _ret861;
@@ -51197,544 +51218,544 @@ bool sema_collect_has_attribute(SemaState* s, int32_t attrs, PenguString name) {
                 pengu_banish_string(&(txt));
             }
         }
-        #line 1269 "src/psc/sema/check/collect.pengu"
+        #line 1279 "src/psc/sema/check/collect.pengu"
         i = (i + 1);
     }
-    #line 1270 "src/psc/sema/check/collect.pengu"
+    #line 1280 "src/psc/sema/check/collect.pengu"
     return false;
 }
 
-#line 1276 "src/psc/sema/check/collect.pengu"
+#line 1286 "src/psc/sema/check/collect.pengu"
 void sema_collect_collect_weave(SemaState* s, int32_t node, bool no_body) {
     (void)s;
     (void)node;
     (void)no_body;
-    #line 1277 "src/psc/sema/check/collect.pengu"
+    #line 1287 "src/psc/sema/check/collect.pengu"
     int32_t name = sema_collect_decl_name(s, node);
     (void)name;
-    #line 1278 "src/psc/sema/check/collect.pengu"
+    #line 1288 "src/psc/sema/check/collect.pengu"
     (void)(sema_collect_reject_free_mutates(s, node));
-    #line 1279 "src/psc/sema/check/collect.pengu"
+    #line 1289 "src/psc/sema/check/collect.pengu"
     int32_t slot = sema_collect_collect_name_slot(s, node);
     (void)slot;
-    #line 1280 "src/psc/sema/check/collect.pengu"
+    #line 1290 "src/psc/sema/check/collect.pengu"
     int32_t params_slot = (slot + 2);
     (void)params_slot;
-    #line 1281 "src/psc/sema/check/collect.pengu"
+    #line 1291 "src/psc/sema/check/collect.pengu"
     int32_t ret_slot = (slot + 3);
     (void)ret_slot;
-    #line 1282 "src/psc/sema/check/collect.pengu"
+    #line 1292 "src/psc/sema/check/collect.pengu"
     ParamRange pr = (ParamRange){.first = 0, .count = 0};
     (void)pr;
-    #line 1283 "src/psc/sema/check/collect.pengu"
+    #line 1293 "src/psc/sema/check/collect.pengu"
     if (params_slot < sema_ast_child_count(s->ast, node)) {
-        #line 1284 "src/psc/sema/check/collect.pengu"
+        #line 1294 "src/psc/sema/check/collect.pengu"
         int32_t pnode = sema_ast_node_child(s->ast, node, params_slot);
         (void)pnode;
-        #line 1285 "src/psc/sema/check/collect.pengu"
+        #line 1295 "src/psc/sema/check/collect.pengu"
         if (pnode >= 0) {
-            #line 1286 "src/psc/sema/check/collect.pengu"
+            #line 1296 "src/psc/sema/check/collect.pengu"
             (void)(sema_collect_collect_params(s, pnode, (&(pr)), no_body));
         }
     }
-    #line 1287 "src/psc/sema/check/collect.pengu"
+    #line 1297 "src/psc/sema/check/collect.pengu"
     int32_t ret = 3;
     (void)ret;
-    #line 1288 "src/psc/sema/check/collect.pengu"
+    #line 1298 "src/psc/sema/check/collect.pengu"
     if (ret_slot < sema_ast_child_count(s->ast, node)) {
-        #line 1289 "src/psc/sema/check/collect.pengu"
+        #line 1299 "src/psc/sema/check/collect.pengu"
         int32_t rnode = sema_ast_node_child(s->ast, node, ret_slot);
         (void)rnode;
-        #line 1290 "src/psc/sema/check/collect.pengu"
+        #line 1300 "src/psc/sema/check/collect.pengu"
         if (rnode >= 0) {
-            #line 1291 "src/psc/sema/check/collect.pengu"
+            #line 1301 "src/psc/sema/check/collect.pengu"
             TypeCtx ctx = sema_collect_collect_type_ctx(s);
             (void)ctx;
-            #line 1292 "src/psc/sema/check/collect.pengu"
+            #line 1302 "src/psc/sema/check/collect.pengu"
             ret = sema_type_convert_convert((&(ctx)), rnode);
         }
     }
-    #line 1293 "src/psc/sema/check/collect.pengu"
+    #line 1303 "src/psc/sema/check/collect.pengu"
     ParamRange br = (ParamRange){.first = 0, .count = 0};
     (void)br;
-    #line 1294 "src/psc/sema/check/collect.pengu"
+    #line 1304 "src/psc/sema/check/collect.pengu"
     int32_t shard_node = sema_ast_node_child(s->ast, node, (slot + 1));
     (void)shard_node;
-    #line 1295 "src/psc/sema/check/collect.pengu"
+    #line 1305 "src/psc/sema/check/collect.pengu"
     int32_t tpfirst = (s->types->tparams).len;
     (void)tpfirst;
-    #line 1296 "src/psc/sema/check/collect.pengu"
+    #line 1306 "src/psc/sema/check/collect.pengu"
     int32_t tpc = 0;
     (void)tpc;
-    #line 1297 "src/psc/sema/check/collect.pengu"
+    #line 1307 "src/psc/sema/check/collect.pengu"
     if (shard_node >= 0) {
-        #line 1298 "src/psc/sema/check/collect.pengu"
+        #line 1308 "src/psc/sema/check/collect.pengu"
         int32_t shi = 0;
         (void)shi;
-        #line 1299 "src/psc/sema/check/collect.pengu"
+        #line 1309 "src/psc/sema/check/collect.pengu"
         int32_t shn = sema_ast_child_count(s->ast, shard_node);
         (void)shn;
-        #line 1300 "src/psc/sema/check/collect.pengu"
+        #line 1310 "src/psc/sema/check/collect.pengu"
         while ((shi < shn)) {
-            #line 1301 "src/psc/sema/check/collect.pengu"
+            #line 1311 "src/psc/sema/check/collect.pengu"
             int32_t shc = sema_ast_node_child(s->ast, shard_node, shi);
             (void)shc;
-            #line 1302 "src/psc/sema/check/collect.pengu"
+            #line 1312 "src/psc/sema/check/collect.pengu"
             if ((shc >= 0) && ((sema_ast_kind_of(s->ast, shc)) == NodeKind_NdWhereClause)) {
-                #line 1303 "src/psc/sema/check/collect.pengu"
+                #line 1313 "src/psc/sema/check/collect.pengu"
                 br = sema_collect_collect_bounds(s, shc);
             }
-            #line 1304 "src/psc/sema/check/collect.pengu"
+            #line 1314 "src/psc/sema/check/collect.pengu"
             shi = (shi + 1);
         }
-        #line 1305 "src/psc/sema/check/collect.pengu"
+        #line 1315 "src/psc/sema/check/collect.pengu"
         if ((sema_ast_kind_of(s->ast, shard_node)) == NodeKind_NdShardParams) {
-            #line 1306 "src/psc/sema/check/collect.pengu"
+            #line 1316 "src/psc/sema/check/collect.pengu"
             int32_t sci = 0;
             (void)sci;
-            #line 1307 "src/psc/sema/check/collect.pengu"
+            #line 1317 "src/psc/sema/check/collect.pengu"
             int32_t scn = sema_ast_child_count(s->ast, shard_node);
             (void)scn;
-            #line 1308 "src/psc/sema/check/collect.pengu"
+            #line 1318 "src/psc/sema/check/collect.pengu"
             while ((sci < scn)) {
-                #line 1309 "src/psc/sema/check/collect.pengu"
+                #line 1319 "src/psc/sema/check/collect.pengu"
                 int32_t tptok = sema_ast_token_child(s->ast, shard_node, sci);
                 (void)tptok;
-                #line 1310 "src/psc/sema/check/collect.pengu"
+                #line 1320 "src/psc/sema/check/collect.pengu"
                 if (tptok >= 0) {
-                    #line 1311 "src/psc/sema/check/collect.pengu"
+                    #line 1321 "src/psc/sema/check/collect.pengu"
                     PenguString tptxt = sema_ast_token_text(s->src, s->lex, tptok);
                     (void)tptxt;
-                    #line 1312 "src/psc/sema/check/collect.pengu"
+                    #line 1322 "src/psc/sema/check/collect.pengu"
                     int32_t tpnid = sema_names_intern(s->names, tptxt);
                     (void)tpnid;
-                    #line 1313 "src/psc/sema/check/collect.pengu"
+                    #line 1323 "src/psc/sema/check/collect.pengu"
                     pengu_banish_string(&(tptxt));
-                    #line 1314 "src/psc/sema/check/collect.pengu"
+                    #line 1324 "src/psc/sema/check/collect.pengu"
                     SemaTypeParamInfo tpi = (SemaTypeParamInfo){.name = tpnid, .bounds_first = 0, .bounds_count = 0, .flags = 0};
                     (void)tpi;
-                    #line 1315 "src/psc/sema/check/collect.pengu"
+                    #line 1325 "src/psc/sema/check/collect.pengu"
                     int32_t ignored_tp = sema_type_table_add_tparam(s->types, tpi);
                     (void)ignored_tp;
-                    #line 1316 "src/psc/sema/check/collect.pengu"
+                    #line 1326 "src/psc/sema/check/collect.pengu"
                     tpc = (tpc + 1);
                 }
-                #line 1317 "src/psc/sema/check/collect.pengu"
+                #line 1327 "src/psc/sema/check/collect.pengu"
                 sci = (sci + 1);
             }
         }
     }
-    #line 1318 "src/psc/sema/check/collect.pengu"
+    #line 1328 "src/psc/sema/check/collect.pengu"
     int32_t fn_flags = 0;
     (void)fn_flags;
-    #line 1319 "src/psc/sema/check/collect.pengu"
+    #line 1329 "src/psc/sema/check/collect.pengu"
     int32_t attrs_node = sema_ast_node_child(s->ast, node, 0);
     (void)attrs_node;
-    #line 1320 "src/psc/sema/check/collect.pengu"
+    #line 1330 "src/psc/sema/check/collect.pengu"
     if ((attrs_node >= 0) && ((sema_ast_kind_of(s->ast, attrs_node)) == NodeKind_NdAttributes)) {
-        #line 1321 "src/psc/sema/check/collect.pengu"
+        #line 1331 "src/psc/sema/check/collect.pengu"
         if (sema_collect_has_attribute(s, attrs_node, pengu_string_from_cstr_len("spawn", 5))) {
-            #line 1322 "src/psc/sema/check/collect.pengu"
+            #line 1332 "src/psc/sema/check/collect.pengu"
             fn_flags = (fn_flags | sema_type_table_FN_SPAWN);
         }
-        #line 1323 "src/psc/sema/check/collect.pengu"
+        #line 1333 "src/psc/sema/check/collect.pengu"
         if (sema_collect_has_attribute(s, attrs_node, pengu_string_from_cstr_len("coroutine", 9))) {
-            #line 1324 "src/psc/sema/check/collect.pengu"
+            #line 1334 "src/psc/sema/check/collect.pengu"
             fn_flags = (fn_flags | sema_type_table_FN_CORO);
         }
     } else {
-        #line 1326 "src/psc/sema/check/collect.pengu"
+        #line 1336 "src/psc/sema/check/collect.pengu"
         attrs_node = (-1);
     }
-    #line 1327 "src/psc/sema/check/collect.pengu"
+    #line 1337 "src/psc/sema/check/collect.pengu"
     SemaFnInfo info = (SemaFnInfo){.params_first = pr.first, .params_count = pr.count, .return_type = ret, .tparams_first = tpfirst, .tparams_count = tpc, .flags = fn_flags, .attrs_node = attrs_node};
     (void)info;
-    #line 1328 "src/psc/sema/check/collect.pengu"
+    #line 1338 "src/psc/sema/check/collect.pengu"
     int32_t ft = sema_type_table_fn_type(s->types, info);
     (void)ft;
-    #line 1329 "src/psc/sema/check/collect.pengu"
+    #line 1339 "src/psc/sema/check/collect.pengu"
     int32_t sid = sema_symbols_symbol_define_function(s->symbols, name, ft);
     (void)sid;
-    #line 1330 "src/psc/sema/check/collect.pengu"
+    #line 1340 "src/psc/sema/check/collect.pengu"
     (void)(sema_collect_apply_bounds(s, sid, br));
-    #line 1331 "src/psc/sema/check/collect.pengu"
+    #line 1341 "src/psc/sema/check/collect.pengu"
     SemaSymbol sv = sema_symbols_symbol_at(s->symbols, sid);
     (void)sv;
-    #line 1332 "src/psc/sema/check/collect.pengu"
+    #line 1342 "src/psc/sema/check/collect.pengu"
     if (no_body) {
-        #line 1333 "src/psc/sema/check/collect.pengu"
+        #line 1343 "src/psc/sema/check/collect.pengu"
         sv.kind = SemaSymbolKind_SkDeclare;
     } else {
-        #line 1335 "src/psc/sema/check/collect.pengu"
+        #line 1345 "src/psc/sema/check/collect.pengu"
         sv.kind = SemaSymbolKind_SkWeave;
     }
-    #line 1336 "src/psc/sema/check/collect.pengu"
+    #line 1346 "src/psc/sema/check/collect.pengu"
     (void)(sema_symbols_symbol_set(s->symbols, sid, sv));
-    #line 1337 "src/psc/sema/check/collect.pengu"
+    #line 1347 "src/psc/sema/check/collect.pengu"
     (void)(sema_collect_tag_decl(s, sid, node));
 }
 
-#line 1350 "src/psc/sema/check/collect.pengu"
+#line 1360 "src/psc/sema/check/collect.pengu"
 int32_t sema_collect_default_float_text(SemaState* s, int32_t node) {
     (void)s;
     (void)node;
-    #line 1351 "src/psc/sema/check/collect.pengu"
+    #line 1361 "src/psc/sema/check/collect.pengu"
     int32_t n = node;
     (void)n;
-    #line 1352 "src/psc/sema/check/collect.pengu"
+    #line 1362 "src/psc/sema/check/collect.pengu"
     bool neg = false;
     (void)neg;
-    #line 1353 "src/psc/sema/check/collect.pengu"
+    #line 1363 "src/psc/sema/check/collect.pengu"
     int32_t guard = 0;
     (void)guard;
-    #line 1354 "src/psc/sema/check/collect.pengu"
+    #line 1364 "src/psc/sema/check/collect.pengu"
     while (((n >= 0) && (guard < 8))) {
-        #line 1355 "src/psc/sema/check/collect.pengu"
+        #line 1365 "src/psc/sema/check/collect.pengu"
         NodeKind k = sema_ast_kind_of(s->ast, n);
         (void)k;
-        #line 1356 "src/psc/sema/check/collect.pengu"
+        #line 1366 "src/psc/sema/check/collect.pengu"
         if ((k == NodeKind_NdParenExpr) || (k == NodeKind_NdNeg)) {
-            #line 1357 "src/psc/sema/check/collect.pengu"
+            #line 1367 "src/psc/sema/check/collect.pengu"
             if (k == NodeKind_NdNeg) {
-                #line 1358 "src/psc/sema/check/collect.pengu"
+                #line 1368 "src/psc/sema/check/collect.pengu"
                 neg = (!neg);
             }
-            #line 1359 "src/psc/sema/check/collect.pengu"
+            #line 1369 "src/psc/sema/check/collect.pengu"
             n = sema_ast_node_child(s->ast, n, 0);
         } else {
-            #line 1361 "src/psc/sema/check/collect.pengu"
+            #line 1371 "src/psc/sema/check/collect.pengu"
             break;
         }
-        #line 1362 "src/psc/sema/check/collect.pengu"
+        #line 1372 "src/psc/sema/check/collect.pengu"
         guard = (guard + 1);
     }
-    #line 1363 "src/psc/sema/check/collect.pengu"
+    #line 1373 "src/psc/sema/check/collect.pengu"
     if (n < 0) {
-        #line 1364 "src/psc/sema/check/collect.pengu"
+        #line 1374 "src/psc/sema/check/collect.pengu"
         return (-1);
     }
-    #line 1365 "src/psc/sema/check/collect.pengu"
+    #line 1375 "src/psc/sema/check/collect.pengu"
     if ((sema_ast_kind_of(s->ast, n)) != NodeKind_NdFloatLit) {
-        #line 1366 "src/psc/sema/check/collect.pengu"
+        #line 1376 "src/psc/sema/check/collect.pengu"
         return (-1);
     }
-    #line 1367 "src/psc/sema/check/collect.pengu"
+    #line 1377 "src/psc/sema/check/collect.pengu"
     int32_t tkc = sema_ast_token_child(s->ast, n, 0);
     (void)tkc;
-    #line 1368 "src/psc/sema/check/collect.pengu"
+    #line 1378 "src/psc/sema/check/collect.pengu"
     if (tkc < 0) {
-        #line 1369 "src/psc/sema/check/collect.pengu"
+        #line 1379 "src/psc/sema/check/collect.pengu"
         return (-1);
     }
-    #line 1370 "src/psc/sema/check/collect.pengu"
+    #line 1380 "src/psc/sema/check/collect.pengu"
     PenguString raw = sema_ast_token_text(s->src, s->lex, tkc);
     (void)raw;
-    #line 1371 "src/psc/sema/check/collect.pengu"
-    #line 1372 "src/psc/sema/check/collect.pengu"
+    #line 1381 "src/psc/sema/check/collect.pengu"
+    #line 1382 "src/psc/sema/check/collect.pengu"
     if (neg) {
-        #line 1373 "src/psc/sema/check/collect.pengu"
+        #line 1383 "src/psc/sema/check/collect.pengu"
         PenguString signed_ = pengu_string_format_ex("-%.*s", (int)raw.len, raw.data);
         (void)signed_;
-        #line 1374 "src/psc/sema/check/collect.pengu"
-        #line 1375 "src/psc/sema/check/collect.pengu"
+        #line 1384 "src/psc/sema/check/collect.pengu"
+        #line 1385 "src/psc/sema/check/collect.pengu"
         int32_t _ret862 = sema_names_intern(s->names, signed_);
         pengu_banish_string(&(signed_));
         pengu_banish_string(&(raw));
         return _ret862;
         pengu_banish_string(&(signed_));
     }
-    #line 1376 "src/psc/sema/check/collect.pengu"
+    #line 1386 "src/psc/sema/check/collect.pengu"
     int32_t _ret863 = sema_names_intern(s->names, raw);
     pengu_banish_string(&(raw));
     return _ret863;
     pengu_banish_string(&(raw));
 }
 
-#line 1378 "src/psc/sema/check/collect.pengu"
+#line 1388 "src/psc/sema/check/collect.pengu"
 void sema_collect_collect_params(SemaState* s, int32_t pnode, ParamRange* out, bool in_declare) {
     (void)s;
     (void)pnode;
     (void)out;
     (void)in_declare;
-    #line 1382 "src/psc/sema/check/collect.pengu"
+    #line 1392 "src/psc/sema/check/collect.pengu"
     PenguList tmp = pengu_list_new(sizeof(SemaFnParam), 0);
     (void)tmp;
-    #line 1383 "src/psc/sema/check/collect.pengu"
-    #line 1384 "src/psc/sema/check/collect.pengu"
+    #line 1393 "src/psc/sema/check/collect.pengu"
+    #line 1394 "src/psc/sema/check/collect.pengu"
     bool seen_default = false;
     (void)seen_default;
-    #line 1385 "src/psc/sema/check/collect.pengu"
+    #line 1395 "src/psc/sema/check/collect.pengu"
     bool seen_many = false;
     (void)seen_many;
-    #line 1386 "src/psc/sema/check/collect.pengu"
+    #line 1396 "src/psc/sema/check/collect.pengu"
     int32_t i = 0;
     (void)i;
-    #line 1387 "src/psc/sema/check/collect.pengu"
+    #line 1397 "src/psc/sema/check/collect.pengu"
     int32_t n = sema_ast_child_count(s->ast, pnode);
     (void)n;
-    #line 1388 "src/psc/sema/check/collect.pengu"
+    #line 1398 "src/psc/sema/check/collect.pengu"
     int32_t last_param = (-1);
     (void)last_param;
-    #line 1389 "src/psc/sema/check/collect.pengu"
+    #line 1399 "src/psc/sema/check/collect.pengu"
     int32_t lp = 0;
     (void)lp;
-    #line 1390 "src/psc/sema/check/collect.pengu"
+    #line 1400 "src/psc/sema/check/collect.pengu"
     while ((lp < n)) {
-        #line 1391 "src/psc/sema/check/collect.pengu"
+        #line 1401 "src/psc/sema/check/collect.pengu"
         int32_t lpnode = sema_ast_node_child(s->ast, pnode, lp);
         (void)lpnode;
-        #line 1392 "src/psc/sema/check/collect.pengu"
+        #line 1402 "src/psc/sema/check/collect.pengu"
         if ((lpnode >= 0) && ((sema_ast_kind_of(s->ast, lpnode)) == NodeKind_NdParam)) {
-            #line 1393 "src/psc/sema/check/collect.pengu"
+            #line 1403 "src/psc/sema/check/collect.pengu"
             last_param = lp;
         }
-        #line 1394 "src/psc/sema/check/collect.pengu"
+        #line 1404 "src/psc/sema/check/collect.pengu"
         lp = (lp + 1);
     }
-    #line 1395 "src/psc/sema/check/collect.pengu"
+    #line 1405 "src/psc/sema/check/collect.pengu"
     while ((i < n)) {
-        #line 1396 "src/psc/sema/check/collect.pengu"
+        #line 1406 "src/psc/sema/check/collect.pengu"
         int32_t p = sema_ast_node_child(s->ast, pnode, i);
         (void)p;
-        #line 1397 "src/psc/sema/check/collect.pengu"
+        #line 1407 "src/psc/sema/check/collect.pengu"
         if ((p >= 0) && ((sema_ast_kind_of(s->ast, p)) == NodeKind_NdParam)) {
-            #line 1398 "src/psc/sema/check/collect.pengu"
+            #line 1408 "src/psc/sema/check/collect.pengu"
             int32_t pname = (-1);
             (void)pname;
-            #line 1399 "src/psc/sema/check/collect.pengu"
+            #line 1409 "src/psc/sema/check/collect.pengu"
             int32_t ps = sema_ast_token_child(s->ast, p, 0);
             (void)ps;
-            #line 1400 "src/psc/sema/check/collect.pengu"
+            #line 1410 "src/psc/sema/check/collect.pengu"
             if (ps >= 0) {
-                #line 1401 "src/psc/sema/check/collect.pengu"
+                #line 1411 "src/psc/sema/check/collect.pengu"
                 PenguString ptxt = sema_ast_token_text(s->src, s->lex, ps);
                 (void)ptxt;
-                #line 1402 "src/psc/sema/check/collect.pengu"
-                #line 1403 "src/psc/sema/check/collect.pengu"
+                #line 1412 "src/psc/sema/check/collect.pengu"
+                #line 1413 "src/psc/sema/check/collect.pengu"
                 pname = sema_names_intern(s->names, ptxt);
                 pengu_banish_string(&(ptxt));
             }
-            #line 1404 "src/psc/sema/check/collect.pengu"
+            #line 1414 "src/psc/sema/check/collect.pengu"
             int32_t pty = 0;
             (void)pty;
-            #line 1405 "src/psc/sema/check/collect.pengu"
+            #line 1415 "src/psc/sema/check/collect.pengu"
             int32_t ptn = sema_ast_node_child(s->ast, p, 1);
             (void)ptn;
-            #line 1406 "src/psc/sema/check/collect.pengu"
+            #line 1416 "src/psc/sema/check/collect.pengu"
             if (ptn >= 0) {
-                #line 1407 "src/psc/sema/check/collect.pengu"
+                #line 1417 "src/psc/sema/check/collect.pengu"
                 TypeCtx ctx = sema_collect_collect_type_ctx(s);
                 (void)ctx;
-                #line 1408 "src/psc/sema/check/collect.pengu"
+                #line 1418 "src/psc/sema/check/collect.pengu"
                 pty = sema_type_convert_convert((&(ctx)), ptn);
             }
-            #line 1409 "src/psc/sema/check/collect.pengu"
+            #line 1419 "src/psc/sema/check/collect.pengu"
             bool is_many = false;
             (void)is_many;
-            #line 1410 "src/psc/sema/check/collect.pengu"
+            #line 1420 "src/psc/sema/check/collect.pengu"
             if ((ptn >= 0) && ((sema_ast_kind_of(s->ast, ptn)) == NodeKind_NdManyType)) {
-                #line 1411 "src/psc/sema/check/collect.pengu"
+                #line 1421 "src/psc/sema/check/collect.pengu"
                 is_many = true;
             }
-            #line 1412 "src/psc/sema/check/collect.pengu"
+            #line 1422 "src/psc/sema/check/collect.pengu"
             if (is_many) {
-                #line 1413 "src/psc/sema/check/collect.pengu"
+                #line 1423 "src/psc/sema/check/collect.pengu"
                 if (seen_many) {
-                    #line 1414 "src/psc/sema/check/collect.pengu"
+                    #line 1424 "src/psc/sema/check/collect.pengu"
                     (void)(sema_diag_node_error(s->bag, s->src, sema_diag_CODE_MANY_MULTIPLE, sema_ast_start_of(s->ast, p), sema_ast_end_of(s->ast, p), pengu_string_from_cstr_len("only one variadic parameter is allowed", 38), pengu_string_from_cstr_len("Merge the parameters into one 'many' weave, or pass a slice.", 60), pengu_string_from_cstr_len("", 0)));
                 }
-                #line 1415 "src/psc/sema/check/collect.pengu"
+                #line 1425 "src/psc/sema/check/collect.pengu"
                 seen_many = true;
-                #line 1416 "src/psc/sema/check/collect.pengu"
+                #line 1426 "src/psc/sema/check/collect.pengu"
                 if (i != last_param) {
-                    #line 1417 "src/psc/sema/check/collect.pengu"
+                    #line 1427 "src/psc/sema/check/collect.pengu"
                     (void)(sema_diag_node_error(s->bag, s->src, sema_diag_CODE_MANY_NOT_LAST, sema_ast_start_of(s->ast, p), sema_ast_end_of(s->ast, p), pengu_string_from_cstr_len("variadic parameter must be the last parameter", 45), pengu_string_from_cstr_len("Move the 'many' parameter to the end of the parameter list.", 59), pengu_string_from_cstr_len("", 0)));
                 }
-                #line 1418 "src/psc/sema/check/collect.pengu"
+                #line 1428 "src/psc/sema/check/collect.pengu"
                 if (in_declare) {
-                    #line 1419 "src/psc/sema/check/collect.pengu"
+                    #line 1429 "src/psc/sema/check/collect.pengu"
                     (void)(sema_diag_node_error(s->bag, s->src, sema_diag_CODE_MANY_DECLARE, sema_ast_start_of(s->ast, p), sema_ast_end_of(s->ast, p), pengu_string_from_cstr_len("'declare' cannot take a variadic 'many' parameter", 49), pengu_string_from_cstr_len("Use a trailing '...' for a C variadic, or take a slice.", 55), pengu_string_from_cstr_len("", 0)));
                 }
             }
-            #line 1420 "src/psc/sema/check/collect.pengu"
+            #line 1430 "src/psc/sema/check/collect.pengu"
             int32_t pdef = sema_ast_node_child(s->ast, p, 2);
             (void)pdef;
-            #line 1421 "src/psc/sema/check/collect.pengu"
+            #line 1431 "src/psc/sema/check/collect.pengu"
             int32_t dmidx = (-1);
             (void)dmidx;
-            #line 1422 "src/psc/sema/check/collect.pengu"
+            #line 1432 "src/psc/sema/check/collect.pengu"
             int32_t dkind = sema_type_table_DEF_NONE;
             (void)dkind;
-            #line 1423 "src/psc/sema/check/collect.pengu"
+            #line 1433 "src/psc/sema/check/collect.pengu"
             int64_t di = 0;
             (void)di;
-            #line 1424 "src/psc/sema/check/collect.pengu"
+            #line 1434 "src/psc/sema/check/collect.pengu"
             double df = 0.0;
             (void)df;
-            #line 1425 "src/psc/sema/check/collect.pengu"
+            #line 1435 "src/psc/sema/check/collect.pengu"
             bool db = false;
             (void)db;
-            #line 1426 "src/psc/sema/check/collect.pengu"
+            #line 1436 "src/psc/sema/check/collect.pengu"
             int32_t dname = (-1);
             (void)dname;
-            #line 1427 "src/psc/sema/check/collect.pengu"
+            #line 1437 "src/psc/sema/check/collect.pengu"
             int32_t dtxt = (-1);
             (void)dtxt;
-            #line 1428 "src/psc/sema/check/collect.pengu"
+            #line 1438 "src/psc/sema/check/collect.pengu"
             if (pdef >= 0) {
-                #line 1429 "src/psc/sema/check/collect.pengu"
+                #line 1439 "src/psc/sema/check/collect.pengu"
                 int32_t mi = 0;
                 (void)mi;
-                #line 1430 "src/psc/sema/check/collect.pengu"
+                #line 1440 "src/psc/sema/check/collect.pengu"
                 while ((mi < s->program->modules.len)) {
-                    #line 1431 "src/psc/sema/check/collect.pengu"
-                    SemaModule mm = (*( SemaModule*)pengu_list_at(&(s->program->modules), (int)((__extension__(({ int64_t _p_idx864 = (int64_t)(mi); pengu_assert_bounds(_p_idx864, (int64_t)((s->program->modules).len), "src/psc/sema/check/collect.pengu:1431"); _p_idx864; }))))));
+                    #line 1441 "src/psc/sema/check/collect.pengu"
+                    SemaModule mm = (*( SemaModule*)pengu_list_at(&(s->program->modules), (int)((__extension__(({ int64_t _p_idx864 = (int64_t)(mi); pengu_assert_bounds(_p_idx864, (int64_t)((s->program->modules).len), "src/psc/sema/check/collect.pengu:1441"); _p_idx864; }))))));
                     (void)mm;
-                    #line 1432 "src/psc/sema/check/collect.pengu"
+                    #line 1442 "src/psc/sema/check/collect.pengu"
                     if (pengu_string_equal(mm.canonical_path, s->module->canonical_path)) {
-                        #line 1433 "src/psc/sema/check/collect.pengu"
+                        #line 1443 "src/psc/sema/check/collect.pengu"
                         dmidx = mi;
-                        #line 1434 "src/psc/sema/check/collect.pengu"
+                        #line 1444 "src/psc/sema/check/collect.pengu"
                         break;
                     }
-                    #line 1435 "src/psc/sema/check/collect.pengu"
+                    #line 1445 "src/psc/sema/check/collect.pengu"
                     mi = (mi + 1);
                 }
-                #line 1436 "src/psc/sema/check/collect.pengu"
+                #line 1446 "src/psc/sema/check/collect.pengu"
                 SemaConst cvd = sema_collect_const_literal(s, pdef);
                 (void)cvd;
-                #line 1437 "src/psc/sema/check/collect.pengu"
+                #line 1447 "src/psc/sema/check/collect.pengu"
                 if (cvd.kind == SemaConstKind_CkInt) {
-                    #line 1438 "src/psc/sema/check/collect.pengu"
+                    #line 1448 "src/psc/sema/check/collect.pengu"
                     dkind = sema_type_table_DEF_INT;
-                    #line 1439 "src/psc/sema/check/collect.pengu"
+                    #line 1449 "src/psc/sema/check/collect.pengu"
                     di = cvd.i;
                 } else
                 if (cvd.kind == SemaConstKind_CkFloat) {
-                    #line 1441 "src/psc/sema/check/collect.pengu"
+                    #line 1451 "src/psc/sema/check/collect.pengu"
                     dkind = sema_type_table_DEF_FLOAT;
-                    #line 1442 "src/psc/sema/check/collect.pengu"
+                    #line 1452 "src/psc/sema/check/collect.pengu"
                     df = cvd.f;
-                    #line 1443 "src/psc/sema/check/collect.pengu"
+                    #line 1453 "src/psc/sema/check/collect.pengu"
                     dtxt = sema_collect_default_float_text(s, pdef);
                 } else
                 if (cvd.kind == SemaConstKind_CkBool) {
-                    #line 1445 "src/psc/sema/check/collect.pengu"
+                    #line 1455 "src/psc/sema/check/collect.pengu"
                     dkind = sema_type_table_DEF_BOOL;
-                    #line 1446 "src/psc/sema/check/collect.pengu"
+                    #line 1456 "src/psc/sema/check/collect.pengu"
                     db = cvd.b;
                 } else
                 if (cvd.kind == SemaConstKind_CkString) {
-                    #line 1448 "src/psc/sema/check/collect.pengu"
+                    #line 1458 "src/psc/sema/check/collect.pengu"
                     dkind = sema_type_table_DEF_STRING;
-                    #line 1449 "src/psc/sema/check/collect.pengu"
+                    #line 1459 "src/psc/sema/check/collect.pengu"
                     dname = cvd.name;
                 } else
                 if (cvd.kind == SemaConstKind_CkChar) {
-                    #line 1451 "src/psc/sema/check/collect.pengu"
+                    #line 1461 "src/psc/sema/check/collect.pengu"
                     dkind = sema_type_table_DEF_CHAR;
-                    #line 1452 "src/psc/sema/check/collect.pengu"
+                    #line 1462 "src/psc/sema/check/collect.pengu"
                     di = cvd.i;
                 } else {
-                    #line 1454 "src/psc/sema/check/collect.pengu"
+                    #line 1464 "src/psc/sema/check/collect.pengu"
                     (void)(sema_diag_node_error(s->bag, s->src, sema_diag_CODE_DEFAULT_VALUE, sema_ast_start_of(s->ast, pdef), sema_ast_end_of(s->ast, pdef), pengu_string_from_cstr_len("default value must be a compile-time constant", 45), pengu_string_from_cstr_len("Use a literal, a const, or an arithmetic expression of those.", 61), pengu_string_from_cstr_len("", 0)));
                 }
-                #line 1455 "src/psc/sema/check/collect.pengu"
+                #line 1465 "src/psc/sema/check/collect.pengu"
                 if ((dkind != sema_type_table_DEF_NONE) && (!(sema_type_table_default_fits(s->types, pty, dkind)))) {
-                    #line 1456 "src/psc/sema/check/collect.pengu"
+                    #line 1466 "src/psc/sema/check/collect.pengu"
                     (void)(sema_diag_node_error(s->bag, s->src, sema_diag_CODE_DEFAULT_VALUE, sema_ast_start_of(s->ast, pdef), sema_ast_end_of(s->ast, pdef), pengu_string_from_cstr_len("default value does not match the parameter's type", 49), pengu_string_from_cstr_len("Pass a value of the declared type.", 34), pengu_string_from_cstr_len("", 0)));
                 }
             }
-            #line 1457 "src/psc/sema/check/collect.pengu"
+            #line 1467 "src/psc/sema/check/collect.pengu"
             if ((pdef >= 0) && is_many) {
-                #line 1458 "src/psc/sema/check/collect.pengu"
+                #line 1468 "src/psc/sema/check/collect.pengu"
                 (void)(sema_diag_node_error(s->bag, s->src, sema_diag_CODE_MANY_DEFAULT, sema_ast_start_of(s->ast, pdef), sema_ast_end_of(s->ast, pdef), pengu_string_from_cstr_len("variadic parameter cannot have a default value", 46), pengu_string_from_cstr_len("Pass the elements explicitly, or pass an empty slice.", 53), pengu_string_from_cstr_len("", 0)));
             }
-            #line 1459 "src/psc/sema/check/collect.pengu"
+            #line 1469 "src/psc/sema/check/collect.pengu"
             if ((pdef < 0) && seen_default) {
-                #line 1460 "src/psc/sema/check/collect.pengu"
+                #line 1470 "src/psc/sema/check/collect.pengu"
                 (void)(sema_diag_node_error(s->bag, s->src, sema_diag_CODE_DEFAULT_ORDER, sema_ast_start_of(s->ast, p), sema_ast_end_of(s->ast, p), pengu_string_from_cstr_len("parameter without a default follows a parameter with one", 56), pengu_string_from_cstr_len("Give it a default too, or move it before the defaulted parameters.", 66), pengu_string_from_cstr_len("Python-style defaults must be the trailing parameters.", 54)));
             }
-            #line 1461 "src/psc/sema/check/collect.pengu"
+            #line 1471 "src/psc/sema/check/collect.pengu"
             if (pdef >= 0) {
-                #line 1462 "src/psc/sema/check/collect.pengu"
+                #line 1472 "src/psc/sema/check/collect.pengu"
                 seen_default = true;
             }
-            #line 1463 "src/psc/sema/check/collect.pengu"
+            #line 1473 "src/psc/sema/check/collect.pengu"
             SemaFnParam fp = (SemaFnParam){.name = pname, .type = pty, .flags = 0, .default_node = pdef, .default_module = dmidx, .default_text = dtxt, .default_kind = dkind, .default_i = di, .default_f = df, .default_b = db, .default_name = dname};
             (void)fp;
-            #line 1464 "src/psc/sema/check/collect.pengu"
+            #line 1474 "src/psc/sema/check/collect.pengu"
             (void)(__extension__(({ SemaFnParam _push_tmp = fp; pengu_list_push(&(tmp), &_push_tmp); })));
         } else {
-            #line 1468 "src/psc/sema/check/collect.pengu"
+            #line 1478 "src/psc/sema/check/collect.pengu"
             TokenKind et = sema_ast_child_token_kind(s->lex, s->ast, pnode, i);
             (void)et;
-            #line 1469 "src/psc/sema/check/collect.pengu"
+            #line 1479 "src/psc/sema/check/collect.pengu"
             if (et == TokenKind_TokEllipsis) {
-                #line 1470 "src/psc/sema/check/collect.pengu"
+                #line 1480 "src/psc/sema/check/collect.pengu"
                 SemaFnParam fpe = (SemaFnParam){.name = (-1), .type = sema_type_table_TYPE_ID_CVARARGS, .flags = 0, .default_node = (-1)};
                 (void)fpe;
-                #line 1471 "src/psc/sema/check/collect.pengu"
+                #line 1481 "src/psc/sema/check/collect.pengu"
                 (void)(__extension__(({ SemaFnParam _push_tmp = fpe; pengu_list_push(&(tmp), &_push_tmp); })));
             }
         }
-        #line 1472 "src/psc/sema/check/collect.pengu"
+        #line 1482 "src/psc/sema/check/collect.pengu"
         i = (i + 1);
     }
-    #line 1473 "src/psc/sema/check/collect.pengu"
+    #line 1483 "src/psc/sema/check/collect.pengu"
     out->first = (s->types->fn_params).len;
-    #line 1474 "src/psc/sema/check/collect.pengu"
+    #line 1484 "src/psc/sema/check/collect.pengu"
     out->count = 0;
-    #line 1475 "src/psc/sema/check/collect.pengu"
+    #line 1485 "src/psc/sema/check/collect.pengu"
     int32_t ti = 0;
     (void)ti;
-    #line 1476 "src/psc/sema/check/collect.pengu"
+    #line 1486 "src/psc/sema/check/collect.pengu"
     while ((ti < (tmp).len)) {
-        #line 1477 "src/psc/sema/check/collect.pengu"
-        (void)(sema_type_table_add_fn_param(s->types, (*( SemaFnParam*)pengu_list_at(&(tmp), (int)((__extension__(({ int64_t _p_idx865 = (int64_t)(ti); pengu_assert_bounds(_p_idx865, (int64_t)((tmp).len), "src/psc/sema/check/collect.pengu:1477"); _p_idx865; }))))))));
-        #line 1478 "src/psc/sema/check/collect.pengu"
+        #line 1487 "src/psc/sema/check/collect.pengu"
+        (void)(sema_type_table_add_fn_param(s->types, (*( SemaFnParam*)pengu_list_at(&(tmp), (int)((__extension__(({ int64_t _p_idx865 = (int64_t)(ti); pengu_assert_bounds(_p_idx865, (int64_t)((tmp).len), "src/psc/sema/check/collect.pengu:1487"); _p_idx865; }))))))));
+        #line 1488 "src/psc/sema/check/collect.pengu"
         out->count = (out->count + 1);
-        #line 1479 "src/psc/sema/check/collect.pengu"
+        #line 1489 "src/psc/sema/check/collect.pengu"
         ti = (ti + 1);
     }
     pengu_banish_list(&(tmp));
 }
 
-#line 1485 "src/psc/sema/check/collect.pengu"
+#line 1495 "src/psc/sema/check/collect.pengu"
 int32_t sema_collect_find_attribute(SemaState* s, int32_t attrs, PenguString name) {
     (void)s;
     (void)attrs;
     (void)name;
-    #line 1486 "src/psc/sema/check/collect.pengu"
+    #line 1496 "src/psc/sema/check/collect.pengu"
     if (attrs < 0) {
-        #line 1487 "src/psc/sema/check/collect.pengu"
+        #line 1497 "src/psc/sema/check/collect.pengu"
         return (-1);
     }
-    #line 1488 "src/psc/sema/check/collect.pengu"
+    #line 1498 "src/psc/sema/check/collect.pengu"
     int32_t i = 0;
     (void)i;
-    #line 1489 "src/psc/sema/check/collect.pengu"
+    #line 1499 "src/psc/sema/check/collect.pengu"
     int32_t n = sema_ast_child_count(s->ast, attrs);
     (void)n;
-    #line 1490 "src/psc/sema/check/collect.pengu"
+    #line 1500 "src/psc/sema/check/collect.pengu"
     while ((i < n)) {
-        #line 1491 "src/psc/sema/check/collect.pengu"
+        #line 1501 "src/psc/sema/check/collect.pengu"
         int32_t a = sema_ast_node_child(s->ast, attrs, i);
         (void)a;
-        #line 1492 "src/psc/sema/check/collect.pengu"
+        #line 1502 "src/psc/sema/check/collect.pengu"
         if (a >= 0) {
-            #line 1493 "src/psc/sema/check/collect.pengu"
+            #line 1503 "src/psc/sema/check/collect.pengu"
             int32_t t = sema_ast_token_child(s->ast, a, 0);
             (void)t;
-            #line 1494 "src/psc/sema/check/collect.pengu"
+            #line 1504 "src/psc/sema/check/collect.pengu"
             if (t >= 0) {
-                #line 1495 "src/psc/sema/check/collect.pengu"
+                #line 1505 "src/psc/sema/check/collect.pengu"
                 PenguString txt = sema_ast_token_text(s->src, s->lex, t);
                 (void)txt;
-                #line 1496 "src/psc/sema/check/collect.pengu"
-                #line 1497 "src/psc/sema/check/collect.pengu"
+                #line 1506 "src/psc/sema/check/collect.pengu"
+                #line 1507 "src/psc/sema/check/collect.pengu"
                 if (pengu_string_equal(txt, name)) {
-                    #line 1498 "src/psc/sema/check/collect.pengu"
+                    #line 1508 "src/psc/sema/check/collect.pengu"
                     int32_t _ret866 = a;
                     pengu_banish_string(&(txt));
                     return _ret866;
@@ -51742,289 +51763,289 @@ int32_t sema_collect_find_attribute(SemaState* s, int32_t attrs, PenguString nam
                 pengu_banish_string(&(txt));
             }
         }
-        #line 1499 "src/psc/sema/check/collect.pengu"
+        #line 1509 "src/psc/sema/check/collect.pengu"
         i = (i + 1);
     }
-    #line 1500 "src/psc/sema/check/collect.pengu"
+    #line 1510 "src/psc/sema/check/collect.pengu"
     return (-1);
 }
 
-#line 1508 "src/psc/sema/check/collect.pengu"
+#line 1518 "src/psc/sema/check/collect.pengu"
 void sema_collect_check_mutates_method(SemaState* s, int32_t m, int32_t recv, int32_t ft) {
     (void)s;
     (void)m;
     (void)recv;
     (void)ft;
-    #line 1509 "src/psc/sema/check/collect.pengu"
+    #line 1519 "src/psc/sema/check/collect.pengu"
     int32_t attrs = sema_ast_node_child(s->ast, m, 0);
     (void)attrs;
-    #line 1510 "src/psc/sema/check/collect.pengu"
+    #line 1520 "src/psc/sema/check/collect.pengu"
     int32_t a = sema_collect_find_attribute(s, attrs, pengu_string_from_cstr_len("mutates", 7));
     (void)a;
-    #line 1511 "src/psc/sema/check/collect.pengu"
+    #line 1521 "src/psc/sema/check/collect.pengu"
     if (a < 0) {
-        #line 1512 "src/psc/sema/check/collect.pengu"
+        #line 1522 "src/psc/sema/check/collect.pengu"
         return;
     }
-    #line 1513 "src/psc/sema/check/collect.pengu"
+    #line 1523 "src/psc/sema/check/collect.pengu"
     int32_t start = sema_ast_start_of(s->ast, a);
     (void)start;
-    #line 1514 "src/psc/sema/check/collect.pengu"
+    #line 1524 "src/psc/sema/check/collect.pengu"
     int32_t end = sema_ast_end_of(s->ast, a);
     (void)end;
-    #line 1515 "src/psc/sema/check/collect.pengu"
+    #line 1525 "src/psc/sema/check/collect.pengu"
     int32_t args = sema_ast_node_child(s->ast, a, 1);
     (void)args;
-    #line 1516 "src/psc/sema/check/collect.pengu"
+    #line 1526 "src/psc/sema/check/collect.pengu"
     if (args >= 0) {
-        #line 1517 "src/psc/sema/check/collect.pengu"
+        #line 1527 "src/psc/sema/check/collect.pengu"
         (void)(sema_diag_node_error(s->bag, s->src, sema_diag_CODE_MUTATES_ATTR, start, end, pengu_string_from_cstr_len("@mutates does not take arguments", 32), pengu_string_from_cstr_len("Write @mutates.", 15), pengu_string_from_cstr_len("", 0)));
-        #line 1518 "src/psc/sema/check/collect.pengu"
+        #line 1528 "src/psc/sema/check/collect.pengu"
         return;
     }
-    #line 1519 "src/psc/sema/check/collect.pengu"
+    #line 1529 "src/psc/sema/check/collect.pengu"
     SemaType fy = sema_type_table_at(s->types, ft);
     (void)fy;
-    #line 1520 "src/psc/sema/check/collect.pengu"
+    #line 1530 "src/psc/sema/check/collect.pengu"
     if (fy.kind == SemaTypeKind_TkFn) {
-        #line 1521 "src/psc/sema/check/collect.pengu"
-        SemaFnInfo info = (*( SemaFnInfo*)pengu_list_at(&(s->types->fn_infos), (int)((__extension__(({ int64_t _p_idx867 = (int64_t)(fy.a); pengu_assert_bounds(_p_idx867, (int64_t)((s->types->fn_infos).len), "src/psc/sema/check/collect.pengu:1521"); _p_idx867; }))))));
+        #line 1531 "src/psc/sema/check/collect.pengu"
+        SemaFnInfo info = (*( SemaFnInfo*)pengu_list_at(&(s->types->fn_infos), (int)((__extension__(({ int64_t _p_idx867 = (int64_t)(fy.a); pengu_assert_bounds(_p_idx867, (int64_t)((s->types->fn_infos).len), "src/psc/sema/check/collect.pengu:1531"); _p_idx867; }))))));
         (void)info;
-        #line 1522 "src/psc/sema/check/collect.pengu"
+        #line 1532 "src/psc/sema/check/collect.pengu"
         if ((info.return_type != 3) && (info.return_type != recv)) {
-            #line 1523 "src/psc/sema/check/collect.pengu"
+            #line 1533 "src/psc/sema/check/collect.pengu"
             (void)(sema_diag_node_error(s->bag, s->src, sema_diag_CODE_MUTATES_ATTR, start, end, pengu_string_from_cstr_len("@mutates must return void or the receiver type", 46), pengu_string_from_cstr_len("Return void or the mutated value.", 33), pengu_string_from_cstr_len("", 0)));
         }
-        #line 1525 "src/psc/sema/check/collect.pengu"
+        #line 1535 "src/psc/sema/check/collect.pengu"
         if (info.return_type != 3) {
-            #line 1526 "src/psc/sema/check/collect.pengu"
+            #line 1536 "src/psc/sema/check/collect.pengu"
             bool fun_found = sema_collect_tree_has_set(s, m);
             (void)fun_found;
-            #line 1527 "src/psc/sema/check/collect.pengu"
+            #line 1537 "src/psc/sema/check/collect.pengu"
             if (fun_found) {
-                #line 1528 "src/psc/sema/check/collect.pengu"
+                #line 1538 "src/psc/sema/check/collect.pengu"
                 (void)(sema_diag_node_error(s->bag, s->src, sema_diag_CODE_MUTATES_ATTR, start, end, pengu_string_from_cstr_len("@mutates with an in-place set must return void", 46), pengu_string_from_cstr_len("Return void when mutating in place.", 35), pengu_string_from_cstr_len("", 0)));
             }
         }
     }
 }
 
-#line 1534 "src/psc/sema/check/collect.pengu"
+#line 1544 "src/psc/sema/check/collect.pengu"
 void sema_collect_reject_free_mutates(SemaState* s, int32_t m) {
     (void)s;
     (void)m;
-    #line 1535 "src/psc/sema/check/collect.pengu"
+    #line 1545 "src/psc/sema/check/collect.pengu"
     int32_t attrs = sema_ast_node_child(s->ast, m, 0);
     (void)attrs;
-    #line 1536 "src/psc/sema/check/collect.pengu"
+    #line 1546 "src/psc/sema/check/collect.pengu"
     int32_t a = sema_collect_find_attribute(s, attrs, pengu_string_from_cstr_len("mutates", 7));
     (void)a;
-    #line 1537 "src/psc/sema/check/collect.pengu"
+    #line 1547 "src/psc/sema/check/collect.pengu"
     if (a >= 0) {
-        #line 1538 "src/psc/sema/check/collect.pengu"
+        #line 1548 "src/psc/sema/check/collect.pengu"
         (void)(sema_diag_node_error(s->bag, s->src, sema_diag_CODE_MUTATES_ATTR, sema_ast_start_of(s->ast, a), sema_ast_end_of(s->ast, a), pengu_string_from_cstr_len("@mutates is only valid on enchanting/bind methods", 49), pengu_string_from_cstr_len("Move the method into an enchanting block.", 41), pengu_string_from_cstr_len("", 0)));
     }
 }
 
-#line 1544 "src/psc/sema/check/collect.pengu"
+#line 1554 "src/psc/sema/check/collect.pengu"
 int32_t sema_collect_collect_method_sig(SemaState* s, int32_t m) {
     (void)s;
     (void)m;
-    #line 1545 "src/psc/sema/check/collect.pengu"
+    #line 1555 "src/psc/sema/check/collect.pengu"
     int32_t slot = sema_collect_collect_name_slot(s, m);
     (void)slot;
-    #line 1546 "src/psc/sema/check/collect.pengu"
+    #line 1556 "src/psc/sema/check/collect.pengu"
     int32_t params_slot = (slot + 2);
     (void)params_slot;
-    #line 1547 "src/psc/sema/check/collect.pengu"
+    #line 1557 "src/psc/sema/check/collect.pengu"
     int32_t ret_slot = (slot + 3);
     (void)ret_slot;
-    #line 1548 "src/psc/sema/check/collect.pengu"
+    #line 1558 "src/psc/sema/check/collect.pengu"
     ParamRange pr2 = (ParamRange){.first = 0, .count = 0};
     (void)pr2;
-    #line 1549 "src/psc/sema/check/collect.pengu"
+    #line 1559 "src/psc/sema/check/collect.pengu"
     if (params_slot < sema_ast_child_count(s->ast, m)) {
-        #line 1550 "src/psc/sema/check/collect.pengu"
+        #line 1560 "src/psc/sema/check/collect.pengu"
         int32_t pn = sema_ast_node_child(s->ast, m, params_slot);
         (void)pn;
-        #line 1551 "src/psc/sema/check/collect.pengu"
+        #line 1561 "src/psc/sema/check/collect.pengu"
         if (pn >= 0) {
-            #line 1552 "src/psc/sema/check/collect.pengu"
+            #line 1562 "src/psc/sema/check/collect.pengu"
             (void)(sema_collect_collect_params(s, pn, (&(pr2)), false));
         }
     }
-    #line 1553 "src/psc/sema/check/collect.pengu"
+    #line 1563 "src/psc/sema/check/collect.pengu"
     int32_t ret = 3;
     (void)ret;
-    #line 1554 "src/psc/sema/check/collect.pengu"
+    #line 1564 "src/psc/sema/check/collect.pengu"
     if (ret_slot < sema_ast_child_count(s->ast, m)) {
-        #line 1555 "src/psc/sema/check/collect.pengu"
+        #line 1565 "src/psc/sema/check/collect.pengu"
         int32_t rn = sema_ast_node_child(s->ast, m, ret_slot);
         (void)rn;
-        #line 1556 "src/psc/sema/check/collect.pengu"
+        #line 1566 "src/psc/sema/check/collect.pengu"
         if (rn >= 0) {
-            #line 1557 "src/psc/sema/check/collect.pengu"
+            #line 1567 "src/psc/sema/check/collect.pengu"
             TypeCtx ctx = sema_collect_collect_type_ctx(s);
             (void)ctx;
-            #line 1558 "src/psc/sema/check/collect.pengu"
+            #line 1568 "src/psc/sema/check/collect.pengu"
             ret = sema_type_convert_convert((&(ctx)), rn);
         }
     }
-    #line 1559 "src/psc/sema/check/collect.pengu"
+    #line 1569 "src/psc/sema/check/collect.pengu"
     SemaFnInfo info = (SemaFnInfo){.params_first = pr2.first, .params_count = pr2.count, .return_type = ret, .tparams_first = 0, .tparams_count = 0, .flags = sema_type_table_FN_METHOD, .attrs_node = (-1)};
     (void)info;
-    #line 1560 "src/psc/sema/check/collect.pengu"
+    #line 1570 "src/psc/sema/check/collect.pengu"
     return sema_type_table_fn_type(s->types, info);
 }
 
-#line 1566 "src/psc/sema/check/collect.pengu"
+#line 1576 "src/psc/sema/check/collect.pengu"
 ParamRange sema_collect_collect_bounds(SemaState* s, int32_t where_node) {
     (void)s;
     (void)where_node;
-    #line 1567 "src/psc/sema/check/collect.pengu"
+    #line 1577 "src/psc/sema/check/collect.pengu"
     ParamRange out = (ParamRange){.first = (s->types->bounds).len, .count = 0};
     (void)out;
-    #line 1568 "src/psc/sema/check/collect.pengu"
+    #line 1578 "src/psc/sema/check/collect.pengu"
     if (where_node < 0) {
-        #line 1569 "src/psc/sema/check/collect.pengu"
+        #line 1579 "src/psc/sema/check/collect.pengu"
         return out;
     }
-    #line 1570 "src/psc/sema/check/collect.pengu"
+    #line 1580 "src/psc/sema/check/collect.pengu"
     int32_t i = 0;
     (void)i;
-    #line 1571 "src/psc/sema/check/collect.pengu"
+    #line 1581 "src/psc/sema/check/collect.pengu"
     int32_t n = sema_ast_child_count(s->ast, where_node);
     (void)n;
-    #line 1572 "src/psc/sema/check/collect.pengu"
+    #line 1582 "src/psc/sema/check/collect.pengu"
     while ((i < n)) {
-        #line 1573 "src/psc/sema/check/collect.pengu"
+        #line 1583 "src/psc/sema/check/collect.pengu"
         int32_t wb = sema_ast_node_child(s->ast, where_node, i);
         (void)wb;
-        #line 1574 "src/psc/sema/check/collect.pengu"
+        #line 1584 "src/psc/sema/check/collect.pengu"
         if ((wb >= 0) && ((sema_ast_kind_of(s->ast, wb)) == NodeKind_NdWhereBound)) {
-            #line 1575 "src/psc/sema/check/collect.pengu"
+            #line 1585 "src/psc/sema/check/collect.pengu"
             int32_t cnode = sema_ast_node_child(s->ast, wb, 1);
             (void)cnode;
-            #line 1576 "src/psc/sema/check/collect.pengu"
+            #line 1586 "src/psc/sema/check/collect.pengu"
             if (cnode >= 0) {
-                #line 1577 "src/psc/sema/check/collect.pengu"
+                #line 1587 "src/psc/sema/check/collect.pengu"
                 TypeCtx ctx = sema_collect_collect_type_ctx(s);
                 (void)ctx;
-                #line 1578 "src/psc/sema/check/collect.pengu"
+                #line 1588 "src/psc/sema/check/collect.pengu"
                 int32_t cid = sema_type_convert_convert((&(ctx)), cnode);
                 (void)cid;
-                #line 1579 "src/psc/sema/check/collect.pengu"
+                #line 1589 "src/psc/sema/check/collect.pengu"
                 if (cid > 0) {
-                    #line 1580 "src/psc/sema/check/collect.pengu"
+                    #line 1590 "src/psc/sema/check/collect.pengu"
                     (void)(sema_type_table_add_bound(s->types, cid));
-                    #line 1581 "src/psc/sema/check/collect.pengu"
+                    #line 1591 "src/psc/sema/check/collect.pengu"
                     out.count = (out.count + 1);
                 }
             }
         }
-        #line 1582 "src/psc/sema/check/collect.pengu"
+        #line 1592 "src/psc/sema/check/collect.pengu"
         i = (i + 1);
     }
-    #line 1583 "src/psc/sema/check/collect.pengu"
+    #line 1593 "src/psc/sema/check/collect.pengu"
     return out;
 }
 
-#line 1589 "src/psc/sema/check/collect.pengu"
+#line 1599 "src/psc/sema/check/collect.pengu"
 void sema_collect_apply_bounds(SemaState* s, int32_t sid, ParamRange br) {
     (void)s;
     (void)sid;
     (void)br;
-    #line 1590 "src/psc/sema/check/collect.pengu"
+    #line 1600 "src/psc/sema/check/collect.pengu"
     if ((br.count <= 0) || (sid < 0)) {
-        #line 1591 "src/psc/sema/check/collect.pengu"
+        #line 1601 "src/psc/sema/check/collect.pengu"
         return;
     }
-    #line 1592 "src/psc/sema/check/collect.pengu"
+    #line 1602 "src/psc/sema/check/collect.pengu"
     SemaSymbol sv = sema_symbols_symbol_at(s->symbols, sid);
     (void)sv;
-    #line 1593 "src/psc/sema/check/collect.pengu"
+    #line 1603 "src/psc/sema/check/collect.pengu"
     sv.bounds_first = br.first;
-    #line 1594 "src/psc/sema/check/collect.pengu"
+    #line 1604 "src/psc/sema/check/collect.pengu"
     sv.bounds_count = br.count;
-    #line 1595 "src/psc/sema/check/collect.pengu"
+    #line 1605 "src/psc/sema/check/collect.pengu"
     (void)(sema_symbols_symbol_set(s->symbols, sid, sv));
 }
 
-#line 1601 "src/psc/sema/check/collect.pengu"
+#line 1611 "src/psc/sema/check/collect.pengu"
 void sema_collect_reject_duplicate_primitive(SemaState* s, int32_t recv, int32_t mname, int32_t m) {
     (void)s;
     (void)recv;
     (void)mname;
     (void)m;
-    #line 1602 "src/psc/sema/check/collect.pengu"
+    #line 1612 "src/psc/sema/check/collect.pengu"
     SemaType rt = sema_type_table_at(s->types, recv);
     (void)rt;
-    #line 1603 "src/psc/sema/check/collect.pengu"
+    #line 1613 "src/psc/sema/check/collect.pengu"
     if (rt.kind != SemaTypeKind_TkBase) {
-        #line 1604 "src/psc/sema/check/collect.pengu"
+        #line 1614 "src/psc/sema/check/collect.pengu"
         return;
     }
-    #line 1605 "src/psc/sema/check/collect.pengu"
+    #line 1615 "src/psc/sema/check/collect.pengu"
     if ((sema_symbols_lookup_method_exact(s->symbols, recv, mname)) >= 0) {
-        #line 1606 "src/psc/sema/check/collect.pengu"
+        #line 1616 "src/psc/sema/check/collect.pengu"
         PenguString mtext = sema_names_text(s->names, mname);
         (void)mtext;
-        #line 1607 "src/psc/sema/check/collect.pengu"
+        #line 1617 "src/psc/sema/check/collect.pengu"
         PenguString msg = pengu_string_format_ex("duplicate method '%.*s' on primitive type", (int)mtext.len, mtext.data);
         (void)msg;
-        #line 1608 "src/psc/sema/check/collect.pengu"
-        #line 1609 "src/psc/sema/check/collect.pengu"
+        #line 1618 "src/psc/sema/check/collect.pengu"
+        #line 1619 "src/psc/sema/check/collect.pengu"
         (void)(sema_diag_node_error(s->bag, s->src, sema_diag_CODE_PRIMITIVE_METHOD, sema_ast_start_of(s->ast, m), sema_ast_end_of(s->ast, m), msg, pengu_string_from_cstr_len("Remove or rename the duplicate implementation.", 46), pengu_string_from_cstr_len("", 0)));
         pengu_banish_string(&(msg));
     }
 }
 
-#line 1615 "src/psc/sema/check/collect.pengu"
+#line 1625 "src/psc/sema/check/collect.pengu"
 void sema_collect_mark_mutating(SemaState* s, int32_t m, int32_t sid) {
     (void)s;
     (void)m;
     (void)sid;
-    #line 1616 "src/psc/sema/check/collect.pengu"
+    #line 1626 "src/psc/sema/check/collect.pengu"
     int32_t attrs = sema_ast_node_child(s->ast, m, 0);
     (void)attrs;
-    #line 1617 "src/psc/sema/check/collect.pengu"
+    #line 1627 "src/psc/sema/check/collect.pengu"
     if ((sema_collect_find_attribute(s, attrs, pengu_string_from_cstr_len("mutates", 7))) >= 0) {
-        #line 1618 "src/psc/sema/check/collect.pengu"
+        #line 1628 "src/psc/sema/check/collect.pengu"
         SemaSymbol sv = sema_symbols_symbol_at(s->symbols, sid);
         (void)sv;
-        #line 1619 "src/psc/sema/check/collect.pengu"
+        #line 1629 "src/psc/sema/check/collect.pengu"
         sv.flags = (sv.flags | sema_symbol_SYM_MUTATING);
-        #line 1620 "src/psc/sema/check/collect.pengu"
+        #line 1630 "src/psc/sema/check/collect.pengu"
         (void)(sema_symbols_symbol_set(s->symbols, sid, sv));
     }
 }
 
-#line 1626 "src/psc/sema/check/collect.pengu"
+#line 1636 "src/psc/sema/check/collect.pengu"
 bool sema_collect_tree_has_self(SemaState* s, int32_t node) {
     (void)s;
     (void)node;
-    #line 1627 "src/psc/sema/check/collect.pengu"
+    #line 1637 "src/psc/sema/check/collect.pengu"
     NodeKind k = sema_ast_kind_of(s->ast, node);
     (void)k;
-    #line 1628 "src/psc/sema/check/collect.pengu"
+    #line 1638 "src/psc/sema/check/collect.pengu"
     if (k == NodeKind_NdSelfRef) {
-        #line 1629 "src/psc/sema/check/collect.pengu"
+        #line 1639 "src/psc/sema/check/collect.pengu"
         return true;
     }
-    #line 1630 "src/psc/sema/check/collect.pengu"
+    #line 1640 "src/psc/sema/check/collect.pengu"
     if (k == NodeKind_NdNormalTarget) {
-        #line 1631 "src/psc/sema/check/collect.pengu"
+        #line 1641 "src/psc/sema/check/collect.pengu"
         int32_t t = sema_ast_token_child(s->ast, node, 0);
         (void)t;
-        #line 1632 "src/psc/sema/check/collect.pengu"
+        #line 1642 "src/psc/sema/check/collect.pengu"
         if (t >= 0) {
-            #line 1633 "src/psc/sema/check/collect.pengu"
+            #line 1643 "src/psc/sema/check/collect.pengu"
             PenguString txt = sema_ast_token_text(s->src, s->lex, t);
             (void)txt;
-            #line 1634 "src/psc/sema/check/collect.pengu"
-            #line 1635 "src/psc/sema/check/collect.pengu"
+            #line 1644 "src/psc/sema/check/collect.pengu"
+            #line 1645 "src/psc/sema/check/collect.pengu"
             if (pengu_string_equal(txt, pengu_string_from_cstr_len("self", 4))) {
-                #line 1636 "src/psc/sema/check/collect.pengu"
+                #line 1646 "src/psc/sema/check/collect.pengu"
                 bool _ret868 = true;
                 pengu_banish_string(&(txt));
                 return _ret868;
@@ -52032,95 +52053,95 @@ bool sema_collect_tree_has_self(SemaState* s, int32_t node) {
             pengu_banish_string(&(txt));
         }
     }
-    #line 1637 "src/psc/sema/check/collect.pengu"
+    #line 1647 "src/psc/sema/check/collect.pengu"
     int32_t i = 0;
     (void)i;
-    #line 1638 "src/psc/sema/check/collect.pengu"
+    #line 1648 "src/psc/sema/check/collect.pengu"
     int32_t n = sema_ast_child_count(s->ast, node);
     (void)n;
-    #line 1639 "src/psc/sema/check/collect.pengu"
+    #line 1649 "src/psc/sema/check/collect.pengu"
     while ((i < n)) {
-        #line 1640 "src/psc/sema/check/collect.pengu"
+        #line 1650 "src/psc/sema/check/collect.pengu"
         int32_t c = sema_ast_node_child(s->ast, node, i);
         (void)c;
-        #line 1641 "src/psc/sema/check/collect.pengu"
+        #line 1651 "src/psc/sema/check/collect.pengu"
         if ((c >= 0) && sema_collect_tree_has_self(s, c)) {
-            #line 1642 "src/psc/sema/check/collect.pengu"
+            #line 1652 "src/psc/sema/check/collect.pengu"
             return true;
         }
-        #line 1643 "src/psc/sema/check/collect.pengu"
+        #line 1653 "src/psc/sema/check/collect.pengu"
         i = (i + 1);
     }
-    #line 1644 "src/psc/sema/check/collect.pengu"
+    #line 1654 "src/psc/sema/check/collect.pengu"
     return false;
 }
 
-#line 1652 "src/psc/sema/check/collect.pengu"
+#line 1662 "src/psc/sema/check/collect.pengu"
 bool sema_collect_tree_has_set(SemaState* s, int32_t node) {
     (void)s;
     (void)node;
-    #line 1653 "src/psc/sema/check/collect.pengu"
+    #line 1663 "src/psc/sema/check/collect.pengu"
     NodeKind k = sema_ast_kind_of(s->ast, node);
     (void)k;
-    #line 1654 "src/psc/sema/check/collect.pengu"
+    #line 1664 "src/psc/sema/check/collect.pengu"
     if ((k == NodeKind_NdSetStmt) || (k == NodeKind_NdCompoundSetStmt)) {
-        #line 1655 "src/psc/sema/check/collect.pengu"
+        #line 1665 "src/psc/sema/check/collect.pengu"
         int32_t tgt = sema_ast_node_child(s->ast, node, 0);
         (void)tgt;
-        #line 1656 "src/psc/sema/check/collect.pengu"
+        #line 1666 "src/psc/sema/check/collect.pengu"
         if ((tgt >= 0) && sema_collect_tree_has_self(s, tgt)) {
-            #line 1657 "src/psc/sema/check/collect.pengu"
+            #line 1667 "src/psc/sema/check/collect.pengu"
             return true;
         }
     }
-    #line 1658 "src/psc/sema/check/collect.pengu"
+    #line 1668 "src/psc/sema/check/collect.pengu"
     int32_t i = 0;
     (void)i;
-    #line 1659 "src/psc/sema/check/collect.pengu"
+    #line 1669 "src/psc/sema/check/collect.pengu"
     int32_t n = sema_ast_child_count(s->ast, node);
     (void)n;
-    #line 1660 "src/psc/sema/check/collect.pengu"
+    #line 1670 "src/psc/sema/check/collect.pengu"
     while ((i < n)) {
-        #line 1661 "src/psc/sema/check/collect.pengu"
+        #line 1671 "src/psc/sema/check/collect.pengu"
         int32_t c = sema_ast_node_child(s->ast, node, i);
         (void)c;
-        #line 1662 "src/psc/sema/check/collect.pengu"
+        #line 1672 "src/psc/sema/check/collect.pengu"
         if ((c >= 0) && sema_collect_tree_has_set(s, c)) {
-            #line 1663 "src/psc/sema/check/collect.pengu"
+            #line 1673 "src/psc/sema/check/collect.pengu"
             return true;
         }
-        #line 1664 "src/psc/sema/check/collect.pengu"
+        #line 1674 "src/psc/sema/check/collect.pengu"
         i = (i + 1);
     }
-    #line 1665 "src/psc/sema/check/collect.pengu"
+    #line 1675 "src/psc/sema/check/collect.pengu"
     return false;
 }
 
-#line 1671 "src/psc/sema/check/collect.pengu"
+#line 1681 "src/psc/sema/check/collect.pengu"
 bool sema_collect_concept_method_exists(SemaState* s, int32_t name) {
     (void)s;
     (void)name;
-    #line 1672 "src/psc/sema/check/collect.pengu"
+    #line 1682 "src/psc/sema/check/collect.pengu"
     int32_t i = 0;
     (void)i;
-    #line 1673 "src/psc/sema/check/collect.pengu"
+    #line 1683 "src/psc/sema/check/collect.pengu"
     while ((i < s->types->concept_methods.len)) {
-        #line 1674 "src/psc/sema/check/collect.pengu"
-        SemaConceptMethod m = (*( SemaConceptMethod*)pengu_list_at(&(s->types->concept_methods), (int)((__extension__(({ int64_t _p_idx869 = (int64_t)(i); pengu_assert_bounds(_p_idx869, (int64_t)((s->types->concept_methods).len), "src/psc/sema/check/collect.pengu:1674"); _p_idx869; }))))));
+        #line 1684 "src/psc/sema/check/collect.pengu"
+        SemaConceptMethod m = (*( SemaConceptMethod*)pengu_list_at(&(s->types->concept_methods), (int)((__extension__(({ int64_t _p_idx869 = (int64_t)(i); pengu_assert_bounds(_p_idx869, (int64_t)((s->types->concept_methods).len), "src/psc/sema/check/collect.pengu:1684"); _p_idx869; }))))));
         (void)m;
-        #line 1675 "src/psc/sema/check/collect.pengu"
+        #line 1685 "src/psc/sema/check/collect.pengu"
         if (m.name == name) {
-            #line 1676 "src/psc/sema/check/collect.pengu"
+            #line 1686 "src/psc/sema/check/collect.pengu"
             return true;
         }
-        #line 1677 "src/psc/sema/check/collect.pengu"
+        #line 1687 "src/psc/sema/check/collect.pengu"
         i = (i + 1);
     }
-    #line 1678 "src/psc/sema/check/collect.pengu"
+    #line 1688 "src/psc/sema/check/collect.pengu"
     return false;
 }
 
-#line 1684 "src/psc/sema/check/collect.pengu"
+#line 1694 "src/psc/sema/check/collect.pengu"
 void sema_collect_define_get_alias(SemaState* s, int32_t recv, int32_t mname, int32_t ft, ParamRange br, int32_t base_sid) {
     (void)s;
     (void)recv;
@@ -52128,222 +52149,222 @@ void sema_collect_define_get_alias(SemaState* s, int32_t recv, int32_t mname, in
     (void)ft;
     (void)br;
     (void)base_sid;
-    #line 1685 "src/psc/sema/check/collect.pengu"
+    #line 1695 "src/psc/sema/check/collect.pengu"
     PenguString mtext = sema_names_text(s->names, mname);
     (void)mtext;
-    #line 1686 "src/psc/sema/check/collect.pengu"
+    #line 1696 "src/psc/sema/check/collect.pengu"
     if (sema_collect_starts_with_text(mtext, pengu_string_from_cstr_len("get_", 4))) {
-        #line 1687 "src/psc/sema/check/collect.pengu"
+        #line 1697 "src/psc/sema/check/collect.pengu"
         return;
     }
-    #line 1688 "src/psc/sema/check/collect.pengu"
+    #line 1698 "src/psc/sema/check/collect.pengu"
     PenguString gtext = pengu_string_format_ex("get_%.*s", (int)mtext.len, mtext.data);
     (void)gtext;
-    #line 1689 "src/psc/sema/check/collect.pengu"
-    #line 1690 "src/psc/sema/check/collect.pengu"
+    #line 1699 "src/psc/sema/check/collect.pengu"
+    #line 1700 "src/psc/sema/check/collect.pengu"
     int32_t gid = sema_names_intern(s->names, gtext);
     (void)gid;
-    #line 1691 "src/psc/sema/check/collect.pengu"
+    #line 1701 "src/psc/sema/check/collect.pengu"
     if ((sema_symbols_lookup_method_exact(s->symbols, recv, gid)) < 0) {
-        #line 1692 "src/psc/sema/check/collect.pengu"
+        #line 1702 "src/psc/sema/check/collect.pengu"
         int32_t gsid = sema_symbols_symbol_define_method(s->symbols, recv, gid, ft);
         (void)gsid;
-        #line 1693 "src/psc/sema/check/collect.pengu"
+        #line 1703 "src/psc/sema/check/collect.pengu"
         SemaSymbol gsym = sema_symbols_symbol_at(s->symbols, gsid);
         (void)gsym;
-        #line 1694 "src/psc/sema/check/collect.pengu"
+        #line 1704 "src/psc/sema/check/collect.pengu"
         gsym.flags = (gsym.flags | sema_symbol_SYM_GET_ALIAS);
-        #line 1695 "src/psc/sema/check/collect.pengu"
+        #line 1705 "src/psc/sema/check/collect.pengu"
         gsym.alias_of = base_sid;
-        #line 1696 "src/psc/sema/check/collect.pengu"
+        #line 1706 "src/psc/sema/check/collect.pengu"
         (void)(sema_symbols_symbol_set(s->symbols, gsid, gsym));
-        #line 1697 "src/psc/sema/check/collect.pengu"
+        #line 1707 "src/psc/sema/check/collect.pengu"
         (void)(sema_collect_apply_bounds(s, gsid, br));
     }
     pengu_banish_string(&(gtext));
 }
 
-#line 1703 "src/psc/sema/check/collect.pengu"
+#line 1713 "src/psc/sema/check/collect.pengu"
 void sema_collect_collect_enchanting(SemaState* s, int32_t node) {
     (void)s;
     (void)node;
-    #line 1704 "src/psc/sema/check/collect.pengu"
+    #line 1714 "src/psc/sema/check/collect.pengu"
     int32_t recv_node = sema_ast_node_child(s->ast, node, 0);
     (void)recv_node;
-    #line 1705 "src/psc/sema/check/collect.pengu"
+    #line 1715 "src/psc/sema/check/collect.pengu"
     TypeCtx ctx = sema_collect_collect_type_ctx(s);
     (void)ctx;
-    #line 1706 "src/psc/sema/check/collect.pengu"
+    #line 1716 "src/psc/sema/check/collect.pengu"
     int32_t recv = 0;
     (void)recv;
-    #line 1707 "src/psc/sema/check/collect.pengu"
+    #line 1717 "src/psc/sema/check/collect.pengu"
     if (recv_node >= 0) {
-        #line 1708 "src/psc/sema/check/collect.pengu"
+        #line 1718 "src/psc/sema/check/collect.pengu"
         recv = sema_type_convert_convert((&(ctx)), recv_node);
     }
-    #line 1709 "src/psc/sema/check/collect.pengu"
+    #line 1719 "src/psc/sema/check/collect.pengu"
     int32_t recv_under = sema_infer_underlying_type(s, recv);
     (void)recv_under;
-    #line 1710 "src/psc/sema/check/collect.pengu"
+    #line 1720 "src/psc/sema/check/collect.pengu"
     ParamRange br = (ParamRange){.first = 0, .count = 0};
     (void)br;
-    #line 1711 "src/psc/sema/check/collect.pengu"
+    #line 1721 "src/psc/sema/check/collect.pengu"
     int32_t wi = 1;
     (void)wi;
-    #line 1712 "src/psc/sema/check/collect.pengu"
+    #line 1722 "src/psc/sema/check/collect.pengu"
     int32_t wn = sema_ast_child_count(s->ast, node);
     (void)wn;
-    #line 1713 "src/psc/sema/check/collect.pengu"
+    #line 1723 "src/psc/sema/check/collect.pengu"
     while ((wi < wn)) {
-        #line 1714 "src/psc/sema/check/collect.pengu"
+        #line 1724 "src/psc/sema/check/collect.pengu"
         int32_t wc = sema_ast_node_child(s->ast, node, wi);
         (void)wc;
-        #line 1715 "src/psc/sema/check/collect.pengu"
+        #line 1725 "src/psc/sema/check/collect.pengu"
         if ((wc >= 0) && ((sema_ast_kind_of(s->ast, wc)) == NodeKind_NdWhereClause)) {
-            #line 1716 "src/psc/sema/check/collect.pengu"
+            #line 1726 "src/psc/sema/check/collect.pengu"
             br = sema_collect_collect_bounds(s, wc);
         }
-        #line 1717 "src/psc/sema/check/collect.pengu"
+        #line 1727 "src/psc/sema/check/collect.pengu"
         wi = (wi + 1);
     }
-    #line 1718 "src/psc/sema/check/collect.pengu"
+    #line 1728 "src/psc/sema/check/collect.pengu"
     int32_t i = 1;
     (void)i;
-    #line 1719 "src/psc/sema/check/collect.pengu"
+    #line 1729 "src/psc/sema/check/collect.pengu"
     int32_t n = sema_ast_child_count(s->ast, node);
     (void)n;
-    #line 1720 "src/psc/sema/check/collect.pengu"
+    #line 1730 "src/psc/sema/check/collect.pengu"
     while ((i < n)) {
-        #line 1721 "src/psc/sema/check/collect.pengu"
+        #line 1731 "src/psc/sema/check/collect.pengu"
         int32_t m = sema_ast_node_child(s->ast, node, i);
         (void)m;
-        #line 1722 "src/psc/sema/check/collect.pengu"
+        #line 1732 "src/psc/sema/check/collect.pengu"
         if ((m >= 0) && ((sema_ast_kind_of(s->ast, m)) == NodeKind_NdWeaveDecl)) {
-            #line 1723 "src/psc/sema/check/collect.pengu"
+            #line 1733 "src/psc/sema/check/collect.pengu"
             int32_t mname = sema_collect_decl_name(s, m);
             (void)mname;
-            #line 1724 "src/psc/sema/check/collect.pengu"
+            #line 1734 "src/psc/sema/check/collect.pengu"
             int32_t ft = sema_collect_collect_method_sig(s, m);
             (void)ft;
-            #line 1725 "src/psc/sema/check/collect.pengu"
+            #line 1735 "src/psc/sema/check/collect.pengu"
             (void)(sema_collect_check_mutates_method(s, m, recv, ft));
-            #line 1726 "src/psc/sema/check/collect.pengu"
+            #line 1736 "src/psc/sema/check/collect.pengu"
             (void)(sema_collect_reject_duplicate_primitive(s, recv_under, mname, m));
-            #line 1728 "src/psc/sema/check/collect.pengu"
+            #line 1738 "src/psc/sema/check/collect.pengu"
             int32_t msid = sema_symbols_symbol_define_method(s->symbols, recv_under, mname, ft);
             (void)msid;
-            #line 1729 "src/psc/sema/check/collect.pengu"
+            #line 1739 "src/psc/sema/check/collect.pengu"
             (void)(sema_collect_mark_mutating(s, m, msid));
-            #line 1730 "src/psc/sema/check/collect.pengu"
+            #line 1740 "src/psc/sema/check/collect.pengu"
             (void)(sema_collect_apply_bounds(s, msid, br));
-            #line 1731 "src/psc/sema/check/collect.pengu"
+            #line 1741 "src/psc/sema/check/collect.pengu"
             (void)(sema_collect_tag_decl(s, msid, m));
-            #line 1732 "src/psc/sema/check/collect.pengu"
+            #line 1742 "src/psc/sema/check/collect.pengu"
             (void)(sema_collect_define_get_alias(s, recv_under, mname, ft, br, msid));
         }
-        #line 1733 "src/psc/sema/check/collect.pengu"
+        #line 1743 "src/psc/sema/check/collect.pengu"
         i = (i + 1);
     }
 }
 
-#line 1739 "src/psc/sema/check/collect.pengu"
+#line 1749 "src/psc/sema/check/collect.pengu"
 void sema_collect_collect_bind(SemaState* s, int32_t node) {
     (void)s;
     (void)node;
-    #line 1740 "src/psc/sema/check/collect.pengu"
+    #line 1750 "src/psc/sema/check/collect.pengu"
     int32_t recv_node = sema_ast_node_child(s->ast, node, 0);
     (void)recv_node;
-    #line 1741 "src/psc/sema/check/collect.pengu"
+    #line 1751 "src/psc/sema/check/collect.pengu"
     TypeCtx ctx = sema_collect_collect_type_ctx(s);
     (void)ctx;
-    #line 1742 "src/psc/sema/check/collect.pengu"
+    #line 1752 "src/psc/sema/check/collect.pengu"
     int32_t recv = 0;
     (void)recv;
-    #line 1743 "src/psc/sema/check/collect.pengu"
+    #line 1753 "src/psc/sema/check/collect.pengu"
     if (recv_node >= 0) {
-        #line 1744 "src/psc/sema/check/collect.pengu"
+        #line 1754 "src/psc/sema/check/collect.pengu"
         recv = sema_type_convert_convert((&(ctx)), recv_node);
     }
-    #line 1745 "src/psc/sema/check/collect.pengu"
+    #line 1755 "src/psc/sema/check/collect.pengu"
     int32_t recv_under = sema_infer_underlying_type(s, recv);
     (void)recv_under;
-    #line 1746 "src/psc/sema/check/collect.pengu"
+    #line 1756 "src/psc/sema/check/collect.pengu"
     int32_t i = 2;
     (void)i;
-    #line 1747 "src/psc/sema/check/collect.pengu"
+    #line 1757 "src/psc/sema/check/collect.pengu"
     int32_t n = sema_ast_child_count(s->ast, node);
     (void)n;
-    #line 1748 "src/psc/sema/check/collect.pengu"
+    #line 1758 "src/psc/sema/check/collect.pengu"
     while ((i < n)) {
-        #line 1749 "src/psc/sema/check/collect.pengu"
+        #line 1759 "src/psc/sema/check/collect.pengu"
         int32_t m = sema_ast_node_child(s->ast, node, i);
         (void)m;
-        #line 1750 "src/psc/sema/check/collect.pengu"
+        #line 1760 "src/psc/sema/check/collect.pengu"
         if ((m >= 0) && ((sema_ast_kind_of(s->ast, m)) == NodeKind_NdWeaveDecl)) {
-            #line 1751 "src/psc/sema/check/collect.pengu"
+            #line 1761 "src/psc/sema/check/collect.pengu"
             int32_t mname = sema_collect_decl_name(s, m);
             (void)mname;
-            #line 1752 "src/psc/sema/check/collect.pengu"
+            #line 1762 "src/psc/sema/check/collect.pengu"
             if (!(sema_collect_concept_method_exists(s, mname))) {
-                #line 1753 "src/psc/sema/check/collect.pengu"
+                #line 1763 "src/psc/sema/check/collect.pengu"
                 PenguString bmsg = pengu_string_from_cstr_len("method is not declared by the bound concept", 43);
                 (void)bmsg;
-                #line 1754 "src/psc/sema/check/collect.pengu"
-                #line 1755 "src/psc/sema/check/collect.pengu"
+                #line 1764 "src/psc/sema/check/collect.pengu"
+                #line 1765 "src/psc/sema/check/collect.pengu"
                 (void)(sema_diag_node_error(s->bag, s->src, sema_diag_CODE_UNDEFINED, sema_ast_start_of(s->ast, m), sema_ast_end_of(s->ast, m), bmsg, pengu_string_from_cstr_len("Implement only the concept's methods.", 37), pengu_string_from_cstr_len("", 0)));
                 pengu_banish_string(&(bmsg));
             }
-            #line 1756 "src/psc/sema/check/collect.pengu"
+            #line 1766 "src/psc/sema/check/collect.pengu"
             int32_t battrs = sema_ast_node_child(s->ast, m, 0);
             (void)battrs;
-            #line 1757 "src/psc/sema/check/collect.pengu"
+            #line 1767 "src/psc/sema/check/collect.pengu"
             if ((sema_collect_find_attribute(s, battrs, pengu_string_from_cstr_len("mutates", 7))) >= 0) {
-                #line 1758 "src/psc/sema/check/collect.pengu"
+                #line 1768 "src/psc/sema/check/collect.pengu"
                 (void)(sema_diag_node_error(s->bag, s->src, sema_diag_CODE_MUTATES_ATTR, sema_ast_start_of(s->ast, m), sema_ast_end_of(s->ast, m), pengu_string_from_cstr_len("@mutates is not allowed in bind", 31), pengu_string_from_cstr_len("Use a pure method.", 18), pengu_string_from_cstr_len("", 0)));
             }
-            #line 1759 "src/psc/sema/check/collect.pengu"
+            #line 1769 "src/psc/sema/check/collect.pengu"
             int32_t ft = sema_collect_collect_method_sig(s, m);
             (void)ft;
-            #line 1760 "src/psc/sema/check/collect.pengu"
+            #line 1770 "src/psc/sema/check/collect.pengu"
             (void)(sema_collect_check_mutates_method(s, m, recv, ft));
-            #line 1761 "src/psc/sema/check/collect.pengu"
+            #line 1771 "src/psc/sema/check/collect.pengu"
             (void)(sema_collect_reject_duplicate_primitive(s, recv_under, mname, m));
-            #line 1762 "src/psc/sema/check/collect.pengu"
+            #line 1772 "src/psc/sema/check/collect.pengu"
             int32_t bsid2 = sema_symbols_symbol_define_method(s->symbols, recv_under, mname, ft);
             (void)bsid2;
-            #line 1763 "src/psc/sema/check/collect.pengu"
+            #line 1773 "src/psc/sema/check/collect.pengu"
             (void)(sema_collect_mark_mutating(s, m, bsid2));
-            #line 1764 "src/psc/sema/check/collect.pengu"
+            #line 1774 "src/psc/sema/check/collect.pengu"
             (void)(sema_collect_tag_decl(s, bsid2, m));
-            #line 1765 "src/psc/sema/check/collect.pengu"
+            #line 1775 "src/psc/sema/check/collect.pengu"
             ParamRange empty_br = (ParamRange){.first = 0, .count = 0};
             (void)empty_br;
-            #line 1766 "src/psc/sema/check/collect.pengu"
+            #line 1776 "src/psc/sema/check/collect.pengu"
             (void)(sema_collect_define_get_alias(s, recv_under, mname, ft, empty_br, bsid2));
         }
-        #line 1767 "src/psc/sema/check/collect.pengu"
+        #line 1777 "src/psc/sema/check/collect.pengu"
         i = (i + 1);
     }
 }
 
-#line 1773 "src/psc/sema/check/collect.pengu"
+#line 1783 "src/psc/sema/check/collect.pengu"
 void sema_collect_collect_test(SemaState* s, int32_t node) {
     (void)s;
     (void)node;
-    #line 1774 "src/psc/sema/check/collect.pengu"
+    #line 1784 "src/psc/sema/check/collect.pengu"
     int32_t name = sema_collect_decl_name(s, node);
     (void)name;
-    #line 1775 "src/psc/sema/check/collect.pengu"
+    #line 1785 "src/psc/sema/check/collect.pengu"
     SemaSymbol symv = sema_symbols_make_symbol(s->names, pengu_string_from_cstr_len("", 0), 3, SemaSymbolKind_SkTest);
     (void)symv;
-    #line 1776 "src/psc/sema/check/collect.pengu"
+    #line 1786 "src/psc/sema/check/collect.pengu"
     symv.name = name;
-    #line 1777 "src/psc/sema/check/collect.pengu"
+    #line 1787 "src/psc/sema/check/collect.pengu"
     symv.c_name = name;
-    #line 1778 "src/psc/sema/check/collect.pengu"
+    #line 1788 "src/psc/sema/check/collect.pengu"
     int32_t sid = sema_symbols_symbol_define(s->symbols, symv);
     (void)sid;
-    #line 1779 "src/psc/sema/check/collect.pengu"
+    #line 1789 "src/psc/sema/check/collect.pengu"
     (void)(sema_collect_tag_decl(s, sid, node));
 }
 
@@ -90875,7 +90896,7 @@ PenguString psc_pkg_lock_dumps(Lock lock) {
     (void)sb;
     #line 149 "src/psc/pkg/lock.pengu"
     #line 150 "src/psc/pkg/lock.pengu"
-    (void)(StringBuilder_append(&(sb), pengu_string_from_cstr_len("schema = 2\ngenerated_by = \"psc 0.46.0\"\n", 39)));
+    (void)(StringBuilder_append(&(sb), pengu_string_from_cstr_len("schema = 2\ngenerated_by = \"psc 0.47.0\"\n", 39)));
     #line 151 "src/psc/pkg/lock.pengu"
     if (((int32_t)(lock.target).len) > 0) {
         #line 152 "src/psc/pkg/lock.pengu"
@@ -109197,7 +109218,7 @@ JsonValue psc_lsp_server_initialize_result(void) {
     #line 411 "src/psc/lsp/server.pengu"
     (void)(JsonValue_put_json(&(info), pengu_string_from_cstr_len("name", 4), JsonValue_string_val(psc_lsp_server_copy(pengu_string_from_cstr_len("psc", 3)))));
     #line 412 "src/psc/lsp/server.pengu"
-    (void)(JsonValue_put_json(&(info), pengu_string_from_cstr_len("version", 7), JsonValue_string_val(psc_lsp_server_copy(pengu_string_from_cstr_len("0.46.0", 6)))));
+    (void)(JsonValue_put_json(&(info), pengu_string_from_cstr_len("version", 7), JsonValue_string_val(psc_lsp_server_copy(pengu_string_from_cstr_len("0.47.0", 6)))));
     #line 413 "src/psc/lsp/server.pengu"
     (void)(JsonValue_put_json(&(out), pengu_string_from_cstr_len("serverInfo", 10), info));
     #line 414 "src/psc/lsp/server.pengu"
@@ -119809,7 +119830,7 @@ int32_t main_dispatch(PenguList args) {
     #line 107 "src/main.pengu"
     if ((pengu_string_equal(cmd, pengu_string_from_cstr_len("version", 7)) || pengu_string_equal(cmd, pengu_string_from_cstr_len("--version", 9))) || pengu_string_equal(cmd, pengu_string_from_cstr_len("-V", 2))) {
         #line 108 "src/main.pengu"
-        (void)(spark_println(pengu_string_from_cstr_len("psc 0.46.0 (F13)", 16)));
+        (void)(spark_println(pengu_string_from_cstr_len("psc 0.47.0 (F13)", 16)));
         #line 109 "src/main.pengu"
         return 0;
     }
@@ -121588,7 +121609,7 @@ bool main_starts_dash(PenguString s) {
 #line 870 "src/main.pengu"
 void main_print_help(void) {
     #line 871 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("psc 0.46.0 \xe2\x80\x94 PenguScript compiler", 35)));
+    (void)(spark_println(pengu_string_from_cstr_len("psc 0.47.0 \xe2\x80\x94 PenguScript compiler", 35)));
     #line 872 "src/main.pengu"
     (void)(spark_println(pengu_string_from_cstr_len("", 0)));
     #line 873 "src/main.pengu"
