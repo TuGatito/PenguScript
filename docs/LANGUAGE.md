@@ -1971,9 +1971,10 @@ defer banish buf
 * It does not track ownership through function boundaries: a parameter of
   container type is a borrow (§13.7), and whoever allocates decides who
   releases; the API must document it.
-* It does not free the elements of a plain `list`/`map` when the container is
-  banished. A **copy-on-write** container does free its elements, because it
-  carries the element destructor in its header (§13.12).
+* It does not free the elements of a `list`/`map` when the container is
+  banished: only the element buffer is released, and nested `string`s leak
+  unless you release them explicitly (§13.12, `free_strings` in `std.json`,
+  `std.toml`, `std.yaml`).
 
 ### 13.5 Owned temporaries in expressions
 
@@ -2179,9 +2180,10 @@ typedef struct { size_t elem_size; void (*drop_elem)(void *); } PenguCowAux;
 ```
 
 Three methods expose the state: `is_shared`, `ref_count` and `make_unique`
-(force a private buffer now). `banish` still releases the container, and now
-also releases the elements when the last binding goes away — the recursive drop
-that used to be the programmer's job.
+(force a private buffer now). `banish` releases the buffer once the last binding
+goes away. Element drop is still the programmer's job: the runtime cannot tell
+whether an element handle is owned or borrowed, so freeing elements
+automatically is deferred to a future release (see `PENGUNIC` §21.4).
 
 Copy-then-mutate inside a loop is the pattern where COW is slower than plain
 copies. `psc check --lint=cow` reports it as `W0008` (informational, off by

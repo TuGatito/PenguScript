@@ -2000,9 +2000,10 @@ defer banish buf
 * No rastrea la propiedad a través de fronteras de función: un parámetro de
   tipo contenedor es un préstamo (§13.7), y quien asigna decide quién libera;
   la API debe documentarlo.
-* No libera los elementos de un `list`/`map` normal al banishear el contenedor.
-  Un contenedor **copy-on-write** sí los libera, porque lleva el destructor del
-  elemento en su cabecera (§13.12).
+* No libera los elementos de un `list`/`map` al banishear el contenedor: solo
+  se libera el búfer de elementos, y los `string` de dentro se filtran salvo
+  que los liberes explícitamente (§13.12, `free_strings` en `std.json`,
+  `std.toml` y `std.yaml`).
 
 ### 13.5 Temporales con dueño en expresiones
 
@@ -2210,9 +2211,11 @@ typedef struct { size_t elem_size; void (*drop_elem)(void *); } PenguCowAux;
 ```
 
 Tres métodos exponen el estado: `is_shared`, `ref_count` y `make_unique` (fuerza
-un búfer propio ahora). `banish` sigue liberando el contenedor, y ahora también
-libera los elementos cuando se va el último binding — el drop recursivo que
-antes era trabajo del programador.
+un búfer propio ahora). `banish` libera el búfer cuando se va el último
+binding. Soltar los elementos sigue siendo trabajo del programador: el runtime
+no puede distinguir si un handle de elemento es propio o prestado, así que la
+liberación automática de elementos queda para una versión futura (ver
+`PENGUNIC` §21.4).
 
 Copiar y mutar dentro de un bucle es el patrón donde el COW cuesta más que una
 copia normal. `psc check --lint=cow` lo reporta como `W0008` (informativo, off

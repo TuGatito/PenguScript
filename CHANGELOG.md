@@ -18,8 +18,8 @@ All notable changes to PenguScript will be documented in this file.
   un hilo) y `E0083` (`Arc of T` exige que `T` sea `@shared`).
 - **Capa 3 — contenedores copy-on-write**: `string`, `list` y `map` comparten
   búfer al copiar y clonan en la primera mutación. Métodos `is_shared`,
-  `ref_count` y `make_unique`. El `banish` de un contenedor COW libera ahora sus
-  elementos (arregla el caso §21.4 de `PENGUNIC`).
+  `ref_count` y `make_unique`. Copiar es O(1) y la primera mutación paga el
+  clon (`ensure_unique`).
 - `psc check --lint=cow` con `W0008` (copia de contenedor mutada dentro de un
   bucle).
 - Flag `--legacy-copy` (y `[build] legacy_copy`) como escape al modelo de copia
