@@ -105,7 +105,11 @@ English: [LANGUAGE.md](LANGUAGE.md).
   - [13.5 Temporales con dueño en expresiones](#135-temporales-con-dueño-en-expresiones)
   - [13.6 Los valores boxeados se mueven](#136-los-valores-boxeados-se-mueven)
   - [13.7 Valores devueltos y parámetros](#137-valores-devueltos-y-parámetros)
-  - [13.7 Depurar fugas](#137-depurar-fugas)
+  - [13.8 Depurar fugas](#138-depurar-fugas)
+  - [13.9 `derive Drop`: destrucción determinista](#139-derive-drop-destrucción-determinista)
+  - [13.10 Movimiento por defecto](#1310-movimiento-por-defecto)
+  - [13.11 Propiedad compartida: `Rc`, `Arc`, `Weak`](#1311-propiedad-compartida-rc-arc-weak)
+  - [13.12 Contenedores copy-on-write](#1312-contenedores-copy-on-write)
 - [14. Atributos](#14-atributos)
   - [14.1 Hilos](#141-hilos)
   - [14.2 Corrutinas](#142-corrutinas)
@@ -1409,6 +1413,8 @@ rune Point derive Par, Ordo, Vinculum, Imago:
 | `Vinculum` | sí | hash, usable como clave de mapa |
 | `Imago` | sí | `_pengu_clone_<T>`: copia superficial (la copia comparte los buffers poseídos) |
 | `Nexus` | sí | `_pengu_cleanup_<T>`: destrucción de primer nivel, invocada por `banish` |
+| `Drop` | sí | `Nexus` + destrucción en cada salida del scope + move-only (§13.9) |
+| `Drop` | sí | `Nexus` + destrucción en cada salida del scope + move-only (§13.9) |
 | `Json` | sí | `_pengu_json_encode_<T>` / `_pengu_json_decode_<T>` (implica `Nexus`; ver §9.7.1) |
 | `Forma`, `Iterabilis` | no (`E0005`) | — |
 | `Donum` | automático | implícito cuando todos los campos son inicializables por defecto; `derive Donum` es `E0005` |
@@ -1925,9 +1931,19 @@ búfer.
 
 ### 13.1 El modelo
 
-Sin GC, sin borrow checker, sin liberación al salir del scope. Tú asignas, tú
-liberas. El compilador comprueba tipos y, con una excepción sintáctica (los
-movimientos al boxear), no rastrea tiempos de vida.
+Sin GC, sin borrow checker. Desde 0.52 hay tres capas sobre el modelo manual, y
+cada una es opt-in o se ve en el tipo:
+
+* **Capa 1 — `derive Drop`**: la runa se destruye al salir del scope, en todos
+  los caminos, y es move-only (§13.9).
+* **Capa 2 — `std.consortium`**: `Rc`/`Arc`/`Weak` añaden conteo de referencias
+  cuando varios dueños deben sobrevivirse (§13.11).
+* **Capa 3 — contenedores copy-on-write**: copiar un `string`/`list`/`map` es
+  O(1) y la primera mutación clona el búfer (§13.12).
+
+Todo lo demás mantiene el modelo manual: tú asignas, tú banisheas. El compilador
+comprueba tipos y, con una excepción sintáctica (los movimientos al boxear), no
+rastrea tiempos de vida entre funciones.
 
 ```pengu
 weave main into int:
@@ -1975,11 +1991,18 @@ defer banish buf
 
 ### 13.4 Lo que el compilador no hace
 
-* No libera nada al salir del scope salvo que hayas escrito `defer`.
-* No detecta doble liberación, uso tras liberación ni fugas.
-* No rastrea la propiedad a través de fronteras de función: quien asigna decide
-  quién libera, y la API debe documentarlo.
-* No libera los elementos de un `list`/`map` cuando se banishea el contenedor.
+* No libera un contenedor normal al salir del scope: `string`, `list` y `map`
+  siguen necesitando `banish`. Solo se liberan solas las runas con
+  `derive Drop`.
+* No detecta doble liberación ni uso tras liberación si banisheas a mano. Sí
+  detecta el *uso de un valor movido* y la *copia implícita de un valor `Drop`*
+  dentro de una función (`E0080`, `E0081`).
+* No rastrea la propiedad a través de fronteras de función: un parámetro de
+  tipo contenedor es un préstamo (§13.7), y quien asigna decide quién libera;
+  la API debe documentarlo.
+* No libera los elementos de un `list`/`map` normal al banishear el contenedor.
+  Un contenedor **copy-on-write** sí los libera, porque lleva el destructor del
+  elemento en su cabecera (§13.12).
 
 ### 13.5 Temporales con dueño en expresiones
 
@@ -2015,7 +2038,7 @@ Tras boxear, la fuente queda vacía; banishearla es un no-op, usarla es un bug.
   igual, pero acepta `ref to T` sin `@shared` porque la corrutina nunca cambia
   de hilo. En ambos casos el binding original queda inutilizable (`E0008`).
 
-### 13.7 Depurar fugas
+### 13.8 Depurar fugas
 
 * Compila en debug y ejecuta bajo `valgrind --leak-check=full` o ASan
   (`cc -fsanitize=address`); el C generado es C normal.
@@ -2024,6 +2047,176 @@ Tras boxear, la fuente queda vacía; banishearla es un no-op, usarla es un bug.
 * `std.arena` es la vía de escape para un grupo de asignaciones con un solo
   tiempo de vida: asigna desde la arena y luego `banish arena` libera todo de
   una vez.
+
+### 13.9 `derive Drop`: destrucción determinista
+
+`derive Drop` convierte una runa en un valor con dueño y destructor. Cambian
+tres cosas, y las tres se ven en la declaración:
+
+1. Se destruye en cada salida del scope — `return`, `break`, `continue`, el
+   final del bloque y la ruta de error de `or return` / `try`.
+2. Asignarla, devolverla o ligarla **la mueve**: el origen queda vacío y usarlo
+   otra vez es `E0080`.
+3. Copiarla implícitamente es `E0081`; la copia explícita es `.clone()`.
+
+```pengu
+rune Buffer derive Drop:
+    data as string
+    size as int
+
+weave make_buffer with text as string into Buffer:
+    return with data is text, size is 1
+
+weave main into int:
+    var a as Buffer is calling make_buffer with "x"
+    var c as Buffer is calling a.clone      # copia profunda
+    calling print with "{c.size}"
+    return 0
+```
+
+El destructor es `_pengu_cleanup_Buffer`, la misma limpieza de primer nivel que
+generaba `derive Nexus`, más un `memset` que la hace idempotente:
+
+```c
+static inline void _pengu_cleanup_Buffer(Buffer* p) {
+    pengu_banish_string(&(p->data));
+    (void)p;
+    memset(p, 0, sizeof(*p));
+}
+```
+
+El clon es una copia profunda campo a campo (`_pengu_deepclone_Buffer`), y las
+llamadas al destructor se insertan en cada salida:
+
+```c
+Buffer a = d_make_buffer(pengu_string_from_cstr_len("x", 1));
+Buffer c = _pengu_deepclone_Buffer(&(a));
+/* ... */
+_pengu_cleanup_Buffer(&(c));
+_pengu_cleanup_Buffer(&(a));
+```
+
+`banish` sigue funcionando sobre un valor `Drop` y después es no-op, porque la
+limpieza deja el valor a cero: `banish a` seguido del drop automático libera una
+sola vez.
+
+Un tipo `Drop` no puede ser genérico, y sus campos no pueden ser `maybe`/`result`
+(el clon profundo todavía no copia esas cajas); ambos son `E0005` con un mensaje
+que dice qué hacer en su lugar.
+
+### 13.10 Movimiento por defecto
+
+Solo se mueven los tipos `derive Drop`. Un movimiento es que el destino se queda
+con el valor y el origen pierde su destructor; el C es una asignación de struct
+normal más la ausencia de la llamada de limpieza:
+
+```pengu-fragment
+var a as Buffer is calling make_buffer with "x"
+var b as Buffer is a          # mueve: `a` ya no se puede usar
+```
+
+```c
+Buffer b = a;                 /* sin _pengu_cleanup_Buffer(&(a)) después */
+```
+
+Usar el binding movido es `E0080`:
+
+```pengu-fragment
+calling print with "{a.size}"   # error[E0080]: value 'a' was moved
+```
+
+Mover desde un sitio **prestado** es `E0081`: un parámetro, un campo o un
+deref. Un parámetro de tipo `Drop` es un préstamo, así que pasar un valor a una
+función *no* lo mueve; el callee debe hacer `.clone()` si quiere quedárselo:
+
+```pengu-fragment
+weave consume with b as Buffer into int:
+    return b.size             # préstamo: correcto
+```
+
+La destrucción explícita es `.drop()`, que ejecuta el destructor de inmediato y
+deja el valor a cero; devolver un valor `Drop` por valor desde un `weave`
+`@export`-ado es `E0084`, porque el llamador C no tiene destructor que invocar.
+
+### 13.11 Propiedad compartida: `Rc`, `Arc`, `Weak`
+
+`std.consortium` añade conteo de referencias para los casos en los que la
+propiedad no se puede enhebrar por el código:
+
+| Tipo | Copia | Cruza `filum.start` | Mutación |
+| --- | --- | --- | --- |
+| `Rc of T` | implícita, incremento no atómico | no (`E0082`) | `get_mut`, `make_mut` |
+| `Arc of T` | `.clone()`, atómica | sí, si `T` es `@shared` (`E0083`) | `make_mut` |
+| `WeakRc of T` / `WeakArc of T` | implícita, incremento débil | no / sí | ninguna |
+
+```pengu
+import std.consortium
+import std.spark
+
+weave main into int:
+    var r as Rc of int is calling Rc.new with 42
+    calling spark.println with "{calling r.strong_count}"   # 1
+    banish r
+    return 0
+```
+
+`new` y el destructor son el lowering interesante:
+
+```c
+Rc r = __extension__(({ Rc _rcn = {0};
+    _rcn.ptr = pengu_rc_new(sizeof(int32_t), NULL, NULL);
+    *((int32_t*)_rcn.ptr) = (42); _rcn; }));
+/* ... */
+if ((r).ptr) { pengu_rc_release((r).ptr); (r).ptr = NULL; }
+```
+
+El destructor y el clonador del payload viajan dentro de la cabecera, así que el
+sitio del drop no necesita conocer `T`: `pengu_rc_new(size, drop, clone)`. Para
+un payload `Drop` el compilador pasa `_pengu_rc_drop_T` y `_pengu_rc_clone_T`,
+ambos `static inline` junto a `_pengu_cleanup_T`.
+
+`get` devuelve `ref to frozen T`, así que un valor compartido no se puede mutar
+por accidente. `get_mut` solo tiene éxito cuando el handle es el único dueño
+(`strong == 1 and weak == 0`); `make_mut` clona el payload cuando está
+compartido, y por eso se escribe en la llamada. `WeakRc.upgrade` devuelve
+`maybe Rc of T` y es `none` cuando el valor ya murió — así se rompe un ciclo.
+
+### 13.12 Contenedores copy-on-write
+
+`string`, `list of T` y `map of K to V` llevan un contador de referencias delante
+del búfer. Copiar un binding es O(1), y la primera mutación clona:
+
+```pengu-fragment
+var s as list of int is list of int
+calling s.push with 1
+var t as list of int is s
+calling t.push with 2          # clona: `s` conserva un elemento
+```
+
+```c
+PenguList s = pengu_list_new(sizeof(int32_t), 0);
+pengu_cow_list_push(&(s), &_push_tmp);
+PenguList t = s;
+pengu_cow_list_share(&(t));
+pengu_cow_list_push(&(t), &_push_tmp);   /* ensure_unique clona el búfer */
+```
+
+La cabecera son dos palabras delante de `data`:
+
+```c
+typedef struct { uint64_t magic; int32_t rc; int32_t pad; } PenguCowHdr;
+typedef struct { size_t elem_size; void (*drop_elem)(void *); } PenguCowAux;
+/* [PenguCowAux][PenguCowHdr][elementos...] */
+```
+
+Tres métodos exponen el estado: `is_shared`, `ref_count` y `make_unique` (fuerza
+un búfer propio ahora). `banish` sigue liberando el contenedor, y ahora también
+libera los elementos cuando se va el último binding — el drop recursivo que
+antes era trabajo del programador.
+
+Copiar y mutar dentro de un bucle es el patrón donde el COW cuesta más que una
+copia normal. `psc check --lint=cow` lo reporta como `W0008` (informativo, off
+por defecto).
 
 ## 14. Atributos
 
@@ -2430,6 +2623,12 @@ los avisos no.
 | `E0079` | destructuring con cantidad de nombres incorrecta |
 | `E0076` | literal de mapa sin anotación de tipo |
 | `E0077` | el objetivo de `with` no es un lugar direccionable |
+| `E0080` | uso de un valor movido (§13.10) |
+| `E0081` | copia implícita de un valor `Drop`; usa `.clone()` |
+| `E0082` | un `Rc` no puede cruzar una frontera de hilo o corrutina |
+| `E0083` | un `Arc of T` que cruza un hilo necesita que `T` sea `@shared` |
+| `E0084` | un `weave` `@export`-ado no puede devolver un valor `Drop` por valor |
+| `W0008` | copia de un contenedor mutada dentro de un bucle (`--lint=cow`) |
 | `W0001` | se usó `transmute` |
 | `W0002` | acceso a campo de `echo` (unión sin comprobar) |
 | `W0004` | código inalcanzable |
@@ -2602,6 +2801,16 @@ retorno.
 | `omen` (algebraico) | `struct { int32_t tag; union { ... } data; }` |
 | `weave ... into ...` | tipo puntero a función |
 | tupla `(T, U)` | `struct PenguTuple_<mangled>` con campos `first`, `second`, … |
+| `Rc of T` / `WeakRc of T` | `struct { void *ptr; }` — `ptr` apunta **después** de un `PenguRcHdr` |
+| `Arc of T` / `WeakArc of T` | mismo handle; la cabecera es `PenguArcHdr` con contadores `_Atomic int32_t` |
+| búfer copy-on-write | `[PenguCowAux][PenguCowHdr][elementos…]`; `PenguCowHdr { uint64_t magic; int32_t rc; int32_t pad; }` |
+
+`PenguRcHdr` es `{ int32_t strong; int32_t weak; uint32_t magic; uint32_t pad;
+void (*drop)(void *); void (*clone)(const void *, void *); size_t size; }`: el
+destructor y el clonador del payload viajan con el valor, así que
+`pengu_rc_release` no necesita un tipo. Una lista copy-on-write lleva
+`PenguCowAux { size_t elem_size; void (*drop_elem)(void *); }` delante del
+contador, que es lo que hace que `banish` libere los elementos.
 
 Helpers generados: `pengu_string_from_cstr`, `pengu_string_format_ex`,
 `pengu_string_copy`, `pengu_banish_string`, `pengu_list_new`, `pengu_list_push`,
