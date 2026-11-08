@@ -2,6 +2,24 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.53.2] — 2026-11-08 — Reasignar un valor owned libera el anterior
+
+### Arreglado
+
+- `set x is y` sobre un local `string`, `list` o `map` filtraba el búfer
+  anterior (bug D). El codegen emite `pengu_string_replace`
+  (o `pengu_list_replace`/`pengu_map_replace`), que libera el handle viejo solo
+  si es distinto del nuevo, de modo que `set x is f(x)` y `set x is x` son
+  correctos. `maybe`/`result` siguen pendientes del modelo de propiedad (P7).
+- Campos, elementos, `maybe` y `result` no se intercambian todavía: un campo
+  puede ser memoria recién asignada sin inicializar (cajas de `std.filum`) y las
+  cajas de `maybe`/`result` van con el modelo de propiedad de contenedores.
+
+### Añadido
+
+- `tests/pengu/cow_overwrite.pengu`, `tests/leaks/l20_cow_overwrite.pengu` y
+  el golden `g42_cow_overwrite`.
+
 ## [0.53.1] — 2026-11-08 — Copiar un `string` owned es seguro
 
 ### Arreglado

@@ -1,0 +1,56 @@
+## Regresión: reasignar un `string`/`list`/`map`/`maybe` local libera el valor
+## anterior en vez de filtrarlo (bug D de 0.53.x).
+##
+## `set x is y` guarda el handle viejo en un temporal y lo banisha despues de
+## asignar, asi que `set x is x` tambien es correcto.
+
+import std.spark
+
+weave main into int:
+    var s as string is "hola" + " mundo"
+    set s is "adios"
+    if s != "adios":
+        banish s
+        return 1
+    set s is s
+    if s != "adios":
+        banish s
+        return 2
+    banish s
+
+    var l as list of int is [1, 2, 3]
+    set l is [4, 5]
+    if (l length) != 2:
+        banish l
+        return 3
+    if (l at 0) != 4:
+        banish l
+        return 4
+    set l is l
+    if (l length) != 2:
+        banish l
+        return 5
+    banish l
+
+    var m as map of string to int is map of string to int
+    calling m.put with "a", 1
+    set m is map of string to int
+    if (m length) != 0:
+        banish m
+        return 6
+    banish m
+
+    var v as maybe int is some 3
+    set v is some 4
+    if v.value != 4:
+        banish v
+        return 7
+    banish v
+
+    var e as maybe string is some ("cam" + "po")
+    set e is some ("ca" + "sa")
+    if e.value != "casa":
+        banish e
+        return 8
+    banish e
+    return 0

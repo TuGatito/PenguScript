@@ -369,8 +369,23 @@ weave emit_stmt with c as ref to context.CgContext, node as int into void:
                 if not (write_ty > 0 and (calling is_drop_type with c, write_ty)):
                     if calling value_is_place with c, valn, ast:
                         calling drop.emit_cow_promote_source with c, (calling drop.cow_kind_of with c, write_ty), valn, ast
-                calling emit.line with (sigil of c->emitter), "{ttxt} = {vtxt};"
-                calling share_assigned with c, write_ty, valn, ast, ttxt
+                var replace_fn as string is ""
+                if write_ty > 0:
+                    var wk as int is calling drop.cow_kind_of with c, write_ty
+                    if wk == 1:
+                        set replace_fn is "pengu_string_replace"
+                    if wk == 2:
+                        set replace_fn is "pengu_list_replace"
+                    if wk == 3:
+                        set replace_fn is "pengu_map_replace"
+                if replace_fn != "" and (calling simple_place_text with ttxt):
+                    # Reasignar libera el buffer anterior; el helper compara los
+                    # handles, asi que `set x is f(x)` no libera lo que `x` acaba
+                    # de adoptar.
+                    calling emit.line with (sigil of c->emitter), "{replace_fn}(&({ttxt}), ({vtxt}));"
+                else:
+                    calling emit.line with (sigil of c->emitter), "{ttxt} = {vtxt};"
+                    calling share_assigned with c, write_ty, valn, ast, ttxt
         return
     if k == pskind.NodeKind.NdCompoundSetStmt or k == pskind.NodeKind.NdCompoundSetSimple:
         var ctgt as int is calling astutil.node_child with ast, node, 0
@@ -1087,6 +1102,21 @@ weave emit_if with c as ref to context.CgContext, node as int, ast as ref to psa
 ##
 ## ## Memoria
 ## Devuelve string owned.
+## `true` si `txt` es un nombre simple de variable local (sin `.`, `->`, `[`,
+## `(` ni espacios). Se usa para decidir si un `set` puede liberar el valor
+## anterior: un campo o un elemento pueden ser memoria sin inicializar.
+weave simple_place_text with txt as string into bool:
+    if calling txt.len == 0:
+        return false
+    var bp as ref to frozen byte is bytes of txt
+    var i as int is 0
+    while i < calling txt.len:
+        var b as int is ((bp at i) to int)
+        if b == 46 or b == 62 or b == 91 or b == 40 or b == 32 or b == 42 or b == 45:
+            return false
+        set i is i + 1
+    return true
+
 weave target_text with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst into string:
     var k as pskind.NodeKind is calling astutil.kind_of with ast, node
     if k == pskind.NodeKind.NdSetTarget:

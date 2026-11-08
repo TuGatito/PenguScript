@@ -1,7 +1,7 @@
 # PenguScript Language Reference
 
 PenguScript is a small, statically typed language that compiles to C. This
-reference documents the language as implemented by `psc` 0.53.1: every
+reference documents the language as implemented by `psc` 0.53.2: every
 construct, its semantics, and the C it lowers to.
 
 It is the *language* document of the documentation set:
@@ -146,7 +146,7 @@ own section (generics, memory, interop).
 * The keyword lists, type mappings and diagnostic codes are exhaustive; the
   prose is not — [PENGUNIC.md](PENGUNIC.md) covers *how to use* the language and
   [STDLIB.md](STDLIB.md) covers the standard library.
-* Version: `psc` 0.53.1. The ABI version the generated C expects is 3.
+* Version: `psc` 0.53.2. The ABI version the generated C expects is 3.
 
 ## 1. Lexical structure
 
@@ -2134,9 +2134,15 @@ Copying a `string` **owned** (an SDS) with a declaration such as
 `var b as string is a` gives `b` its own buffer
 (`pengu_string_share_value`): banishing both is safe. Reading a `string`
 field, `xs at i`, or a call result gives a *view* of that storage, so only the
-owner must be banished. Reassigning an owned `string` still leaks its previous
-buffer until §13.4 lands the generic swap, so prefer `banish` + reassignment
-over a plain `set`.
+owner must be banished.
+
+Reassigning an owned local `string`, `list` or `map` releases its previous
+buffer after the assignment, so `set s is "x"` does not leak. The
+compiler emits `pengu_string_replace` (or `pengu_list_replace`/`pengu_map_replace`),
+which compares the old and new handles: `set s is f(s)` keeps whatever `f`
+adopted and `set s is s` is a no-op. Fields, elements, `maybe` and `result` are not
+swapped yet: a field may be freshly allocated memory that was never initialized,
+and `maybe`/`result` boxes follow the container-ownership work (§13.10).
 
 Rejected targets (`E0008`): literals, temporaries (assign to a variable first),
 `seal` newtypes (convert explicitly), `frozen` values, and constants.

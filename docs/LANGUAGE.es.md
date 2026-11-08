@@ -1,7 +1,7 @@
 # Referencia del lenguaje PenguScript
 
 PenguScript es un lenguaje pequeño y de tipado estático que compila a C. Esta
-referencia documenta el lenguaje tal como lo implementa `psc` 0.53.1: cada
+referencia documenta el lenguaje tal como lo implementa `psc` 0.53.2: cada
 construcción, su semántica y el C al que se reduce.
 
 Es el documento de *lenguaje* del conjunto de documentación:
@@ -148,7 +148,7 @@ rasgos que necesitan su propia sección (genéricos, memoria, interop).
   diagnóstico son exhaustivos; la prosa no lo es — [PENGUNIC.es.md](PENGUNIC.es.md)
   cubre *cómo usar* el lenguaje y [STDLIB.es.md](STDLIB.es.md) cubre la
   biblioteca estándar.
-* Versión: `psc` 0.53.1. La versión de ABI que espera el C generado es 3.
+* Versión: `psc` 0.53.2. La versión de ABI que espera el C generado es 3.
 
 ## 1. Estructura léxica
 
@@ -2161,9 +2161,16 @@ Copiar un `string` **owned** (un SDS) con una declaración como
 `var b as string is a` le da a `b` su propio búfer
 (`pengu_string_share_value`): banishear los dos es seguro. Leer un campo
 `string`, `xs at i` o el resultado de una llamada da una *vista* de ese
-almacenamiento, así que solo se banisha el dueño. Reasignar un `string` owned
-todavía filtra su búfer anterior hasta que §13.4 añada el swap genérico; por
-ahora prefiere `banish` + reasignación frente a un `set` plano.
+almacenamiento, así que solo se banisha el dueño.
+
+Reasignar un local owned `string`, `list` o `map` libera su búfer anterior
+después de la asignación: `set s is "x"` no filtra. El compilador
+emite `pengu_string_replace` (o `pengu_list_replace`/`pengu_map_replace`), que
+compara los handles viejo y nuevo: `set s is f(s)` conserva lo que adoptó `f`
+y `set s is s` no hace nada. Los campos, los elementos, `maybe` y `result` todavía no se
+intercambian: un campo puede ser memoria recién asignada que nunca se
+inicializó, y las cajas de `maybe`/`result` van con el modelo de propiedad de
+contenedores (§13.10).
 
 Destinos rechazados (`E0008`): literales, temporales (asigna antes a una
 variable), newtypes `seal` (convierte explícitamente), valores `frozen` y
