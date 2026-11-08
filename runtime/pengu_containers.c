@@ -913,6 +913,36 @@ void pengu_cow_list_drop(PenguList *l)
   l->cap = 0;
 }
 
+PenguList pengu_list_clone_value(PenguList src)
+{
+  PenguList out;
+  int32_t i;
+
+  if (!src.data || src.len <= 0)
+  {
+    out.data = NULL;
+    out.len = 0;
+    out.cap = 0;
+    out.elem_size = src.elem_size;
+    return out;
+  }
+  /* Una lista COW se comparte (el contador sube); una legacy se copia para que
+     los dos destructores no liberen el mismo vector. Los elementos se copian
+     byte a byte: clonar en profundidad los de tipo contenedor llega con el
+     modelo de propiedad de elementos. */
+  if (pengu_cow_list_owned(&src))
+  {
+    pengu_cow_list_share(&src);
+    return src;
+  }
+  out = pengu_cow_list_new(src.elem_size, (size_t)src.len);
+  if (!out.data)
+    return out;
+  for (i = 0; i < src.len; i++)
+    pengu_cow_list_push(&out, (const char *)src.data + ((size_t)i * (size_t)src.elem_size));
+  return out;
+}
+
 void pengu_cow_list_share(PenguList *l)
 {
   PenguList fresh;

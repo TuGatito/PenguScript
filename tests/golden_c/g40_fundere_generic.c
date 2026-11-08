@@ -45,13 +45,18 @@ struct Holder {
 #define spark_STD_VERSION pengu_string_from_cstr_len("0.14.1", 6)
 
 static inline void _pengu_clone_Box(Box* out, const Box* v) {
-    *out = *v;
+    (*out) = (*v);
+    ((*out)).value = ((*v)).value;
 }
 static inline void _pengu_clone_Holder(Holder* out, const Holder* v) {
-    *out = *v;
+    (*out) = (*v);
+    ((*out)).box = ((*v)).box;
+    (((*out)).box).value = (((*v)).box).value;
+    ((*out)).tag = ((*v)).tag;
 }
 static inline void _pengu_clone_Box__int(Box__int* out, const Box__int* v) {
-    *out = *v;
+    (*out) = (*v);
+    ((*out)).value = ((*v)).value;
 }
 
 static inline void _pengu_cleanup_Box(Box* p);

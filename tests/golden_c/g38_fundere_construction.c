@@ -53,16 +53,31 @@ struct Enemy {
 #define spark_STD_VERSION pengu_string_from_cstr_len("0.14.1", 6)
 
 static inline void _pengu_clone_Vec2(Vec2* out, const Vec2* v) {
-    *out = *v;
+    (*out) = (*v);
+    ((*out)).x = ((*v)).x;
+    ((*out)).y = ((*v)).y;
 }
 static inline void _pengu_clone_GameObj(GameObj* out, const GameObj* v) {
-    *out = *v;
+    (*out) = (*v);
+    ((*out)).position = ((*v)).position;
+    (((*out)).position).x = (((*v)).position).x;
+    (((*out)).position).y = (((*v)).position).y;
+    ((*out)).bounds = ((*v)).bounds;
 }
 static inline void _pengu_clone_Physics(Physics* out, const Physics* v) {
-    *out = *v;
+    (*out) = (*v);
+    ((*out)).velocity = ((*v)).velocity;
 }
 static inline void _pengu_clone_Enemy(Enemy* out, const Enemy* v) {
-    *out = *v;
+    (*out) = (*v);
+    ((*out)).gameObj = ((*v)).gameObj;
+    (((*out)).gameObj).position = (((*v)).gameObj).position;
+    ((((*out)).gameObj).position).x = ((((*v)).gameObj).position).x;
+    ((((*out)).gameObj).position).y = ((((*v)).gameObj).position).y;
+    (((*out)).gameObj).bounds = (((*v)).gameObj).bounds;
+    ((*out)).physics = ((*v)).physics;
+    (((*out)).physics).velocity = (((*v)).physics).velocity;
+    ((*out)).health = ((*v)).health;
 }
 
 static inline void _pengu_cleanup_Vec2(Vec2* p);

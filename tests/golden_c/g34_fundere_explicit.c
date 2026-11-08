@@ -42,10 +42,18 @@ struct Host {
 #define spark_STD_VERSION pengu_string_from_cstr_len("0.14.1", 6)
 
 static inline void _pengu_clone_Position3D(Position3D* out, const Position3D* v) {
-    *out = *v;
+    (*out) = (*v);
+    ((*out)).x = ((*v)).x;
+    ((*out)).y = ((*v)).y;
+    ((*out)).z = ((*v)).z;
 }
 static inline void _pengu_clone_Host(Host* out, const Host* v) {
-    *out = *v;
+    (*out) = (*v);
+    ((*out)).position3D = ((*v)).position3D;
+    (((*out)).position3D).x = (((*v)).position3D).x;
+    (((*out)).position3D).y = (((*v)).position3D).y;
+    (((*out)).position3D).z = (((*v)).position3D).z;
+    ((*out)).health = ((*v)).health;
 }
 
 static inline void _pengu_cleanup_Position3D(Position3D* p);

@@ -35,7 +35,9 @@ struct Label {
 #define spark_STD_VERSION pengu_string_from_cstr_len("0.14.1", 6)
 
 static inline void _pengu_clone_Label(Label* out, const Label* v) {
-    *out = *v;
+    (*out) = (*v);
+    ((*out)).name = pengu_string_share_value(((*v)).name);
+    ((*out)).weight = ((*v)).weight;
 }
 
 static inline Label _pengu_deepclone_Label(Label* p) {

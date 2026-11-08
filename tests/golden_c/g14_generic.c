@@ -37,10 +37,12 @@ struct Box__string {
 
 
 static inline void _pengu_clone_Box(Box* out, const Box* v) {
-    *out = *v;
+    (*out) = (*v);
+    ((*out)).value = ((*v)).value;
 }
 static inline void _pengu_clone_Box__string(Box__string* out, const Box__string* v) {
-    *out = *v;
+    (*out) = (*v);
+    ((*out)).value = pengu_string_share_value(((*v)).value);
 }
 
 static inline void _pengu_cleanup_Box(Box* p);

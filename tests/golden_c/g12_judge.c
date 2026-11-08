@@ -28,7 +28,7 @@ typedef enum Kind { Kind_A = 0, Kind_B = 1, Kind_C = 2} Kind;
 
 
 static inline void _pengu_clone_Kind(Kind* out, const Kind* v) {
-    *out = *v;
+    (*out) = (*v);
 }
 
 

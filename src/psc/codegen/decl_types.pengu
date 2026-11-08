@@ -191,7 +191,7 @@ weave emit_clone with c as ref to context.CgContext, t as catalog.CgType into vo
     defer banish cname
     calling emit.line with (sigil of c->emitter), "static inline void _pengu_clone_{cname}({cname}* out, const {cname}* v) {"
     calling emit.indent_more with (sigil of c->emitter)
-    calling emit.line with (sigil of c->emitter), "*out = *v;"
+    calling drop.emit_clone_into with c, t.type_id, "(*out)", "(*v)", 0, true
     calling emit.indent_less with (sigil of c->emitter)
     calling emit.line with (sigil of c->emitter), "}"
 

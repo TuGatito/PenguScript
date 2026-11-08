@@ -54,19 +54,24 @@ struct Node {
 #define spark_STD_VERSION pengu_string_from_cstr_len("0.14.1", 6)
 
 static inline void _pengu_clone_Rc(Rc* out, const Rc* v) {
-    *out = *v;
+    (*out) = (*v);
+    ((*out)).ptr = ((*v)).ptr;
 }
 static inline void _pengu_clone_WeakRc(WeakRc* out, const WeakRc* v) {
-    *out = *v;
+    (*out) = (*v);
+    ((*out)).ptr = ((*v)).ptr;
 }
 static inline void _pengu_clone_Arc(Arc* out, const Arc* v) {
-    *out = *v;
+    (*out) = (*v);
+    ((*out)).ptr = ((*v)).ptr;
 }
 static inline void _pengu_clone_WeakArc(WeakArc* out, const WeakArc* v) {
-    *out = *v;
+    (*out) = (*v);
+    ((*out)).ptr = ((*v)).ptr;
 }
 static inline void _pengu_clone_Node(Node* out, const Node* v) {
-    *out = *v;
+    (*out) = (*v);
+    ((*out)).value = ((*v)).value;
 }
 
 static inline Rc _pengu_deepclone_Rc(Rc* p) {

@@ -33,7 +33,9 @@ struct Point {
 
 
 static inline void _pengu_clone_Point(Point* out, const Point* v) {
-    *out = *v;
+    (*out) = (*v);
+    ((*out)).x = ((*v)).x;
+    ((*out)).y = ((*v)).y;
 }
 
 static inline void _pengu_cleanup_Point(Point* p);

@@ -34,7 +34,8 @@ struct Holder {
 #define spark_STD_VERSION pengu_string_from_cstr_len("0.14.1", 6)
 
 static inline void _pengu_clone_Holder(Holder* out, const Holder* v) {
-    *out = *v;
+    (*out) = (*v);
+    ((*out)).name = pengu_string_share_value(((*v)).name);
 }
 
 static inline void _pengu_cleanup_Holder(Holder* p);

@@ -49,13 +49,25 @@ struct Enemy {
 #define spark_STD_VERSION pengu_string_from_cstr_len("0.14.1", 6)
 
 static inline void _pengu_clone_GameObj(GameObj* out, const GameObj* v) {
-    *out = *v;
+    (*out) = (*v);
+    ((*out)).position = ((*v)).position;
+    ((*out)).label = pengu_string_share_value(((*v)).label);
 }
 static inline void _pengu_clone_Physics(Physics* out, const Physics* v) {
-    *out = *v;
+    (*out) = (*v);
+    ((*out)).velocity = ((*v)).velocity;
+    ((*out)).note = pengu_string_share_value(((*v)).note);
 }
 static inline void _pengu_clone_Enemy(Enemy* out, const Enemy* v) {
-    *out = *v;
+    (*out) = (*v);
+    ((*out)).gameObj = ((*v)).gameObj;
+    (((*out)).gameObj).position = (((*v)).gameObj).position;
+    (((*out)).gameObj).label = pengu_string_share_value((((*v)).gameObj).label);
+    ((*out)).physics = ((*v)).physics;
+    (((*out)).physics).velocity = (((*v)).physics).velocity;
+    (((*out)).physics).note = pengu_string_share_value((((*v)).physics).note);
+    ((*out)).health = ((*v)).health;
+    ((*out)).notes = pengu_string_share_value(((*v)).notes);
 }
 
 static inline Physics _pengu_deepclone_Physics(Physics* p) {

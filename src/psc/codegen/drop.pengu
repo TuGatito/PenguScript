@@ -130,6 +130,56 @@ weave emit_share_value with c as ref to context.CgContext, ty as int, target as 
         banish fname
         set i is i + 1
 
+## Copia profunda de un valor para `_pengu_clone_T`: el destino queda con sus
+## propios búferes, sin compartir contadores ni punteros con el origen.
+##
+## ## Memoria
+## O(campos alcanzables); cada `string` SDS se copia y cada contenedor retiene.
+weave emit_clone_into with c as ref to context.CgContext, ty as int, dst as string, src as string, depth as int, top as bool into void:
+    if ty <= 0 or depth > 16 or ty >= c->program->types.types.len:
+        calling emit.line with (sigil of c->emitter), "{dst} = {src};"
+        return
+    var cwk as int is calling cow_kind_of with c, ty
+    if cwk > 0:
+        if cwk == 1:
+            calling emit.line with (sigil of c->emitter), "{dst} = pengu_string_share_value({src});"
+        else:
+            if cwk == 2:
+                calling emit.line with (sigil of c->emitter), "{dst} = pengu_list_clone_value({src});"
+            else:
+                calling emit.line with (sigil of c->emitter), "{dst} = {src};"
+                calling emit_cow_share with c, cwk, dst
+        return
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    var cur as int is ty
+    var guard as int is 0
+    while (t.kind == tk.SemaTypeKind.TkAlias or t.kind == tk.SemaTypeKind.TkSeal) and guard < 16:
+        set cur is t.b
+        set t is calling types.at with (sigil of c->program->types), cur
+        set guard is guard + 1
+    if t.kind != tk.SemaTypeKind.TkRune and t.kind != tk.SemaTypeKind.TkEcho:
+        calling emit.line with (sigil of c->emitter), "{dst} = {src};"
+        return
+    var info as types.SemaNominalInfo is (c->program->types.nominal_infos at t.a)
+    if (info.flags & types.NIF_OPAQUE) != 0:
+        calling emit.line with (sigil of c->emitter), "{dst} = {src};"
+        return
+    # Un campo `Drop` se copia campo a campo (la recursion ya deja cada búfer
+    # propio); llamar a `_pengu_deepclone_T` exigiria una declaracion previa y
+    # este helper se emite antes que el deepclone del tipo.
+    calling emit.line with (sigil of c->emitter), "{dst} = {src};"
+    var i as int is 0
+    while i < info.fields_count:
+        var f as types.SemaField is (c->program->types.fields at (info.fields_first + i))
+        var fname as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), f.name)
+        var dpath as string is "({dst}).{fname}"
+        var spath as string is "({src}).{fname}"
+        calling emit_clone_into with c, f.type, dpath, spath, depth + 1, false
+        banish dpath
+        banish spath
+        banish fname
+        set i is i + 1
+
 weave emit_drop_value with c as ref to context.CgContext, ty as int, target as string into void:
     if ty < 0 or ty >= c->program->types.types.len:
         return

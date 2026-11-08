@@ -30,7 +30,7 @@ typedef enum Color { Color_Red = 0, Color_Green = 1, Color_Blue = 2} Color;
 #define spark_STD_VERSION pengu_string_from_cstr_len("0.14.1", 6)
 
 static inline void _pengu_clone_Color(Color* out, const Color* v) {
-    *out = *v;
+    (*out) = (*v);
 }
 
 

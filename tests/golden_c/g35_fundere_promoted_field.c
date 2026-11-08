@@ -42,10 +42,17 @@ struct Enemy {
 #define spark_STD_VERSION pengu_string_from_cstr_len("0.14.1", 6)
 
 static inline void _pengu_clone_GameObj(GameObj* out, const GameObj* v) {
-    *out = *v;
+    (*out) = (*v);
+    ((*out)).position = ((*v)).position;
+    ((*out)).speed = ((*v)).speed;
 }
 static inline void _pengu_clone_Enemy(Enemy* out, const Enemy* v) {
-    *out = *v;
+    (*out) = (*v);
+    ((*out)).gameObj = ((*v)).gameObj;
+    (((*out)).gameObj).position = (((*v)).gameObj).position;
+    (((*out)).gameObj).speed = (((*v)).gameObj).speed;
+    ((*out)).health = ((*v)).health;
+    ((*out)).speed = ((*v)).speed;
 }
 
 static inline void _pengu_cleanup_GameObj(GameObj* p);

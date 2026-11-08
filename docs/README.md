@@ -62,7 +62,7 @@ compiled.
 
 ## Versioning
 
-The documents state the `psc` version they describe (currently **0.53.3**).
+The documents state the `psc` version they describe (currently **0.53.4**).
 When the language changes, the same pull request updates:
 
 1. the reference (`LANGUAGE.md` + `.es.md`),

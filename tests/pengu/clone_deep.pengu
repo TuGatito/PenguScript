@@ -1,0 +1,30 @@
+# `_pengu_clone_T` deja una copia independiente: los `string` se copian y los
+# contenedores se retienen, asi que banishear las dos copias es correcto.
+
+import std.filum
+
+rune Blob derive Nexus:
+    name as string
+    values as list of int
+
+antiquus clone_blob with b as Blob into Blob:
+    r"""
+Blob out;
+memset(&out, 0, sizeof out);
+_pengu_clone_Blob(&out, &b);
+return out;
+"""
+
+weave main into int:
+    var a as Blob is with name is (calling filum.pengu_string_copy with "hola"), values is [1, 2, 3]
+    var b as Blob is calling clone_blob with a
+    if b.name != "hola":
+        return 1
+    if (b.values at 0) != 1:
+        return 2
+    set b.values at 0 is 9
+    if (a.values at 0) != 1:
+        return 3
+    banish b
+    banish a
+    return 0

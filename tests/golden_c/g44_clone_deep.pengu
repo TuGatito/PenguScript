@@ -1,0 +1,22 @@
+import std.filum
+
+rune Blob derive Nexus:
+    name as string
+    values as list of int
+
+antiquus clone_blob with b as Blob into Blob:
+    r"""
+Blob out;
+memset(&out, 0, sizeof out);
+_pengu_clone_Blob(&out, &b);
+return out;
+"""
+
+weave main into int:
+    var a as Blob is with name is (calling filum.pengu_string_copy with "hola"), values is [1, 2]
+    var b as Blob is calling clone_blob with a
+    set b.values at 0 is 9
+    calling spark.println with "{a.values at 0},{b.values at 0},{b.name}"
+    banish b
+    banish a
+    return 0

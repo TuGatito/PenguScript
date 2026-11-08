@@ -2620,6 +2620,7 @@ static inline void pengu_string_append(PenguString *dst, PenguString v)
 
   /* Listas COW. */
   PenguList pengu_cow_list_new(size_t elem_size, size_t cap);
+  PenguList pengu_list_clone_value(PenguList src);
   void pengu_cow_list_share(PenguList *l);
   void pengu_cow_list_ensure_unique(PenguList *l);
   void pengu_cow_list_make_unique(PenguList *l);

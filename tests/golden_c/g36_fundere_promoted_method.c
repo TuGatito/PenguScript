@@ -46,13 +46,22 @@ struct Top {
 #define spark_STD_VERSION pengu_string_from_cstr_len("0.14.1", 6)
 
 static inline void _pengu_clone_Base(Base* out, const Base* v) {
-    *out = *v;
+    (*out) = (*v);
+    ((*out)).depth = ((*v)).depth;
 }
 static inline void _pengu_clone_Mid(Mid* out, const Mid* v) {
-    *out = *v;
+    (*out) = (*v);
+    ((*out)).base = ((*v)).base;
+    (((*out)).base).depth = (((*v)).base).depth;
+    ((*out)).level = ((*v)).level;
 }
 static inline void _pengu_clone_Top(Top* out, const Top* v) {
-    *out = *v;
+    (*out) = (*v);
+    ((*out)).mid = ((*v)).mid;
+    (((*out)).mid).base = (((*v)).mid).base;
+    ((((*out)).mid).base).depth = ((((*v)).mid).base).depth;
+    (((*out)).mid).level = (((*v)).mid).level;
+    ((*out)).top = ((*v)).top;
 }
 
 static inline void _pengu_cleanup_Base(Base* p);

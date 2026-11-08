@@ -28,7 +28,7 @@ typedef enum Color { Color_Red = 0, Color_Green = 1, Color_Blue = 2} Color;
 
 
 static inline void _pengu_clone_Color(Color* out, const Color* v) {
-    *out = *v;
+    (*out) = (*v);
 }
 
 

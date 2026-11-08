@@ -2,6 +2,22 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.53.4] — 2026-11-08 — Clonar un rune es profundo
+
+### Arreglado
+
+- `_pengu_clone_T` copiaba la struct byte a byte, así que la copia compartía el
+  SDS de un campo `string` y el vector de un campo `list` con el original: dos
+  destructores liberaban el mismo búfer (bug I). Ahora copia cada `string`
+  (`pengu_string_share_value`), clona cada `list` (`pengu_list_clone_value`) y
+  retiene los contenedores COW; `std.diagnostic._diagnostic_clone`, que promete
+  una copia independiente, deja de mentir.
+
+### Añadido
+
+- `tests/pengu/clone_deep.pengu`, `tests/leaks/l21_clone_deep.pengu` y el
+  golden `g44_clone_deep`.
+
 ## [0.53.3] — 2026-11-08 — Escribir un elemento respeta el COW
 
 ### Cambiado

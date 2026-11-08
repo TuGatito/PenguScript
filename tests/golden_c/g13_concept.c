@@ -32,7 +32,8 @@ struct Dog {
 
 
 static inline void _pengu_clone_Dog(Dog* out, const Dog* v) {
-    *out = *v;
+    (*out) = (*v);
+    ((*out)).name = pengu_string_share_value(((*v)).name);
 }
 
 static inline void _pengu_cleanup_Dog(Dog* p);

@@ -28,7 +28,7 @@ typedef enum State { State_Idle = 0, State_Busy = 1, State_Failed = 2} State;
 
 
 static inline void _pengu_clone_State(State* out, const State* v) {
-    *out = *v;
+    (*out) = (*v);
 }
 
 

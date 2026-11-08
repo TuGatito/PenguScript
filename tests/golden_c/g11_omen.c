@@ -28,7 +28,7 @@ typedef enum Phase { Phase_Ready = 0, Phase_Loading = 1, Phase_Done = 2} Phase;
 
 
 static inline void _pengu_clone_Phase(Phase* out, const Phase* v) {
-    *out = *v;
+    (*out) = (*v);
 }
 
 

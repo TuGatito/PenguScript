@@ -1,7 +1,7 @@
 # El Manual Pengunic
 
 Cómo escribir PenguScript seguro, idiomático y rápido: el manual de ingeniería
-del lenguaje que implementa `psc` 0.53.3.
+del lenguaje que implementa `psc` 0.53.4.
 
 Es el documento de *práctica* del conjunto de documentación:
 
@@ -334,7 +334,7 @@ binario `psc`. Desde un checkout:
 $ bash tools/build_bootstrap.sh     # builds build/psc-stage0 from the C bundle
 $ ./build/psc-stage0 build .        # self-hosts build/psc
 $ ./build/psc --version
-psc 0.53.3 (F13)
+psc 0.53.4 (F13)
 ```
 
 A partir de ahí usas `build/psc`. `psc doctor` informa de lo que encontró: el
@@ -3642,7 +3642,7 @@ trunca, y `transmute`, que reinterpreta bits.
 **¿Hay hilos y corrutinas?**
 Sí. 0.30.0 añadió hilos de primera clase (`filum.start`, `join`, `detach`,
 `free`), 0.31.0 añadió `std.coro` (corrutinas stackful explícitas con `resume` y
-`yield`, en el mismo hilo) y 0.53.3 añade `std.reactor`: un `EventLoop` explícito
+`yield`, en el mismo hilo) y 0.53.4 añade `std.reactor`: un `EventLoop` explícito
 que hace `epoll_wait`/`poll` y reanuda las tareas. No hay `async`/`await` como
 palabras clave ni un planificador escondido: tú creas el loop, haces `spawn` y
 llamas `run`. Las variantes `*_async` de la stdlib son funciones que suspenden la
