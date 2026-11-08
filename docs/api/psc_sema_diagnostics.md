@@ -86,11 +86,35 @@ _Undocumented._
 
 _Undocumented._
 
-### `CODE_WITH_TARGET`
+### `CODE_USE_AFTER_MOVE`
 
-> **CODE_WITH_TARGET** : string
+> **CODE_USE_AFTER_MOVE** : string
 
-_Undocumented._
+ `derive Drop`: uso de un valor movido.
+
+### `CODE_IMPLICIT_COPY`
+
+> **CODE_IMPLICIT_COPY** : string
+
+ `derive Drop`: copia implícita de un tipo que no se copia.
+
+### `CODE_RC_CROSS_THREAD`
+
+> **CODE_RC_CROSS_THREAD** : string
+
+ `Rc`/`WeakRc` no pueden cruzar `filum.start`/`coro.start`.
+
+### `CODE_ARC_NOT_SHARED`
+
+> **CODE_ARC_NOT_SHARED** : string
+
+ `Arc of T` exige que `T` sea `@shared`.
+
+### `CODE_EXPORT_DROP`
+
+> **CODE_EXPORT_DROP** : string
+
+ Un `weave` con `@export` no puede devolver un `Drop` por valor.
 
 ### `CODE_BUILDER`
 
@@ -143,6 +167,12 @@ _Undocumented._
 ### `CODE_MAP_LITERAL_TYPE`
 
 > **CODE_MAP_LITERAL_TYPE** : string
+
+_Undocumented._
+
+### `CODE_WITH_TARGET`
+
+> **CODE_WITH_TARGET** : string
 
 _Undocumented._
 
@@ -422,6 +452,13 @@ _Undocumented._
 
 _Undocumented._
 
+### `WARN_COW_LOOP`
+
+> **WARN_COW_LOOP** : string
+
+ Copia de contenedor seguida de mutación dentro de un bucle (sólo con
+ `--lint=cow`).
+
 ### `sema_emit_error`
 
 > **sema_emit_error**(bag: ref to DiagnosticBag, src: ref to SourceFile, code: string, start: int, end: int, message: string, help: string, note: string) -> void
@@ -460,6 +497,27 @@ _Undocumented._
 > **node_warning**(bag: ref to DiagnosticBag, src: ref to SourceFile, code: string, node_start: int, node_end: int, message: string, help: string) -> void
 
  Emite un warning sobre un nodo.
+
+ ## Memoria
+ O(1); no asigna aparte del diagnóstico.
+
+### `sema_emit_info`
+
+> **sema_emit_info**(bag: ref to DiagnosticBag, src: ref to SourceFile, code: string, start: int, end: int, message: string, help: string) -> void
+
+ Emite un aviso informativo en `[start, end)`.
+
+ Se usa para lints opt-in (`--lint=cow`): el diagnóstico aparece en el LSP
+ como severity 3 sin afectar al resultado de `psc check`.
+
+ ## Memoria
+ Asigna el diagnóstico; liberar el bag al final.
+
+### `node_info`
+
+> **node_info**(bag: ref to DiagnosticBag, src: ref to SourceFile, code: string, node_start: int, node_end: int, message: string, help: string) -> void
+
+ Emite un aviso informativo sobre un nodo del AST.
 
  ## Memoria
  O(1); no asigna aparte del diagnóstico.

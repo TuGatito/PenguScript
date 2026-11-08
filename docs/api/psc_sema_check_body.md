@@ -31,6 +31,15 @@ Presta `SemaState`; los scopes/símbolos son tablas del programa.
  ## Memoria
  Entra/sale de un scope; no libera tablas.
 
+### `body_type_has_drop`
+
+> **body_type_has_drop**(s: ref to SemaState, ty: int) -> bool
+
+ `true` si el tipo es una runa con `derive Drop` (siguiendo alias y seals).
+
+ ## Memoria
+ O(profundidad del alias).
+
 ### `define_params`
 
 > **define_params**(s: ref to SemaState, pnode: int) -> void

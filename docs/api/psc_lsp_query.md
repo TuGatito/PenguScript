@@ -190,14 +190,26 @@ una posición, tipo, documentación, exports, módulos y tamaño aproximado.
  Usa el nodo AST que termina justo antes del punto; si no tiene anotación,
  cae al símbolo de la palabra. Devuelve `-1` si no se puede resolver.
 
-### `methods_for_type`
+### `nominal_base`
 
-> **methods_for_type**(p: ref to SemaProgram, type_id: int) -> list of int
+> **nominal_base**(p: ref to SemaProgram, ty: int) -> string
 
  Métodos de encantamiento aplicables a un tipo.
 
  Incluye los métodos exactos del receptor y los métodos genéricos (aquellos
  cuyo receptor es un `shard T`), que se resuelven en la llamada.
+ Nombre base del nominal de un tipo (`""` si no es una runa/eco).
+
+ Sigue `template_info` para que `Rc of Node` y `Rc of T` compartan base.
+
+ ## Memoria
+ O(1); devuelve un préstamo del pool de nombres.
+
+### `methods_for_type`
+
+> **methods_for_type**(p: ref to SemaProgram, type_id: int) -> list of int
+
+_Undocumented._
 
 ### `field_type_at`
 

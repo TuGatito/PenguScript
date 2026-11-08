@@ -247,6 +247,12 @@ _Undocumented._
 
  La runa declaró `derive Json`.
 
+### `NIF_DROP`
+
+> **NIF_DROP** : int
+
+ La runa declaró `derive Drop`: se destruye al salir del scope y no se copia.
+
 ### `FIELD_READONLY`
 
 > **FIELD_READONLY** : int

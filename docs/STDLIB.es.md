@@ -1,6 +1,6 @@
 # La biblioteca estándar de PenguScript
 
-Los 69 módulos de `std/` en `psc` 0.51.0: para qué sirve cada uno, cuándo
+Los 70 módulos de `std/` en `psc` 0.51.0: para qué sirve cada uno, cuándo
 usarlo, cuándo usar otro y dónde vive su API generada.
 
 Es el documento *catálogo* del conjunto de documentación:
@@ -23,6 +23,7 @@ comentarios `##` del propio módulo por `psc doc --include-std`.
 - [3. Núcleo y memoria](#3-núcleo-y-memoria)
   - [`std.spark` — E/S de proceso, conversiones y control](#stdspark-es-de-proceso-conversiones-y-control)
   - [`std.memoria` — bloques crudos del heap](#stdmemoria-bloques-crudos-del-heap)
+  - [`std.consortium` — propiedad compartida por contador de referencias](#stdconsortium-propiedad-compartida-por-contador-de-referencias)
   - [`std.oracle` — `maybe` y `result`](#stdoracle-maybe-y-result)
   - [`std.builder` — `StringBuilder`](#stdbuilder-stringbuilder)
   - [`std.arena` — asignador bump](#stdarena-asignador-bump)
@@ -104,6 +105,7 @@ comentarios `##` del propio módulo por `psc doc --include-std`.
 - [14. El índice completo](#14-el-índice-completo)
 - [Apéndice A — Chuleta de imports](#apéndice-a-chuleta-de-imports)
 - [Apéndice B — Propiedad al llamar a la biblioteca estándar](#apéndice-b-propiedad-al-llamar-a-la-biblioteca-estándar)
+  - [Contenedores copy-on-write](#contenedores-copy-on-write)
 - [Apéndice C — Convenciones de nombres en la biblioteca estándar](#apéndice-c-convenciones-de-nombres-en-la-biblioteca-estándar)
 <!-- /toc -->
 
@@ -272,6 +274,24 @@ binding, y necesites `alloc`, `alloc_array`, `resize_array`, `copy`, `fill`,
 `resize_array`.
 
 **API** [`api/std_memoria.md`](api/std_memoria.md) · [fuente](../std/memoria.pengu)
+
+### `std.consortium` — propiedad compartida por contador de referencias
+
+**Úsalo cuando** varias partes del programa deban observar el mismo valor y no
+sepas cuál muere al final: `Rc of T` (un solo hilo, copia implícita y barata),
+`Arc of T` (cruza hilos, `.clone()` es la única copia), `WeakRc`/`WeakArc` para
+romper ciclos. `get` entrega `ref to frozen T`; la mutación pasa por `get_mut`
+(exclusividad) o `make_mut` (copy-on-write).
+
+**Evítalo cuando** el valor tenga un único dueño: `derive Drop` (capa 1) es más
+rápido y el coste queda visible en el tipo. No uses `Rc` dentro de un bucle
+caliente como asignador, ni `Arc` cuando los hilos puedan intercambiar un valor
+normal.
+
+**Destacados** `Rc.new`, `Rc.get`, `Rc.get_mut`, `Rc.make_mut`, `downgrade`,
+`WeakRc.upgrade`, `Arc.clone`, `strong_count`, `weak_count`.
+
+**API** [`api/std_consortium.md`](api/std_consortium.md) · [fuente](../std/consortium.pengu)
 
 ### `std.oracle` — `maybe` y `result`
 
@@ -1366,7 +1386,7 @@ reglas de propiedad. Importar el `.d` directamente se salta todo eso.
 
 ## 14. El índice completo
 
-Los 69 módulos, en orden alfabético. La capa coincide con la sección 1; la
+Los 70 módulos, en orden alfabético. La capa coincide con la sección 1; la
 columna API lleva a la página generada por `psc doc --include-std`.
 
 | Módulo | Capa | Qué te da | API |
@@ -1383,6 +1403,7 @@ columna API lleva a la página generada por `psc doc --include-std`.
 | `std.cipher` | Formatos | Base64/Hex/Base32/Base58/Base85, codificación URL, CRC-32 | [`std_cipher`](api/std_cipher.md) |
 | `std.compass` | Sistema | unir/partir/normalizar rutas, rune `Path` | [`std_compass`](api/std_compass.md) |
 | `std.compressus` | Formatos | gzip, zlib y deflate crudo | [`std_compressus`](api/std_compressus.md) |
+| `std.consortium` | Core | propiedad compartida: `Rc`, `Arc`, `Weak` con contadores | [`std_consortium`](api/std_consortium.md) |
 | `std.coven` | Colecciones | conjuntos: pertenencia, unión, intersección | [`std_coven`](api/std_coven.md) |
 | `std.diagnostic` | Núcleo | spans, etiquetas y renderizado estilo compilador | [`std_diagnostic`](api/std_diagnostic.md) |
 | `std.digest` | Formatos | SHA-256, HMAC-SHA-256, FNV-1a | [`std_digest`](api/std_digest.md) |
@@ -1532,6 +1553,23 @@ La página generada de cada símbolo lleva una nota de propiedad en su texto
 Cuando una función toma propiedad, su nombre o su nota `##` lo dicen
 (`take_*`, `consume_*`, `_owned`). En caso de duda, lee la nota de la página
 generada antes de escribir el `banish`.
+
+### Contenedores copy-on-write
+
+`string`, `list of T` y `map of K to V` son copy-on-write desde 0.52. Copiar un
+binding es O(1): los dos bindings comparten un búfer con contador, y la primera
+mutación lo clona (`ensure_unique`). Tres métodos hacen visible ese estado:
+
+| Método | En | Qué hace |
+| --- | --- | --- |
+| `is_shared` | `list`, `map`, `string` | `true` si otro binding comparte el búfer |
+| `ref_count` | `list`, `map`, `string` | número de bindings que comparten el búfer |
+| `make_unique` | `list`, `map`, `string` | clona ahora, para que la próxima mutación sea in situ |
+
+Copiar y mutar dentro de un bucle es el único patrón en el que el COW cuesta más
+que una copia normal; `psc check --lint=cow` lo avisa (`W0008`, informativo).
+Un contenedor recién creado sigue sin destructor automático: libéralo con
+`banish` al terminar, igual que antes.
 
 ## Apéndice C — Convenciones de nombres en la biblioteca estándar
 

@@ -292,6 +292,53 @@ Presta `SemaState`; los símbolos/tipos viven en las tablas del programa.
  ## Memoria
  Añade conceptos al pool; no posee recursos del nodo.
 
+### `field_has_tparam`
+
+> **field_has_tparam**(s: ref to SemaState, ty: int, depth: int) -> bool
+
+ Comprueba que los campos de un rune `derive Drop` se puedan copiar en
+ profundo y liberar sin ambigüedad.
+
+ `maybe`/`result` guardan su contenido en una caja que el cleanup libera, y
+ el compilador aún no sabe clonarlas: copiarlas en superficial sería un
+ doble-free. Los runes genéricos tampoco se pueden clonar por instancia.
+
+ ## Memoria
+ Puede emitir diagnósticos; no posee recursos.
+ `true` si `ty` menciona algún parámetro de tipo (directamente o dentro de
+ contenedores y referencias).
+
+ ## Memoria
+ Sigue alias/seal hasta 32 pasos.
+
+### `validate_drop_fields`
+
+> **validate_drop_fields**(s: ref to SemaState, node: int, info: SemaNominalInfo, depth: int) -> void
+
+_Undocumented._
+
+### `drop_field_unclonable`
+
+> **drop_field_unclonable**(s: ref to SemaState, ty: int, depth: int) -> bool
+
+ `true` si un tipo contiene `maybe`/`result` (directamente o en contenedores).
+
+ ## Memoria
+ Sigue alias/seal hasta 32 pasos.
+
+### `register_drop_methods`
+
+> **register_drop_methods**(s: ref to SemaState, ty: int, info: SemaNominalInfo) -> void
+
+ Registra `.clone()` y `.drop()` en un rune con `derive Drop`.
+
+ Se declaran como métodos `ritual` sin parámetros (el `self` es implícito y
+ llega como puntero), así que la llamada es la normal del compilador:
+ `_pengu_deepclone_T(&(x))` y `_pengu_cleanup_T(&(x))`.
+
+ ## Memoria
+ Añade símbolos y firmas a las tablas.
+
 ### `collect_omen`
 
 > **collect_omen**(s: ref to SemaState, node: int) -> void

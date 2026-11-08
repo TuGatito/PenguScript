@@ -154,13 +154,41 @@ _Undocumented._
  calling spark.println with ATLAS_VERSION    # 2.1.0
  ```
 
+### `is_shared`
+
+> **is_shared**() -> bool
+
+ Number of entries in the receiver.
+
+
+ `true` si el estado de `self` lo comparte otro binding (COW).
+
+ ## Retorno
+ `false` mientras el estado sea exclusivo. Diagnóstico.
+
+### `ref_count`
+
+> **ref_count**() -> int
+
+ Número de bindings que comparten el estado de `self` (COW).
+
+ ## Retorno
+ `1` si el estado es exclusivo; `0` si no hay estado. Diagnóstico.
+
+### `make_unique`
+
+> **make_unique**() -> void
+
+ Fuerza que el estado de `self` sea exclusivo, clonándolo si hace falta.
+
+ ## Retorno
+ Nada. Coste O(n) solo cuando el estado estaba compartido.
+
 ### `size`
 
 > **size**() -> int
 
- Number of entries in the receiver.
-
- ## Parámetros
+ Parámetros
  - None: the receiver is the map to measure.
 
  ## Retorno

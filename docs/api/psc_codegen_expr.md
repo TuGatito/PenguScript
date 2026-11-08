@@ -70,6 +70,19 @@ sin cambiar la interfaz `emit_expr`.
  ## Memoria
  Devuelve un string owned.
 
+### `pattern_variant_token`
+
+> **pattern_variant_token**(m: SemaModule, ast: ref to PsAst, pat: int, idx: int) -> int
+
+ Devuelve el token que nombra la variante `idx` de un patrón `when`.
+
+ `when Color.Red` guarda el nombre cualificado en un nodo `when_variant`, así
+ que sus tokens no cuelgan del patrón sino del hijo; `when A | B` los cuelga
+ del patrón separados por `|`. Esta rutina aplana ambos casos.
+
+ ## Memoria
+ Solo lee el AST; no reserva y devuelve un índice de token (-1 si no hay).
+
 ### `judge_cond_c`
 
 > **judge_cond_c**(c: ref to CgContext, st: int, pat: int, ast: ref to PsAst, stmp: string) -> string

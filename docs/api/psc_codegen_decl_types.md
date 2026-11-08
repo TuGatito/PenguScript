@@ -72,6 +72,32 @@ decide el orden y el texto C.
  ## Memoria
  Strings temporales liberados.
 
+### `emit_cleanup_forward`
+
+> **emit_cleanup_forward**(c: ref to CgContext, t: CgType) -> void
+
+ Emite la declaración adelantada del cleanup derivado.
+
+ Hace falta porque dos runas pueden tener un ciclo de tipos (A contiene B y
+ B contiene `list of A`): el orden topológico rompe el ciclo poniendo A
+ antes que B, pero el cleanup de A llama al de B por valor. Se declaran
+ todos los cleanups antes de definirlos, igual que los tipos.
+
+ ## Memoria
+ Strings temporales liberados.
+
+### `emit_deepclone`
+
+> **emit_deepclone**(c: ref to CgContext, t: CgType) -> void
+
+ Emite la copia profunda de un rune `derive Drop` (`.clone()`).
+
+ Es un `static inline T _pengu_deepclone_T(T* p)` — la misma forma que un
+ método `ritual`, para que la llamada sea la normal del compilador.
+
+ ## Memoria
+ Emite C; los strings C que construye son owned.
+
 ### `emit_cleanup`
 
 > **emit_cleanup**(c: ref to CgContext, t: CgType) -> void

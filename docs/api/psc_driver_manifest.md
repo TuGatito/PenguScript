@@ -40,6 +40,7 @@ F5 no implementa dependencias ni assets; los rechaza con un error claro.
     defines as list of string
     cc as string
     strict_c99 as bool
+    legacy_copy as bool
 ```
 
  Manifiesto resuelto.

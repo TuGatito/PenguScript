@@ -26,6 +26,7 @@ la CLI.
     prune_native as bool
     line_markers as bool
     strict_c99 as bool
+    legacy_copy as bool
     target_compiler as string
     release_unsafe as bool
     debug as bool

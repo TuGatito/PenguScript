@@ -148,6 +148,15 @@ dueño de todo lo añadido.
  ## Memoria
  Igual que `emit_error`, con severidad `Warning`.
 
+### `emit_info`
+
+> **emit_info**(bag: ref to DiagnosticBag, src: ref to SourceFile, code: string, message: string, s: ByteSpan, help: string) -> void
+
+ Emite un aviso informativo con código, mensaje, span y help.
+
+ ## Memoria
+ Igual que `emit_warning`, con severidad `Info`.
+
 ### `emit_issue`
 
 > **emit_issue**(bag: ref to DiagnosticBag, src: ref to SourceFile, issue: LexIssue, s: ByteSpan, detail: string) -> void

@@ -130,6 +130,12 @@ _Undocumented._
 
  El valor se movió a una corrutina y no debe usarse otra vez.
 
+### `SYM_DROP_MOVED`
+
+> **SYM_DROP_MOVED** : int
+
+ El valor se movió a otro binding y no debe usarse otra vez (`E0080`).
+
 ### `SemaConstKind`
 
 > omen SemaConstKind

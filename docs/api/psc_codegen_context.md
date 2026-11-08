@@ -45,6 +45,10 @@ emisor y scopes C. No muta F3.
     locals as list of CgLocal
     defers as list of int
     errdefers as list of int
+    param_names as list of int
+    drop_names as list of int
+    drop_types as list of int
+    drop_marks as list of int
     scope_marks as list of int
     err_marks as list of int
     scope_loops as list of bool
@@ -131,6 +135,39 @@ emisor y scopes C. No muta F3.
  ## Memoria
  O(1).
 
+### `current_drop_mark`
+
+> **current_drop_mark**(c: ref to CgContext) -> int
+
+ Índice de `drop_names` donde empieza el scope actual (0 si no hay).
+
+ ## Memoria
+ O(1).
+
+### `add_drop`
+
+> **add_drop**(c: ref to CgContext, c_name: int, type_id: int) -> void
+
+ Registra un destructor automático en el scope actual.
+
+ `c_name` es el `NameId` del nombre C del local (lo que devuelve
+ `add_local`) y `type_id` su tipo. Se emiten en orden inverso al salir.
+
+ ## Memoria
+ Añade dos enteros POD.
+
+### `remove_drop`
+
+> **remove_drop**(c: ref to CgContext, c_name: int) -> void
+
+ Anula el destructor automático de un local que se mueve (`return x`).
+
+ Marca la entrada como movida (`type = -1`) en vez de compactar la lista:
+ el `return` ocurre al final del cuerpo y la entrada no vuelve a usarse.
+
+ ## Memoria
+ O(n); scopes pequeños.
+
 ### `add_defer`
 
 > **add_defer**(c: ref to CgContext, node: int) -> void
@@ -175,6 +212,36 @@ emisor y scopes C. No muta F3.
 
  ## Memoria
  Vacía listas; los nodos son del AST.
+
+### `add_param`
+
+> **add_param**(c: ref to CgContext, name: int) -> void
+
+ Registra un parámetro de la función en curso.
+
+ ## Memoria
+ O(1) amortizado.
+
+### `is_param_name`
+
+> **is_param_name**(c: ref to CgContext, name: int) -> bool
+
+ ¿El `NameId` es un parámetro de la función en curso?
+
+ ## Memoria
+ O(n) sobre los parámetros.
+
+### `is_param_c_name`
+
+> **is_param_c_name**(c: ref to CgContext, txt: string) -> bool
+
+ ¿El nombre C `txt` corresponde a un parámetro de la función en curso?
+
+ Compara por el nombre C, que es lo único que el emisor tiene a mano al
+ asignar (`set x is ...`).
+
+ ## Memoria
+ O(locales · parámetros); no asigna.
 
 ### `add_local`
 

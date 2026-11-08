@@ -185,6 +185,45 @@ El resto de statements se añade por subfases manteniendo `emit_stmt`.
  ## Memoria
  Vacía el tramo de defers; los nodos son del AST.
 
+### `emit_pending_drops`
+
+> **emit_pending_drops**(c: ref to CgContext) -> void
+
+ Emite los destructores automáticos pendientes del scope actual.
+
+ Va después de los `defer` del mismo scope: lo escrito a mano corre primero
+ y el destructor automático cierra lo que quedó vivo.
+
+ ## Memoria
+ Vacía el tramo de drops.
+
+### `emit_all_drops`
+
+> **emit_all_drops**(c: ref to CgContext) -> void
+
+ Emite todos los destructores automáticos pendientes (salida de función).
+
+ ## Memoria
+ O(n); no vacía la lista (el `return` termina el cuerpo).
+
+### `emit_loop_exit_drops`
+
+> **emit_loop_exit_drops**(c: ref to CgContext) -> void
+
+ Emite los destructores de los scopes que abandona un `break`/`continue`.
+
+ ## Memoria
+ O(n); no vacía la lista (los scopes lo harán al cerrarse).
+
+### `emit_one_drop`
+
+> **emit_one_drop**(c: ref to CgContext, idx: int) -> void
+
+ Emite el destructor de una entrada de `drop_names` (`type = -1` = movida).
+
+ ## Memoria
+ C owned; el nombre se copia para el emisor.
+
 ### `loop_label_c`
 
 > **loop_label_c**(c: ref to CgContext, ast: ref to PsAst, node: int) -> string
@@ -291,11 +330,40 @@ El resto de statements se añade por subfases manteniendo `emit_stmt`.
  ## Memoria
  Strings owned; los nombres son del pool.
 
-### `emit_judge_chain`
+### `emit_judge_arm_body`
 
-> **emit_judge_chain**(c: ref to CgContext, node: int, ast: ref to PsAst, st: int, stmp: string) -> void
+> **emit_judge_arm_body**(c: ref to CgContext, body: int, ast: ref to PsAst, vty: int, vtmp: string) -> void
 
- Emite un `judge` como cadena de `if` (necesario cuando hay guardas).
+ Emite el cuerpo de un brazo de `judge`.
+
+ Con `vty > 0` deja el valor de la rama en `vtmp` (modo valor). Con
+ `vty <= 0` ejecuta el brazo como sentencia; si la función devuelve algo,
+ la última expresión del brazo se convierte en `return`.
+
+ ## Memoria
+ Strings owned; el AST es del programa.
+
+### `judge_case_label`
+
+> **judge_case_label**(c: ref to CgContext, st: int, tk: int, ast: ref to PsAst) -> string
+
+ Etiqueta C de `case` para un token de patrón.
+
+ Los números se emiten tal cual; las variantes se traducen al nombre C
+ del omen. Debe llamarse sólo con sujetos conmutables (`switch`).
+
+ ## Memoria
+ Strings owned.
+
+### `emit_judge_core`
+
+> **emit_judge_core**(c: ref to CgContext, node: int, ast: ref to PsAst, vty: int, vtmp: string) -> void
+
+ Emite el despacho de un `judge` (sentencia o valor).
+
+ Sujetos `string` y brazos con guarda se emiten como cadena de `if` con
+ `expr.judge_cond_c` (no hay `switch` sobre cadenas). El resto usa
+ `switch` con una etiqueta por variante de la alternancia.
 
  ## Memoria
  Strings owned; el AST es del programa.
@@ -319,6 +387,55 @@ El resto de statements se añade por subfases manteniendo `emit_stmt`.
 
  ## Memoria
  Strings owned.
+
+### `is_share_type`
+
+> **is_share_type**(c: ref to CgContext, ty: int) -> bool
+
+ `true` si el tipo es una runa con `derive Drop` (siguiendo alias y seals).
+
+ ## Memoria
+ O(profundidad del alias).
+ `true` si `ty` es un handle que se copia compartiendo (`Rc`/`Weak*`).
+
+ ## Memoria
+ No asigna.
+
+### `value_is_place`
+
+> **value_is_place**(c: ref to CgContext, node: int, ast: ref to PsAst) -> bool
+
+ `true` si la expresión es una referencia a una variable/parámetro (un
+ préstamo que hay que retener al copiarlo a un `Rc`/`Weak`).
+
+ ## Memoria
+ No asigna.
+
+### `share_assigned`
+
+> **share_assigned**(c: ref to CgContext, ty: int, vnode: int, ast: ref to PsAst, target: string) -> void
+
+ Emite el `share` de COW cuando el valor asignado viene de un lugar (otra
+ variable).  Un temporal (`f(...)`, `a + b`, un literal) ya es dueño único y
+ no necesita contador.
+
+ ## Memoria
+ O(1) si ya es COW; O(n) al promocionar un valor legacy.
+
+### `is_drop_type`
+
+> **is_drop_type**(c: ref to CgContext, ty: int) -> bool
+
+_Undocumented._
+
+### `register_local`
+
+> **register_local**(c: ref to CgContext, nid: int, ty: int, cnode: int) -> void
+
+ Registra un local y, si su tipo es `Drop`, su destructor automático.
+
+ ## Memoria
+ Añade a `locals` y a las pilas de drops.
 
 ### `emit_local`
 

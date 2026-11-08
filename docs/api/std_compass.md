@@ -90,6 +90,19 @@ _Undocumented._
 
  Preferred separator for this platform: "\\" on Windows, "/" elsewhere.
 
+### `cp_own`
+
+> **cp_own**(s: string) -> string
+
+ Owned copy of a borrowed path string.
+
+ ## Memoria
+ A by-value `string` parameter is borrowed by the callee (`LANGUAGE` §13.7), so
+ a constructor that stores it must copy it: the caller may hand over a
+ temporary (an interpolated path, for instance) that the compiler releases at
+ the end of the call expression. The copy is a fresh SDS buffer owned by the
+ returned `string`; release it with `banish`.
+
 ### `cp_is_abs`
 
 > **cp_is_abs**(path: string) -> bool
@@ -1081,14 +1094,16 @@ _Undocumented._
  Ritual constructor creating a `Path` from a raw string.
 
  ## Parámetros
- - `s`: the path text to wrap. Moved into the rune.
+ - `s`: the path text to wrap. Borrowed: the rune stores an owned copy.
 
  ## Retorno
- A new `Path` whose `raw` field holds `s`.
+ A new `Path` whose `raw` field holds a copy of `s`.
 
  ## Memoria
- The rune takes ownership of `s` as-is; do not `banish` the argument
- separately.
+ `s` is borrowed (`LANGUAGE` §13.7): the rune copies it, so the caller keeps
+ ownership and must `banish` an owned argument. Copying is what makes
+ `calling compass.new_path with "a{sep}b"` safe: an interpolated path is a
+ temporary that the compiler releases at the end of the call expression.
 
  ## Ejemplo
  ```pengu
@@ -1352,14 +1367,14 @@ _Undocumented._
  Builds an owned `Path` value from a raw path string.
 
  ## Parámetros
- - `raw`: the path text to wrap. Moved into the rune.
+ - `raw`: the path text to wrap. Borrowed: the rune stores an owned copy.
 
  ## Retorno
- A new `Path` whose `raw` field holds the same string.
+ A new `Path` whose `raw` field holds a copy of `raw`.
 
  ## Memoria
- The rune takes ownership of `raw` as-is (no copy); do not `banish` the argument
- separately.
+ `raw` is borrowed (`LANGUAGE` §13.7): the rune stores a fresh copy, so the
+ caller keeps ownership and must `banish` an owned argument.
 
  ## Ejemplo
  ```pengu
@@ -1374,13 +1389,14 @@ _Undocumented._
  `Path.from_str`).
 
  ## Parámetros
- - `s`: the path text to wrap. Moved into the rune.
+ - `s`: the path text to wrap. Borrowed: the rune stores an owned copy.
 
  ## Retorno
- A new `Path` whose `raw` field holds `s`.
+ A new `Path` whose `raw` field holds a copy of `s`.
 
  ## Memoria
- The rune takes ownership of `s` as-is (no copy).
+ `s` is borrowed (`LANGUAGE` §13.7): the rune copies it, so the caller keeps
+ ownership and must `banish` an owned argument.
 
  ## Ejemplo
  ```pengu

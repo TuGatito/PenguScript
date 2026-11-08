@@ -486,11 +486,38 @@ New: `words`, `lines`, `pascal_case`, `snake_case`, `kebab_case`, `is_blank`,
  Returns a freshly allocated owned copy of `s` (also when `from` does not
  occur or is empty). `s`, `from` and `to` are borrowed.
 
+### `is_shared`
+
+> **is_shared**() -> bool
+
+ --- Length and iteration -------------------------------------------
+ `true` si el búfer de `self` lo comparte otro binding (COW).
+
+ ## Retorno
+ `false` mientras el texto sea exclusivo. Diagnóstico.
+
+### `ref_count`
+
+> **ref_count**() -> int
+
+ Número de bindings que comparten el búfer de `self` (COW).
+
+ ## Retorno
+ `1` si el texto es exclusivo. Diagnóstico.
+
+### `make_unique`
+
+> **make_unique**() -> void
+
+ Fuerza que el texto de `self` sea exclusivo, copiándolo si hace falta.
+
+ ## Retorno
+ Nada.
+
 ### `len`
 
 > **len**() -> int
 
- --- Length and iteration -------------------------------------------
  Number of bytes in the string.
 
  ## Parámetros

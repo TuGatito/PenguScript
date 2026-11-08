@@ -240,6 +240,19 @@ psc/lsp/server.pengu — servidor LSP mínimo (lifecycle + diagnósticos).
 
  Palabra bajo un offset.
 
+### `type_symbol_lookup`
+
+> **type_symbol_lookup**(p: ref to SemaResult, mid: int, text: string, off: int, name: string) -> int
+
+ Busca un tipo por nombre resolviendo el alias de módulo (`cons.Rc`).
+
+ Devuelve el `symbol id` o `-1`. Sirve para que "ir a definición" funcione
+ sobre nombres de tipo de módulos importados, que no aparecen como nodos de
+ expresión anotados.
+
+ ## Memoria
+ O(símbolos); libera los textos auxiliares.
+
 ### `doc_sema`
 
 > **doc_sema**(st: ref to State, u: string) -> ref to SemaResult
@@ -407,6 +420,18 @@ psc/lsp/server.pengu — servidor LSP mínimo (lifecycle + diagnósticos).
 
  ## Memoria
  Libera la lista de ids y los textos auxiliares.
+
+### `add_synthetic_method_completions`
+
+> **add_synthetic_method_completions**(p: ref to SemaResult, arr: ref to JsonValue, seen: ref to map of string to bool, type_id: int, prefix: string) -> void
+
+ Añade los métodos que el compilador sintetiza y que por tanto no existen
+ como símbolos: `make_unique`/`is_shared`/`ref_count` de los contenedores
+ COW, el `clone`/`drop` de los runes `derive Drop` y la superficie de
+ `std.consortium`.
+
+ ## Memoria
+ Libera los textos auxiliares; no asigna estructuras nuevas.
 
 ### `add_field_completions`
 

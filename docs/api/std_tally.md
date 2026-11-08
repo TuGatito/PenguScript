@@ -147,9 +147,9 @@ purpose.
  calling xs.last    # 2
  ```
 
-### `at_safe`
+### `is_shared`
 
-> **at_safe**(idx: int) -> maybe T
+> **is_shared**() -> bool
 
  Element at `idx`, or `maybe none` when `idx` is out of range.
 
@@ -165,6 +165,50 @@ purpose.
  calling xs.at_safe with 2    # some 2
  calling xs.at_safe with 9    # none
  ```
+ `true` si el búfer de `self` lo comparte otro binding (COW).
+
+ ## Retorno
+ `false` mientras el búfer sea exclusivo. Es un diagnóstico: el
+ compilador decide solo cuándo clonar.
+
+ ## Ejemplo
+ ```pengu
+ var a as list of int is [1]
+ var b as list of int is a
+ calling a.is_shared    # true
+ ```
+
+### `ref_count`
+
+> **ref_count**() -> int
+
+ Número de bindings que comparten el búfer de `self` (COW).
+
+ ## Retorno
+ `1` si el búfer es exclusivo; `0` si no hay búfer. Diagnóstico.
+
+### `make_unique`
+
+> **make_unique**() -> void
+
+ Fuerza que el búfer de `self` sea exclusivo, clonándolo si hace falta.
+
+ ## Retorno
+ Nada. Tras la llamada, `is_shared` es `false`. El coste es O(n) solo
+ cuando el búfer estaba compartido.
+
+ ## Ejemplo
+ ```pengu
+ var a as list of int is [1]
+ var b as list of int is a
+ calling b.make_unique
+ ```
+
+### `at_safe`
+
+> **at_safe**(idx: int) -> maybe T
+
+_Undocumented._
 
 ### `reverse`
 

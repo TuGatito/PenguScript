@@ -30,6 +30,7 @@ Las opciones son inmutables durante el chequeo. Los strings son owned por el
     max_errors as int
     stop_after_first as bool
     include_antiquus as bool
+    lint_cow as bool
 ```
 
  Opciones de proyecto que necesita F3.
