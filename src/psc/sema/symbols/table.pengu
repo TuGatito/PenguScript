@@ -728,7 +728,131 @@ weave lookup_method with s as ref to SemaSymbols, receiver as int, method as int
             return calling s->container_methods.get with ckey2
     if calling s->generic_methods.has with method:
         return calling s->generic_methods.get with method
+    # Promoción por `fundere`: el método del embed se puede llamar desde el
+    # host. `ritual` no se promueve. Si está en más de un embed, no se elige
+    # "el primero": se devuelve -1 y la sema emite E0088.
+    var cnt as int is calling count_promoted_method with s, receiver, method, 0
+    if cnt > 1:
+        return -1
+    if cnt == 1:
+        var prom as int is calling lookup_method_promoted with s, receiver, method
+        if prom >= 0:
+            return prom
     return -1
+
+## Resultado de `find_promoted_method` cuando el método no está en ningún
+## embed: -1. Un resultado `>= 0` es el símbolo del método.
+##
+## ## Memoria
+## No asigna.
+const METHOD_PROMOTED_NONE as int is -1
+
+## Resuelve el tipo de un embed hasta su nominal (sigue `ref`, `frozen`,
+## `alias` y `seal`), o -1 si no es un rune/echo.
+##
+## ## Memoria
+## No asigna.
+weave embed_nominal_type with s as ref to SemaSymbols, ty as int into int:
+    var cur as int is ty
+    var guard as int is 0
+    while guard < 32:
+        var t as tk.SemaType is calling types.at with s->types, cur
+        if t.kind == tk.SemaTypeKind.TkRef or t.kind == tk.SemaTypeKind.TkFrozen or t.kind == tk.SemaTypeKind.TkAlias or t.kind == tk.SemaTypeKind.TkSeal:
+            set cur is t.a
+            if t.kind == tk.SemaTypeKind.TkAlias or t.kind == tk.SemaTypeKind.TkSeal:
+                set cur is t.b
+        else if t.kind == tk.SemaTypeKind.TkRune or t.kind == tk.SemaTypeKind.TkEcho:
+            return cur
+        else:
+            return -1
+        set guard is guard + 1
+    return -1
+
+## ¿El símbolo `sid` es un método promovible desde un embed?
+##
+## `ritual` no se promueve: construye el embed, no el host (§4.5 del diseño).
+##
+## ## Memoria
+## No asigna.
+weave method_promotable with s as ref to SemaSymbols, sid as int into bool:
+    if sid < 0:
+        return false
+    var sy as sym.SemaSymbol is (s->symbols at sid)
+    if (sy.flags & sym.SYM_RITUAL) != 0:
+        return false
+    return true
+
+## Cuenta cuántos embeds (recursivamente) exponen el método `mid`.
+##
+## Devuelve 0, 1 o 2 (saturado). El 2 es la ambigüedad E0088.
+##
+## ## Memoria
+## No asigna.
+weave count_promoted_method with s as ref to SemaSymbols, ty as int, mid as int, depth as int into int:
+    if depth > 32:
+        return 0
+    var nom as int is calling embed_nominal_type with s, ty
+    if nom < 0:
+        return 0
+    var nt as tk.SemaType is calling types.at with s->types, nom
+    var info as types.SemaNominalInfo is (s->types->nominal_infos at nt.a)
+    var total as int is 0
+    var i as int is 0
+    while i < info.fields_count:
+        var f as types.SemaField is (s->types->fields at (info.fields_first + i))
+        if (f.flags & types.FIELD_EMBED) != 0:
+            var here as int is 0
+            if calling method_promotable with s, (calling lookup_method_exact with s, f.type, mid):
+                set here is 1
+            else:
+                set here is calling count_promoted_method with s, f.type, mid, depth + 1
+            set total is total + here
+            if total > 1:
+                return 2
+        set i is i + 1
+    return total
+
+## Busca el método `mid` en los embeds de `ty` y rellena `path` con los índices
+## de campo del camino (de dentro hacia fuera; el llamador lo invierte).
+##
+## Devuelve el símbolo del método o -1.
+##
+## ## Memoria
+## Añade índices a `path`.
+weave find_promoted_method with s as ref to SemaSymbols, ty as int, mid as int, path as ref to list of int, depth as int into int:
+    if depth > 32:
+        return -1
+    var nom as int is calling embed_nominal_type with s, ty
+    if nom < 0:
+        return -1
+    var nt as tk.SemaType is calling types.at with s->types, nom
+    var info as types.SemaNominalInfo is (s->types->nominal_infos at nt.a)
+    var i as int is 0
+    while i < info.fields_count:
+        var f as types.SemaField is (s->types->fields at (info.fields_first + i))
+        if (f.flags & types.FIELD_EMBED) != 0:
+            var sid as int is calling lookup_method_exact with s, f.type, mid
+            if calling method_promotable with s, sid:
+                calling path->push with i
+                return sid
+            var deeper as int is calling find_promoted_method with s, f.type, mid, path, depth + 1
+            if deeper >= 0:
+                calling path->push with i
+                return deeper
+        set i is i + 1
+    return -1
+
+## Método promovido por `fundere`: el del host gana (lo resuelve
+## `lookup_method_exact` antes); si es único en un embed, se promueve; si está
+## en más de uno, el llamador emite E0088.
+##
+## ## Memoria
+## Asigna la lista temporal del camino; la libera.
+weave lookup_method_promoted with s as ref to SemaSymbols, receiver as int, method as int into int:
+    var path as list of int is list of int
+    var sid as int is calling find_promoted_method with s, receiver, method, (sigil of path), 0
+    banish path
+    return sid
 
 ## Busca sólo el método exacto del receptor (sin fallback genérico).
 ##

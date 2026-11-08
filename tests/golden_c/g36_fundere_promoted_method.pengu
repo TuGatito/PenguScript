@@ -1,0 +1,35 @@
+## `fundere`: los métodos del embed se promueven. `e.move(...)` se emite como
+## `GameObj_move(&e.gameObj, ...)`, también dentro de `with:`. El método propio
+## gana si el host declara el mismo nombre, y la promoción es recursiva.
+import std.spark
+
+rune Base:
+    depth as int
+
+enchanting Base:
+    weave deep into int:
+        return self->depth
+
+rune Mid fundere Base:
+    level as int
+
+enchanting Mid:
+    weave through into int:
+        return calling self.deep + self->level
+
+rune Top fundere Mid:
+    top as int
+
+enchanting Top:
+    weave bump with n as int into void:
+        set self->top is self->top + n
+    weave through into int:
+        return self->top + 99
+
+weave main into int:
+    var t as Top is with mid is (with base is (with depth is 5), level is 2), top is 1
+    calling t.bump with 4
+    with t:
+        calling .bump with 1
+    calling spark.println with "{t.top},{calling t.through},{calling t.deep}"
+    return 0

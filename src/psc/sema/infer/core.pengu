@@ -1157,6 +1157,15 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
                     calling infer_args_only with s, args
                     return bm
         if sid < 0:
+            var ambty as int is calling underlying_type with s, rcp
+            var ambty_t as tk.SemaType is calling types.at with s->types, ambty
+            if ambty_t.kind == tk.SemaTypeKind.TkRef:
+                set ambty is ambty_t.a
+            var ambmid as int is calling npool.intern with s->names, mname
+            if calling report_ambiguous_method with s, node, ambty, ambmid, mname:
+                return 0
+            if calling report_ritual_not_promoted with s, node, ambty, ambmid, mname:
+                return 0
             # Una llamada `receptor.metodo` sólo puede resolver métodos (o
             # builtins de contenedor); no cae al registro global de funciones.
             if n > 1 and base_import < 0 and base_sid >= 0:
@@ -1475,6 +1484,8 @@ weave infer_chain_method with s as ref to state.SemaState, recv as int, step as 
     var mid as int is calling npool.intern with s->names, mname
     var sid as int is calling symbols.lookup_method with s->symbols, rbase, mid
     if sid < 0:
+        if calling report_ambiguous_method with s, step, rbase, mid, mname:
+            return 0
         var msg as string is "'{mname}' is not a method of this receiver"
         defer banish msg
         var help as string is "Declare it in an 'enchanting' block for the receiver type, or use 'pipe' for a free function."
@@ -1854,6 +1865,9 @@ weave infer_with_call with s as ref to state.SemaState, node as int, target as i
         set recv is rty.a
     var mid as int is calling npool.intern with s->names, txt
     var sid as int is calling symbols.lookup_method with s->symbols, recv, mid
+    if sid < 0:
+        if calling report_ambiguous_method with s, node, recv, mid, txt:
+            return 0
     var args as int is calling astutil.node_child with s->ast, node, 2
     if sid >= 0:
         var fsv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, sid
@@ -2191,6 +2205,111 @@ weave embed_sources_text with s as ref to state.SemaState, ty as int, nid as int
                 banish ftxt
         set i is i + 1
     return calling sb.finish
+
+## Nombres de los embeds que exponen el método `mid` (para E0088).
+##
+## ## Memoria
+## Devuelve string owned.
+weave embed_method_sources_text with s as ref to state.SemaState, ty as int, mid as int into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var u as int is calling embeds.unwrap with s->types, ty
+    if u <= 0:
+        return calling sb.finish
+    var st as tk.SemaType is calling types.at with s->types, u
+    if st.kind != tk.SemaTypeKind.TkRune and st.kind != tk.SemaTypeKind.TkEcho:
+        return calling sb.finish
+    var info as types.SemaNominalInfo is (s->types->nominal_infos at st.a)
+    var i as int is 0
+    while i < info.fields_count:
+        var f as types.SemaField is (s->types->fields at (info.fields_first + i))
+        if (f.flags & types.FIELD_EMBED) != 0:
+            var here as int is calling symbols.lookup_method_exact with s->symbols, f.type, mid
+            var has as bool is false
+            if calling symbols.method_promotable with s->symbols, here:
+                set has is true
+            else if (calling symbols.count_promoted_method with s->symbols, f.type, mid, 1) > 0:
+                set has is true
+            if has:
+                var ftxt as string is calling npool.text with s->names, f.name
+                if (calling sb.len) > 0:
+                    calling sb.append with ", "
+                calling sb.append with "'{ftxt}'"
+                banish ftxt
+        set i is i + 1
+    return calling sb.finish
+
+## Si `mid` está promovido desde más de un embed, emite E0088 y devuelve
+## `true`. El llamador no añade entonces un «método inexistente».
+##
+## ## Memoria
+## Asigna el diagnóstico y strings temporales.
+weave report_ambiguous_method with s as ref to state.SemaState, node as int, ty as int, mid as int, mtext as string into bool:
+    if ty <= 0:
+        return false
+    var cnt as int is calling symbols.count_promoted_method with s->symbols, ty, mid, 0
+    if cnt < 2:
+        return false
+    var src as string is calling embed_method_sources_text with s, ty, mid
+    defer banish src
+    var msg as string is "ambiguous method '{mtext}' promoted from {src}"
+    defer banish msg
+    var help as string is "Use the explicit embed field: write it before the method (for example 'host.{src}.{mtext}')."
+    defer banish help
+    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_EMBED_AMBIGUOUS_METHOD, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), msg, help, ""
+    return true
+
+## Busca un método `ritual` con el nombre `mid` en los embeds de `ty`.
+##
+## Los rituales no se promueven (construyen el embed, no el host); cuando el
+## usuario escribe `calling host.new()` conviene decírselo en vez de «undefined
+## function».
+##
+## ## Memoria
+## No asigna.
+weave find_embedded_ritual with s as ref to state.SemaState, ty as int, mid as int, depth as int into int:
+    if depth > 32:
+        return -1
+    var u as int is calling embeds.unwrap with s->types, ty
+    if u <= 0:
+        return -1
+    var st as tk.SemaType is calling types.at with s->types, u
+    if st.kind != tk.SemaTypeKind.TkRune and st.kind != tk.SemaTypeKind.TkEcho:
+        return -1
+    var info as types.SemaNominalInfo is (s->types->nominal_infos at st.a)
+    var i as int is 0
+    while i < info.fields_count:
+        var f as types.SemaField is (s->types->fields at (info.fields_first + i))
+        if (f.flags & types.FIELD_EMBED) != 0:
+            var sid as int is calling symbols.lookup_method_exact with s->symbols, f.type, mid
+            if sid >= 0:
+                var sy as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, sid
+                if (sy.flags & sym.SYM_RITUAL) != 0:
+                    return f.name
+            var deeper as int is calling find_embedded_ritual with s, f.type, mid, depth + 1
+            if deeper >= 0:
+                return deeper
+        set i is i + 1
+    return -1
+
+## Si el nombre es un ritual de un embed, explica que no se promueve.
+##
+## ## Memoria
+## Asigna el diagnóstico y strings temporales.
+weave report_ritual_not_promoted with s as ref to state.SemaState, node as int, ty as int, mid as int, mtext as string into bool:
+    if ty <= 0:
+        return false
+    var fname as int is calling find_embedded_ritual with s, ty, mid, 0
+    if fname < 0:
+        return false
+    var etxt as string is calling npool.text with s->names, fname
+    defer banish etxt
+    var msg as string is "ritual '{mtext}' is not promoted by 'fundere'"
+    defer banish msg
+    var help as string is "Call it on the embed's own type ('Type.{mtext}'), or declare a ritual on the host."
+    defer banish help
+    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_UNDEFINED, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), msg, help, ""
+    return true
 
 ## Tipo del campo `nid` con promoción, emitiendo E0087 si es ambiguo.
 ##

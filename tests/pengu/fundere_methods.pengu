@@ -1,0 +1,49 @@
+## Promoción de métodos por `fundere`: lectura, `with:`, shadowing del host y
+## recursión. Cada bloque devuelve un código propio si falla.
+rune Base:
+    depth as int
+
+enchanting Base:
+    weave deep into int:
+        return self->depth
+    weave add_depth with n as int into void:
+        set self->depth is self->depth + n
+
+rune Mid fundere Base:
+    level as int
+
+enchanting Mid:
+    weave through into int:
+        return calling self.deep + self->level
+
+rune Top fundere Mid:
+    top as int
+
+enchanting Top:
+    weave through into int:
+        return 100
+
+weave main into int:
+    # 1. Método promovido sobre un valor.
+    var t as Top is with mid is (with base is (with depth is 5), level is 2), top is 1
+    if calling t.deep != 5:
+        return 1
+    # 2. Método promovido que muta el embed.
+    calling t.add_depth with 3
+    if t.depth != 8:
+        return 2
+    # 3. Dentro de `with:`.
+    with t:
+        calling .add_depth with 1
+    if t.depth != 9:
+        return 3
+    # 4. El método del host gana.
+    if calling t.through != 100:
+        return 4
+    # 5. Promoción recursiva.
+    if calling t.mid.through != 11:
+        return 5
+    # 6. Llamada al método del embed por la ruta explícita.
+    if calling t.mid.base.deep != 9:
+        return 6
+    return 0

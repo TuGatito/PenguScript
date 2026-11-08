@@ -4289,6 +4289,78 @@ weave resolve_target with c as ref to context.CgContext, target as int, ast as r
         set i is i + 1
     return with text is base, type_id is ty
 
+## Tipo nominal (rune/echo) al que apunta `ty` tras quitar `ref`, `frozen`,
+## `alias` y `seal`. Devuelve -1 si no es un nominal.
+##
+## ## Memoria
+## No asigna.
+weave cg_nominal_of with c as ref to context.CgContext, ty as int into int:
+    var cur as int is ty
+    var guard as int is 0
+    while guard < 32:
+        var t as tk.SemaType is calling types.at with (sigil of c->program->types), cur
+        if t.kind == tk.SemaTypeKind.TkAlias or t.kind == tk.SemaTypeKind.TkSeal:
+            if t.b <= 0:
+                return -1
+            set cur is t.b
+        else if t.kind == tk.SemaTypeKind.TkRef or t.kind == tk.SemaTypeKind.TkFrozen:
+            if t.a <= 0:
+                return -1
+            set cur is t.a
+        else if t.kind == tk.SemaTypeKind.TkRune or t.kind == tk.SemaTypeKind.TkEcho:
+            return cur
+        else:
+            return -1
+        set guard is guard + 1
+    return -1
+
+## Camino de campos de embed desde `ty` hasta el embed de tipo nominal
+## `target`. La lista queda vacía si `target` no es un embed de `ty`.
+##
+## ## Memoria
+## Devuelve una lista owned.
+weave cg_embed_path_to with c as ref to context.CgContext, ty as int, target as int, depth as int into list of int:
+    var out as list of int is list of int
+    if depth > 32:
+        return out
+    var nom as int is calling cg_nominal_of with c, ty
+    if nom < 0:
+        return out
+    if nom == target:
+        return out
+    var nt as tk.SemaType is calling types.at with (sigil of c->program->types), nom
+    var info as types.SemaNominalInfo is (c->program->types.nominal_infos at nt.a)
+    var i as int is 0
+    while i < info.fields_count:
+        var f as types.SemaField is (c->program->types.fields at (info.fields_first + i))
+        if (f.flags & types.FIELD_EMBED) != 0:
+            var inner as list of int is calling cg_embed_path_to with c, f.type, target, depth + 1
+            var found as bool is false
+            if (calling cg_nominal_of with c, f.type) == target:
+                set found is true
+            else if inner.len > 0:
+                set found is true
+            if found:
+                banish out
+                calling inner.push with i
+                return inner
+            banish inner
+        set i is i + 1
+    return out
+
+## `true` si el receptor `rt` es un puntero en C.
+##
+## ## Memoria
+## No asigna.
+weave receiver_is_pointer with c as ref to context.CgContext, rt as CgTarget, self_value as bool into bool:
+    if rt.text == "self" and not self_value:
+        return true
+    if rt.type_id > 0:
+        var t as tk.SemaType is calling types.at with (sigil of c->program->types), rt.type_id
+        if t.kind == tk.SemaTypeKind.TkRef:
+            return true
+    return false
+
 ## Texto C del receptor de una llamada a método.
 ##
 ## El target de una llamada es un `normal_target` con un token base y una
@@ -4300,6 +4372,38 @@ weave resolve_target with c as ref to context.CgContext, target as int, ast as r
 weave method_receiver with c as ref to context.CgContext, target as int, ast as ref to psast.PsAst, self_value as bool, recv_type as int into string:
     var rt as CgTarget is calling resolve_target with c, target, ast, true
     defer banish rt.text
+    # Método promovido por `fundere`: el receptor es el campo del embed.
+    var isptr as bool is calling receiver_is_pointer with c, rt, self_value
+    if rt.type_id > 0:
+        var host as int is calling cg_nominal_of with c, rt.type_id
+        if host > 0:
+            var path as list of int is calling cg_embed_path_to with c, host, recv_type, 0
+            if path.len > 0:
+                var sb as StringBuilder is calling StringBuilder.new
+                defer banish sb
+                calling sb.append with "&("
+                calling sb.append with rt.text
+                var sep as string is "."
+                if isptr:
+                    set sep is "->"
+                var cur as int is host
+                var pi as int is 0
+                while pi < path.len:
+                    var ct as tk.SemaType is calling types.at with (sigil of c->program->types), cur
+                    var cinfo as types.SemaNominalInfo is (c->program->types.nominal_infos at ct.a)
+                    var fld as types.SemaField is (c->program->types.fields at (cinfo.fields_first + (path at pi)))
+                    var fname as string is calling npool.text with (sigil of c->program->names), fld.name
+                    calling sb.append with sep
+                    calling sb.append with fname
+                    set sep is "."
+                    var nxt as int is calling cg_nominal_of with c, fld.type
+                    if nxt > 0:
+                        set cur is nxt
+                    set pi is pi + 1
+                calling sb.append with ")"
+                banish path
+                return calling sb.finish
+            banish path
     if self_value or rt.text == "self":
         return calling npool.copy_string with rt.text
     if rt.type_id >= 0:
