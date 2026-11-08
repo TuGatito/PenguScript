@@ -303,6 +303,29 @@ weave receiver_type_at with p as ref to program.SemaProgram, mid as int, text as
 ##
 ## Incluye los métodos exactos del receptor y los métodos genéricos (aquellos
 ## cuyo receptor es un `shard T`), que se resuelven en la llamada.
+## Nombre base del nominal de un tipo (`""` si no es una runa/eco).
+##
+## Sigue `template_info` para que `Rc of Node` y `Rc of T` compartan base.
+##
+## ## Memoria
+## O(1); devuelve un préstamo del pool de nombres.
+weave nominal_base with p as ref to program.SemaProgram, ty as int into string:
+    if ty <= 0 or ty >= p->types.types.len:
+        return ""
+    var t as tk.SemaType is calling types.at with (sigil of p->types), ty
+    var steps as int is 0
+    while steps < 32 and (t.kind == tk.SemaTypeKind.TkAlias or t.kind == tk.SemaTypeKind.TkSeal):
+        if t.b <= 0:
+            return ""
+        set t is calling types.at with (sigil of p->types), t.b
+        set steps is steps + 1
+    if (t.kind != tk.SemaTypeKind.TkRune and t.kind != tk.SemaTypeKind.TkEcho) or t.a < 0 or t.a >= p->types.nominal_infos.len:
+        return ""
+    var info as types.SemaNominalInfo is (p->types.nominal_infos at t.a)
+    if info.template_info >= 0 and info.template_info < p->types.nominal_infos.len:
+        set info is (p->types.nominal_infos at info.template_info)
+    return calling npool.text with (sigil of p->names), info.base_name
+
 weave methods_for_type with p as ref to program.SemaProgram, type_id as int into list of int:
     var out as list of int is list of int
     if type_id <= 0:
@@ -319,6 +342,14 @@ weave methods_for_type with p as ref to program.SemaProgram, type_id as int into
                     var rt as tk.SemaType is calling types.at with (sigil of p->types), recv
                     if rt.kind == tk.SemaTypeKind.TkTypeParam:
                         calling out.push with i
+                    else:
+                        # Método de un `enchanting` genérico (`enchanting Rc shard T`):
+                        # vale para cualquier instancia mientras coincida el nominal.
+                        var rb as string is calling nominal_base with p, recv
+                        if rb length > 0:
+                            var tb as string is calling nominal_base with p, type_id
+                            if tb == rb:
+                                calling out.push with i
         set i is i + 1
     return out
 

@@ -199,6 +199,64 @@ def main() -> int:
         )
         assert_true("definition returns location", definition["result"] is not None)
 
+        # --- std.consortium: hover, completado sintético y definición -------
+        consortium = (
+            "import std.consortium as cons\n"
+            "import std.spark\n"
+            "\n"
+            "rune Node:\n"
+            "    value as int\n"
+            "\n"
+            "weave main into int:\n"
+            "    var n as Node is with value is 7\n"
+            "    var r as cons.Rc of Node is calling cons.Rc.new with n\n"
+            "    var xs as list of int is list of int\n"
+            "    calling xs.push with 1\n"
+            "    var v as int is r.get->value\n"
+            "    calling spark.println with \"{v}\"\n"
+            "    return 0\n"
+        )
+        cdoc = PROJECT / "src" / "consortium_check.pengu"
+        curi = cdoc.as_uri()
+        cdiag = client.open(curi, consortium)
+        assert_eq("consortium diagnostics", cdiag["diagnostics"], [])
+
+        member = client.request(
+            "textDocument/completion",
+            {"textDocument": {"uri": curi}, "position": {"line": 11, "character": 22}},
+        )
+        labels = [item["label"] for item in member["result"]]
+        assert_true("Rc.get complete", "get" in labels)
+        assert_true("Rc.make_mut complete", "make_mut" in labels)
+        assert_true("Rc.downgrade complete", "downgrade" in labels)
+        assert_true("Rc.strong_count complete", "strong_count" in labels)
+        lmember = client.request(
+            "textDocument/completion",
+            {"textDocument": {"uri": curi}, "position": {"line": 10, "character": 15}},
+        )
+        llabels = [item["label"] for item in lmember["result"]]
+        assert_true("list.make_unique complete", "make_unique" in llabels)
+        assert_true("list.is_shared complete", "is_shared" in llabels)
+        assert_true("list.ref_count complete", "ref_count" in llabels)
+        assert_true("list.push complete", "push" in llabels)
+
+        chov = client.request(
+            "textDocument/hover",
+            {"textDocument": {"uri": curi}, "position": {"line": 8, "character": 18}},
+        )
+        chov_value = chov["result"]["contents"]["value"]
+        assert_true("Rc hover is a rune", "rune Rc" in chov_value)
+        assert_true("Rc hover shows the doc", "reference-counted" in chov_value)
+
+        cdef = client.request(
+            "textDocument/definition",
+            {"textDocument": {"uri": curi}, "position": {"line": 8, "character": 18}},
+        )
+        loc = cdef["result"]
+        assert_true("consortium definition", loc is not None)
+        first = loc[0] if isinstance(loc, list) else loc
+        assert_true("consortium definition path", "consortium" in first.get("uri", ""))
+
         symbols = client.request("textDocument/documentSymbol", {"textDocument": {"uri": URI}})
         names = [item["name"] for item in symbols["result"]]
         assert_true("outline has Persona", "Persona" in names)

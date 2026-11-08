@@ -668,6 +668,39 @@ weave word_at with text as string, off as int into string:
         set end is end + 1
     return text at start to end
 
+## Busca un tipo por nombre resolviendo el alias de módulo (`cons.Rc`).
+##
+## Devuelve el `symbol id` o `-1`. Sirve para que "ir a definición" funcione
+## sobre nombres de tipo de módulos importados, que no aparecen como nodos de
+## expresión anotados.
+##
+## ## Memoria
+## O(símbolos); libera los textos auxiliares.
+weave type_symbol_lookup with p as ref to sema_api.SemaResult, mid as int, text as string, off as int, name as string into int:
+    if name length == 0:
+        return -1
+    var dot as int is calling member_dot_before with text, off
+    if dot >= 0:
+        var lb as ref to frozen byte is bytes of text
+        var st as int is dot
+        while st > 0 and calling is_word with ((lb at (st - 1)) to int):
+            set st is st - 1
+        var alias as string is text at st to dot
+        defer banish alias
+        var imp as int is calling query.imported_module with p->program, mid, alias
+        if imp >= 0:
+            var exps as list of int is calling query.module_exports with p->program, imp
+            defer banish exps
+            var i as int is 0
+            while i < exps.len:
+                var sid as int is (exps at i)
+                var nm as string is calling query.symbol_name with p->program, sid
+                if nm == name:
+                    return sid
+                set i is i + 1
+        return -1
+    return -1
+
 ## `SemaResult` de un documento abierto (`-1` no aplica; el llamador comprueba).
 weave doc_sema with st as ref to State, u as string into ref to sema_api.SemaResult:
     var d as Document is (st->docs at u)
@@ -987,7 +1020,12 @@ weave handle_hover with st as ref to State, id as rpc.JsonRpcId, params as JsonV
                     if sid >= 0:
                         set value is calling symbol_hover with sp, sid
                     else:
-                        set value is calling keyword_doc with w
+                        # Nombres de tipo de módulos importados (`cons.Rc`).
+                        var tsid as int is calling type_symbol_lookup with sp, mid, text, off, w
+                        if tsid >= 0:
+                            set value is calling symbol_hover with sp, tsid
+                        else:
+                            set value is calling keyword_doc with w
             banish w
     else:
         var w2 as string is calling word_at with text, off
@@ -1044,6 +1082,11 @@ weave handle_definition with st as ref to State, id as rpc.JsonRpcId, params as 
                         set mi is mi + 1
                     banish mids
             banish w
+            if sid < 0:
+                var w2 as string is calling word_at with text, off
+                if w2 length > 0:
+                    set sid is calling type_symbol_lookup with sp, mid, text, off, w2
+                banish w2
             if sid < 0:
                 set sid is calling query.symbol_at_offset with sp->program, mid, text, off
             if sid >= 0:
@@ -1266,6 +1309,10 @@ weave add_symbol_completion with p as ref to sema_api.SemaResult, arr as ref to 
     if prefix length > 0 and not (calling starts_with with nm, prefix):
         return
     var si as sym.SemaSymbol is calling query.symbol_at with p->program, sid
+    # Los alias `get_<metodo>` son azúcar del compilador: no se completan.
+    if (si.flags & sym.SYM_GET_ALIAS) != 0:
+        banish nm
+        return
     var ty as string is calling query.type_text with p->program, si.type
     var doc as string is calling query.symbol_doc with p->program, sid
     calling add_completion with arr, seen, nm, (calling completion_kind with si.kind), ty, "", doc
@@ -1330,12 +1377,110 @@ weave add_method_completions with p as ref to sema_api.SemaResult, arr as ref to
         var sid as int is (ids at i)
         var nm as string is calling query.symbol_name with p->program, sid
         if nm length > 0 and (prefix length == 0 or calling starts_with with nm, prefix):
+            # Los alias `get_<metodo>` son azúcar del compilador; no ensucian
+            # la lista de completado.
+            var si as sym.SemaSymbol is (p->program->symbols.symbols at sid)
+            if (si.flags & sym.SYM_GET_ALIAS) != 0:
+                banish nm
+                set i is i + 1
+                continue
             var sig as string is calling query.signature_for with p->program, sid
             var doc as string is calling query.symbol_doc with p->program, sid
             calling add_completion with arr, seen, nm, 2, sig, "", doc
             banish sig
         set i is i + 1
     banish ids
+    calling add_synthetic_method_completions with p, arr, seen, type_id, prefix
+
+## Añade los métodos que el compilador sintetiza y que por tanto no existen
+## como símbolos: `make_unique`/`is_shared`/`ref_count` de los contenedores
+## COW, el `clone`/`drop` de los runes `derive Drop` y la superficie de
+## `std.consortium`.
+##
+## ## Memoria
+## Libera los textos auxiliares; no asigna estructuras nuevas.
+weave add_synthetic_method_completions with p as ref to sema_api.SemaResult, arr as ref to JsonValue, seen as ref to map of string to bool, type_id as int, prefix as string into void:
+    if type_id <= 0:
+        return
+    var ty as tk.SemaType is calling types.at with (sigil of p->program->types), type_id
+    var is_container as bool is false
+    var is_string as bool is false
+    if ty.kind == tk.SemaTypeKind.TkList or ty.kind == tk.SemaTypeKind.TkMap:
+        set is_container is true
+    if ty.kind == tk.SemaTypeKind.TkBase:
+        var bn0 as string is calling npool.copy_string with (calling npool.text with (sigil of p->program->names), ty.name)
+        if bn0 == "string":
+            set is_string is true
+        banish bn0
+    if ty.kind == tk.SemaTypeKind.TkList:
+        if prefix length == 0 or calling starts_with with "push", prefix:
+            calling add_completion with arr, seen, "push", 2, "weave push with value as T into void", "", "Añade un elemento al final (bajo COW, clona si está compartido)."
+        if prefix length == 0 or calling starts_with with "append", prefix:
+            calling add_completion with arr, seen, "append", 2, "weave append with value as T into void", "", "Igual que `push`."
+        if prefix length == 0 or calling starts_with with "pop", prefix:
+            calling add_completion with arr, seen, "pop", 2, "weave pop into maybe T", "", "Quita y devuelve el último elemento."
+        if prefix length == 0 or calling starts_with with "clear", prefix:
+            calling add_completion with arr, seen, "clear", 2, "weave clear into void", "", "Quita todos los elementos."
+    if ty.kind == tk.SemaTypeKind.TkMap:
+        if prefix length == 0 or calling starts_with with "put", prefix:
+            calling add_completion with arr, seen, "put", 2, "weave put with key as K, value as V into void", "", "Inserta o reemplaza una entrada."
+        if prefix length == 0 or calling starts_with with "get", prefix:
+            calling add_completion with arr, seen, "get", 2, "weave get with key as K into maybe V", "", "Lee una entrada."
+        if prefix length == 0 or calling starts_with with "has", prefix:
+            calling add_completion with arr, seen, "has", 2, "weave has with key as K into bool", "", "¿Existe la clave?"
+        if prefix length == 0 or calling starts_with with "remove", prefix:
+            calling add_completion with arr, seen, "remove", 2, "weave remove with key as K into bool", "", "Borra una entrada."
+        if prefix length == 0 or calling starts_with with "clear", prefix:
+            calling add_completion with arr, seen, "clear", 2, "weave clear into void", "", "Vacía el mapa."
+    if is_container or is_string:
+        if prefix length == 0 or calling starts_with with "make_unique", prefix:
+            calling add_completion with arr, seen, "make_unique", 2, "weave make_unique into void", "", "Fuerza un búfer propio: clona si el contenedor está compartido."
+        if prefix length == 0 or calling starts_with with "is_shared", prefix:
+            calling add_completion with arr, seen, "is_shared", 2, "weave is_shared into bool", "", "¿El búfer está compartido con otro binding?"
+        if prefix length == 0 or calling starts_with with "ref_count", prefix:
+            calling add_completion with arr, seen, "ref_count", 2, "weave ref_count into int", "", "Número de bindings que comparten el búfer."
+    if ty.kind != tk.SemaTypeKind.TkRune or ty.a < 0 or ty.a >= p->program->types.nominal_infos.len:
+        return
+    var info as types.SemaNominalInfo is (p->program->types.nominal_infos at ty.a)
+    var base as string is calling npool.copy_string with (calling npool.text with (sigil of p->program->names), info.base_name)
+    defer banish base
+    if info.template_info >= 0 and info.template_info < p->program->types.nominal_infos.len:
+        var tinfo as types.SemaNominalInfo is (p->program->types.nominal_infos at info.template_info)
+        banish base
+        set base is calling npool.copy_string with (calling npool.text with (sigil of p->program->names), tinfo.base_name)
+    if (info.flags & types.NIF_DROP) != 0 and base != "Rc" and base != "Arc" and base != "WeakRc" and base != "WeakArc":
+        if prefix length == 0 or calling starts_with with "clone", prefix:
+            calling add_completion with arr, seen, "clone", 2, "{base} clone", "", "Copia profunda explícita (el valor se queda en el original)."
+        if prefix length == 0 or calling starts_with with "drop", prefix:
+            calling add_completion with arr, seen, "drop", 2, "weave drop into void", "", "Destruye el valor ahora y lo deja en cero."
+    if base == "Rc" or base == "Arc":
+        if prefix length == 0 or calling starts_with with "get", prefix:
+            calling add_completion with arr, seen, "get", 2, "weave get into ref to frozen T", "", "Préstamo compartido: no se puede mutar."
+        if prefix length == 0 or calling starts_with with "strong_count", prefix:
+            calling add_completion with arr, seen, "strong_count", 2, "weave strong_count into usize", "", "Propietarios fuertes vivos."
+        if prefix length == 0 or calling starts_with with "weak_count", prefix:
+            calling add_completion with arr, seen, "weak_count", 2, "weave weak_count into usize", "", "Referencias débiles vivas."
+        if prefix length == 0 or calling starts_with with "downgrade", prefix:
+            calling add_completion with arr, seen, "downgrade", 2, "weave downgrade into Weak of T", "", "Crea una referencia débil (no cuenta como propietario)."
+        if prefix length == 0 or calling starts_with with "clone", prefix:
+            calling add_completion with arr, seen, "clone", 2, "{base} clone", "", "Copia el handle e incrementa el contador."
+    if base == "Rc":
+        if prefix length == 0 or calling starts_with with "get_mut", prefix:
+            calling add_completion with arr, seen, "get_mut", 2, "weave get_mut into maybe ref to T", "", "Mutación exclusiva: sólo si strong == 1 and weak == 0."
+        if prefix length == 0 or calling starts_with with "make_mut", prefix:
+            calling add_completion with arr, seen, "make_mut", 2, "weave make_mut into ref to T", "", "Mutación con COW: clona el valor si el handle está compartido."
+    if base == "Arc":
+        if prefix length == 0 or calling starts_with with "make_mut", prefix:
+            calling add_completion with arr, seen, "make_mut", 2, "weave make_mut into ref to T", "", "Mutación con COW atómico: clona si el handle está compartido."
+    if base == "WeakRc" or base == "WeakArc":
+        if prefix length == 0 or calling starts_with with "upgrade", prefix:
+            calling add_completion with arr, seen, "upgrade", 2, "weave upgrade into maybe {base}", "", "Intenta obtener un propietario; none si el valor ya murió."
+        if prefix length == 0 or calling starts_with with "is_alive", prefix:
+            calling add_completion with arr, seen, "is_alive", 2, "weave is_alive into bool", "", "¿Sigue vivo el valor?"
+        if prefix length == 0 or calling starts_with with "strong_count", prefix:
+            calling add_completion with arr, seen, "strong_count", 2, "weave strong_count into usize", "", "Propietarios fuertes vivos."
+        if prefix length == 0 or calling starts_with with "clone", prefix:
+            calling add_completion with arr, seen, "clone", 2, "{base} clone", "", "Copia el handle débil."
 
 ## Añade los campos de un `rune`/`echo`.
 ##
