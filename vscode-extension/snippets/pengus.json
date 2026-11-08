@@ -1237,5 +1237,13 @@
       "calling ${1:copy}.push with ${4:value}"
     ],
     "description": "Copy a container, force a private buffer and mutate it"
+  },
+  "Rune with fundere (composition)": {
+    "prefix": "rune-fundere",
+    "body": [
+      "rune ${1:Enemy} fundere ${2:GameObj}:",
+      "    ${3:health} as ${4:int}"
+    ],
+    "description": "Rune that composes another rune with fundere (fields and methods promoted, no inheritance)"
   }
 }

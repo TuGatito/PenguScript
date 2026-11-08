@@ -368,7 +368,7 @@
       "patterns": [
         {
           "name": "keyword.other.pengus",
-          "match": "\\b(import|include|link|ldflag|insignia|const|var|let|set|static|weave|antiquus|declare|enchanting|rune|echo|omen|alias|seal|concept|bind|shard|where|when|test|if|unless|else|while|for|in|from|to|step|judge|calling|with|of|into|as|is|many|return|break|continue|defer|errdefer|banish|some|ord|chr|bytes|essence|sigil|transmute|size|type|try|defined|not|and|or|lambda|null|true|false|maybe|none|error|derive|cyclus|donum|inline|ritual|frozen|self)\\b"
+          "match": "\\b(import|include|link|ldflag|insignia|const|var|let|set|static|weave|antiquus|declare|enchanting|rune|echo|omen|alias|seal|concept|bind|shard|where|when|test|if|unless|else|while|for|in|from|to|step|judge|calling|with|of|into|as|is|many|return|break|continue|defer|errdefer|banish|some|ord|chr|bytes|essence|sigil|transmute|size|type|try|defined|not|and|or|lambda|null|true|false|maybe|none|error|derive|cyclus|fundere|donum|inline|ritual|frozen|self)\\b"
         }
       ]
     },
