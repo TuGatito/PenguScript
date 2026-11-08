@@ -40,6 +40,10 @@ omen NodeKind:
     NdWhereClause
     NdWhereBound
     NdDeriveClause
+    ## Cláusula `fundere` de un `rune`: hijos `NdEmbed`.
+    NdFundereClause
+    ## Un embed de `fundere`: hijo 0 = nodo de tipo; hijo 1 = token `as NAME` o ausente.
+    NdEmbed
     NdOmenDecl
     NdOmenVariant
     NdOmenField
@@ -288,6 +292,7 @@ weave ps_node_kind_name with kind as NodeKind into string:
         when NdEchoDecl -> "echo_decl"
         when NdElseBlock -> "else_block"
         when NdElseClause -> "else_clause"
+        when NdEmbed -> "embed"
         when NdEnchantingDecl -> "enchanting_decl"
         when NdEq -> "eq"
         when NdErrdeferStmt -> "errdefer_stmt"
@@ -312,6 +317,7 @@ weave ps_node_kind_name with kind as NodeKind into string:
         when NdForInStmt -> "for_in_stmt"
         when NdForRangeStmt -> "for_range_stmt"
         when NdFrozenType -> "frozen_type"
+        when NdFundereClause -> "fundere_clause"
         when NdGe -> "ge"
         when NdGenericArgs -> "generic_args"
         when NdGenericRef -> "generic_ref"

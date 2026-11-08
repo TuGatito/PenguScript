@@ -55,3 +55,6 @@ when defined(DEBUG):
     const MODE as int is 1
 else:
     const MODE as int is 0
+
+rune Composed fundere Point as base, Shape and Point:
+    z as int

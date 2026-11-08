@@ -89,6 +89,10 @@ Rarezas que **no** son accidentes y están cubiertas por tests:
   `when_else_plain`, `with_stmt`, `with_init_expr`, `do_expr` y `or_block`
   llevan sus `stmt` directamente (como stage0).
 - `echo_decl` no lleva `attributes`; `rune_decl` sí.
+- `rune_decl` lleva, tras `cyclus_kw`, un `fundere_clause` o `_`, siempre (también
+  cuando no hay cláusula); `echo_decl` lleva `_` en esa posición para conservar
+  el número de hijos. Cada `embed` tiene 2 hijos: el tipo y el token `as NAME`
+  (o `_`).
 - `type_or_param` envuelve los tipos en `list/slice/many/map/maybe/result` y en
   el receptor de `enchanting`; para `shard T` se usa `shard_param_ref` directo.
 - Los loops etiquetados no usan el wrapper `labeled_loop`: la etiqueta vive en
@@ -115,7 +119,8 @@ nombre de stage0 (el que usa el dump).
 `attribute_args`, `const_decl`, `var_decl`, `let_decl`, `var_name_list`,
 `static_var_decl`, `rune_decl`, `echo_decl`, `field_decl`, `cyclus_kw`,
 `shard_params`, `shard_param_ref`, `where_clause`, `where_bound`,
-`derive_clause`, `omen_decl`, `omen_variant`, `omen_field`, `omen_string_kind`,
+`derive_clause`, `fundere_clause`, `embed`, `omen_decl`, `omen_variant`,
+`omen_field`, `omen_string_kind`,
 `alias_decl`, `seal_decl`, `concept_decl`, `concept_method`, `bind_decl`,
 `weave_decl`, `weave_modifier`, `param_list`, `param`, `enchanting_decl`,
 `antiquus_decl`, `declare_stmt`, `declare_params`, `test_decl`,

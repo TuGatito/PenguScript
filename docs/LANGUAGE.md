@@ -2704,6 +2704,7 @@ call emitted on every return path.
 | `false` | boolean false |
 | `for` | loop |
 | `from` | range start / loop form |
+| `fundere` | declare embedded runes (composition, no inheritance) |
 | `if` | conditional |
 | `import` | module import |
 | `in` | membership / iteration |

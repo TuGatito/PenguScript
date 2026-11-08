@@ -298,6 +298,10 @@ weave pdecl_parse_record with p as ref to PsParser, kind as NodeKind, attrs as i
         calling ps_add_child with p, (calling pdecl_empty_node_here with p, NodeKind.NdCyclusKw)
     else:
         calling ps_add_absent with p
+    if kind == NodeKind.NdRuneDecl and calling ps_check_kw with p, KwFundere:
+        calling ps_add_child with p, (calling pdecl_parse_fundere with p)
+    else:
+        calling ps_add_absent with p
     if calling ps_check_kw with p, KwShard:
         calling ps_add_child with p, (calling ptypes.ptype_parse_shard_params with p)
     else:
@@ -329,6 +333,42 @@ weave pdecl_parse_record with p as ref to PsParser, kind as NodeKind, attrs as i
     else:
         calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedDedent, ""
     return calling ps_finish_node with p, kind, start, (calling ps_previous_end with p), 0
+
+## Parsea `fundere type [as name] (,|and type [as name])*`.
+##
+## ## Memoria
+## Crea un nodo `fundere_clause` con sus `embed`.
+weave pdecl_parse_fundere with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwFundere, "'fundere'"
+    calling ps_begin_children with p
+    var more as bool is true
+    while more:
+        var before as int is p->pos
+        calling ps_add_child with p, (calling pdecl_parse_embed with p)
+        if (calling ps_check with p, TokComma) or (calling ps_check_kw with p, KwAnd):
+            var ignored2 as Token is calling ps_advance with p
+            if p->pos == before:
+                var forced as Token is calling ps_advance with p
+        else:
+            set more is false
+    return calling ps_finish_node with p, NodeKind.NdFundereClause, start, (calling ps_previous_end with p), 0
+
+## Parsea `type [as name]` de una cláusula `fundere`.
+##
+## ## Memoria
+## Crea un nodo `embed` con el tipo y el nombre opcional.
+weave pdecl_parse_embed with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    calling ps_begin_children with p
+    var ty as int is calling ptypes.ptype_parse_type with p
+    calling ps_add_child with p, ty
+    if calling ps_check_kw with p, KwAs:
+        var ignored as Token is calling ps_advance with p
+        calling ps_add_name_like with p
+    else:
+        calling ps_add_absent with p
+    return calling ps_finish_node with p, NodeKind.NdEmbed, start, (calling ps_previous_end with p), 0
 
 ## Parsea un campo `@attrs NAME as type`.
 ##

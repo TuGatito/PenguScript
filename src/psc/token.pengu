@@ -208,6 +208,8 @@ omen KeywordKind:
     KwFor
     ## `from`
     KwFrom
+    ## `fundere`
+    KwFundere
     ## `if`
     KwIf
     ## `import`
@@ -389,6 +391,7 @@ weave keyword_table_new into KeywordTable:
     calling add_keyword with sigil of t, "false", KwFalse
     calling add_keyword with sigil of t, "for", KwFor
     calling add_keyword with sigil of t, "from", KwFrom
+    calling add_keyword with sigil of t, "fundere", KwFundere
     calling add_keyword with sigil of t, "if", KwIf
     calling add_keyword with sigil of t, "import", KwImport
     calling add_keyword with sigil of t, "in", KwIn

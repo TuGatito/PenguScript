@@ -2744,6 +2744,7 @@ retorno.
 | `false` | booleano falso |
 | `for` | bucle |
 | `from` | inicio del rango / forma de bucle |
+| `fundere` | declara runes embebidos (composición, sin herencia) |
 | `if` | condicional |
 | `import` | importación de módulo |
 | `in` | pertenencia / iteración |

@@ -224,6 +224,33 @@ weave test_interpolation into void:
     if k != NodeKind.NdAdd:
         calling spark.panic with "interpolation root is not add"
 
+weave test_fundere into void:
+    var fx as ParseFixture is calling make_fixture with "rune E fundere A as base, B and C:\n    x as int\n"
+    defer banish fx
+    calling expect_ok with sigil of fx
+    var decl as int is calling first_decl with sigil of fx
+    var ast as ref to PsAst is sigil of fx.pr.ast
+    var fund as int is calling ast.child_node_of with decl, 3
+    calling expect_kind with sigil of fx, fund, NodeKind.NdFundereClause
+    calling ward.assert_eq_int with (calling ast.child_count_of with fund), 3
+    var e0 as int is calling ast.child_node_of with fund, 0
+    calling expect_kind with sigil of fx, e0, NodeKind.NdEmbed
+    calling ward.assert_eq_int with (calling ast.child_count_of with e0), 2
+    var ty as int is calling ast.child_node_of with e0, 0
+    calling expect_kind with sigil of fx, ty, NodeKind.NdCustomType
+    var e2 as int is calling ast.child_node_of with fund, 2
+    calling expect_kind with sigil of fx, e2, NodeKind.NdEmbed
+
+weave test_echo_has_no_fundere into void:
+    var fx as ParseFixture is calling make_fixture with "echo E:\n    a as int\n"
+    defer banish fx
+    calling expect_ok with sigil of fx
+    var decl as int is calling first_decl with sigil of fx
+    var ast as ref to PsAst is sigil of fx.pr.ast
+    calling ward.assert_eq_int with (calling ast.child_count_of with decl), 6
+    if (calling ast.child_node_of with decl, 3) != -1:
+        calling spark.panic with "echo must not have a fundere clause"
+
 weave main into int:
     calling test_empty_file
     calling test_weave
@@ -239,5 +266,7 @@ weave main into int:
     calling test_antiquus
     calling test_determinism
     calling test_interpolation
+    calling test_fundere
+    calling test_echo_has_no_fundere
     calling spark.println with "OK parser_unit"
     return 0
