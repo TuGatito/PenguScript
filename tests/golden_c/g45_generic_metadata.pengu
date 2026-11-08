@@ -1,0 +1,8 @@
+@packed
+rune Pac shard T:
+    a as T
+    b as int
+
+weave main into int:
+    var p as Pac of int is with a is 1, b is 2
+    return p.a + p.b - 3

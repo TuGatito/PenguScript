@@ -380,7 +380,7 @@ weave instantiate_nominal with s as ref to symbols.SemaSymbols, template as int,
     var cname as int is calling npool.intern with s->names, cname_txt
     banish cname_txt
 
-    var info as types.SemaNominalInfo is with kind is tinfo.kind, base_name is cname, c_name is cname, module is tinfo.module, flags is tinfo.flags, fields_first is 0, fields_count is 0, variants_first is 0, variants_count is 0, tparams_first is 0, tparams_count is 0, derived_first is 0, derived_count is 0, template_info is tt.a, attrs_node is tinfo.attrs_node
+    var info as types.SemaNominalInfo is with kind is tinfo.kind, base_name is cname, c_name is cname, module is tinfo.module, flags is tinfo.flags, fields_first is 0, fields_count is 0, variants_first is 0, variants_count is 0, tparams_first is 0, tparams_count is 0, derived_first is 0, derived_count is 0, template_info is tt.a, attrs_node is tinfo.attrs_node, is_packed is tinfo.is_packed, align_override is tinfo.align_override
     var info_idx as int is t->nominal_infos.len
     calling t->nominal_infos.push with info
 
@@ -421,7 +421,7 @@ weave instantiate_nominal with s as ref to symbols.SemaSymbols, template as int,
     var fi as int is 0
     while fi < tinfo.fields_count:
         var f as types.SemaField is (t->fields at (tinfo.fields_first + fi))
-        var nf as types.SemaField is with name is f.name, type is (calling subst_deep with s, f.type, subst), flags is f.flags, attrs_node is f.attrs_node, align_override is f.align_override
+        var nf as types.SemaField is with name is f.name, type is (calling subst_deep with s, f.type, subst), flags is f.flags, attrs_node is f.attrs_node, align_override is f.align_override, decl_node is f.decl_node
         calling pending_fields.push with nf
         set fi is fi + 1
     var fields_first as int is t->fields.len
@@ -441,7 +441,7 @@ weave instantiate_nominal with s as ref to symbols.SemaSymbols, template as int,
         var pi as int is 0
         while pi < v.payload_count:
             var pf as types.SemaField is (t->fields at (v.payload_first + pi))
-            var npf as types.SemaField is with name is pf.name, type is (calling subst_deep with s, pf.type, subst), flags is pf.flags, attrs_node is pf.attrs_node, align_override is pf.align_override
+            var npf as types.SemaField is with name is pf.name, type is (calling subst_deep with s, pf.type, subst), flags is pf.flags, attrs_node is pf.attrs_node, align_override is pf.align_override, decl_node is pf.decl_node
             calling pending_payloads.push with npf
             set pc is pc + 1
             set pi is pi + 1

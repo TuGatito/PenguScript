@@ -2,6 +2,23 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.53.5] — 2026-11-08 — Las instancias genéricas conservan sus metadatos
+
+### Arreglado
+
+- `rune Pac shard T` con `@packed` o `@align(N)` emitía la instancia
+  (`Pac of int`) sin el atributo de layout, porque `instantiate_nominal` no
+  copiaba `is_packed` ni `align_override` (bug G).
+- Los campos de una instancia perdían `decl_node` (bug F), así que ir a la
+  definición sobre `c.item` en una instancia genérica caía en el uso. Ahora el
+  campo apunta a `item as T`.
+
+### Añadido
+
+- `tests/pengu/generic_metadata.pengu`, `tests/regress_generic_metadata.sh`,
+  el golden `g45_generic_metadata` y la comprobación de definición sobre una
+  instancia genérica en `tests/lsp/run_lsp_tests.py`.
+
 ## [0.53.4] — 2026-11-08 — Clonar un rune es profundo
 
 ### Arreglado

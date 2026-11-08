@@ -407,6 +407,14 @@ def main() -> int:
         decl_line = next(ln for ln, line in enumerate(flines) if line.strip() == "position as Vec2")
         assert_eq("fundere definition uri", fd["uri"], furi)
         assert_eq("fundere definition line", fd["range"]["start"]["line"], decl_line)
+
+        # Un campo de una instancia generica conserva su `decl_node`: ir a la
+        # definicion de `c.item` cae en `item as T`, no en el uso.
+        gd = fc.request("textDocument/definition", {"textDocument": {"uri": furi}, "position": fpos("c.item", 2)})["result"]
+        assert_true("generic field definition exists", gd is not None)
+        gen_line = next(ln for ln, line in enumerate(flines) if line.strip() == "item as T")
+        assert_eq("generic field definition uri", gd["uri"], furi)
+        assert_eq("generic field definition line", gd["range"]["start"]["line"], gen_line)
     finally:
         fc.shutdown()
 

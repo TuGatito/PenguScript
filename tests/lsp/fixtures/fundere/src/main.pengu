@@ -18,9 +18,15 @@ enchanting GameObj:
 rune Enemy fundere GameObj:
     health as int
 
+rune Crate shard T:
+    item as T
+    tag as int
+
 weave main into int:
     var e as Enemy is with position is (with x is 1.0, y is 2.0), bounds is (with x is 3.0, y is 4.0), health is 10
     set e.position.x is 5.0
     calling e.move with 1.0, 0.0
+    var c as Crate of int is with item is 7, tag is 1
     calling spark.println with "{e.health}"
+    set e.health is c.item
     return e.health

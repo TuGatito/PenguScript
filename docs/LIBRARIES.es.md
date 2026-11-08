@@ -1,7 +1,7 @@
 # Crear una librería para PenguScript
 
 Esta guía describe cómo escribir una librería que otros proyectos instalan con
-`psc add` e importan como cualquier módulo. Refleja `psc` 0.53.4.
+`psc add` e importan como cualquier módulo. Refleja `psc` 0.53.5.
 
 Una librería es un repositorio git (o un directorio local) con `pengu.toml`, un
 árbol de fuentes importable y, opcionalmente, cabeceras C y archivos nativos.
