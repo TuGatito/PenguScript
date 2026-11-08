@@ -177,6 +177,22 @@ weave convert_custom with ctx as ref to TypeCtx, node as int into int:
     defer banish name
     var t as int is 0
     if name != "":
+        # `mod._Type`: un nombre con `_` inicial es privado del módulo que lo
+        # declara. Se comprueba por texto, antes de resolver, para no depender
+        # de por dónde acabe encontrándose el tipo.
+        var lseg as string is calling last_component with name
+        if lseg length >= 2 and (lseg at 0) == "_":
+            var plen2 as int is name length - (lseg length) - 1
+            if plen2 > 0:
+                var pfx2 as string is name at 0 to plen2
+                var mid3 as int is calling symbols.lookup_name with ctx->symbols, pfx2
+                if mid3 >= 0:
+                    var m3 as sym.SemaSymbol is calling symbols.symbol_at with ctx->symbols, mid3
+                    var tmod as int is (ctx->symbols->module_of_scope at m3.module_scope)
+                    if m3.kind == sym.SemaSymbolKind.SkImport and tmod != ctx->symbols->current_module:
+                        calling sdiag.node_error with ctx->bag, ctx->src, sdiag.CODE_PRIVATE, (calling astutil.start_of with ctx->ast, node), (calling astutil.end_of with ctx->ast, node), "'{lseg}' is private to its module", "A leading '_' marks a type module-private; use the public name, or export it from its module.", ""
+                banish pfx2
+        banish lseg
         set t is calling symbols.lookup_type_name with ctx->symbols, name
         if t < 0:
             # `mod.Type`: probar el último componente.

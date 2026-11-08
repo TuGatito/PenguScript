@@ -1062,7 +1062,12 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
                                 set base_import is msym.module_scope
                                 set rcp is -1
                             else if msym.kind == sym.SemaSymbolKind.SkType or msym.kind == sym.SemaSymbolKind.SkRune or msym.kind == sym.SemaSymbolKind.SkEcho or msym.kind == sym.SemaSymbolKind.SkOmen or msym.kind == sym.SemaSymbolKind.SkAlias or msym.kind == sym.SemaSymbolKind.SkSeal:
-                                set rcp is msym.type
+                                if calling name_is_private with s, msym.name:
+                                    if msym.module >= 0 and msym.module != s->module->id:
+                                        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_PRIVATE, (calling astutil.start_of with s->ast, op), (calling astutil.end_of with s->ast, op), "'{otxt}' is private to its module", "A leading '_' marks a type module-private; use the public name, or export it from its module.", ""
+                                        set rcp is 0
+                                if rcp > 0:
+                                    set rcp is msym.type
                     set ai is ai + 1
                     continue
                 var next as int is calling access_op_type with s, rcp, op
@@ -2103,6 +2108,10 @@ weave infer_field with s as ref to state.SemaState, node as int into int:
                         var member as int is calling symbols.lookup_in_scope with s->symbols, bsv.module_scope, mid
                         if member >= 0:
                             var mv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, member
+                            if calling name_is_private with s, mv.name:
+                                if mv.module >= 0 and mv.module != s->module->id:
+                                    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_PRIVATE, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "'{txt}' is private to its module", "A leading '_' marks a name module-private; use the public name, or export it from its module.", ""
+                                    return 0
                             return mv.type
     if bt <= 0:
         return 0
@@ -2180,6 +2189,19 @@ weave infer_arrow with s as ref to state.SemaState, node as int into int:
 ##
 ## ## Memoria
 ## Asigna un `StringBuilder` y los textos consultados.
+## `true` si el nombre empieza por `_` (y no es solo `_`): es privado del módulo.
+##
+## ## Memoria
+## O(longitud); no asigna.
+weave name_is_private with s as ref to state.SemaState, nid as int into bool:
+    if nid < 0:
+        return false
+    var txt as string is calling npool.text with s->names, nid
+    defer banish txt
+    if txt length < 2:
+        return false
+    return (txt at 0) == "_"
+
 weave embed_sources_text with s as ref to state.SemaState, ty as int, nid as int into string:
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb

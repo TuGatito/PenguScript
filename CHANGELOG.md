@@ -2,6 +2,15 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.53.8] — 2026-11-08 — Los nombres con `_` son privados de su módulo
+
+### Añadido
+
+- `E0043` se emite por fin: un nombre top-level que empieza por `_` (runa, tipo,
+  constante, función o método) solo es alcanzable desde su módulo. El
+  diagnóstico nombra el símbolo y sale igual al usarlo como valor
+  (`a._secret`), como tipo (`a._Hidden`) o como destino de una llamada.
+
 ## [0.53.7] — 2026-11-08 — `W0009` encendido por defecto
 
 ### Cambiado

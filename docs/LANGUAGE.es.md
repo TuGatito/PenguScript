@@ -1,7 +1,7 @@
 # Referencia del lenguaje PenguScript
 
 PenguScript es un lenguaje pequeño y de tipado estático que compila a C. Esta
-referencia documenta el lenguaje tal como lo implementa `psc` 0.53.7: cada
+referencia documenta el lenguaje tal como lo implementa `psc` 0.53.8: cada
 construcción, su semántica y el C al que se reduce.
 
 Es el documento de *lenguaje* del conjunto de documentación:
@@ -148,7 +148,7 @@ rasgos que necesitan su propia sección (genéricos, memoria, interop).
   diagnóstico son exhaustivos; la prosa no lo es — [PENGUNIC.es.md](PENGUNIC.es.md)
   cubre *cómo usar* el lenguaje y [STDLIB.es.md](STDLIB.es.md) cubre la
   biblioteca estándar.
-* Versión: `psc` 0.53.7. La versión de ABI que espera el C generado es 3.
+* Versión: `psc` 0.53.8. La versión de ABI que espera el C generado es 3.
 
 ## 1. Estructura léxica
 
@@ -1098,6 +1098,17 @@ import utils                      # src/utils.pengu
 | Orden | los módulos se comprueban y emiten en orden de dependencia (topológico) |
 | Ciclos | `E0004`, con el ciclo impreso (`a -> b -> a`) |
 | Duplicados | importar el mismo módulo dos veces es `E0004` |
+| Privacidad | los nombres top-level que empiezan por `_` son privados del módulo (`E0043`) |
+
+Importar un módulo no ejecuta código. No hay imports con comodín ni
+`from ... import ...`.
+
+Un `_` inicial es lo que hace privado un nombre top-level: runas, alias,
+constantes, funciones y métodos que empiezan por `_` solo son alcanzables desde
+su propio módulo. Llegar a uno a través de un import (`a._secret`, `a._Hidden`,
+`a._helper()`) es `E0043`, y el diagnóstico nombra el símbolo. Los campos siguen
+la misma regla en su módulo (los campos promovidos por `fundere` conservan la
+visibilidad del embed que los declara).
 
 ### 7.3 Estado a nivel de módulo
 
