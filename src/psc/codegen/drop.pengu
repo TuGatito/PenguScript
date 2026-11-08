@@ -33,6 +33,63 @@ insignia psc_codegen_drop_
 ##
 ## ## Memoria
 ## Emite C; los strings C que construye son owned.
+## Clasifica un tipo de contenedor para el COW: 0 ninguno, 1 string, 2 list,
+## 3 map.  Con `--legacy-copy` (o `[build] legacy_copy`) devuelve 0: el
+## compilador emite entonces la copia de handle de 0.51 y ninguna llamada
+## `ensure_unique`, que es lo que necesita el autohospedaje durante la
+## transicion.
+##
+## ## Memoria
+## O(1).
+weave cow_kind_of with c as ref to context.CgContext, ty as int into int:
+    if ty <= 0:
+        return 0
+    if c->options.legacy_copy:
+        return 0
+    if ty >= c->program->types.types.len:
+        return 0
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    var guard as int is 0
+    while guard < 8 and (t.kind == tk.SemaTypeKind.TkRef or t.kind == tk.SemaTypeKind.TkFrozen or t.kind == tk.SemaTypeKind.TkAlias or t.kind == tk.SemaTypeKind.TkSeal):
+        set ty is t.a
+        set t is calling types.at with (sigil of c->program->types), ty
+        set guard is guard + 1
+    if t.kind == tk.SemaTypeKind.TkList:
+        return 2
+    if t.kind == tk.SemaTypeKind.TkMap:
+        return 3
+    if t.kind == tk.SemaTypeKind.TkBase:
+        var bn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), t.name)
+        defer banish bn
+        if bn == "string":
+            return 1
+    return 0
+
+## Emite el `share` de COW del handle `target` (incrementa el contador o copia
+## un alias legacy a un buffer propio).
+##
+## ## Memoria
+## O(1) si ya es COW; O(n) al promocionar un valor legacy.
+weave emit_cow_share with c as ref to context.CgContext, kind as int, target as string into void:
+    var fn as string is "pengu_cow_string_share"
+    if kind == 2:
+        set fn is "pengu_cow_list_share"
+    if kind == 3:
+        set fn is "pengu_cow_map_share"
+    calling emit.line with (sigil of c->emitter), "{fn}(&({target}));"
+
+## Emite el `ensure_unique` de COW: separa el buffer si el handle lo comparte.
+##
+## ## Memoria
+## O(1) si es unico; O(n) si esta compartido.
+weave emit_cow_unique with c as ref to context.CgContext, kind as int, target as string into void:
+    var fn as string is "pengu_cow_string_ensure_unique"
+    if kind == 2:
+        set fn is "pengu_cow_list_ensure_unique"
+    if kind == 3:
+        set fn is "pengu_cow_map_ensure_unique"
+    calling emit.line with (sigil of c->emitter), "{fn}(&({target}));"
+
 weave emit_drop_value with c as ref to context.CgContext, ty as int, target as string into void:
     if ty < 0 or ty >= c->program->types.types.len:
         return
@@ -119,6 +176,41 @@ weave note_move_source with c as ref to context.CgContext, node as int, ast as r
     var cc as int is calling context.local_c_name with c, nid
     if cc >= 0:
         calling context.remove_drop with c, cc
+
+## Promueve el búfer del binding origen de una copia COW.
+##
+## ## Memoria
+## Si el binding es un `NdVarRef` de tipo lista/mapa, emite la promoción en
+## sitio (`pengu_cow_*_promote`): el origen pasa a tener cabecera COW con
+## `rc = 1` y la copia siguiente solo incrementa el contador (O(1)).
+weave emit_cow_promote_source with c as ref to context.CgContext, kind as int, node as int, ast as ref to psast.PsAst into void:
+    if kind < 2 or kind > 3 or node < 0:
+        return
+    var v as int is node
+    var guard as int is 0
+    while (calling astutil.kind_of with ast, v) == pskind.NodeKind.NdParenExpr and guard < 8:
+        var inner as int is calling astutil.node_child with ast, v, 0
+        if inner < 0:
+            return
+        set v is inner
+        set guard is guard + 1
+    if (calling astutil.kind_of with ast, v) != pskind.NodeKind.NdVarRef:
+        return
+    var tok as int is calling astutil.token_child with ast, v, 0
+    if tok < 0:
+        return
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var txt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), tok
+    defer banish txt
+    var nid as int is calling npool.intern with (sigil of c->program->names), txt
+    var cc as int is calling context.local_c_name with c, nid
+    if cc >= 0 and not (calling context.is_param_name with c, nid):
+        var nm as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), cc)
+        defer banish nm
+        if kind == 2:
+            calling emit.line with (sigil of c->emitter), "pengu_cow_list_promote(&({nm}));"
+        else:
+            calling emit.line with (sigil of c->emitter), "pengu_cow_map_promote(&({nm}));"
 
 ## Emite la copia profunda de un valor de `src` a `dst`.
 ##

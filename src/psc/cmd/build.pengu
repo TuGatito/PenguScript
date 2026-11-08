@@ -212,6 +212,7 @@ weave run_build with args as list of string into int:
     set o.target is calling copy_path with target
     set o.verbose is calling cliargs.enabled with (sigil of pr.args), "--verbose"
     set o.strict_c99 is calling cliargs.enabled with (sigil of pr.args), "--strict-c99"
+    set o.legacy_copy is calling cliargs.enabled with (sigil of pr.args), "--legacy-copy"
     set o.release_unsafe is calling cliargs.enabled with (sigil of pr.args), "--release-unsafe"
     set o.is_test is calling cliargs.enabled with (sigil of pr.args), "--test"
     set o.force_exe is calling cliargs.enabled with (sigil of pr.args), "--exe"
@@ -364,6 +365,8 @@ weave run_run with args as list of string into int:
             set o.verbose is true
         else if a == "--strict-c99":
             set o.strict_c99 is true
+        else if a == "--legacy-copy":
+            set o.legacy_copy is true
         else if a == "--release-unsafe":
             set o.release_unsafe is true
         else if a == "--no-cache":
@@ -538,6 +541,8 @@ weave run_expand with args as list of string into int:
             set o.is_library is true
         else if a == "--strict-c99":
             set o.strict_c99 is true
+        else if a == "--legacy-copy":
+            set o.legacy_copy is true
         else if a == "--release-unsafe":
             set o.release_unsafe is true
         else if a == "--help" or a == "-h":

@@ -753,11 +753,11 @@ void pengu_cow_string_share(PenguString *s)
     pengu_cow_hdr_of(s->data)->rc += 1;
     return;
   }
-  c = pengu_cow_string_new(s->data, s->len);
-  if (!c.data)
-    return;
-  pengu_banish_string(s);
-  *s = c;
+  /* `s` no es COW (vista o SDS de otro binding): se deja tal cual. Copiar
+     aqui obligaria a liberar o adoptar el SDS del origen, y el modelo actual
+     permite que dos bindings compartan un SDS sin contador (el que no se
+     banishea no libera nada). El primer `ensure_unique` lo promociona. */
+  (void)c;
 }
 
 void pengu_cow_string_ensure_unique(PenguString *s)
@@ -884,6 +884,7 @@ void pengu_cow_list_drop(PenguList *l)
 
 void pengu_cow_list_share(PenguList *l)
 {
+  PenguList fresh;
   if (!l || !l->data || l->cap <= 0)
     return;
   if (pengu_cow_list_owned(l))
@@ -891,6 +892,35 @@ void pengu_cow_list_share(PenguList *l)
     pengu_cow_hdr_of(l->data)->rc += 1;
     return;
   }
+  /* Alias de una lista legacy: se copia a un buffer COW propio y el original
+     sigue siendo su dueño. */
+  fresh = pengu_cow_list_new(l->elem_size, (size_t)(l->len > 0 ? l->len : l->cap));
+  if (!fresh.data)
+    return;
+  if (l->len > 0)
+    memcpy(fresh.data, l->data, (size_t)l->len * l->elem_size);
+  fresh.len = l->len;
+  *l = fresh;
+}
+
+void pengu_cow_list_promote(PenguList *l)
+{
+  PenguList fresh;
+  size_t cap;
+  if (!l || l->cap < 0)
+    return;
+  if (pengu_cow_list_owned(l))
+    return;
+  cap = l->cap > 0 ? (size_t)l->cap : 4;
+  fresh = pengu_cow_list_new(l->elem_size, cap);
+  if (!fresh.data)
+    return;
+  if (l->data && l->len > 0 && l->cap > 0)
+    memcpy(fresh.data, l->data, (size_t)l->len * l->elem_size);
+  fresh.len = l->len;
+  if (l->data && l->cap > 0)
+    pengu_cc_list_banish(l);
+  *l = fresh;
 }
 
 void pengu_cow_list_make_unique(PenguList *l)
@@ -898,19 +928,11 @@ void pengu_cow_list_make_unique(PenguList *l)
   PenguCowHdr *hdr;
   PenguCowAux *aux;
   PenguList fresh;
-  if (!l || !l->data || l->cap <= 0)
+  if (!l)
     return;
   if (!pengu_cow_list_owned(l))
   {
-    /* Promocion: copia el contenido legacy a un buffer COW. */
-    fresh = pengu_cow_list_new(l->elem_size, (size_t)(l->len > 0 ? l->len : l->cap));
-    if (!fresh.data)
-      return;
-    if (l->len > 0)
-      memcpy(fresh.data, l->data, (size_t)l->len * l->elem_size);
-    fresh.len = l->len;
-    pengu_cc_list_banish(l);
-    *l = fresh;
+    pengu_cow_list_promote(l);
     return;
   }
   hdr = pengu_cow_hdr_of(l->data);
@@ -920,11 +942,10 @@ void pengu_cow_list_make_unique(PenguList *l)
   fresh = pengu_cow_list_new(aux->elem_size, (size_t)l->cap);
   if (!fresh.data)
     return;
-  aux = pengu_cow_aux_of(l->data);
-  aux->drop_elem = pengu_cow_aux_of(fresh.data)->drop_elem;
   if (l->len > 0)
     memcpy(fresh.data, l->data, (size_t)l->len * l->elem_size);
   fresh.len = l->len;
+  pengu_cow_aux_of(fresh.data)->drop_elem = aux->drop_elem;
   hdr->rc -= 1;
   *l = fresh;
 }
@@ -947,13 +968,9 @@ void pengu_cow_list_push(PenguList *l, const void *elem)
 {
   if (!l || !elem)
     return;
-  if (!pengu_cow_list_owned(l))
-  {
-    pengu_cow_list_make_unique(l);
-    if (!pengu_cow_list_owned(l))
-      return;
-  }
   pengu_cow_list_make_unique(l);
+  if (!pengu_cow_list_owned(l))
+    return;
   pengu_cow_list_grow(l, (size_t)l->len + 1);
   memcpy((char *)l->data + (size_t)l->len * l->elem_size, elem, l->elem_size);
   l->len += 1;
@@ -1026,9 +1043,33 @@ void pengu_cow_map_set_drop(void *m, void (*drop_key)(void *), void (*drop_val)(
 
 void pengu_cow_map_share(PenguMap *m)
 {
-  if (!pengu_cow_map_owned(m))
+  if (!m || !m->state)
     return;
-  pengu_cow_state_of(m)->rc += 1;
+  if (pengu_cow_map_owned(m))
+  {
+    pengu_cow_state_of(m)->rc += 1;
+    return;
+  }
+  /* Alias de un mapa legacy: se copia entrada a entrada a un mapa COW. */
+  {
+    PenguMapState *st = pengu_cow_state_of(m);
+    PenguMap fresh = pengu_map_new(st->key_size, st->val_size);
+    PenguMapIter it;
+    if (!fresh.state)
+      return;
+    {
+      PenguMapState *fs = pengu_cow_state_of(&fresh);
+      fs->magic = PENGU_COW_MAP_MAGIC;
+      fs->rc = 1;
+    }
+    it = pengu_map_iter_begin(m);
+    while (pengu_map_iter_valid(&it))
+    {
+      pengu_map_put(&fresh, pengu_map_iter_key(&it), pengu_map_iter_value(&it));
+      pengu_map_iter_advance(&it);
+    }
+    *m = fresh;
+  }
 }
 
 void pengu_cow_map_make_unique(PenguMap *m)
@@ -1036,9 +1077,19 @@ void pengu_cow_map_make_unique(PenguMap *m)
   PenguMapState *st;
   PenguMap fresh;
   PenguMapIter it;
-  if (!pengu_cow_map_owned(m))
+  if (!m)
     return;
   st = pengu_cow_state_of(m);
+  if (!st)
+    return;
+  if (!pengu_cow_map_owned(m))
+  {
+    /* Adopcion en sitio: el mapa lo creo `pengu_map_new` y nadie lo comparte
+       todavia, asi que basta con marcarlo como COW (rc = 1). */
+    st->magic = PENGU_COW_MAP_MAGIC;
+    st->rc = 1;
+    return;
+  }
   if (st->rc <= 1)
     return;
   fresh = pengu_map_new(st->key_size, st->val_size);
@@ -1127,4 +1178,124 @@ void pengu_cow_map_drop(PenguMap *m)
     }
   }
   pengu_cc_map_banish(m);
+}
+
+void pengu_cow_list_pop_drop(PenguList *l, void *out)
+{
+  PenguCowAux *aux;
+  if (!l || l->len <= 0)
+    return;
+  pengu_cow_list_make_unique(l);
+  if (!pengu_cow_list_owned(l) || l->len <= 0)
+    return;
+  aux = pengu_cow_aux_of(l->data);
+  l->len -= 1;
+  if (out)
+    memcpy(out, (char *)l->data + (size_t)l->len * l->elem_size, l->elem_size);
+  if (aux->drop_elem)
+    aux->drop_elem((char *)l->data + (size_t)l->len * l->elem_size);
+}
+
+void *pengu_cow_list_pop_val(PenguList *l)
+{
+  if (!l || l->len <= 0)
+    return NULL;
+  pengu_cow_list_make_unique(l);
+  if (!pengu_cow_list_owned(l) || l->len <= 0)
+    return NULL;
+  l->len -= 1;
+  return (char *)l->data + (size_t)l->len * l->elem_size;
+}
+
+void pengu_cow_list_clear(PenguList *l)
+{
+  PenguCowAux *aux;
+  if (!l)
+    return;
+  pengu_cow_list_make_unique(l);
+  if (!pengu_cow_list_owned(l))
+    return;
+  aux = pengu_cow_aux_of(l->data);
+  if (aux->drop_elem)
+  {
+    int i;
+    for (i = 0; i < l->len; i++)
+      aux->drop_elem((char *)l->data + (size_t)i * l->elem_size);
+  }
+  l->len = 0;
+}
+
+void pengu_cow_list_remove_at(PenguList *l, int idx)
+{
+  PenguCowAux *aux;
+  if (!l || idx < 0 || idx >= l->len)
+    return;
+  pengu_cow_list_make_unique(l);
+  if (!pengu_cow_list_owned(l) || idx >= l->len)
+    return;
+  aux = pengu_cow_aux_of(l->data);
+  if (aux->drop_elem)
+    aux->drop_elem((char *)l->data + (size_t)idx * l->elem_size);
+  memmove((char *)l->data + (size_t)idx * l->elem_size,
+          (char *)l->data + (size_t)(idx + 1) * l->elem_size,
+          (size_t)(l->len - idx - 1) * l->elem_size);
+  l->len -= 1;
+}
+
+void pengu_cow_list_set_len(PenguList *l, int len)
+{
+  PenguCowAux *aux;
+  if (!l || len < 0)
+    return;
+  pengu_cow_list_make_unique(l);
+  if (!pengu_cow_list_owned(l))
+    return;
+  if (len > l->cap)
+    pengu_cow_list_grow(l, (size_t)len);
+  if (len < l->len)
+  {
+    aux = pengu_cow_aux_of(l->data);
+    if (aux->drop_elem)
+    {
+      int i;
+      for (i = len; i < l->len; i++)
+        aux->drop_elem((char *)l->data + (size_t)i * l->elem_size);
+    }
+  }
+  l->len = len;
+}
+
+bool pengu_cow_map_remove(PenguMap *m, const void *key)
+{
+  if (!m)
+    return false;
+  pengu_cow_map_make_unique(m);
+  if (!pengu_cow_map_owned(m))
+    return false;
+  return pengu_map_remove(m, key);
+}
+
+bool pengu_cow_map_clear(PenguMap *m)
+{
+  if (!m)
+    return false;
+  pengu_cow_map_make_unique(m);
+  if (!pengu_cow_map_owned(m))
+    return false;
+  pengu_map_clear(m);
+  return true;
+}
+
+void pengu_cow_map_promote(PenguMap *m)
+{
+  PenguMapState *st;
+  if (!m)
+    return;
+  st = pengu_cow_state_of(m);
+  if (!st)
+    return;
+  if (pengu_cow_map_owned(m))
+    return;
+  st->magic = PENGU_COW_MAP_MAGIC;
+  st->rc = 1;
 }

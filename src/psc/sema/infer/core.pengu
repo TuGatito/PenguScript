@@ -1652,6 +1652,12 @@ weave builtin_method with s as ref to state.SemaState, recv as int, name as stri
     if kind == tk.SemaTypeKind.TkTypeParam:
         return calling types.base with s->types, "int"
     if kind == tk.SemaTypeKind.TkList:
+        if name == "is_shared":
+            return calling types.base with s->types, "bool"
+        if name == "ref_count":
+            return calling types.base with s->types, "int"
+        if name == "make_unique":
+            return 3
         if name == "push" or name == "append" or name == "clear" or name == "insert":
             return 3
         if name == "pop" or name == "at" or name == "last" or name == "first":
@@ -1684,6 +1690,12 @@ weave builtin_method with s as ref to state.SemaState, recv as int, name as stri
             return expected
         return 3
     if kind == tk.SemaTypeKind.TkMap:
+        if name == "is_shared":
+            return calling types.base with s->types, "bool"
+        if name == "ref_count":
+            return calling types.base with s->types, "int"
+        if name == "make_unique":
+            return 3
         if name == "put" or name == "clear" or name == "insert" or name == "set":
             return 3
         if name == "remove" or name == "has_key" or name == "contains" or name == "has":
@@ -1736,6 +1748,12 @@ weave builtin_method with s as ref to state.SemaState, recv as int, name as stri
             return expected
         return 3
     if rt.kind == tk.SemaTypeKind.TkBase and calling compat.is_string with s->types, recv:
+        if name == "is_shared":
+            return calling types.base with s->types, "bool"
+        if name == "ref_count":
+            return calling types.base with s->types, "int"
+        if name == "make_unique":
+            return 3
         if name == "length" or name == "len":
             return calling types.base with s->types, "int"
         if name == "at":

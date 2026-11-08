@@ -366,7 +366,11 @@ weave emit_stmt with c as ref to context.CgContext, node as int into void:
                     if not same:
                         calling drop.emit_drop_value with c, write_ty, ttxt
                         calling drop.note_move_source with c, valn, ast
+                if not (write_ty > 0 and (calling is_drop_type with c, write_ty)):
+                    if calling value_is_place with c, valn, ast:
+                        calling drop.emit_cow_promote_source with c, (calling drop.cow_kind_of with c, write_ty), valn, ast
                 calling emit.line with (sigil of c->emitter), "{ttxt} = {vtxt};"
+                calling share_assigned with c, write_ty, valn, ast, ttxt
         return
     if k == pskind.NodeKind.NdCompoundSetStmt or k == pskind.NodeKind.NdCompoundSetSimple:
         var ctgt as int is calling astutil.node_child with ast, node, 0
@@ -1759,6 +1763,22 @@ weave value_is_place with c as ref to context.CgContext, node as int, ast as ref
     var k as pskind.NodeKind is calling astutil.kind_of with ast, node
     return k == pskind.NodeKind.NdVarRef
 
+
+## Emite el `share` de COW cuando el valor asignado viene de un lugar (otra
+## variable).  Un temporal (`f(...)`, `a + b`, un literal) ya es dueño único y
+## no necesita contador.
+##
+## ## Memoria
+## O(1) si ya es COW; O(n) al promocionar un valor legacy.
+weave share_assigned with c as ref to context.CgContext, ty as int, vnode as int, ast as ref to psast.PsAst, target as string into void:
+    if ty <= 0:
+        return
+    if not (calling value_is_place with c, vnode, ast):
+        return
+    var cwk as int is calling drop.cow_kind_of with c, ty
+    if cwk > 0:
+        calling drop.emit_cow_share with c, cwk, target
+
 weave is_drop_type with c as ref to context.CgContext, ty as int into bool:
     var cur as int is ty
     var guard as int is 0
@@ -1985,7 +2005,11 @@ weave emit_local with c as ref to context.CgContext, node as int, ast as ref to 
     if vn >= 0:
         var val2 as string is calling expr.emit_expr_as with c, vn, ty
         defer banish val2
+        if not is_drop and (calling value_is_place with c, vn, ast):
+            calling drop.emit_cow_promote_source with c, (calling drop.cow_kind_of with c, ty), vn, ast
         calling emit.line with (sigil of c->emitter), "{cdecl} = {val2};"
+        if not is_drop:
+            calling share_assigned with c, ty, vn, ast, cn
         if is_drop:
             if calling is_share_type with c, ty:
                 # `Rc`/`Weak`: copiar el handle retiene, no mueve.

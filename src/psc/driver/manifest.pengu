@@ -43,6 +43,8 @@ rune Manifest:
     defines as list of string
     cc as string
     strict_c99 as bool
+    ## `true` compila los contenedores con la semantica de copia de 0.51.
+    legacy_copy as bool
 
 ## Copia owned de un string.
 ##
@@ -98,7 +100,7 @@ weave default_manifest with base_dir as string, entry as string into Manifest:
     var st as string is calling stem_of with entry
     var name as string is calling copy with st
     var out as string is st
-    return with found is false, ok is true, error is "", base_dir is (calling copy with base_dir), name is name, version is (calling copy with "0.1.0"), entry is (calling copy with entry), output is (calling copy with "exe"), output_name is out, target is "", src_dir is (calling copy with "."), lib_dir is (calling copy with "lib"), include_dir is (calling copy with "include"), c_dir is (calling copy with "c"), build_dir is (calling copy with "build"), assets_dir is (calling copy with "assets"), assets_module is (calling copy with "arca"), assets_embed is true, assets_exclude is list of string, links is list of string, lib_dirs is list of string, include_dirs is list of string, cflags is list of string, ldflags is list of string, defines is list of string, cc is "", strict_c99 is false
+    return with found is false, ok is true, error is "", base_dir is (calling copy with base_dir), name is name, version is (calling copy with "0.1.0"), entry is (calling copy with entry), output is (calling copy with "exe"), output_name is out, target is "", src_dir is (calling copy with "."), lib_dir is (calling copy with "lib"), include_dir is (calling copy with "include"), c_dir is (calling copy with "c"), build_dir is (calling copy with "build"), assets_dir is (calling copy with "assets"), assets_module is (calling copy with "arca"), assets_embed is true, assets_exclude is list of string, links is list of string, lib_dirs is list of string, include_dirs is list of string, cflags is list of string, ldflags is list of string, defines is list of string, cc is "", strict_c99 is false, legacy_copy is false
 
 ## `true` si `s` empieza por `prefix`.
 ##
@@ -134,7 +136,7 @@ weave load_manifest with base_dir as string, profile as string into Manifest:
     if not data.is_present:
         banish path
         var rerr as string is "cannot read pengu.toml"
-        return with found is true, ok is false, error is rerr, base_dir is (calling copy with base_dir), name is "", version is "", entry is "", output is "", output_name is "", target is "", src_dir is "", lib_dir is "", include_dir is "", c_dir is "", build_dir is "", assets_dir is "", assets_module is "", assets_embed is false, assets_exclude is list of string, links is list of string, lib_dirs is list of string, include_dirs is list of string, cflags is list of string, ldflags is list of string, defines is list of string, cc is "", strict_c99 is false
+        return with found is true, ok is false, error is rerr, base_dir is (calling copy with base_dir), name is "", version is "", entry is "", output is "", output_name is "", target is "", src_dir is "", lib_dir is "", include_dir is "", c_dir is "", build_dir is "", assets_dir is "", assets_module is "", assets_embed is false, assets_exclude is list of string, links is list of string, lib_dirs is list of string, include_dirs is list of string, cflags is list of string, ldflags is list of string, defines is list of string, cc is "", strict_c99 is false, legacy_copy is false
     var text as string is data.value
     var r as result of list of toml.TomlEntry to string is calling toml.parse with text
     banish text
@@ -143,7 +145,7 @@ weave load_manifest with base_dir as string, profile as string into Manifest:
         var err as string is r.error
         var emsg as string is "invalid pengu.toml: {err}"
         banish err
-        return with found is true, ok is false, error is emsg, base_dir is (calling copy with base_dir), name is "", version is "", entry is "", output is "", output_name is "", target is "", src_dir is "", lib_dir is "", include_dir is "", c_dir is "", build_dir is "", assets_dir is "", assets_module is "", assets_embed is false, assets_exclude is list of string, links is list of string, lib_dirs is list of string, include_dirs is list of string, cflags is list of string, ldflags is list of string, defines is list of string, cc is "", strict_c99 is false
+        return with found is true, ok is false, error is emsg, base_dir is (calling copy with base_dir), name is "", version is "", entry is "", output is "", output_name is "", target is "", src_dir is "", lib_dir is "", include_dir is "", c_dir is "", build_dir is "", assets_dir is "", assets_module is "", assets_embed is false, assets_exclude is list of string, links is list of string, lib_dirs is list of string, include_dirs is list of string, cflags is list of string, ldflags is list of string, defines is list of string, cc is "", strict_c99 is false, legacy_copy is false
     var entries as list of toml.TomlEntry is r.value
     var name as string is calling text_or with entries, "project.name", "app"
     var version as string is calling text_or with entries, "project.version", "0.1.0"
@@ -161,6 +163,7 @@ weave load_manifest with base_dir as string, profile as string into Manifest:
     var build_dir as string is calling text_or with entries, "build.build_dir", "build"
     var cc as string is calling text_or with entries, "build.cc", ""
     var strict as bool is calling toml.get_bool with entries, "build.strict_c99", false
+    var legacy as bool is calling toml.get_bool with entries, "build.legacy_copy", false
     var links as list of string is calling toml.get_array with entries, "build.links"
     var lib_dirs as list of string is calling toml.get_array with entries, "build.lib_dirs"
     var include_dirs as list of string is calling toml.get_array with entries, "build.include_dirs"
@@ -183,7 +186,7 @@ weave load_manifest with base_dir as string, profile as string into Manifest:
     if output != "exe" and output != "c" and output != "obj" and output != "static" and output != "shared":
         set bad is "output '{output}' is not supported (use exe|c|obj|static|shared)"
     calling toml.free_entries with entries
-    return with found is true, ok is (bad length == 0), error is bad, base_dir is (calling copy with base_dir), name is name, version is version, entry is entry, output is output, output_name is output_name, target is target, src_dir is src_dir, lib_dir is lib_dir, include_dir is include_dir, c_dir is c_dir, build_dir is build_dir, assets_dir is assets_dir, assets_module is assets_module, assets_embed is assets_embed, assets_exclude is assets_exclude, links is links, lib_dirs is lib_dirs, include_dirs is include_dirs, cflags is cflags, ldflags is ldflags, defines is defines, cc is cc, strict_c99 is strict
+    return with found is true, ok is (bad length == 0), error is bad, base_dir is (calling copy with base_dir), name is name, version is version, entry is entry, output is output, output_name is output_name, target is target, src_dir is src_dir, lib_dir is lib_dir, include_dir is include_dir, c_dir is c_dir, build_dir is build_dir, assets_dir is assets_dir, assets_module is assets_module, assets_embed is assets_embed, assets_exclude is assets_exclude, links is links, lib_dirs is lib_dirs, include_dirs is include_dirs, cflags is cflags, ldflags is ldflags, defines is defines, cc is cc, strict_c99 is strict, legacy_copy is legacy
 
 ## Libera un manifiesto.
 ##

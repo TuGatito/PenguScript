@@ -1,0 +1,24 @@
+import std.spark
+
+## Fugas de COW: copiar listas/mapas (sin mutar), mutar una copia, banishear
+## los dos bindings. Bajo ASan/LSan no debe quedar nada vivo.
+
+weave main into int:
+    var a as list of int is [1, 2, 3]
+    var b as list of int is a
+    var c as list of int is b
+    calling c.push with 4
+    calling b.push with 5
+    var m as map of string to int is map of string to int
+    calling m.put with "a", 1
+    var n as map of string to int is m
+    calling n.put with "b", 2
+    var t as string is "texto"
+    var u as string is t
+    calling spark.println with "{a.len} {b.len} {c.len} {calling m.len} {calling n.len} {u}"
+    banish a
+    banish b
+    banish c
+    banish m
+    banish n
+    return 0

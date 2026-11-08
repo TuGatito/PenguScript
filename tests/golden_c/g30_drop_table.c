@@ -118,14 +118,14 @@ int32_t pengu_main(void) {
     PenguList xs = pengu_list_new(sizeof(int32_t), 0);
     (void)xs;
     #line 27 "tests/golden_c/g30_drop_table.pengu"
-    (void)(__extension__(({ int32_t _push_tmp = 1; pengu_list_push(&(xs), &_push_tmp); })));
+    (void)(__extension__(({ int32_t _push_tmp = 1; pengu_cow_list_push(&(xs), &_push_tmp); })));
     #line 28 "tests/golden_c/g30_drop_table.pengu"
     pengu_banish_list(&(xs));
     #line 29 "tests/golden_c/g30_drop_table.pengu"
     PenguMap m = pengu_map_new(sizeof(PenguString), sizeof(int32_t));
     (void)m;
     #line 30 "tests/golden_c/g30_drop_table.pengu"
-    (void)(__extension__(({ PenguString _k = pengu_string_from_cstr_len("k", 1); int32_t _v = 1; pengu_map_put(&(m), &_k, &_v); })));
+    (void)(__extension__(({ PenguString _k = pengu_string_from_cstr_len("k", 1); int32_t _v = 1; pengu_cow_map_put(&(m), &_k, &_v); })));
     #line 31 "tests/golden_c/g30_drop_table.pengu"
     pengu_banish_map(&(m));
     #line 32 "tests/golden_c/g30_drop_table.pengu"

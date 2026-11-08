@@ -167,6 +167,43 @@ enchanting list of shard T where T: Donum:
     ## calling xs.at_safe with 2    # some 2
     ## calling xs.at_safe with 9    # none
     ## ```
+    ## `true` si el búfer de `self` lo comparte otro binding (COW).
+    ##
+    ## ## Retorno
+    ## `false` mientras el búfer sea exclusivo. Es un diagnóstico: el
+    ## compilador decide solo cuándo clonar.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as list of int is [1]
+    ## var b as list of int is a
+    ## calling a.is_shared    # true
+    ## ```
+    weave is_shared into bool:
+        return false
+
+    ## Número de bindings que comparten el búfer de `self` (COW).
+    ##
+    ## ## Retorno
+    ## `1` si el búfer es exclusivo; `0` si no hay búfer. Diagnóstico.
+    weave ref_count into int:
+        return 1
+
+    ## Fuerza que el búfer de `self` sea exclusivo, clonándolo si hace falta.
+    ##
+    ## ## Retorno
+    ## Nada. Tras la llamada, `is_shared` es `false`. El coste es O(n) solo
+    ## cuando el búfer estaba compartido.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as list of int is [1]
+    ## var b as list of int is a
+    ## calling b.make_unique
+    ## ```
+    weave make_unique into void:
+        return
+
     weave at_safe with idx as int into maybe T:
         if idx < 0:
             return maybe none

@@ -2861,6 +2861,55 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
             if rt0 == "PenguMap":
                 set ref_map is true
             banish rt0
+        if method_name == "is_shared" or method_name == "ref_count" or method_name == "make_unique":
+            var ck3 as int is calling drop.cow_kind_of with c, tgt.type_id
+            if ck3 > 0:
+                var cn3 as string is "string"
+                if ck3 == 2:
+                    set cn3 is "list"
+                else if ck3 == 3:
+                    set cn3 is "map"
+                var isref3 as bool is tt.kind == tk.SemaTypeKind.TkRef or (tgt.text == "self" and not c->self_value)
+                var ad3 as StringBuilder is calling StringBuilder.new
+                defer banish ad3
+                if isref3:
+                    calling ad3.append with tgt.text
+                else:
+                    calling ad3.append with "&("
+                    calling ad3.append with tgt.text
+                    calling ad3.append with ")"
+                var adt as string is calling ad3.finish
+                defer banish adt
+                var vsb as StringBuilder is calling StringBuilder.new
+                defer banish vsb
+                if method_name == "make_unique":
+                    calling vsb.append with "__extension__(({ pengu_cow_"
+                    calling vsb.append with cn3
+                    calling vsb.append with "_ensure_unique("
+                    calling vsb.append with adt
+                    calling vsb.append with "); }))"
+                    return calling vsb.finish
+                calling vsb.append with "pengu_cow_"
+                calling vsb.append with cn3
+                if ck3 == 1:
+                    if method_name == "is_shared":
+                        calling vsb.append with "_is_shared("
+                    else:
+                        calling vsb.append with "_ref_count("
+                    if isref3:
+                        calling vsb.append with "*("
+                        calling vsb.append with tgt.text
+                        calling vsb.append with ")"
+                    else:
+                        calling vsb.append with tgt.text
+                else:
+                    if method_name == "is_shared":
+                        calling vsb.append with "_is_shared("
+                    else:
+                        calling vsb.append with "_ref_count("
+                    calling vsb.append with adt
+                calling vsb.append with ")"
+                return calling vsb.finish
         if (is_map_recv or ref_map) and (method_name == "put" or method_name == "get" or method_name == "has" or method_name == "remove" or method_name == "contains" or method_name == "clear"):
             var mt as tk.SemaType is tt
             if ref_map:
@@ -2871,7 +2920,11 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
             if method_name == "clear":
                 var csb as StringBuilder is calling StringBuilder.new
                 defer banish csb
-                calling csb.append with "__extension__(({ pengu_map_clear("
+                calling csb.append with "__extension__(({ "
+                if (calling drop.cow_kind_of with c, tgt.type_id) == 3:
+                    calling csb.append with "pengu_cow_map_clear("
+                else:
+                    calling csb.append with "pengu_map_clear("
                 calling csb.append with mrecv
                 calling csb.append with "); }))"
                 return calling csb.finish
@@ -2898,7 +2951,10 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
                     calling msb.append with vts
                     calling msb.append with " _v = "
                     calling msb.append with vz
-                    calling msb.append with "; pengu_map_put({mrecv}, &_k, &_v); }))"
+                    if (calling drop.cow_kind_of with c, tgt.type_id) == 3:
+                        calling msb.append with "; pengu_cow_map_put({mrecv}, &_k, &_v); }))"
+                    else:
+                        calling msb.append with "; pengu_map_put({mrecv}, &_k, &_v); }))"
                 else:
                     calling msb.append with "__extension__(({ "
                     calling msb.append with kt
@@ -2908,7 +2964,10 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
                     if method_name == "has" or method_name == "contains":
                         calling msb.append with "pengu_map_contains({mrecv}, &_k); }))"
                     else if method_name == "remove":
-                        calling msb.append with "pengu_map_remove({mrecv}, &_k); }))"
+                        if (calling drop.cow_kind_of with c, tgt.type_id) == 3:
+                            calling msb.append with "pengu_cow_map_remove({mrecv}, &_k); }))"
+                        else:
+                            calling msb.append with "pengu_map_remove({mrecv}, &_k); }))"
                     else:
                         # `get` es la lectura sin comprobar: si la clave no
                         # está, devuelve el cero del tipo de valor (como `at`).
@@ -2959,7 +3018,11 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
                     calling psb2.append with et
                     calling psb2.append with " _push_tmp = "
                     calling psb2.append with av
-                    calling psb2.append with "; pengu_list_push("
+                    calling psb2.append with "; "
+                    if (calling drop.cow_kind_of with c, tgt.type_id) == 2:
+                        calling psb2.append with "pengu_cow_list_push("
+                    else:
+                        calling psb2.append with "pengu_list_push("
                     if not list_ref:
                         calling psb2.append with "&("
                     calling psb2.append with tgt.text
@@ -2975,7 +3038,10 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
                 defer banish psb
                 calling psb.append with "(*( "
                 calling psb.append with et
-                calling psb.append with "*)pengu_list_pop_val("
+                if (calling drop.cow_kind_of with c, tgt.type_id) == 2:
+                    calling psb.append with "*)pengu_cow_list_pop_val("
+                else:
+                    calling psb.append with "*)pengu_list_pop_val("
                 if not list_ref:
                     calling psb.append with "&("
                 calling psb.append with tgt.text
@@ -2984,10 +3050,13 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
                 calling psb.append with "))"
                 return calling psb.finish
             var clr as string is ""
+            var clrf as string is "pengu_list_clear"
+            if (calling drop.cow_kind_of with c, tgt.type_id) == 2:
+                set clrf is "pengu_cow_list_clear"
             if list_ref:
-                set clr is "pengu_list_clear({tgt.text})"
+                set clr is "{clrf}({tgt.text})"
             else:
-                set clr is "pengu_list_clear(&({tgt.text}))"
+                set clr is "{clrf}(&({tgt.text}))"
             return clr
     var tgtc as int is calling astutil.node_child with ast, node, 0
     if (calling astutil.child_count with ast, tgtc) > 2:

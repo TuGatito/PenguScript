@@ -2596,7 +2596,14 @@ static inline void pengu_string_append(PenguString *dst, PenguString v)
   bool pengu_cow_list_owned(PenguList *l);
   int32_t pengu_cow_list_ref_count(PenguList *l);
   bool pengu_cow_list_is_shared(PenguList *l);
+  void pengu_cow_list_promote(PenguList *l);
+  void pengu_cow_map_promote(PenguMap *m);
   void pengu_cow_list_drop(PenguList *l);
+  void pengu_cow_list_pop_drop(PenguList *l, void *out);
+  void *pengu_cow_list_pop_val(PenguList *l);
+  void pengu_cow_list_clear(PenguList *l);
+  void pengu_cow_list_remove_at(PenguList *l, int idx);
+  void pengu_cow_list_set_len(PenguList *l, int len);
 
   /* Mapas COW. */
   PenguMap pengu_cow_map_new(size_t key_size, size_t val_size);
@@ -2608,6 +2615,8 @@ static inline void pengu_string_append(PenguString *dst, PenguString v)
   int32_t pengu_cow_map_ref_count(PenguMap *m);
   bool pengu_cow_map_is_shared(PenguMap *m);
   void pengu_cow_map_drop(PenguMap *m);
+  bool pengu_cow_map_remove(PenguMap *m, const void *key);
+  bool pengu_cow_map_clear(PenguMap *m);
   bool pengu_cow_map_owned(PenguMap *m);
   void pengu_cow_map_set_drop(void *m, void (*drop_key)(void *), void (*drop_val)(void *));
 

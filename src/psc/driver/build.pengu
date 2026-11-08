@@ -47,6 +47,8 @@ rune BuildOptions:
     out_path as string
     verbose as bool
     strict_c99 as bool
+    ## `true` deja los contenedores con la copia de handle de 0.51 (escape).
+    legacy_copy as bool
     release_unsafe as bool
     is_library as bool
     is_test as bool
@@ -611,7 +613,7 @@ weave find_manifest_root with start as string into string:
 ## ## Memoria
 ## Strings owned; liberar con `free_options`.
 weave default_options into BuildOptions:
-    return with target is "", platform is (calling targetmod.host), target_explicit is false, profile is (calling copy with "debug"), cc is "", out_path is "", verbose is false, strict_c99 is false, release_unsafe is false, is_library is false, is_test is false, test_json is false, bundle_only is false, check_only is false, no_dce is false, prune_types is false, no_line_markers is false, prune_native is false, dce_scope_user is false, pch is false, compiler_path is "", no_cache is false, clear_cache is false, ephemeral is false, locked is false, frozen is false, force_exe is false, coverage is false, sanitize_kind is 0, split is false, jobs is 0, defines is list of string
+    return with target is "", platform is (calling targetmod.host), target_explicit is false, profile is (calling copy with "debug"), cc is "", out_path is "", verbose is false, strict_c99 is false, legacy_copy is false, release_unsafe is false, is_library is false, is_test is false, test_json is false, bundle_only is false, check_only is false, no_dce is false, prune_types is false, no_line_markers is false, prune_native is false, dce_scope_user is false, pch is false, compiler_path is "", no_cache is false, clear_cache is false, ephemeral is false, locked is false, frozen is false, force_exe is false, coverage is false, sanitize_kind is 0, split is false, jobs is 0, defines is list of string
 
 ## Libera opciones.
 ##
@@ -851,6 +853,8 @@ weave build with o as BuildOptions into BuildResult:
     # Target efectivo: `--target` explícito manda; si no, `[build] target`.
     var eff as targetmod.Target is calling targetmod.clone with o.platform
     defer calling targetmod.free with (sigil of eff)
+    if man.legacy_copy:
+        set o.legacy_copy is true
     if (not o.target_explicit) and man.target length > 0:
         var parsed as targetmod.Target is calling targetmod.parse with man.target
         if not parsed.ok:
@@ -1293,6 +1297,7 @@ weave build with o as BuildOptions into BuildResult:
     set cgo.prune_native is o.prune_native
     set cgo.dce_scope_user is o.dce_scope_user
     set cgo.strict_c99 is o.strict_c99
+    set cgo.legacy_copy is o.legacy_copy
     set cgo.release_unsafe is o.release_unsafe
     set cgo.os_name is so.os_name
     set cgo.arch is so.arch

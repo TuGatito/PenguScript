@@ -41,7 +41,7 @@ int32_t pengu_main(void) {
     PenguList xs = __extension__(({ PenguList _list0 = pengu_list_new(sizeof(int32_t), 3); int32_t _lv1; _lv1 = 1; pengu_list_push(&_list0, &_lv1); _lv1 = 2; pengu_list_push(&_list0, &_lv1); _lv1 = 3; pengu_list_push(&_list0, &_lv1); _list0; }));
     (void)xs;
     #line 4 "tests/golden_c/g08_list.pengu"
-    (void)(__extension__(({ int32_t _push_tmp = 4; pengu_list_push(&(xs), &_push_tmp); })));
+    (void)(__extension__(({ int32_t _push_tmp = 4; pengu_cow_list_push(&(xs), &_push_tmp); })));
     #line 5 "tests/golden_c/g08_list.pengu"
     int32_t total = 0;
     (void)total;

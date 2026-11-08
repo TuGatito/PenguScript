@@ -30,6 +30,8 @@ rune CgOptions:
     line_markers as bool
     ## C99 portable sin statement expressions.
     strict_c99 as bool
+    ## `true` emite la copia de handle de 0.51 en vez de COW.
+    legacy_copy as bool
     ## Dialecto del compilador C (`gcc`, `clang`, `tcc`, `msvc`).
     target_compiler as string
     ## Desactivar checks de bounds/overflow.
@@ -56,7 +58,7 @@ rune CgOptions:
 ## ## Memoria
 ## Devuelve strings prestados; no asigna.
 weave default_options with base_dir as string into CgOptions:
-    return with base_dir is base_dir, entry_file is "", is_test is false, test_json is false, is_library is false, dce is true, dce_scope_user is false, prune_types is false, prune_native is false, line_markers is true, strict_c99 is false, target_compiler is "gcc", release_unsafe is false, debug is false, os_name is "linux", arch is "x64", compiler is "gcc", wasm is false, wasm_target is "", target_triple is "", defines is list of string
+    return with base_dir is base_dir, entry_file is "", is_test is false, test_json is false, is_library is false, dce is true, dce_scope_user is false, prune_types is false, prune_native is false, line_markers is true, strict_c99 is false, legacy_copy is false, target_compiler is "gcc", release_unsafe is false, debug is false, os_name is "linux", arch is "x64", compiler is "gcc", wasm is false, wasm_target is "", target_triple is "", defines is list of string
 
 ## Estadísticas de emisión.
 rune CgStats:

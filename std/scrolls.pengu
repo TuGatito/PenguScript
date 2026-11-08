@@ -871,6 +871,27 @@ return pengu_string_owned_from_sds(buf);
 ## String methods: query, transformation, predicates and parsing.
 enchanting string:
     # --- Length and iteration -------------------------------------------
+    ## `true` si el búfer de `self` lo comparte otro binding (COW).
+    ##
+    ## ## Retorno
+    ## `false` mientras el texto sea exclusivo. Diagnóstico.
+    weave is_shared into bool:
+        return false
+
+    ## Número de bindings que comparten el búfer de `self` (COW).
+    ##
+    ## ## Retorno
+    ## `1` si el texto es exclusivo. Diagnóstico.
+    weave ref_count into int:
+        return 1
+
+    ## Fuerza que el texto de `self` sea exclusivo, copiándolo si hace falta.
+    ##
+    ## ## Retorno
+    ## Nada.
+    weave make_unique into void:
+        return
+
     ## Number of bytes in the string.
     ##
     ## ## Parámetros

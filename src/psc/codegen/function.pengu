@@ -422,6 +422,7 @@ weave emit_function with c as ref to context.CgContext, f as catalog.CgFunction 
         var pid as int is calling npool.intern with (sigil of c->program->names), pn
         banish pn
         calling context.add_local with c, pid, p.type, pid
+        calling context.add_param with c, pid
         var pidc as int is calling context.local_c_name with c, pid
         var pn2 as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), pidc)
         calling emit.line with (sigil of c->emitter), "(void){pn2};"
