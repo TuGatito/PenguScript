@@ -155,6 +155,27 @@ weave node_warning with bag as ref to diag.DiagnosticBag, src as ref to psource.
         set e is node_start
     calling sema_emit_warning with bag, src, code, node_start, e, message, help
 
+## Emite un aviso informativo en `[start, end)`.
+##
+## Se usa para lints opt-in (`--lint=cow`): el diagnóstico aparece en el LSP
+## como severity 3 sin afectar al resultado de `psc check`.
+##
+## ## Memoria
+## Asigna el diagnóstico; liberar el bag al final.
+weave sema_emit_info with bag as ref to diag.DiagnosticBag, src as ref to psource.SourceFile, code as string, start as int, end as int, message as string, help as string into void:
+    var sp as pspan.ByteSpan is with start is start, end is end
+    calling psdiag.emit_info with bag, src, code, message, sp, help
+
+## Emite un aviso informativo sobre un nodo del AST.
+##
+## ## Memoria
+## O(1); no asigna aparte del diagnóstico.
+weave node_info with bag as ref to diag.DiagnosticBag, src as ref to psource.SourceFile, code as string, node_start as int, node_end as int, message as string, help as string into void:
+    var e as int is node_end
+    if e < node_start:
+        set e is node_start
+    calling sema_emit_info with bag, src, code, node_start, e, message, help
+
 ## Código de `E0057` para un char fuera del rango seguro de C.
 ##
 ## ## Memoria

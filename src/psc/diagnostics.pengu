@@ -211,6 +211,21 @@ weave emit_warning with bag as ref to diag.DiagnosticBag, src as ref to psource.
     var d as diag.Diagnostic is calling diag.diagnostic with diag.Severity.Warning, code, message, labels_list, h, (maybe none), (calling diag.no_related)
     calling bag.add with d
 
+## Emite un aviso informativo con código, mensaje, span y help.
+##
+## ## Memoria
+## Igual que `emit_warning`, con severidad `Info`.
+weave emit_info with bag as ref to diag.DiagnosticBag, src as ref to psource.SourceFile, code as string, message as string, s as pspan.ByteSpan, help as string into void:
+    var sp as diag.Span is calling diag_span with src, s
+    var lb as diag.Label is calling diag.label with sp, "", true
+    var labels_list as list of diag.Label is calling diag.labels with lb
+    var h as maybe string is maybe none
+    if help length > 0:
+        var hc as string is "{help}"
+        set h is some hc
+    var d as diag.Diagnostic is calling diag.diagnostic with diag.Severity.Info, code, message, labels_list, h, (maybe none), (calling diag.no_related)
+    calling bag.add with d
+
 ## Emite el diagnóstico correspondiente a un `LexIssue`.
 ##
 ## ## Memoria

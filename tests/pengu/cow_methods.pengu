@@ -1,0 +1,54 @@
+## Métodos de diagnóstico y control del COW: `is_shared`, `ref_count` y
+## `make_unique` sobre `list`, `map` y `string`.
+##
+## Sin COW, copiar un contenedor comparte el búfer y mutar una copia cambia
+## también la otra. Con COW la copia es O(1) hasta que alguien muta; estos
+## métodos hacen visible ese estado sin romper la abstracción.
+
+import std.spark
+
+weave main into int:
+    # --- listas -----------------------------------------------------------
+    var a as list of int is list of int
+    calling a.push with 1
+    calling a.push with 2
+
+    var b as list of int is a
+    if not (calling a.is_shared):
+        calling spark.println with "list should be shared after copy"
+        return 1
+    if (calling a.ref_count) != 2:
+        calling spark.println with "list ref_count: {calling a.ref_count}"
+        return 2
+
+    # Copiar un mapa también comparte su estado.
+    var m as map of string to int is map of string to int
+    calling m.put with "k", 1
+    var n as map of string to int is m
+    if not (calling m.is_shared):
+        calling spark.println with "map should be shared after copy"
+        return 3
+
+    # `make_unique` fuerza un búfer propio: la copia deja de ver los cambios.
+    calling b.make_unique
+    if calling b.is_shared:
+        calling spark.println with "list should be unique after make_unique"
+        return 4
+    calling b.push with 3
+    if (calling a.len) != 2:
+        calling spark.println with "original changed: {calling a.len}"
+        return 5
+
+    # --- strings ----------------------------------------------------------
+    var s as string is "hola"
+    var t as string is s
+    # Un string legacy comparte el búfer sin contador: no es "shared" hasta
+    # que se promociona, y `make_unique` lo deja listo para mutar en sitio.
+    calling t.make_unique
+    if calling t.is_shared:
+        calling spark.println with "string should be unique after make_unique"
+        return 6
+
+    calling spark.println with "ok"
+    banish a
+    return 0

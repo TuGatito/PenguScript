@@ -1,0 +1,164 @@
+## psc/sema/check/lint.pengu — lints opcionales del checker.
+##
+## De momento hay uno solo: `W0008`, detrás de `--lint=cow`.
+##
+## La heurística marca copiar un contenedor y mutar la copia dentro de un
+## bucle. El programa sigue siendo correcto (COW lo hace seguro), pero paga
+## una clonación del búfer por vuelta: mover la copia fuera del bucle, o
+## limpiar y rellenar el mismo contenedor, evita el coste.
+##
+## El lint es **opt-in** a propósito: sin el flag, ningún proyecto ve avisos
+## nuevos.
+
+insignia sema_lint_
+
+import psc.ast.kind as pskind
+import psc.ast.node as psast
+import psc.sema.ast as astutil
+import psc.sema.diagnostics as sdiag
+import psc.sema.state as state
+
+## `true` si el nombre de método muta el contenedor.
+##
+## `push`/`append` y `put`/`insert` añaden, `remove`/`clear` quitan; en los
+## cuatro casos el receptor necesita un búfer exclusivo.
+##
+## ## Memoria
+## Compara literales; no asigna.
+weave is_mutating_method with name as string into bool:
+    if name == "push" or name == "append" or name == "put" or name == "insert":
+        return true
+    if name == "remove" or name == "clear" or name == "pop":
+        return true
+    return false
+
+## Recorre el cuerpo buscando bucles y aplica la heurística a cada uno.
+##
+## ## Memoria
+## O(profundidad del AST); no retiene nodos.
+weave lint_cow_loops with s as ref to state.SemaState, body as int into void:
+    if body < 0:
+        return
+    calling walk_loops with s, body
+
+## Desciende el AST y llama a `lint_loop` en cada bucle.
+##
+## ## Memoria
+## Recursión acotada por la profundidad del AST.
+weave walk_loops with s as ref to state.SemaState, node as int into void:
+    if node < 0:
+        return
+    var ast as ref to psast.PsAst is s->ast
+    var k as pskind.NodeKind is calling astutil.kind_of with ast, node
+    if k == pskind.NodeKind.NdWhileStmt or k == pskind.NodeKind.NdForRangeStmt or k == pskind.NodeKind.NdForInStmt:
+        calling lint_loop with s, node
+    var n as int is calling astutil.child_count with ast, node
+    var i as int is 0
+    while i < n:
+        var ch as int is calling astutil.node_child with ast, node, i
+        if ch >= 0:
+            calling walk_loops with s, ch
+        set i is i + 1
+
+## Texto del token `slot` de un nodo, o `""`.
+##
+## ## Memoria
+## Devuelve owned; el llamador lo libera.
+weave child_text with s as ref to state.SemaState, node as int, slot as int into string:
+    var ast as ref to psast.PsAst is s->ast
+    var tk as int is calling astutil.token_child with ast, node, slot
+    if tk < 0:
+        return ""
+    return calling astutil.token_text with s->src, s->lex, tk
+
+## `true` si el nodo de tipo nombra `list`, `map` o `string`.
+##
+## Se mira la forma sintáctica (no el tipo resuelto) para que el lint funcione
+## también en tipos genéricos aún sin instanciar.
+##
+## ## Memoria
+## Libera el texto que pide; no retiene nada.
+weave type_node_is_cow with s as ref to state.SemaState, tnode as int into bool:
+    if tnode < 0:
+        return false
+    var ast as ref to psast.PsAst is s->ast
+    var k as pskind.NodeKind is calling astutil.kind_of with ast, tnode
+    if k == pskind.NodeKind.NdListType or k == pskind.NodeKind.NdMapType:
+        return true
+    if k == pskind.NodeKind.NdBaseType or k == pskind.NodeKind.NdVarRef:
+        var txt as string is calling child_text with s, tnode, 0
+        var hit as bool is txt == "string"
+        banish txt
+        return hit
+    return false
+
+## Acumula copias (`var x is y`) y receptores mutados del subárbol.
+##
+## ## Memoria
+## Empuja en las listas del llamador; no libera nada.
+weave scan_loop with s as ref to state.SemaState, node as int, decls as ref to list of int, muts as ref to list of string into void:
+    if node < 0:
+        return
+    var ast as ref to psast.PsAst is s->ast
+    var k as pskind.NodeKind is calling astutil.kind_of with ast, node
+    if k == pskind.NodeKind.NdVarDecl:
+        var tn as int is calling astutil.node_child with ast, node, 1
+        var vn as int is calling astutil.node_child with ast, node, 2
+        if tn >= 0 and vn >= 0:
+            if (calling astutil.kind_of with ast, vn) == pskind.NodeKind.NdVarRef:
+                if calling type_node_is_cow with s, tn:
+                    calling decls.push with node
+    else if k == pskind.NodeKind.NdCallingExpr:
+        var tg as int is calling astutil.node_child with ast, node, 0
+        if tg >= 0:
+            var step as int is calling astutil.node_child with ast, tg, 1
+            if step >= 0:
+                var mname as string is calling child_text with s, step, 0
+                var recv as string is calling child_text with s, tg, 0
+                if (calling is_mutating_method with mname) and (recv length) > 0:
+                    calling muts.push with recv
+                else:
+                    banish recv
+                banish mname
+    var n as int is calling astutil.child_count with ast, node
+    var i as int is 0
+    while i < n:
+        var ch as int is calling astutil.node_child with ast, node, i
+        if ch >= 0:
+            calling scan_loop with s, ch, decls, muts
+        set i is i + 1
+
+## Aplica la heurística a un bucle concreto.
+##
+## ## Memoria
+## Listas locales liberadas con `banish`.
+weave lint_loop with s as ref to state.SemaState, loop as int into void:
+    var decls as list of int is list of int
+    defer banish decls
+    var muts as list of string is list of string
+    defer banish muts
+    calling scan_loop with s, loop, (sigil of decls), (sigil of muts)
+    var ast as ref to psast.PsAst is s->ast
+    var i as int is 0
+    while i < decls.len:
+        var dn as int is decls at i
+        var name as string is calling child_text with s, dn, 0
+        var onode as int is calling astutil.node_child with ast, dn, 2
+        var origin as string is calling child_text with s, onode, 0
+        var hit as bool is false
+        var j as int is 0
+        while j < muts.len:
+            if (muts at j) == name:
+                set hit is true
+            set j is j + 1
+        if hit:
+            var st as int is calling astutil.start_of with ast, dn
+            var en as int is calling astutil.end_of with ast, dn
+            var msg as string is "copy '{name}' is mutated inside a loop: every iteration clones the buffer"
+            var help as string is "Move the copy out of the loop, or clear and refill it instead of copying '{origin}'."
+            calling sdiag.node_info with s->bag, s->src, sdiag.WARN_COW_LOOP, st, en, msg, help
+            banish msg
+            banish help
+        banish name
+        banish origin
+        set i is i + 1

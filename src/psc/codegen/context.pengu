@@ -317,6 +317,25 @@ weave is_param_name with c as ref to CgContext, name as int into bool:
         set i is i + 1
     return false
 
+## ¿El nombre C `txt` corresponde a un parámetro de la función en curso?
+##
+## Compara por el nombre C, que es lo único que el emisor tiene a mano al
+## asignar (`set x is ...`).
+##
+## ## Memoria
+## O(locales · parámetros); no asigna.
+weave is_param_c_name with c as ref to CgContext, txt as string into bool:
+    var i as int is c->locals.len - 1
+    while i >= 0:
+        var l as CgLocal is (c->locals at i)
+        var lt as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), l.c_name)
+        if lt == txt:
+            banish lt
+            return calling is_param_name with c, l.name
+        banish lt
+        set i is i - 1
+    return false
+
 ## Añade un local al scope C actual.
 ##
 ## ## Memoria

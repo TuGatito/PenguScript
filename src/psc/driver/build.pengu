@@ -47,6 +47,8 @@ rune BuildOptions:
     out_path as string
     verbose as bool
     strict_c99 as bool
+    ## `psc check --lint=cow`: activa `W0008` durante la comprobación.
+    lint_cow as bool
     ## `true` deja los contenedores con la copia de handle de 0.51 (escape).
     legacy_copy as bool
     release_unsafe as bool
@@ -613,7 +615,7 @@ weave find_manifest_root with start as string into string:
 ## ## Memoria
 ## Strings owned; liberar con `free_options`.
 weave default_options into BuildOptions:
-    return with target is "", platform is (calling targetmod.host), target_explicit is false, profile is (calling copy with "debug"), cc is "", out_path is "", verbose is false, strict_c99 is false, legacy_copy is false, release_unsafe is false, is_library is false, is_test is false, test_json is false, bundle_only is false, check_only is false, no_dce is false, prune_types is false, no_line_markers is false, prune_native is false, dce_scope_user is false, pch is false, compiler_path is "", no_cache is false, clear_cache is false, ephemeral is false, locked is false, frozen is false, force_exe is false, coverage is false, sanitize_kind is 0, split is false, jobs is 0, defines is list of string
+    return with target is "", platform is (calling targetmod.host), target_explicit is false, profile is (calling copy with "debug"), cc is "", out_path is "", verbose is false, strict_c99 is false, lint_cow is false, legacy_copy is false, release_unsafe is false, is_library is false, is_test is false, test_json is false, bundle_only is false, check_only is false, no_dce is false, prune_types is false, no_line_markers is false, prune_native is false, dce_scope_user is false, pch is false, compiler_path is "", no_cache is false, clear_cache is false, ephemeral is false, locked is false, frozen is false, force_exe is false, coverage is false, sanitize_kind is 0, split is false, jobs is 0, defines is list of string
 
 ## Libera opciones.
 ##
@@ -939,6 +941,7 @@ weave build with o as BuildOptions into BuildResult:
     var so as sopts.SemaOptions is calling sopts.default_options with (calling copy with man.base_dir)
     calling targetmod.apply_sema with eff, (sigil of so)
     set so.is_debug is o.profile == "debug"
+    set so.lint_cow is o.lint_cow
     banish so.src_dir
     set so.src_dir is (calling copy with man.src_dir)
     banish so.lib_dir

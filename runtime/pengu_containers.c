@@ -892,15 +892,10 @@ void pengu_cow_list_share(PenguList *l)
     pengu_cow_hdr_of(l->data)->rc += 1;
     return;
   }
-  /* Alias de una lista legacy: se copia a un buffer COW propio y el original
-     sigue siendo su dueño. */
-  fresh = pengu_cow_list_new(l->elem_size, (size_t)(l->len > 0 ? l->len : l->cap));
-  if (!fresh.data)
-    return;
-  if (l->len > 0)
-    memcpy(fresh.data, l->data, (size_t)l->len * l->elem_size);
-  fresh.len = l->len;
-  *l = fresh;
+  /* Alias legacy: se deja tal cual. El primer `ensure_unique` lo promociona.
+     Copiar aquí crearía un búfer COW que nadie liberaría (un `list` local no
+     tiene destructor automático). */
+  (void)fresh;
 }
 
 void pengu_cow_list_promote(PenguList *l)
@@ -1050,26 +1045,9 @@ void pengu_cow_map_share(PenguMap *m)
     pengu_cow_state_of(m)->rc += 1;
     return;
   }
-  /* Alias de un mapa legacy: se copia entrada a entrada a un mapa COW. */
-  {
-    PenguMapState *st = pengu_cow_state_of(m);
-    PenguMap fresh = pengu_map_new(st->key_size, st->val_size);
-    PenguMapIter it;
-    if (!fresh.state)
-      return;
-    {
-      PenguMapState *fs = pengu_cow_state_of(&fresh);
-      fs->magic = PENGU_COW_MAP_MAGIC;
-      fs->rc = 1;
-    }
-    it = pengu_map_iter_begin(m);
-    while (pengu_map_iter_valid(&it))
-    {
-      pengu_map_put(&fresh, pengu_map_iter_key(&it), pengu_map_iter_value(&it));
-      pengu_map_iter_advance(&it);
-    }
-    *m = fresh;
-  }
+  /* Alias legacy: se deja tal cual. El primer `ensure_unique` lo promociona
+     (adopción en sitio); copiar aquí crearía un mapa que nadie liberaría. */
+  return;
 }
 
 void pengu_cow_map_make_unique(PenguMap *m)

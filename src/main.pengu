@@ -461,6 +461,20 @@ weave run_check with args as list of string into int:
             set opts.stop_after_first is true
         else if a == "--deny-deprecated":
             set opts.deny_deprecated is true
+        else if a == "--lint=cow":
+            set opts.lint_cow is true
+        else if calling starts_with with a, "--lint=":
+            var lname as string is a at 7 to (a length)
+            var lok as bool is lname == "cow"
+            if not lok:
+                var lbad as string is "psc check: unknown lint '{lname}'"
+                calling spark.eprintln with lbad
+                banish lbad
+                banish lname
+                calling sopts.free_options with (sigil of opts)
+                return 2
+            banish lname
+            set opts.lint_cow is true
         else if calling starts_with with a, "--max-errors=":
             var num as string is a at 13 to (a length)
             defer banish num
@@ -787,7 +801,7 @@ weave run_emit_c with args as list of string into int:
 ## Libera el programa del resultado.
 weave report_check with result as sema_api.SemaResult, json_diags as bool, json_u16 as bool, force_color as bool, no_color as bool into int:
     var bag_ref as ref to diag.DiagnosticBag is (sigil of result.program->diagnostics)
-    if bag_ref->error_count > 0 or bag_ref->warning_count > 0:
+    if bag_ref->error_count > 0 or bag_ref->warning_count > 0 or bag_ref->info_count > 0:
         var rendered as string is ""
         if json_diags and json_u16:
             set rendered is calling bag_ref.render_json_utf16

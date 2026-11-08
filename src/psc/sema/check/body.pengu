@@ -26,6 +26,7 @@ import psc.sema.infer.core as infer
 import psc.sema.annotate as ann
 import psc.sema.diagnostics as sdiag
 import psc.sema.check.moves as moves
+import psc.sema.check.lint as lint
 
 insignia sema_body_
 
@@ -85,6 +86,8 @@ weave check_weave_body with s as ref to state.SemaState, node as int into void:
         var body as int is calling astutil.node_child with s->ast, node, bi
         if body >= 0:
             calling check_stmt with s, body
+            if s->opts->lint_cow:
+                calling lint.lint_cow_loops with s, body
         set bi is bi + 1
     calling symbols.pop_scope with s->symbols, end
 
