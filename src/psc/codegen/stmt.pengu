@@ -311,7 +311,9 @@ weave emit_stmt with c as ref to context.CgContext, node as int into void:
         var tgt as int is calling astutil.node_child with ast, node, 0
         var valn as int is calling astutil.node_child with ast, node, 1
         if tgt >= 0 and valn >= 0:
+            set c->writing_target is true
             var ttxt as string is calling target_text with c, tgt, ast
+            set c->writing_target is false
             defer banish ttxt
             var ti_node as int is tgt
             if (calling astutil.kind_of with ast, tgt) == pskind.NodeKind.NdSetTarget:
@@ -369,23 +371,8 @@ weave emit_stmt with c as ref to context.CgContext, node as int into void:
                 if not (write_ty > 0 and (calling is_drop_type with c, write_ty)):
                     if calling value_is_place with c, valn, ast:
                         calling drop.emit_cow_promote_source with c, (calling drop.cow_kind_of with c, write_ty), valn, ast
-                var replace_fn as string is ""
-                if write_ty > 0:
-                    var wk as int is calling drop.cow_kind_of with c, write_ty
-                    if wk == 1:
-                        set replace_fn is "pengu_string_replace"
-                    if wk == 2:
-                        set replace_fn is "pengu_list_replace"
-                    if wk == 3:
-                        set replace_fn is "pengu_map_replace"
-                if replace_fn != "" and (calling simple_place_text with ttxt):
-                    # Reasignar libera el buffer anterior; el helper compara los
-                    # handles, asi que `set x is f(x)` no libera lo que `x` acaba
-                    # de adoptar.
-                    calling emit.line with (sigil of c->emitter), "{replace_fn}(&({ttxt}), ({vtxt}));"
-                else:
-                    calling emit.line with (sigil of c->emitter), "{ttxt} = {vtxt};"
-                    calling share_assigned with c, write_ty, valn, ast, ttxt
+                calling emit.line with (sigil of c->emitter), "{ttxt} = {vtxt};"
+                calling share_assigned with c, write_ty, valn, ast, ttxt
         return
     if k == pskind.NodeKind.NdCompoundSetStmt or k == pskind.NodeKind.NdCompoundSetSimple:
         var ctgt as int is calling astutil.node_child with ast, node, 0
@@ -2062,6 +2049,20 @@ weave emit_local with c as ref to context.CgContext, node as int, ast as ref to 
         if not is_drop and (calling drop.cow_kind_of with c, ty) == 1 and (calling value_is_place with c, vn, ast):
             # Copiar un `string` local: el destino recibe su propio buffer SDS.
             calling emit.line with (sigil of c->emitter), "{cdecl} = pengu_string_share_value({val2});"
+        else if not is_drop and (calling drop.cow_kind_of with c, ty) == 2 and (calling value_is_place with c, vn, ast):
+            # Compartir una `list` local: el origen se promociona a COW (si era
+            # legacy y es su unico dueno) y el destino incrementa la cuenta.
+            calling emit.line with (sigil of c->emitter), "{cdecl} = {val2};"
+            calling emit.line with (sigil of c->emitter), "pengu_cow_list_share(&({cn}));"
+            calling emit.line with (sigil of c->emitter), "(void){cn};"
+            calling register_local with c, nid, ty, nid
+            return
+        else if not is_drop and (calling drop.cow_kind_of with c, ty) == 3 and (calling value_is_place with c, vn, ast):
+            calling emit.line with (sigil of c->emitter), "{cdecl} = {val2};"
+            calling emit.line with (sigil of c->emitter), "pengu_cow_map_share(&({cn}));"
+            calling emit.line with (sigil of c->emitter), "(void){cn};"
+            calling register_local with c, nid, ty, nid
+            return
         else:
             calling emit.line with (sigil of c->emitter), "{cdecl} = {val2};"
         if not is_drop:

@@ -1,7 +1,7 @@
 # PenguScript Language Reference
 
 PenguScript is a small, statically typed language that compiles to C. This
-reference documents the language as implemented by `psc` 0.53.2: every
+reference documents the language as implemented by `psc` 0.53.3: every
 construct, its semantics, and the C it lowers to.
 
 It is the *language* document of the documentation set:
@@ -146,7 +146,7 @@ own section (generics, memory, interop).
 * The keyword lists, type mappings and diagnostic codes are exhaustive; the
   prose is not — [PENGUNIC.md](PENGUNIC.md) covers *how to use* the language and
   [STDLIB.md](STDLIB.md) covers the standard library.
-* Version: `psc` 0.53.2. The ABI version the generated C expects is 3.
+* Version: `psc` 0.53.3. The ABI version the generated C expects is 3.
 
 ## 1. Lexical structure
 
@@ -2136,13 +2136,17 @@ Copying a `string` **owned** (an SDS) with a declaration such as
 field, `xs at i`, or a call result gives a *view* of that storage, so only the
 owner must be banished.
 
-Reassigning an owned local `string`, `list` or `map` releases its previous
-buffer after the assignment, so `set s is "x"` does not leak. The
-compiler emits `pengu_string_replace` (or `pengu_list_replace`/`pengu_map_replace`),
-which compares the old and new handles: `set s is f(s)` keeps whatever `f`
-adopted and `set s is s` is a no-op. Fields, elements, `maybe` and `result` are not
-swapped yet: a field may be freshly allocated memory that was never initialized,
-and `maybe`/`result` boxes follow the container-ownership work (§13.10).
+Writing through an element (`set xs at i is v`) clones a shared list first
+(`pengu_cow_list_at_mut`), so the other bindings keep their own view. A legacy
+list is written in place: promoting it would adopt its vector and leave dangling
+any pointer another part of the program holds to it.
+
+Reassigning an owned local `string`, `list` or `map` does **not** release its
+previous buffer yet: `set s is "x"` leaks what `s` owned before. Releasing it
+safely needs to know whether the new value aliases the old one (`set s is f(s)`,
+`set s is t` where `t` shares the buffer), which is exactly the ownership model
+that container elements get in the container-ownership work (§13.10). Until
+then, assign `banish` + a fresh value, or let the value go out of scope.
 
 Rejected targets (`E0008`): literals, temporaries (assign to a variable first),
 `seal` newtypes (convert explicitly), `frozen` values, and constants.

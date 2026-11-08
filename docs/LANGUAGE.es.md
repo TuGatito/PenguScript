@@ -1,7 +1,7 @@
 # Referencia del lenguaje PenguScript
 
 PenguScript es un lenguaje pequeño y de tipado estático que compila a C. Esta
-referencia documenta el lenguaje tal como lo implementa `psc` 0.53.2: cada
+referencia documenta el lenguaje tal como lo implementa `psc` 0.53.3: cada
 construcción, su semántica y el C al que se reduce.
 
 Es el documento de *lenguaje* del conjunto de documentación:
@@ -148,7 +148,7 @@ rasgos que necesitan su propia sección (genéricos, memoria, interop).
   diagnóstico son exhaustivos; la prosa no lo es — [PENGUNIC.es.md](PENGUNIC.es.md)
   cubre *cómo usar* el lenguaje y [STDLIB.es.md](STDLIB.es.md) cubre la
   biblioteca estándar.
-* Versión: `psc` 0.53.2. La versión de ABI que espera el C generado es 3.
+* Versión: `psc` 0.53.3. La versión de ABI que espera el C generado es 3.
 
 ## 1. Estructura léxica
 
@@ -2163,14 +2163,18 @@ Copiar un `string` **owned** (un SDS) con una declaración como
 `string`, `xs at i` o el resultado de una llamada da una *vista* de ese
 almacenamiento, así que solo se banisha el dueño.
 
-Reasignar un local owned `string`, `list` o `map` libera su búfer anterior
-después de la asignación: `set s is "x"` no filtra. El compilador
-emite `pengu_string_replace` (o `pengu_list_replace`/`pengu_map_replace`), que
-compara los handles viejo y nuevo: `set s is f(s)` conserva lo que adoptó `f`
-y `set s is s` no hace nada. Los campos, los elementos, `maybe` y `result` todavía no se
-intercambian: un campo puede ser memoria recién asignada que nunca se
-inicializó, y las cajas de `maybe`/`result` van con el modelo de propiedad de
-contenedores (§13.10).
+Escribir a través de un elemento (`set xs at i is v`) clona antes la lista
+compartida (`pengu_cow_list_at_mut`), así que los demás bindings conservan su
+propia vista. Una lista legacy se escribe en sitio: promocionarla adoptaría su
+vector y dejaría colgando cualquier puntero que otro código tenga a él.
+
+Reasignar un local owned `string`, `list` o `map` **no** libera todavía su
+búfer anterior: `set s is "x"` fuga lo que `s` poseía. Liberarlo con seguridad
+exige saber si el valor nuevo aliasa el viejo (`set s is f(s)`, `set s is t`
+donde `t` comparte el búfer), y eso es justo el modelo de propiedad que reciben
+los elementos de contenedor en el trabajo de propiedad de contenedores
+(§13.10). Mientras tanto, haz `banish` y asigna un valor nuevo, o deja que el
+valor salga de ámbito.
 
 Destinos rechazados (`E0008`): literales, temporales (asigna antes a una
 variable), newtypes `seal` (convierte explícitamente), valores `frozen` y

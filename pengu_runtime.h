@@ -2611,26 +2611,6 @@ static inline void pengu_string_append(PenguString *dst, PenguString v)
    */
   PenguString pengu_string_share_value(PenguString src);
 
-  /**
-   * @brief Replaces `*dst` with `src`, releasing the previous buffer.
-   *
-   * Safe for `set x is f(x)`: when `src` aliases the old buffer, nothing is
-   * released. Only buffers the destination already owned are freed.
-   */
-  void pengu_string_replace(PenguString *dst, PenguString src);
-
-  /** @brief `pengu_string_replace` for lists. */
-  void pengu_list_replace(PenguList *dst, PenguList src);
-
-  /** @brief `pengu_string_replace` for maps. */
-  void pengu_map_replace(PenguMap *dst, PenguMap src);
-
-  /** @brief `pengu_string_replace` for `maybe` boxes. */
-  void pengu_maybe_replace(PenguMaybe *dst, PenguMaybe src);
-
-  /** @brief `pengu_string_replace` for `result` boxes. */
-  void pengu_result_replace(PenguResult *dst, PenguResult src);
-
   void pengu_string_share_owned(PenguString *dst);
   void pengu_cow_string_share(PenguString *s);
   void pengu_cow_string_ensure_unique(PenguString *s);

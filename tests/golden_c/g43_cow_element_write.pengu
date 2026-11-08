@@ -1,0 +1,14 @@
+## Golden: escribir un elemento de una lista compartida clona primero (COW).
+##
+## `set xs at i is v` usa `pengu_cow_list_at_mut`; la lectura sigue usando
+## `pengu_list_at`.
+import std.spark
+
+weave main into int:
+    var a as list of int is [1, 2, 3]
+    var b as list of int is a
+    set b at 0 is 9
+    calling spark.println with "{a at 0} {b at 0}"
+    banish a
+    banish b
+    return 0

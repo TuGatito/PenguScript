@@ -2,12 +2,37 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.53.3] — 2026-11-08 — Escribir un elemento respeta el COW
+
+### Cambiado
+
+- Se revierte el `set` de 0.53.2: los helpers `pengu_*_replace` se llamaban
+  igual que `pengu_string_replace` de `std.filum` (búsqueda y reemplazo de una
+  subcadena, tres argumentos), así que el enlazador resolvía las llamadas de
+  dos argumentos contra esa función y corrompía memoria; el bootstrap generado
+  con ese compilador no compilaba `src/psc/lexer_indent.pengu`. La reasignación
+  vuelve a `x = v` y el bug D (fuga del búfer anterior) pasa al modelo de
+  propiedad de contenedores (P6/P7), donde se sabe si el valor nuevo aliasa el
+  viejo.
+
+### Arreglado
+
+- `set xs at i is v` escribía directamente en el buffer compartido, así que
+  mutar una copia cambiaba también el original (bug J). El codegen emite
+  `pengu_cow_list_at_mut`, que clona el buffer cuando la lista es COW y está
+  compartida. Una lista legacy se escribe en sitio: promocionarla adoptaría su
+  vector y dejaría colgando los punteros que otro código tenga a él.
+
+### Añadido
+
+- `tests/pengu/cow_element_write.pengu` y el golden `g43_cow_element_write`.
+
 ## [0.53.2] — 2026-11-08 — Reasignar un valor owned libera el anterior
 
 ### Arreglado
 
 - `set x is y` sobre un local `string`, `list` o `map` filtraba el búfer
-  anterior (bug D). El codegen emite `pengu_string_replace`
+  anterior (bug D). **Revertido en 0.53.3** (ver esa entrada). El codegen emite `pengu_string_replace`
   (o `pengu_list_replace`/`pengu_map_replace`), que libera el handle viejo solo
   si es distinto del nuevo, de modo que `set x is f(x)` y `set x is x` son
   correctos. `maybe`/`result` siguen pendientes del modelo de propiedad (P7).

@@ -1,0 +1,55 @@
+## Escribir un elemento de una lista compartida no toca el original (bug J):
+## `set xs at i is v` pasa por `pengu_cow_list_at_mut`, que clona el buffer
+## cuando hay más de un dueño.
+
+import std.spark
+
+weave list_int into int:
+    var a as list of int is [1, 2, 3]
+    var b as list of int is a
+    set b at 0 is 9
+    if (a at 0) != 1:
+        banish a
+        banish b
+        return 1
+    if (b at 0) != 9:
+        banish a
+        banish b
+        return 2
+    if (a length) != 3:
+        banish a
+        banish b
+        return 3
+    banish a
+    banish b
+    return 0
+
+# Leer un elemento de tipo contenedor (`b at 0`) devuelve una vista del
+# almacenamiento del contenedor, no un dueño con contador: escribir a traves de
+# esa vista no se aisla. Es la frontera documentada en §13 (D3) hasta que el
+# modelo de propiedad de contenedores (P6/P7) retenga al leer.
+
+weave list_string into int:
+    var a as list of string is ["uno", "dos"]
+    var b as list of string is a
+    set b at 1 is ("tres" + "!")
+    if (a at 1) != "dos":
+        banish a
+        banish b
+        return 1
+    if (b at 1) != "tres!":
+        banish a
+        banish b
+        return 2
+    banish a
+    banish b
+    return 0
+
+weave main into int:
+    var r as int is calling list_int
+    if r != 0:
+        return r
+    set r is calling list_string
+    if r != 0:
+        return 20 + r
+    return 0

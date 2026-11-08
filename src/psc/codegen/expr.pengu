@@ -4139,6 +4139,10 @@ weave at_access_target with c as ref to context.CgContext, ch as int, base as st
         defer banish el
         var elp as string is calling ctype.pointer_type_name with el
         defer banish elp
+        # Escribir un elemento necesita un buffer propio: `at_mut` hace
+        # `make_unique` cuando la lista esta compartida (COW).
+        if c->writing_target:
+            return with text is "(*( {elp})pengu_cow_list_at_mut({amp}({base}), (int)({cix})))", type_id is actual.a
         return with text is "(*( {elp})pengu_list_at({amp}({base}), (int)({cix})))", type_id is actual.a
     if actual.kind == tk.SemaTypeKind.TkSlice or actual.kind == tk.SemaTypeKind.TkMany:
         var sel as string is calling ctype.c_type with (sigil of c->names), actual.a

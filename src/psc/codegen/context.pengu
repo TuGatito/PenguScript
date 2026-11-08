@@ -65,6 +65,10 @@ rune CgContext:
     ## (elementos de `for`, payloads de `judge`): no se promocionan ni se
     ## liberan aquí.
     borrowed_names as list of int
+    ## `true` mientras se resuelve el destino de un `set`: un acceso `at` sobre
+    ## una lista pasa por `pengu_cow_list_at_mut` para no escribir en un buffer
+    ## compartido. El `at` de lectura no lo toca.
+    writing_target as bool
     ## Destructores automáticos pendientes (`derive Drop`): nombre C (`NameId`).
     drop_names as list of int
     ## `TypeId` de cada destructor automático (paralelo a `drop_names`).
@@ -121,7 +125,7 @@ weave block_value_unset with c as ref to CgContext, node as int, expected as int
 weave new_context with p as ref to program.SemaProgram, o as opts.CgOptions into CgContext:
     var ns as names.CgNames is calling names.new_names with (sigil of p->names), (sigil of p->types)
     var cat as catalog.CgCatalog is calling catalog.catalog_collect with p, o
-    return with block_value is block_value_unset, program is p, options is o, names is ns, catalog is cat, emitter is calling emit.new_emitter, locals is list of CgLocal, defers is list of int, errdefers is list of int, param_names is list of int, borrowed_names is list of int, drop_names is list of int, drop_types is list of int, drop_marks is list of int, scope_marks is list of int, err_marks is list of int, scope_loops is list of bool, with_targets is list of string, with_types is list of int, loop_names is list of string, unsafe_depth is 0, return_type is -1, current_module is -1, current_fn is "", self_type is -1, self_value is false, lambdas is list of CgLambda, errors is 0, tmp_seq is 0
+    return with block_value is block_value_unset, program is p, options is o, names is ns, catalog is cat, emitter is calling emit.new_emitter, locals is list of CgLocal, defers is list of int, errdefers is list of int, param_names is list of int, borrowed_names is list of int, writing_target is false, drop_names is list of int, drop_types is list of int, drop_marks is list of int, scope_marks is list of int, err_marks is list of int, scope_loops is list of bool, with_targets is list of string, with_types is list of int, loop_names is list of string, unsafe_depth is 0, return_type is -1, current_module is -1, current_fn is "", self_type is -1, self_value is false, lambdas is list of CgLambda, errors is 0, tmp_seq is 0
 
 ## Libera el contexto.
 ##
