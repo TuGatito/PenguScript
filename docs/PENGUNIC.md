@@ -1,7 +1,7 @@
 # The Pengunic Manual
 
 How to write PenguScript that is safe, idiomatic and fast: the engineering
-manual for the language implemented by `psc` 0.53.5.
+manual for the language implemented by `psc` 0.53.6.
 
 It is the *practice* document of the documentation set:
 
@@ -331,7 +331,7 @@ binary. From a checkout:
 $ bash tools/build_bootstrap.sh     # builds build/psc-stage0 from the C bundle
 $ ./build/psc-stage0 build .        # self-hosts build/psc
 $ ./build/psc --version
-psc 0.53.5 (F13)
+psc 0.53.6 (F13)
 ```
 
 `build/psc` is the compiler you use from then on. `psc doctor` reports what it
@@ -1071,6 +1071,21 @@ Two traps:
 `Nexus`. A host with a `Drop` embed is `Drop` (move-only, composed destructor),
 and a host with a `Nexus` embed can `banish`. Everything else is written on the
 host on purpose.
+
+Freeing the embed and then the host is safe, and so is freeing twice: `banish`
+zeroes the handle it releases, and the composed destructor only frees what is
+still owned. What is *not* safe is freeing through a second binding you made
+yourself:
+
+```pengu-bad
+var g as GameObj is e.gameObj
+banish g
+banish e            # no libera dos veces, pero `g` era una vista
+```
+
+`e.gameObj` is a view of the host's storage, not a second owner. Read it, pass
+it, promote through it; do not banish it and then expect the host to still own
+the string.
 
 ## 8. Anti-patterns
 
@@ -3600,7 +3615,7 @@ truncates, and `transmute`, which reinterprets bits.
 **Are there threads and coroutines?**
 Yes. 0.30.0 added first-class threads (`filum.start`, `join`, `detach`, `free`),
 0.31.0 added `std.coro` (explicit stackful coroutines with `resume` and `yield`
-on the same thread) and 0.53.5 adds `std.reactor`: an explicit `EventLoop` that
+on the same thread) and 0.53.6 adds `std.reactor`: an explicit `EventLoop` that
 calls `epoll_wait`/`poll` and resumes tasks. There is no `async`/`await` keyword
 and no hidden scheduler: you create the loop, `spawn` and call `run`. The stdlib
 `*_async` variants are functions that suspend the current coroutine and only

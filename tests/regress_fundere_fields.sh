@@ -90,7 +90,8 @@ PENGU4
 "$PSC" build "$tmp/explicit_ok.pengu" --out="$tmp/ok" >/dev/null 2>&1 \
   || { echo "FAIL: la ruta explícita no compiló"; exit 1; }
 
-# W0009: el shadowing es legal, pero `--lint=shadow` lo reporta.
+# W0009: el shadowing es legal; el lint lo reporta por defecto y
+# `--lint=no-shadow` lo silencia.
 cat >"$tmp/shadow.pengu" <<'PENGU5'
 rune A:
     value as int
@@ -104,12 +105,18 @@ weave main into int:
 PENGU5
 "$PSC" check "$tmp/shadow.pengu" >/dev/null 2>"$tmp/plain.err" \
   || { echo "FAIL: el shadowing no debe ser un error"; exit 1; }
-if grep -q "W0009" "$tmp/plain.err"; then
-  echo "FAIL: W0009 debe estar apagado por defecto"
+if ! grep -q "W0009" "$tmp/plain.err"; then
+  echo "FAIL: W0009 debe estar encendido por defecto"
   exit 1
 fi
 "$PSC" check --lint=shadow "$tmp/shadow.pengu" >/dev/null 2>"$tmp/shadow.err" \
   || { echo "FAIL: --lint=shadow no debe fallar"; exit 1; }
+"$PSC" check --lint=no-shadow "$tmp/shadow.pengu" >/dev/null 2>"$tmp/off.err" \
+  || { echo "FAIL: --lint=no-shadow no debe fallar"; exit 1; }
+if grep -q "W0009" "$tmp/off.err"; then
+  echo "FAIL: --lint=no-shadow debe silenciar W0009"
+  exit 1
+fi
 grep -q "warning\[W0009\]: field 'value' in 'H' shadows a field promoted from 'A'" \
   "$tmp/shadow.err" \
   || { echo "FAIL: falta W0009"; cat "$tmp/shadow.err"; exit 1; }

@@ -1,0 +1,14 @@
+# R3: banishear el embed y luego el host no fuga ni libera dos veces.
+import std.filum
+
+rune GameObj derive Nexus:
+    label as string
+
+rune Enemy fundere GameObj:
+    notes as string
+
+weave main into int:
+    var e as Enemy is with gameObj is (with label is (calling filum.pengu_string_copy with "slime")), notes is (calling filum.pengu_string_copy with "note")
+    banish e.gameObj
+    banish e
+    return 0

@@ -1,7 +1,7 @@
 # El Manual Pengunic
 
 Cómo escribir PenguScript seguro, idiomático y rápido: el manual de ingeniería
-del lenguaje que implementa `psc` 0.53.5.
+del lenguaje que implementa `psc` 0.53.6.
 
 Es el documento de *práctica* del conjunto de documentación:
 
@@ -334,7 +334,7 @@ binario `psc`. Desde un checkout:
 $ bash tools/build_bootstrap.sh     # builds build/psc-stage0 from the C bundle
 $ ./build/psc-stage0 build .        # self-hosts build/psc
 $ ./build/psc --version
-psc 0.53.5 (F13)
+psc 0.53.6 (F13)
 ```
 
 A partir de ahí usas `build/psc`. `psc doctor` informa de lo que encontró: el
@@ -1083,6 +1083,21 @@ Dos trampas:
 `Nexus`. Un host con un embed `Drop` es `Drop` (move-only, destructor compuesto)
 y un host con un embed `Nexus` puede `banish`. Todo lo demás se escribe en el
 host a propósito.
+
+Liberar el embed y después el host es seguro, y hacerlo dos veces también:
+`banish` deja a cero el handle que libera, y el destructor compuesto solo libera
+lo que aún posee. Lo que **no** es seguro es liberar a través de un segundo
+binding que te fabricaste:
+
+```pengu-malo
+var g as GameObj is e.gameObj
+banish g
+banish e            # no libera dos veces, pero `g` era una vista
+```
+
+`e.gameObj` es una vista del almacenamiento del host, no un segundo dueño.
+Léelo, pásalo, promociona a través de él; no lo banishees y luego esperes que el
+host siga poseyendo el string.
 
 ## 8. Anti-patrones
 
@@ -3642,7 +3657,7 @@ trunca, y `transmute`, que reinterpreta bits.
 **¿Hay hilos y corrutinas?**
 Sí. 0.30.0 añadió hilos de primera clase (`filum.start`, `join`, `detach`,
 `free`), 0.31.0 añadió `std.coro` (corrutinas stackful explícitas con `resume` y
-`yield`, en el mismo hilo) y 0.53.5 añade `std.reactor`: un `EventLoop` explícito
+`yield`, en el mismo hilo) y 0.53.6 añade `std.reactor`: un `EventLoop` explícito
 que hace `epoll_wait`/`poll` y reanuda las tareas. No hay `async`/`await` como
 palabras clave ni un planificador escondido: tú creas el loop, haces `spawn` y
 llamas `run`. Las variantes `*_async` de la stdlib son funciones que suspenden la

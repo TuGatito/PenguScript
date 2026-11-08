@@ -1,7 +1,7 @@
 # PenguScript Language Reference
 
 PenguScript is a small, statically typed language that compiles to C. This
-reference documents the language as implemented by `psc` 0.53.5: every
+reference documents the language as implemented by `psc` 0.53.6: every
 construct, its semantics, and the C it lowers to.
 
 It is the *language* document of the documentation set:
@@ -146,7 +146,7 @@ own section (generics, memory, interop).
 * The keyword lists, type mappings and diagnostic codes are exhaustive; the
   prose is not — [PENGUNIC.md](PENGUNIC.md) covers *how to use* the language and
   [STDLIB.md](STDLIB.md) covers the standard library.
-* Version: `psc` 0.53.5. The ABI version the generated C expects is 3.
+* Version: `psc` 0.53.6. The ABI version the generated C expects is 3.
 
 ## 1. Lexical structure
 
@@ -1637,8 +1637,9 @@ Resolution for `expr.field`, where `expr` has type `Host`:
 4. Otherwise `E0004`, as before.
 
 A host field may shadow a promoted field on purpose: `e.speed` is the host's
-`speed` and `e.gameObj.speed` is still the embed's. `--lint=shadow` reports it
-as `W0009`; it never blocks a build.
+`speed` and `e.gameObj.speed` is still the embed's. The shadowing lint reports
+it as `W0009` by default; `psc check --lint=no-shadow` silences it. It never
+blocks a build.
 
 #### 9.9.3 Methods
 
@@ -1740,7 +1741,7 @@ is `E0050` (the same check `cyclus` uses), with the cycle printed as
 | `E0088` | a promoted method is ambiguous between two embeds |
 | `E0089` | the embed has no implicit field name, or two embeds share a name |
 | `E0050` | the composition has infinite size |
-| `W0009` | a host field shadows a promoted field (`--lint=shadow`) |
+| `W0009` | a host field shadows a promoted field (`--lint=no-shadow` to silence) |
 
 Language servers see promoted members: hover shows the field and its declaring
 embed, completion lists own and promoted members together, and go-to-definition
@@ -2396,8 +2397,9 @@ default).
 
 Composition with `fundere` (§9.9) lets a host declare a field with the same
 name as one promoted from an embed: the host's field wins and the embed's field
-stays reachable through the explicit path. `psc check --lint=shadow` reports
-that deliberate shadowing as `W0009` (informational, off by default).
+stays reachable through the explicit path. `psc check` reports that deliberate
+shadowing as `W0009` (informational, on by default; silence it with
+`--lint=no-shadow`).
 
 ## 14. Attributes
 
@@ -2807,7 +2809,7 @@ Every diagnostic has a stable code. Errors stop the compilation; warnings do not
 | `E0088` | a method promoted by `fundere` is ambiguous between two embeds |
 | `E0089` | a `fundere` type has no implicit field name; write `as name` |
 | `W0008` | copy of a container mutated inside a loop (`--lint=cow`) |
-| `W0009` | a host field shadows a field promoted by `fundere` (`--lint=shadow`) |
+| `W0009` | a host field shadows a field promoted by `fundere` (on by default; `--lint=no-shadow` silences it) |
 | `W0001` | `transmute` used |
 | `W0002` | `echo` field access (unchecked union) |
 | `W0004` | unreachable code |

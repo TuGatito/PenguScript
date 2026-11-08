@@ -63,7 +63,7 @@ weave default_options with base_dir as string into SemaOptions:
         set osn is "macos"
     banish host
     var ar as string is calling rites.host_arch
-    return with base_dir is base_dir, src_dir is "src", lib_dir is "lib", std_dirs is list of string, dep_dirs is list of string, defines is list of string, os_name is osn, arch is ar, compiler is "gcc", wasm_target is "", is_main is true, is_debug is false, deny_deprecated is false, max_errors is 100, stop_after_first is false, include_antiquus is false, lint_cow is false, lint_shadow is false
+    return with base_dir is base_dir, src_dir is "src", lib_dir is "lib", std_dirs is list of string, dep_dirs is list of string, defines is list of string, os_name is osn, arch is ar, compiler is "gcc", wasm_target is "", is_main is true, is_debug is false, deny_deprecated is false, max_errors is 100, stop_after_first is false, include_antiquus is false, lint_cow is false, lint_shadow is true
 
 ## Libera las opciones.
 ##

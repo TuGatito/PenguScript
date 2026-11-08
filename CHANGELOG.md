@@ -2,6 +2,16 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.53.6] — 2026-11-08 — Documentar el orden de liberación con `fundere`
+
+### Documentación
+
+- `PENGUNIC` (EN/ES) §7.13 explica que liberar el embed y después el host es
+  seguro (`banish` deja el handle a cero) y que `e.gameObj` es una vista, no un
+  segundo dueño (R3).
+- `tests/pengu/fundere_banish_idempotent.pengu` y
+  `tests/leaks/l22_fundere_banish_idempotent.pengu` fijan ese comportamiento.
+
 ## [0.53.5] — 2026-11-08 — Las instancias genéricas conservan sus metadatos
 
 ### Arreglado
