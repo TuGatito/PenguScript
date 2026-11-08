@@ -1,0 +1,192 @@
+## psc/sema/types/embeds.pengu — promoción de campos de `fundere`.
+##
+## Un embed es un `SemaField` con `FIELD_EMBED` en el prefijo de campos del
+## host, así que la promoción es pura resolución de nombres sobre esa tabla:
+## nada de vtable ni de tipos nuevos. Este módulo solo depende de la tabla de
+## tipos (no de `SemaState`) para que el codegen use exactamente la misma
+## resolución que el checker.
+##
+## ## Memoria
+## `route_into` y `field_type_via` no asignan si no se les pasa una ruta; las
+## rutas usan listas owned del llamador.
+
+import psc.sema.types.kind as tk
+import psc.sema.types.table as table
+
+## El campo se alcanza (la ruta quedó en `path`).
+const ROUTE_FOUND as int is 1
+## El campo no existe en el tipo ni en sus embeds.
+const ROUTE_NONE as int is 0
+## El campo existe en más de un embed: hace falta la ruta explícita.
+const ROUTE_AMBIGUOUS as int is -1
+
+## Desenvuelve alias/seal (no `ref`).
+##
+## ## Memoria
+## O(profundidad); no asigna.
+weave unwrap with t as ref to table.SemaTypeTable, ty as int into int:
+    var cur as int is ty
+    var guard as int is 0
+    while cur > 0 and guard < 16:
+        var st as table.SemaType is calling table.at with t, cur
+        if st.kind == tk.SemaTypeKind.TkAlias or st.kind == tk.SemaTypeKind.TkSeal:
+            set cur is st.b
+        else:
+            return cur
+        set guard is guard + 1
+    return cur
+
+## Índice del campo propio `nid` en `ty` (rune/echo), o `-1`.
+##
+## ## Memoria
+## No asigna.
+weave own_field_index with t as ref to table.SemaTypeTable, ty as int, nid as int into int:
+    var u as int is calling unwrap with t, ty
+    if u <= 0:
+        return -1
+    var st as table.SemaType is calling table.at with t, u
+    if st.kind != tk.SemaTypeKind.TkRune and st.kind != tk.SemaTypeKind.TkEcho:
+        return -1
+    var info as table.SemaNominalInfo is (t->nominal_infos at st.a)
+    var j as int is 0
+    while j < info.fields_count:
+        var f as table.SemaField is (t->fields at (info.fields_first + j))
+        if f.name == nid:
+            return j
+        set j is j + 1
+    return -1
+
+## Tipo de un campo propio (sin promoción); `0` si no existe.
+##
+## ## Memoria
+## No asigna.
+weave own_field_type with t as ref to table.SemaTypeTable, ty as int, nid as int into int:
+    var j as int is calling own_field_index with t, ty, nid
+    if j < 0:
+        return 0
+    var u as int is calling unwrap with t, ty
+    var st as table.SemaType is calling table.at with t, u
+    var info as table.SemaNominalInfo is (t->nominal_infos at st.a)
+    var f as table.SemaField is (t->fields at (info.fields_first + j))
+    return f.type
+
+## `true` si el campo `idx` de `ty` es un embed.
+##
+## ## Memoria
+## No asigna.
+weave is_embed_field with t as ref to table.SemaTypeTable, ty as int, idx as int into bool:
+    var u as int is calling unwrap with t, ty
+    if u <= 0:
+        return false
+    var st as table.SemaType is calling table.at with t, u
+    if st.kind != tk.SemaTypeKind.TkRune and st.kind != tk.SemaTypeKind.TkEcho:
+        return false
+    var info as table.SemaNominalInfo is (t->nominal_infos at st.a)
+    if idx < 0 or idx >= info.fields_count:
+        return false
+    var f as table.SemaField is (t->fields at (info.fields_first + idx))
+    return (f.flags & table.FIELD_EMBED) != 0
+
+## Ruta de embeds que lleva al campo `nid`.
+##
+## Añade a `path` los `NameId` de los campos-embed que hay que atravesar; el
+## último tramo es el campo `nid` dentro del último embed. Una ruta vacía con
+## `ROUTE_FOUND` significa campo propio. La regla es la del diseño: el campo
+## propio gana; si aparece en exactamente un embed, se promociona; si aparece
+## en más de uno, es ambiguo.
+##
+## ## Memoria
+## O(embeds × profundidad); las listas temporales se liberan aquí.
+weave route_into with t as ref to table.SemaTypeTable, ty as int, nid as int, path as ref to list of int, depth as int into int:
+    if depth > 32:
+        return ROUTE_NONE
+    if (calling own_field_index with t, ty, nid) >= 0:
+        return ROUTE_FOUND
+    var u as int is calling unwrap with t, ty
+    if u <= 0:
+        return ROUTE_NONE
+    var st as table.SemaType is calling table.at with t, u
+    if st.kind != tk.SemaTypeKind.TkRune and st.kind != tk.SemaTypeKind.TkEcho:
+        return ROUTE_NONE
+    var info as table.SemaNominalInfo is (t->nominal_infos at st.a)
+    var hits as int is 0
+    var hit_path as list of int is list of int
+    defer banish hit_path
+    var i as int is 0
+    while i < info.fields_count:
+        var f as table.SemaField is (t->fields at (info.fields_first + i))
+        if (f.flags & table.FIELD_EMBED) != 0:
+            var sub as list of int is list of int
+            var r as int is calling route_into with t, f.type, nid, (sigil of sub), depth + 1
+            if r == ROUTE_AMBIGUOUS:
+                banish sub
+                return ROUTE_AMBIGUOUS
+            if r == ROUTE_FOUND:
+                set hits is hits + 1
+                if hits == 1:
+                    calling hit_path.push with f.name
+                    var k as int is 0
+                    while k < sub.len:
+                        calling hit_path.push with (sub at k)
+                        set k is k + 1
+            banish sub
+        set i is i + 1
+    if hits > 1:
+        return ROUTE_AMBIGUOUS
+    if hits == 1:
+        var k2 as int is 0
+        while k2 < hit_path.len:
+            calling path.push with (hit_path at k2)
+            set k2 is k2 + 1
+        return ROUTE_FOUND
+    return ROUTE_NONE
+
+## Tipo del campo `nid` siguiendo `path`; `0` si la ruta no lleva a un campo.
+##
+## ## Memoria
+## No asigna.
+weave field_type_via with t as ref to table.SemaTypeTable, ty as int, nid as int, path as ref to list of int into int:
+    var cur as int is ty
+    var i as int is 0
+    while i < path->len:
+        var step as int is (path at i)
+        var nxt as int is calling own_field_type with t, cur, step
+        if nxt <= 0:
+            return 0
+        set cur is nxt
+        set i is i + 1
+    return calling own_field_type with t, cur, nid
+
+## Tipo del campo `nid` con promoción (sin diagnóstico): `0` si no existe o es
+## ambiguo. Los llamadores que tienen un nodo usan `route_into` para emitir
+## E0087 antes de caer aquí.
+##
+## ## Memoria
+## Asigna una ruta temporal.
+weave field_type_at with t as ref to table.SemaTypeTable, ty as int, nid as int into int:
+    var path as list of int is list of int
+    defer banish path
+    var r as int is calling route_into with t, ty, nid, (sigil of path), 0
+    if r != ROUTE_FOUND:
+        return 0
+    return calling field_type_via with t, ty, nid, (sigil of path)
+
+## `true` si el rune tiene al menos un embed.
+##
+## ## Memoria
+## No asigna.
+weave has_embeds with t as ref to table.SemaTypeTable, ty as int into bool:
+    var u as int is calling unwrap with t, ty
+    if u <= 0:
+        return false
+    var st as table.SemaType is calling table.at with t, u
+    if st.kind != tk.SemaTypeKind.TkRune and st.kind != tk.SemaTypeKind.TkEcho:
+        return false
+    var info as table.SemaNominalInfo is (t->nominal_infos at st.a)
+    var i as int is 0
+    while i < info.fields_count:
+        var f as table.SemaField is (t->fields at (info.fields_first + i))
+        if (f.flags & table.FIELD_EMBED) != 0:
+            return true
+        set i is i + 1
+    return false

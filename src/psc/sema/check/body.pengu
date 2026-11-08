@@ -819,7 +819,12 @@ weave expr_escapes_local with s as ref to state.SemaState, node as int, depth as
             return false
         return calling var_escapes_local with s, sv, depth + 1
     if k == pskind.NodeKind.NdFieldAccess:
-        var fty2 as int is calling infer.infer with s, cur, -1
+        # Reutiliza el tipo ya inferido: volver a inferir aquí duplicaría los
+        # diagnósticos emitidos por la resolución del campo (p. ej. E0087).
+        var fa as ann.SemaAnnotation is calling ann.get with s->annotations, cur
+        var fty2 as int is fa.type_id
+        if (fa.flags & ann.ANN_HAS_TYPE) == 0:
+            set fty2 is calling infer.infer with s, cur, -1
         if fty2 <= 0:
             return false
         var ft2 as tk.SemaType is calling types.at with s->types, (calling types.underlying with s->types, fty2)
@@ -883,6 +888,8 @@ weave check_return with s as ref to state.SemaState, node as int into void:
             set got is calling types.tuple_of with s->types, ids
         else:
             set got is calling state.call_infer with s, e, expected
+            if got > 0:
+                calling ann.set_type with s->annotations, e, got
         calling check_dangling_return with s, e
         if calling moves.type_is_drop with s, got:
             calling moves.consume_value with s, e

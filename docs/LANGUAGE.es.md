@@ -2221,6 +2221,11 @@ Copiar y mutar dentro de un bucle es el patrón donde el COW cuesta más que una
 copia normal. `psc check --lint=cow` lo reporta como `W0008` (informativo, off
 por defecto).
 
+La composición con `fundere` (§9.9) permite que el host declare un campo con el
+mismo nombre que uno promovido desde un embed: gana el del host y el del embed
+sigue accesible por la ruta explícita. `psc check --lint=shadow` reporta ese
+ocultamiento deliberado como `W0009` (informativo, off por defecto).
+
 ## 14. Atributos
 
 Los atributos se escriben en la línea encima de la declaración que modifican.
@@ -2632,8 +2637,11 @@ los avisos no.
 | `E0083` | un `Arc of T` que cruza un hilo necesita que `T` sea `@shared` |
 | `E0084` | un `weave` `@export`-ado no puede devolver un valor `Drop` por valor |
 | `E0085` | el tipo de un `fundere` no es una `rune` |
+| `E0087` | un campo promovido por `fundere` es ambiguo entre dos embeds |
+| `E0088` | un método promovido por `fundere` es ambiguo entre dos embeds |
 | `E0089` | el tipo de un `fundere` no tiene nombre de campo implícito; escribe `as nombre` |
 | `W0008` | copia de un contenedor mutada dentro de un bucle (`--lint=cow`) |
+| `W0009` | un campo del host oculta uno promovido por `fundere` (`--lint=shadow`) |
 | `W0001` | se usó `transmute` |
 | `W0002` | acceso a campo de `echo` (unión sin comprobar) |
 | `W0004` | código inalcanzable |

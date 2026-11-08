@@ -24,6 +24,7 @@ import psc.sema.types.kind as tk
 import psc.sema.types.table as types
 import psc.sema.types.compat as compat
 import psc.sema.types.convert as convert
+import psc.sema.types.embeds as embeds
 import psc.sema.types.canonical as canon
 import psc.sema.generics.instantiate as ginst
 import psc.sema.symbols.table as symbols
@@ -1796,14 +1797,45 @@ weave infer_with_field with s as ref to state.SemaState, node as int into int:
     defer banish txt
     var nid as int is calling npool.intern with s->names, txt
     var fi as int is calling nominal_field_index with s, recv, nid
-    if fi < 0:
-        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_UNDEFINED, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "the 'with' target has no field '{txt}'", "Check the field name or the type of the target.", ""
-        return 0
-    var t2 as int is calling underlying_type with s, recv
-    var tyy as tk.SemaType is calling types.at with s->types, t2
-    var info as types.SemaNominalInfo is (s->types->nominal_infos at tyy.a)
-    var f as types.SemaField is (s->types->fields at (info.fields_first + fi))
-    return f.type
+    var out as int is 0
+    if fi >= 0:
+        var t2 as int is calling underlying_type with s, recv
+        var tyy as tk.SemaType is calling types.at with s->types, t2
+        var info as types.SemaNominalInfo is (s->types->nominal_infos at tyy.a)
+        var f as types.SemaField is (s->types->fields at (info.fields_first + fi))
+        set out is f.type
+    else:
+        # Campos promovidos por `fundere`.
+        var p as int is calling promoted_field_type with s, recv, nid, node
+        if p > 0:
+            set out is p
+        else if p < 0:
+            return 0
+        else:
+            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_UNDEFINED, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "the 'with' target has no field '{txt}'", "Check the field name or the type of the target.", ""
+            return 0
+    # Accesos encadenados: `.inner.y` apunta al campo `y` de `inner`, no a
+    # `inner`. El codegen ya recorre la cadena; la sema debe hacer lo mismo.
+    var n as int is calling astutil.child_count with s->ast, node
+    var ai as int is 1
+    while ai < n:
+        var ch as int is calling astutil.node_child with s->ast, node, ai
+        if ch >= 0:
+            var ck as pskind.NodeKind is calling astutil.kind_of with s->ast, ch
+            if ck == pskind.NodeKind.NdDotAccess or ck == pskind.NodeKind.NdArrowAccess:
+                var atok as int is calling astutil.token_child with s->ast, ch, 0
+                if atok >= 0:
+                    var atxt as string is calling astutil.token_text with s->src, s->lex, atok
+                    var anid as int is calling npool.intern with s->names, atxt
+                    var sub as int is calling field_type with s, out, atxt
+                    if sub == 0:
+                        var prom as int is calling promoted_field_type with s, out, anid, ch
+                        if prom > 0:
+                            set sub is prom
+                    banish atxt
+                    set out is sub
+        set ai is ai + 1
+    return out
 
 ## Llamada con target `.method` dentro de `with`.
 ##
@@ -2060,7 +2092,39 @@ weave infer_field with s as ref to state.SemaState, node as int into int:
                             return mv.type
     if bt <= 0:
         return 0
-    return calling field_type with s, bt, txt
+    var bnid as int is calling npool.find with s->names, txt
+    if bnid >= 0:
+        var pt as int is calling promoted_field_type with s, bt, bnid, node
+        if pt > 0:
+            return pt
+        if pt < 0:
+            # E0087 ya emitido.
+            return 0
+    var ftx as int is calling field_type with s, bt, txt
+    if ftx == 0:
+        calling report_unknown_field with s, node, bt, txt
+    return ftx
+
+## Diagnostica un campo inexistente en un rune/echo concreto.
+##
+## Antes el acceso se resolvía a "tipo 0" sin error y el fallo aparecía en el
+## compilador de C (`'A' no tiene un miembro llamado 'nope'`).
+##
+## ## Memoria
+## No asigna aparte del nombre consultado.
+weave report_unknown_field with s as ref to state.SemaState, node as int, ty as int, txt as string into void:
+    var t2 as int is calling underlying_type with s, ty
+    var ty2 as tk.SemaType is calling types.at with s->types, t2
+    if ty2.kind != tk.SemaTypeKind.TkRune and ty2.kind != tk.SemaTypeKind.TkEcho:
+        return
+    var info as types.SemaNominalInfo is (s->types->nominal_infos at ty2.a)
+    # `r.get->value` encadena un método sin `calling`: el nombre no es un campo.
+    var mnid as int is calling npool.intern with s->names, txt
+    if (calling symbols.lookup_method with s->symbols, ty, mnid) >= 0:
+        return
+    var rn as string is calling npool.copy_string with (calling npool.text with s->names, info.base_name)
+    defer banish rn
+    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_UNDEFINED, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "rune '{rn}' has no field '{txt}'", "Check the field name. Composition via 'fundere' promotes fields, so also check the embed types.", ""
 
 ## Acceso `->field`.
 ##
@@ -2083,7 +2147,75 @@ weave infer_arrow with s as ref to state.SemaState, node as int into int:
         return 0
     var txt as string is calling astutil.token_text with s->src, s->lex, nm
     defer banish txt
-    return calling field_type with s, target, txt
+    var nid2 as int is calling npool.find with s->names, txt
+    if nid2 >= 0:
+        var pt2 as int is calling promoted_field_type with s, target, nid2, node
+        if pt2 > 0:
+            return pt2
+        if pt2 < 0:
+            return 0
+    var fta as int is calling field_type with s, target, txt
+    if fta == 0:
+        calling report_unknown_field with s, node, target, txt
+    return fta
+
+## Nombres de los embeds de primer nivel que contienen el campo `nid`.
+##
+## Para el mensaje de E0087: "promoted from 'gameObj', 'physics'". Se libera
+## con `banish`.
+##
+## ## Memoria
+## Asigna un `StringBuilder` y los textos consultados.
+weave embed_sources_text with s as ref to state.SemaState, ty as int, nid as int into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var u as int is calling embeds.unwrap with s->types, ty
+    if u <= 0:
+        return calling sb.finish
+    var st as tk.SemaType is calling types.at with s->types, u
+    if st.kind != tk.SemaTypeKind.TkRune and st.kind != tk.SemaTypeKind.TkEcho:
+        return calling sb.finish
+    var info as types.SemaNominalInfo is (s->types->nominal_infos at st.a)
+    var i as int is 0
+    while i < info.fields_count:
+        var f as types.SemaField is (s->types->fields at (info.fields_first + i))
+        if (f.flags & types.FIELD_EMBED) != 0:
+            var path as list of int is list of int
+            var r as int is calling embeds.route_into with s->types, f.type, nid, (sigil of path), 1
+            banish path
+            if r == embeds.ROUTE_FOUND:
+                var ftxt as string is calling npool.text with s->names, f.name
+                if (calling sb.len) > 0:
+                    calling sb.append with ", "
+                calling sb.append with "'{ftxt}'"
+                banish ftxt
+        set i is i + 1
+    return calling sb.finish
+
+## Tipo del campo `nid` con promoción, emitiendo E0087 si es ambiguo.
+##
+## Devuelve `0` si el campo no existe (el llamador decide el diagnóstico) o si
+## es ambiguo (ya se emitió E0087).
+##
+## ## Memoria
+## Asigna una ruta temporal y el mensaje del diagnóstico.
+weave promoted_field_type with s as ref to state.SemaState, ty as int, nid as int, node as int into int:
+    var path as list of int is list of int
+    defer banish path
+    var r as int is calling embeds.route_into with s->types, ty, nid, (sigil of path), 0
+    if r == embeds.ROUTE_AMBIGUOUS:
+        var txt as string is calling npool.text with s->names, nid
+        defer banish txt
+        var src as string is calling embed_sources_text with s, ty, nid
+        defer banish src
+        var msg as string is "ambiguous field '{txt}' promoted from {src}"
+        defer banish msg
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_EMBED_AMBIGUOUS_FIELD, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), msg, "Use the explicit path: write the embed field first (for example 'value.gameObj.{txt}').", ""
+        # `-1`: ya se diagnosticó; el llamador no debe emitir E0004 encima.
+        return -1
+    if r != embeds.ROUTE_FOUND:
+        return 0
+    return calling embeds.field_type_via with s->types, ty, nid, (sigil of path)
 
 ## Tipo de un campo de una runa/echo; error si no existe.
 ##

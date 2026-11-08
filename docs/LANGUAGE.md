@@ -2189,6 +2189,11 @@ Copy-then-mutate inside a loop is the pattern where COW is slower than plain
 copies. `psc check --lint=cow` reports it as `W0008` (informational, off by
 default).
 
+Composition with `fundere` (§9.9) lets a host declare a field with the same
+name as one promoted from an embed: the host's field wins and the embed's field
+stays reachable through the explicit path. `psc check --lint=shadow` reports
+that deliberate shadowing as `W0009` (informational, off by default).
+
 ## 14. Attributes
 
 Attributes are written on the line above the declaration they modify.
@@ -2593,8 +2598,11 @@ Every diagnostic has a stable code. Errors stop the compilation; warnings do not
 | `E0083` | an `Arc of T` crossing a thread boundary needs `T` to be `@shared` |
 | `E0084` | an `@export`-ed weave cannot return a `Drop` value by value |
 | `E0085` | a `fundere` type is not a `rune` |
+| `E0087` | a field promoted by `fundere` is ambiguous between two embeds |
+| `E0088` | a method promoted by `fundere` is ambiguous between two embeds |
 | `E0089` | a `fundere` type has no implicit field name; write `as name` |
 | `W0008` | copy of a container mutated inside a loop (`--lint=cow`) |
+| `W0009` | a host field shadows a field promoted by `fundere` (`--lint=shadow`) |
 | `W0001` | `transmute` used |
 | `W0002` | `echo` field access (unchecked union) |
 | `W0004` | unreachable code |

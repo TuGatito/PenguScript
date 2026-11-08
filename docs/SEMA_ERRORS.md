@@ -23,7 +23,7 @@ en una fase del plan, o se elimina de la documentación.
 | `E0001` | `CODE_CONST_IN_WEAVE` | 0 | **sin emisor** | sí |
 | `E0002` | `CODE_VAR_TOP_LEVEL` | 1 | emitido | sí |
 | `E0003` | `CODE_SELF_DOT` | 1 | emitido | sí |
-| `E0004` | `CODE_UNDEFINED` | 15 | emitido | sí |
+| `E0004` | `CODE_UNDEFINED` | 16 | emitido | sí |
 | `E0005` | `CODE_TYPE_MISMATCH` | 43 | emitido | sí |
 | `E0006` | `CODE_MUTABILITY` | 5 | emitido | sí |
 | `E0007` | `CODE_CONTROL_FLOW` | 2 | emitido | sí |
@@ -86,6 +86,8 @@ en una fase del plan, o se elimina de la documentación.
 | `E0083` | `CODE_ARC_NOT_SHARED` | 1 | emitido | sí |
 | `E0084` | `CODE_EXPORT_DROP` | 1 | emitido | sí |
 | `E0085` | `CODE_EMBED_NOT_RUNE` | 1 | emitido | sí |
+| `E0087` | `CODE_EMBED_AMBIGUOUS_FIELD` | 1 | emitido | sí |
+| `E0088` | `CODE_EMBED_AMBIGUOUS_METHOD` | 0 | **sin emisor** | sí |
 | `E0089` | `CODE_EMBED_NAME` | 3 | emitido | sí |
 | `W0001` | `WARN_TRANSMUTE` | 0 | **sin emisor** | sí |
 | `W0002` | `WARN_ECHO_ACCESS` | 0 | **sin emisor** | sí |
@@ -94,6 +96,7 @@ en una fase del plan, o se elimina de la documentación.
 | `W0006` | `WARN_DEPRECATED` | 0 | **sin emisor** | sí |
 | `W0007` | `WARN_UNSAFE` | 0 | **sin emisor** | sí |
 | `W0008` | `WARN_COW_LOOP` | 1 | emitido | sí |
+| `W0009` | `WARN_EMBED_SHADOW` | 1 | emitido | sí |
 | `W0013` | `WARN_RANGE` | 0 | **sin emisor** | sí |
 
 ## Cómo agregar un código

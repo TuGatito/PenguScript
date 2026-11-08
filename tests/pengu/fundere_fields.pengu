@@ -1,0 +1,71 @@
+## `fundere`: promoción de campos (F2).
+##
+## Un campo del embed se lee y se escribe a través del host (`e.position` es
+## `e.gameObj.position`). El campo propio gana (shadowing), la ruta explícita
+## sigue disponible y la promoción es recursiva.
+rune Vec2:
+    x as int
+    y as int
+
+rune GameObject:
+    position as Vec2
+    layer as int
+
+rune Physics:
+    velocity as Vec2
+
+rune Enemy fundere GameObject as gameObj, Physics:
+    health as int
+    layer as int
+
+rune Wrapper fundere Enemy:
+    tag as int
+
+weave main into int:
+    # 1. Lectura y escritura promovidas.
+    var e as Enemy is with gameObj is (with position is (with x is 1, y is 2), layer is 4), physics is (with velocity is (with x is 0, y is 0)), health is 10, layer is 7
+    set e.position.x is 5
+    if e.position.x != 5:
+        return 1
+    if e.gameObj.position.x != 5:
+        return 2
+
+    # 2. Shadowing: el campo propio del host gana.
+    set e.layer is 30
+    if e.layer != 30:
+        return 3
+    if e.gameObj.layer != 4:
+        return 4
+
+    # 3. `set` promovido sobre campo propio de otro embed.
+    set e.health is 11
+    if e.health != 11:
+        return 5
+    set e.position.y is 6
+    if e.position.y != 6:
+        return 6
+
+    # 4. `with:` como sentencia sobre campos promovidos.
+    with e:
+        set .position.y is .position.y + 1
+        set .health is .health + 1
+    if e.position.y != 7:
+        return 7
+    if e.health != 12:
+        return 8
+
+    # 5. Promoción recursiva: Wrapper ve los campos de Enemy, GameObject y
+    #    Physics.
+    var w as Wrapper is with enemy is (with gameObj is (with position is (with x is 8, y is 9), layer is 4), physics is (with velocity is (with x is 0, y is 0)), health is 20, layer is 7), tag is 1
+    set w.position.x is w.position.x + 2
+    if w.position.x != 10:
+        return 9
+    if w.enemy.position.x != 10:
+        return 10
+    if w.health != 20:
+        return 11
+
+    # 6. La ruta explícita sigue funcionando.
+    if w.enemy.gameObj.position.y != 9:
+        return 12
+    return 0

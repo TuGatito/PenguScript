@@ -1,0 +1,20 @@
+## `fundere`: los campos del embed se promueven. `e.position` se emite como
+## `e.gameObj.position` en lectura, en `set` y dentro de `with:`. El campo
+## propio gana si el host declara el mismo nombre (shadowing).
+import std.spark
+
+rune GameObj:
+    position as int
+    speed as int
+
+rune Enemy fundere GameObj:
+    health as int
+    speed as int
+
+weave main into int:
+    var e as Enemy is with gameObj is (with position is 1, speed is 2), health is 3, speed is 9
+    set e.position is e.position + 10
+    with e:
+        set .position is .position + 1
+    calling spark.println with "{e.position},{e.speed},{e.health},{e.gameObj.speed}"
+    return 0

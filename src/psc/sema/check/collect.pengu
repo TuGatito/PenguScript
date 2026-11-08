@@ -17,6 +17,7 @@ import psc.sema.names as npool
 import psc.sema.types.kind as tk
 import psc.sema.types.table as types
 import psc.sema.types.convert as convert
+import psc.sema.types.embeds as embeds
 import psc.sema.symbols.symbol as sym
 import psc.sema.symbols.scope as scope
 import psc.sema.state as state
@@ -867,6 +868,8 @@ weave collect_record with s as ref to state.SemaState, node as int, sk as sym.Se
         calling types.add_field with s->types, pfld
         set pfi is pfi + 1
     calling types.set_nominal_fields with s->types, info_idx, fields_first, field_count
+    if s->opts->lint_shadow:
+        calling lint_embed_shadows with s, info_idx
     # Conceptos derivados (`derive Nexus, Par, Json`).
     calling collect_derives with s, node, ty, info_idx
     var tpc as int is 0
@@ -899,6 +902,45 @@ weave collect_record with s as ref to state.SemaState, node as int, sk as sym.Se
         set skind is sym.SemaSymbolKind.SkEcho
     if not (calling s->module->type_ids.has with node):
         calling register_type with s, skind, name, ty, node
+
+## Avisa (W0009) de campos propios que ocultan un campo promovido por
+## `fundere`. Sólo con `--lint=shadow`; el shadowing es legal.
+##
+## ## Memoria
+## No retiene nodos.
+weave lint_embed_shadows with s as ref to state.SemaState, info_idx as int into void:
+    var info as types.SemaNominalInfo is (s->types->nominal_infos at info_idx)
+    var host_name as string is calling npool.copy_string with (calling npool.text with s->names, info.base_name)
+    defer banish host_name
+    var i as int is 0
+    while i < info.fields_count:
+        var f as types.SemaField is (s->types->fields at (info.fields_first + i))
+        if (f.flags & types.FIELD_EMBED) != 0:
+            var etext as string is ""
+            var et as tk.SemaType is calling types.at with s->types, (calling infer.underlying_type with s, f.type)
+            if et.kind == tk.SemaTypeKind.TkRune or et.kind == tk.SemaTypeKind.TkEcho:
+                var einfo as types.SemaNominalInfo is (s->types->nominal_infos at et.a)
+                set etext is calling npool.copy_string with (calling npool.text with s->names, einfo.base_name)
+            var embed_name as string is calling npool.copy_string with (calling npool.text with s->names, f.name)
+            var j as int is 0
+            while j < info.fields_count:
+                var g as types.SemaField is (s->types->fields at (info.fields_first + j))
+                if (g.flags & types.FIELD_EMBED) == 0 and g.decl_node >= 0:
+                    var path as list of int is list of int
+                    var r as int is calling embeds.route_into with s->types, f.type, g.name, (sigil of path), 0
+                    banish path
+                    if r == embeds.ROUTE_FOUND:
+                        var gname as string is calling npool.copy_string with (calling npool.text with s->names, g.name)
+                        var msg as string is "field '{gname}' in '{host_name}' shadows a field promoted from '{etext}'"
+                        var help as string is "Rename one of them, or write the explicit path '{host_name}.{embed_name}.{gname}'."
+                        calling sdiag.node_warning with s->bag, s->src, sdiag.WARN_EMBED_SHADOW, (calling astutil.start_of with s->ast, g.decl_node), (calling astutil.end_of with s->ast, g.decl_node), msg, help
+                        banish help
+                        banish msg
+                        banish gname
+                set j is j + 1
+            banish embed_name
+            banish etext
+        set i is i + 1
 
 ## Primer token tras los atributos de un `field_decl`.
 ##

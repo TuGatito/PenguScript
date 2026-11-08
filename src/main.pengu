@@ -463,9 +463,11 @@ weave run_check with args as list of string into int:
             set opts.deny_deprecated is true
         else if a == "--lint=cow":
             set opts.lint_cow is true
+        else if a == "--lint=shadow":
+            set opts.lint_shadow is true
         else if calling starts_with with a, "--lint=":
             var lname as string is a at 7 to (a length)
-            var lok as bool is lname == "cow"
+            var lok as bool is lname == "cow" or lname == "shadow"
             if not lok:
                 var lbad as string is "psc check: unknown lint '{lname}'"
                 calling spark.eprintln with lbad
@@ -473,8 +475,11 @@ weave run_check with args as list of string into int:
                 banish lname
                 calling sopts.free_options with (sigil of opts)
                 return 2
+            if lname == "shadow":
+                set opts.lint_shadow is true
+            else:
+                set opts.lint_cow is true
             banish lname
-            set opts.lint_cow is true
         else if calling starts_with with a, "--max-errors=":
             var num as string is a at 13 to (a length)
             defer banish num
