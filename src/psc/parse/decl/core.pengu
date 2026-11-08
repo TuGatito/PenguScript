@@ -298,12 +298,23 @@ weave pdecl_parse_record with p as ref to PsParser, kind as NodeKind, attrs as i
         calling ps_add_child with p, (calling pdecl_empty_node_here with p, NodeKind.NdCyclusKw)
     else:
         calling ps_add_absent with p
+    var fund_node as int is -1
+    var shard_node as int is -1
     if kind == NodeKind.NdRuneDecl and calling ps_check_kw with p, KwFundere:
-        calling ps_add_child with p, (calling pdecl_parse_fundere with p)
+        set fund_node is calling pdecl_parse_fundere with p
+    # `shard` va después de `fundere`, pero toleramos el orden contrario con un
+    # diagnóstico claro: los dos nodos ya están parseados cuando se colocan.
+    if calling ps_check_kw with p, KwShard:
+        set shard_node is calling ptypes.ptype_parse_shard_params with p
+        if kind == NodeKind.NdRuneDecl and calling ps_check_kw with p, KwFundere:
+            calling ps_emit_here with p, pdiag.ParseIssue.ParseFundereOrder, ""
+            set fund_node is calling pdecl_parse_fundere with p
+    if fund_node >= 0:
+        calling ps_add_child with p, fund_node
     else:
         calling ps_add_absent with p
-    if calling ps_check_kw with p, KwShard:
-        calling ps_add_child with p, (calling ptypes.ptype_parse_shard_params with p)
+    if shard_node >= 0:
+        calling ps_add_child with p, shard_node
     else:
         calling ps_add_absent with p
     if calling ps_check_kw with p, KwDerive:

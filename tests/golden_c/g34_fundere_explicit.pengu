@@ -1,0 +1,17 @@
+## `fundere`: el embed es el primer campo del `struct` y el acceso explícito
+## (`h.position3D.x`) es un campo normal. El nombre implícito del embed sale
+## del tipo con la primera letra en minúscula (`Position3D` → `position3D`).
+import std.spark
+
+rune Position3D:
+    x as float
+    y as float
+    z as float
+
+rune Host fundere Position3D:
+    health as int
+
+weave main into int:
+    var h as Host is with position3D is (with x is 1.5, y is 2.5, z is 3.5), health is 7
+    calling spark.println with "{h.position3D.x},{h.position3D.y},{h.position3D.z},{h.health}"
+    return 0

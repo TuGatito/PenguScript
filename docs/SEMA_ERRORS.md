@@ -85,6 +85,8 @@ en una fase del plan, o se elimina de la documentación.
 | `E0082` | `CODE_RC_CROSS_THREAD` | 2 | emitido | sí |
 | `E0083` | `CODE_ARC_NOT_SHARED` | 1 | emitido | sí |
 | `E0084` | `CODE_EXPORT_DROP` | 1 | emitido | sí |
+| `E0085` | `CODE_EMBED_NOT_RUNE` | 1 | emitido | sí |
+| `E0089` | `CODE_EMBED_NAME` | 3 | emitido | sí |
 | `W0001` | `WARN_TRANSMUTE` | 0 | **sin emisor** | sí |
 | `W0002` | `WARN_ECHO_ACCESS` | 0 | **sin emisor** | sí |
 | `W0004` | `WARN_UNREACHABLE` | 0 | **sin emisor** | sí |

@@ -60,6 +60,8 @@ omen ParseIssue:
     ParseInvalidDeclareParams
     ## Cláusula `when` mal formada.
     ParseInvalidWhenClause
+    ## `fundere` escrito después de `shard`.
+    ParseFundereOrder
     ## Tipo mal formado.
     ParseInvalidType
     ## Fin de archivo inesperado.
@@ -93,6 +95,7 @@ weave parse_issue_message with issue as ParseIssue, detail as string into string
         when ParseInvalidAttribute -> "invalid attribute"
         when ParseInvalidDeclareParams -> "invalid declare parameter list"
         when ParseInvalidWhenClause -> "invalid 'when' clause"
+        when ParseFundereOrder -> "'fundere' comes before 'shard' in a rune declaration"
         when ParseInvalidType -> "invalid type"
         when ParseUnexpectedEof -> "unexpected end of file"
     return msg
@@ -122,6 +125,7 @@ weave parse_issue_help with issue as ParseIssue into string:
         when ParseInvalidAttribute -> "Use '@name' or '@name(arg, ...)'."
         when ParseInvalidDeclareParams -> "Use 'name as type' entries, optionally ending with '...'."
         when ParseInvalidWhenClause -> "Write 'when <pattern> [with <payload>] [if <guard>] -> <body>'."
+        when ParseFundereOrder -> "Write 'rune Name fundere Type shard T where ...:' — 'fundere' goes right after the rune name and an optional 'cyclus', before 'shard'."
         when ParseInvalidType -> "Check the type spelling."
         when ParseUnexpectedEof -> "Close the construct before the end of the file."
 
@@ -150,6 +154,7 @@ weave parse_issue_note with issue as ParseIssue into string:
         when ParseInvalidAttribute -> ""
         when ParseInvalidDeclareParams -> ""
         when ParseInvalidWhenClause -> ""
+        when ParseFundereOrder -> "The clause order is: 'cyclus', 'fundere', 'shard' (with its 'where'), 'derive'."
         when ParseInvalidType -> ""
         when ParseUnexpectedEof -> ""
 

@@ -746,8 +746,78 @@ weave collect_record with s as ref to state.SemaState, node as int, sk as sym.Se
     # incluiría los campos del nominal anidado (bug de layout).
     var pending_fields as list of types.SemaField is list of types.SemaField
     defer banish pending_fields
+    var embed_names as list of int is list of int
+    defer banish embed_names
+    var embed_nodes as list of int is list of int
+    defer banish embed_nodes
+    var embed_explicit as list of bool is list of bool
+    defer banish embed_explicit
+    var own_names as list of int is list of int
+    defer banish own_names
     var i as int is 0
     var n as int is calling astutil.child_count with s->ast, node
+    # Los embeds de `fundere` van delante de los campos propios: son el
+    # prefijo del `struct` en C y el orden del cleanup les da la vuelta.
+    var ei as int is 0
+    while ei < n:
+        var ec as int is calling astutil.node_child with s->ast, node, ei
+        if ec >= 0 and (calling astutil.kind_of with s->ast, ec) == pskind.NodeKind.NdFundereClause:
+            var bi as int is 0
+            var bn as int is calling astutil.child_count with s->ast, ec
+            while bi < bn:
+                var emb as int is calling astutil.node_child with s->ast, ec, bi
+                if emb >= 0 and (calling astutil.kind_of with s->ast, emb) == pskind.NodeKind.NdEmbed:
+                    var tn as int is calling astutil.node_child with s->ast, emb, 0
+                    var name_tok as int is calling astutil.token_child with s->ast, emb, 1
+                    var has_name as bool is false
+                    var nid as int is 0
+                    if name_tok >= 0:
+                        var ntxt as string is calling astutil.token_text with s->src, s->lex, name_tok
+                        set nid is calling npool.intern with s->names, ntxt
+                        banish ntxt
+                        set has_name is true
+                    else:
+                        var iname as string is calling embed_implicit_name with s, tn
+                        if (iname length) == 0:
+                            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_EMBED_NAME, (calling astutil.start_of with s->ast, emb), (calling astutil.end_of with s->ast, emb), "this 'fundere' type has no implicit field name", "Name the embed explicitly: 'fundere Type as name'.", "Generic types with more than one argument need an explicit name."
+                        else:
+                            set nid is calling npool.intern with s->names, iname
+                            set has_name is true
+                        banish iname
+                    var ftype as int is 0
+                    if tn >= 0:
+                        var ctx as convert.TypeCtx is calling collect_type_ctx with s
+                        set ftype is calling convert.convert with (sigil of ctx), tn
+                    var ut as int is calling infer.underlying_type with s, ftype
+                    var is_rune as bool is false
+                    if ut > 0:
+                        var tt as types.SemaType is (calling types.at with s->types, ut)
+                        if tt.kind == tk.SemaTypeKind.TkRune:
+                            set is_rune is true
+                    if not is_rune:
+                        var ttxt as string is ""
+                        if tn >= 0:
+                            set ttxt is calling astutil.first_token_text with s->src, s->lex, s->ast, tn
+                        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_EMBED_NOT_RUNE, (calling astutil.start_of with s->ast, emb), (calling astutil.end_of with s->ast, emb), "'fundere' requires a rune, not '{ttxt}'", "Compose only runes: 'echo', 'omen', 'seal', 'opaque' and base types cannot be embedded.", ""
+                        banish ttxt
+                    if has_name:
+                        var dup as bool is false
+                        var di as int is 0
+                        while di < embed_names.len:
+                            if (embed_names at di) == nid:
+                                set dup is true
+                            set di is di + 1
+                        if dup:
+                            var dtxt as string is calling npool.text with s->names, nid
+                            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_EMBED_NAME, (calling astutil.start_of with s->ast, emb), (calling astutil.end_of with s->ast, emb), "two 'fundere' embeds use the field name '{dtxt}'", "Give one of them a different name: 'fundere Type as other'.", ""
+                            banish dtxt
+                        calling embed_names.push with nid
+                        calling embed_nodes.push with emb
+                        calling embed_explicit.push with (name_tok >= 0)
+                        var efld as types.SemaField is with name is nid, type is ftype, flags is types.FIELD_EMBED, attrs_node is -1, align_override is 0, decl_node is emb
+                        calling pending_fields.push with efld
+                set bi is bi + 1
+        set ei is ei + 1
     while i < n:
         var c as int is calling astutil.node_child with s->ast, node, i
         if c >= 0 and (calling astutil.kind_of with s->ast, c) == pskind.NodeKind.NdFieldDecl:
@@ -756,6 +826,7 @@ weave collect_record with s as ref to state.SemaState, node as int, sk as sym.Se
                 var fname_txt as string is calling astutil.child_token_text with s->src, s->lex, s->ast, c, fname_slot
                 defer banish fname_txt
                 var fname as int is calling npool.intern with s->names, fname_txt
+                calling own_names.push with fname
                 var ftype as int is 0
                 var fty_slot as int is fname_slot + 1
                 if fty_slot < calling astutil.child_count with s->ast, c:
@@ -770,6 +841,24 @@ weave collect_record with s as ref to state.SemaState, node as int, sk as sym.Se
                 var fld as types.SemaField is with name is fname, type is ftype, flags is 0, attrs_node is fattrs, align_override is (calling field_align_override with s, c), decl_node is c
                 calling pending_fields.push with fld
         set i is i + 1
+    # El nombre del embed es el del campo contenedor: si choca con un campo
+    # propio no hay shadowing posible (los dos serían `host.nombre`), así que
+    # el embed necesita un nombre distinto.
+    var ci as int is 0
+    while ci < embed_names.len:
+        var cn as int is (embed_names at ci)
+        var clash as bool is false
+        var cj as int is 0
+        while cj < own_names.len:
+            if (own_names at cj) == cn:
+                set clash is true
+            set cj is cj + 1
+        if clash:
+            var ctxt as string is calling npool.text with s->names, cn
+            var cnode as int is (embed_nodes at ci)
+            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_EMBED_NAME, (calling astutil.start_of with s->ast, cnode), (calling astutil.end_of with s->ast, cnode), "embed field '{ctxt}' collides with a field of '{name_txt}'", "Name the embed explicitly: 'fundere Type as other'.", ""
+            banish ctxt
+        set ci is ci + 1
     var fields_first as int is s->types->fields.len
     var field_count as int is pending_fields.len
     var pfi as int is 0
@@ -1929,3 +2018,50 @@ weave collect_test with s as ref to state.SemaState, node as int into void:
     set symv.c_name is name
     var sid as int is calling symbols.symbol_define with s->symbols, symv
     calling tag_decl with s, sid, node
+
+## Nombre de campo implícito de un embed de `fundere`.
+##
+## Es el nombre base del tipo con la primera letra en minúscula (`GameObj` →
+## `gameObj`). Devuelve `""` si el tipo no es un `NdCustomType` simple o si
+## tiene más de un argumento genérico (`Map of K and V`): en esos casos el
+## usuario debe escribir `as nombre` (E0089).
+##
+## ## Memoria
+## O(niveles del path + longitud del nombre).
+weave embed_implicit_name with s as ref to state.SemaState, tn as int into string:
+    var empty as string is ""
+    if tn < 0:
+        return empty
+    var last as int is -1
+    if (calling astutil.kind_of with s->ast, tn) == pskind.NodeKind.NdCustomType:
+        if (calling astutil.child_count with s->ast, tn) - 1 > 1:
+            return empty
+        var path as int is calling astutil.node_child with s->ast, tn, 0
+        if path >= 0:
+            var i as int is 0
+            while i < (calling astutil.child_count with s->ast, path):
+                var t as int is calling astutil.token_child with s->ast, path, i
+                if t >= 0:
+                    set last is t
+                set i is i + 1
+    else:
+        # No es un rune (E0085): el nombre sale del primer token para que el
+        # diagnóstico pueda nombrar el tipo; este campo nunca llega a usarse.
+        var t0 as int is calling astutil.token_child with s->ast, tn, 0
+        if t0 >= 0:
+            set last is t0
+    if last < 0:
+        return empty
+    var txt as string is calling astutil.token_text with s->src, s->lex, last
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var bp as ref to frozen byte is bytes of txt
+    var j as int is 0
+    while j < (txt length):
+        var b as int is (bp at j) to int
+        if j == 0 and b >= 65 and b <= 90:
+            set b is b + 32
+        calling sb.append_char with (b to char)
+        set j is j + 1
+    banish txt
+    return calling sb.finish

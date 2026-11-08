@@ -2631,6 +2631,8 @@ los avisos no.
 | `E0082` | un `Rc` no puede cruzar una frontera de hilo o corrutina |
 | `E0083` | un `Arc of T` que cruza un hilo necesita que `T` sea `@shared` |
 | `E0084` | un `weave` `@export`-ado no puede devolver un valor `Drop` por valor |
+| `E0085` | el tipo de un `fundere` no es una `rune` |
+| `E0089` | el tipo de un `fundere` no tiene nombre de campo implícito; escribe `as nombre` |
 | `W0008` | copia de un contenedor mutada dentro de un bucle (`--lint=cow`) |
 | `W0001` | se usó `transmute` |
 | `W0002` | acceso a campo de `echo` (unión sin comprobar) |

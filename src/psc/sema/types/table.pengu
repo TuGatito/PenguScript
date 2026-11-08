@@ -192,6 +192,8 @@ const FIELD_ALIGNED as int is 1 << 2
 const FIELD_PACKED as int is 1 << 3
 ## El campo lleva `@skip` en una runa `derive Json`.
 const FIELD_JSON_SKIP as int is 1 << 4
+## El campo es un embed de `fundere` (va delante de los campos propios).
+const FIELD_EMBED as int is 1 << 5
 
 const VAR_HAS_INT as int is 1 << 0
 const VAR_HAS_STRING as int is 1 << 1

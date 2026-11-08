@@ -45,6 +45,10 @@ const CODE_RC_CROSS_THREAD as string is "E0082"
 const CODE_ARC_NOT_SHARED as string is "E0083"
 ## Un `weave` con `@export` no puede devolver un `Drop` por valor.
 const CODE_EXPORT_DROP as string is "E0084"
+## `fundere` solo compone runes (no echo, omen, seal, opaque ni tipos base).
+const CODE_EMBED_NOT_RUNE as string is "E0085"
+## El tipo de un `fundere` no tiene nombre de campo implícito; hace falta `as`.
+const CODE_EMBED_NAME as string is "E0089"
 const CODE_BUILDER as string is "E0014"
 const CODE_ARRAY_UNKNOWN as string is "E0015"
 const CODE_GENERIC_ARGS as string is "E0021"

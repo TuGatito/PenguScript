@@ -2592,6 +2592,8 @@ Every diagnostic has a stable code. Errors stop the compilation; warnings do not
 | `E0082` | an `Rc` cannot cross a thread or coroutine boundary |
 | `E0083` | an `Arc of T` crossing a thread boundary needs `T` to be `@shared` |
 | `E0084` | an `@export`-ed weave cannot return a `Drop` value by value |
+| `E0085` | a `fundere` type is not a `rune` |
+| `E0089` | a `fundere` type has no implicit field name; write `as name` |
 | `W0008` | copy of a container mutated inside a loop (`--lint=cow`) |
 | `W0001` | `transmute` used |
 | `W0002` | `echo` field access (unchecked union) |
