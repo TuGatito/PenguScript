@@ -1189,5 +1189,53 @@
       "${0}"
     ],
     "description": "Discard a suspended coroutine without running it to completion."
+  },
+  "Rc Shared Handle (std.consortium)": {
+    "prefix": "rcnew",
+    "body": [
+      "var ${1:handle} as Rc of ${2:Type} is calling Rc.new with ${3:value}",
+      "calling spark.println with \"{calling ${1:handle}.strong_count}\""
+    ],
+    "description": "Create a single-threaded reference-counted handle"
+  },
+  "Arc Shared Handle (std.consortium)": {
+    "prefix": "arcnew",
+    "body": [
+      "var ${1:handle} as Arc of ${2:Type} is calling Arc.new with ${3:value}",
+      "var ${4:copy} as Arc of ${2:Type} is calling ${1:handle}.clone"
+    ],
+    "description": "Create a thread-safe reference-counted handle (clone is explicit)"
+  },
+  "Weak Handle (std.consortium)": {
+    "prefix": "weak",
+    "body": [
+      "var ${1:weak} as WeakRc of ${2:Type} is calling ${3:strong}.downgrade"
+    ],
+    "description": "Create a non-owning weak reference (breaks cycles)"
+  },
+  "Weak Upgrade (std.consortium)": {
+    "prefix": "upgrade",
+    "body": [
+      "var ${1:maybe} as maybe Rc of ${3:Type} is calling ${4:weak}.upgrade",
+      "if ${1:maybe}.is_present:",
+      "    var ${5:strong} as Rc of ${3:Type} is ${1:maybe}.value"
+    ],
+    "description": "Try to upgrade a weak handle into an owner"
+  },
+  "Make Mutable (COW, std.consortium)": {
+    "prefix": "makemut",
+    "body": [
+      "var ${1:ref} as ref to ${2:Type} is calling ${3:handle}.make_mut"
+    ],
+    "description": "Copy-on-write mutation: clones the value when shared"
+  },
+  "Container Copy-on-write (list/map/string)": {
+    "prefix": "cow",
+    "body": [
+      "var ${1:copy} as list of ${2:int} is ${3:original}",
+      "calling ${1:copy}.make_unique",
+      "calling ${1:copy}.push with ${4:value}"
+    ],
+    "description": "Copy a container, force a private buffer and mutate it"
   }
 }
