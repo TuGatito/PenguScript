@@ -53,9 +53,14 @@ static void test_strings(void)
   {
     PenguString legacy = pengu_string_from_cstr("legacy");
     check(legacy.is_owned == PENGU_STRING_BORROWED, "string: la vista no es owned");
+    /* Copiar un string legacy no lo convierte: el modelo permite dos
+       bindings sobre el mismo SDS sin contador. La promocion ocurre en el
+       primer `ensure_unique`, que es donde hace falta exclusividad. */
     pengu_cow_string_share(&legacy);
-    check(legacy.is_owned == PENGU_STRING_OWNED_COW, "string: la vista se promociona a COW");
-    check(pengu_cow_string_ref_count(legacy) == 1, "string: promocion con rc 1");
+    check(legacy.is_owned == PENGU_STRING_BORROWED, "string: compartir una vista no la promociona");
+    pengu_cow_string_ensure_unique(&legacy);
+    check(legacy.is_owned == PENGU_STRING_BORROWED, "string: una vista unica tampoco se copia");
+    check(pengu_cow_string_ref_count(legacy) == 1, "string: ref_count de una vista es 1");
     pengu_banish_string(&legacy);
     check(legacy.data == NULL, "string: banish de un COW lo vacia");
   }
