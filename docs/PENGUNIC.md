@@ -1,7 +1,7 @@
 # The Pengunic Manual
 
 How to write PenguScript that is safe, idiomatic and fast: the engineering
-manual for the language implemented by `psc` 0.53.6.
+manual for the language implemented by `psc` 0.53.7.
 
 It is the *practice* document of the documentation set:
 
@@ -331,7 +331,7 @@ binary. From a checkout:
 $ bash tools/build_bootstrap.sh     # builds build/psc-stage0 from the C bundle
 $ ./build/psc-stage0 build .        # self-hosts build/psc
 $ ./build/psc --version
-psc 0.53.6 (F13)
+psc 0.53.7 (F13)
 ```
 
 `build/psc` is the compiler you use from then on. `psc doctor` reports what it
@@ -3615,7 +3615,7 @@ truncates, and `transmute`, which reinterprets bits.
 **Are there threads and coroutines?**
 Yes. 0.30.0 added first-class threads (`filum.start`, `join`, `detach`, `free`),
 0.31.0 added `std.coro` (explicit stackful coroutines with `resume` and `yield`
-on the same thread) and 0.53.6 adds `std.reactor`: an explicit `EventLoop` that
+on the same thread) and 0.53.7 adds `std.reactor`: an explicit `EventLoop` that
 calls `epoll_wait`/`poll` and resumes tasks. There is no `async`/`await` keyword
 and no hidden scheduler: you create the loop, `spawn` and call `run`. The stdlib
 `*_async` variants are functions that suspend the current coroutine and only

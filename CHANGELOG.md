@@ -2,6 +2,15 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.53.7] — 2026-11-08 — `W0009` encendido por defecto
+
+### Cambiado
+
+- El lint de shadowing de `fundere` (`W0009`) está activo por defecto:
+  reescribir un campo promovido es casi siempre un renombrado pendiente.
+  Sigue siendo informativo y `psc check --lint=no-shadow` lo silencia
+  (`--lint=shadow` sigue aceptándose).
+
 ## [0.53.6] — 2026-11-08 — Documentar el orden de liberación con `fundere`
 
 ### Documentación

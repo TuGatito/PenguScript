@@ -32150,7 +32150,7 @@ SemaOptions sema_options_default_options(PenguString base_dir) {
     PenguString ar = rites_host_arch();
     (void)ar;
     #line 66 "src/psc/sema/options.pengu"
-    return (SemaOptions){.base_dir = base_dir, .src_dir = pengu_string_from_cstr_len("src", 3), .lib_dir = pengu_string_from_cstr_len("lib", 3), .std_dirs = pengu_list_new(sizeof(PenguString), 0), .dep_dirs = pengu_list_new(sizeof(PenguString), 0), .defines = pengu_list_new(sizeof(PenguString), 0), .os_name = osn, .arch = ar, .compiler = pengu_string_from_cstr_len("gcc", 3), .wasm_target = pengu_string_from_cstr_len("", 0), .is_main = true, .is_debug = false, .deny_deprecated = false, .max_errors = 100, .stop_after_first = false, .include_antiquus = false, .lint_cow = false, .lint_shadow = false};
+    return (SemaOptions){.base_dir = base_dir, .src_dir = pengu_string_from_cstr_len("src", 3), .lib_dir = pengu_string_from_cstr_len("lib", 3), .std_dirs = pengu_list_new(sizeof(PenguString), 0), .dep_dirs = pengu_list_new(sizeof(PenguString), 0), .defines = pengu_list_new(sizeof(PenguString), 0), .os_name = osn, .arch = ar, .compiler = pengu_string_from_cstr_len("gcc", 3), .wasm_target = pengu_string_from_cstr_len("", 0), .is_main = true, .is_debug = false, .deny_deprecated = false, .max_errors = 100, .stop_after_first = false, .include_antiquus = false, .lint_cow = false, .lint_shadow = true};
 }
 
 #line 72 "src/psc/sema/options.pengu"
@@ -100082,7 +100082,7 @@ PenguString psc_pkg_lock_dumps(Lock lock) {
     (void)sb;
     #line 149 "src/psc/pkg/lock.pengu"
     #line 150 "src/psc/pkg/lock.pengu"
-    (void)(StringBuilder_append(&(sb), pengu_string_from_cstr_len("schema = 2\ngenerated_by = \"psc 0.53.5\"\n", 39)));
+    (void)(StringBuilder_append(&(sb), pengu_string_from_cstr_len("schema = 2\ngenerated_by = \"psc 0.53.7\"\n", 39)));
     #line 151 "src/psc/pkg/lock.pengu"
     if (((int32_t)(lock.target).len) > 0) {
         #line 152 "src/psc/pkg/lock.pengu"
@@ -103210,7 +103210,7 @@ PenguString psc_driver_build_find_manifest_root(PenguString start) {
 #line 618 "src/psc/driver/build.pengu"
 BuildOptions psc_driver_build_default_options(void) {
     #line 619 "src/psc/driver/build.pengu"
-    return (BuildOptions){.target = pengu_string_from_cstr_len("", 0), .platform = psc_driver_target_host(), .target_explicit = false, .profile = psc_driver_build_copy(pengu_string_from_cstr_len("debug", 5)), .cc = pengu_string_from_cstr_len("", 0), .out_path = pengu_string_from_cstr_len("", 0), .verbose = false, .strict_c99 = false, .lint_cow = false, .lint_shadow = false, .legacy_copy = false, .release_unsafe = false, .is_library = false, .is_test = false, .test_json = false, .bundle_only = false, .check_only = false, .no_dce = false, .prune_types = false, .no_line_markers = false, .prune_native = false, .dce_scope_user = false, .pch = false, .compiler_path = pengu_string_from_cstr_len("", 0), .no_cache = false, .clear_cache = false, .ephemeral = false, .locked = false, .frozen = false, .force_exe = false, .coverage = false, .sanitize_kind = 0, .split = false, .jobs = 0, .defines = pengu_list_new(sizeof(PenguString), 0)};
+    return (BuildOptions){.target = pengu_string_from_cstr_len("", 0), .platform = psc_driver_target_host(), .target_explicit = false, .profile = psc_driver_build_copy(pengu_string_from_cstr_len("debug", 5)), .cc = pengu_string_from_cstr_len("", 0), .out_path = pengu_string_from_cstr_len("", 0), .verbose = false, .strict_c99 = false, .lint_cow = false, .lint_shadow = true, .legacy_copy = false, .release_unsafe = false, .is_library = false, .is_test = false, .test_json = false, .bundle_only = false, .check_only = false, .no_dce = false, .prune_types = false, .no_line_markers = false, .prune_native = false, .dce_scope_user = false, .pch = false, .compiler_path = pengu_string_from_cstr_len("", 0), .no_cache = false, .clear_cache = false, .ephemeral = false, .locked = false, .frozen = false, .force_exe = false, .coverage = false, .sanitize_kind = 0, .split = false, .jobs = 0, .defines = pengu_list_new(sizeof(PenguString), 0)};
 }
 
 #line 625 "src/psc/driver/build.pengu"
@@ -118910,7 +118910,7 @@ JsonValue psc_lsp_server_initialize_result(void) {
     #line 411 "src/psc/lsp/server.pengu"
     (void)(JsonValue_put_json(&(info), pengu_string_from_cstr_len("name", 4), JsonValue_string_val(psc_lsp_server_copy(pengu_string_from_cstr_len("psc", 3)))));
     #line 412 "src/psc/lsp/server.pengu"
-    (void)(JsonValue_put_json(&(info), pengu_string_from_cstr_len("version", 7), JsonValue_string_val(psc_lsp_server_copy(pengu_string_from_cstr_len("0.53.5", 6)))));
+    (void)(JsonValue_put_json(&(info), pengu_string_from_cstr_len("version", 7), JsonValue_string_val(psc_lsp_server_copy(pengu_string_from_cstr_len("0.53.7", 6)))));
     #line 413 "src/psc/lsp/server.pengu"
     (void)(JsonValue_put_json(&(out), pengu_string_from_cstr_len("serverInfo", 10), info));
     #line 414 "src/psc/lsp/server.pengu"
@@ -129971,7 +129971,7 @@ int32_t main_dispatch(PenguList args) {
     #line 107 "src/main.pengu"
     if ((pengu_string_equal(cmd, pengu_string_from_cstr_len("version", 7)) || pengu_string_equal(cmd, pengu_string_from_cstr_len("--version", 9))) || pengu_string_equal(cmd, pengu_string_from_cstr_len("-V", 2))) {
         #line 108 "src/main.pengu"
-        (void)(spark_println(pengu_string_from_cstr_len("psc 0.53.5 (F13)", 16)));
+        (void)(spark_println(pengu_string_from_cstr_len("psc 0.53.7 (F13)", 16)));
         #line 109 "src/main.pengu"
         return 0;
     }
@@ -130835,413 +130835,421 @@ int32_t main_run_check(PenguList args) {
             #line 467 "src/main.pengu"
             opts.lint_shadow = true;
         } else
-        if (main_starts_with(a, pengu_string_from_cstr_len("--lint=", 7))) {
+        if (pengu_string_equal(a, pengu_string_from_cstr_len("--lint=no-shadow", 16))) {
             #line 469 "src/main.pengu"
+            opts.lint_shadow = false;
+        } else
+        if (main_starts_with(a, pengu_string_from_cstr_len("--lint=", 7))) {
+            #line 471 "src/main.pengu"
             PenguString lname = pengu_string_substring(a, (int)(7), (int)((((int32_t)(a).len))));
             (void)lname;
-            #line 470 "src/main.pengu"
-            bool lok = (pengu_string_equal(lname, pengu_string_from_cstr_len("cow", 3)) || pengu_string_equal(lname, pengu_string_from_cstr_len("shadow", 6)));
+            #line 472 "src/main.pengu"
+            bool lok = ((pengu_string_equal(lname, pengu_string_from_cstr_len("cow", 3)) || pengu_string_equal(lname, pengu_string_from_cstr_len("shadow", 6))) || pengu_string_equal(lname, pengu_string_from_cstr_len("no-shadow", 9)));
             (void)lok;
-            #line 471 "src/main.pengu"
+            #line 473 "src/main.pengu"
             if (!lok) {
-                #line 472 "src/main.pengu"
+                #line 474 "src/main.pengu"
                 PenguString lbad = pengu_string_format_ex("psc check: unknown lint '%.*s'", (int)lname.len, lname.data);
                 (void)lbad;
-                #line 473 "src/main.pengu"
-                (void)(spark_eprintln(lbad));
-                #line 474 "src/main.pengu"
-                pengu_banish_string(&(lbad));
                 #line 475 "src/main.pengu"
-                pengu_banish_string(&(lname));
+                (void)(spark_eprintln(lbad));
                 #line 476 "src/main.pengu"
-                (void)(sema_options_free_options((&(opts))));
+                pengu_banish_string(&(lbad));
                 #line 477 "src/main.pengu"
+                pengu_banish_string(&(lname));
+                #line 478 "src/main.pengu"
+                (void)(sema_options_free_options((&(opts))));
+                #line 479 "src/main.pengu"
                 int32_t _ret2668 = 2;
                 psc_driver_target_free((&(tgt)));
                 return _ret2668;
             }
-            #line 478 "src/main.pengu"
+            #line 480 "src/main.pengu"
             if (pengu_string_equal(lname, pengu_string_from_cstr_len("shadow", 6))) {
-                #line 479 "src/main.pengu"
-                opts.lint_shadow = true;
-            } else {
                 #line 481 "src/main.pengu"
+                opts.lint_shadow = true;
+            } else
+            if (pengu_string_equal(lname, pengu_string_from_cstr_len("no-shadow", 9))) {
+                #line 483 "src/main.pengu"
+                opts.lint_shadow = false;
+            } else {
+                #line 485 "src/main.pengu"
                 opts.lint_cow = true;
             }
-            #line 482 "src/main.pengu"
+            #line 486 "src/main.pengu"
             pengu_banish_string(&(lname));
         } else
         if (main_starts_with(a, pengu_string_from_cstr_len("--max-errors=", 13))) {
-            #line 484 "src/main.pengu"
+            #line 488 "src/main.pengu"
             PenguString num = pengu_string_substring(a, (int)(13), (int)((((int32_t)(a).len))));
             (void)num;
-            #line 485 "src/main.pengu"
-            #line 486 "src/main.pengu"
+            #line 489 "src/main.pengu"
+            #line 490 "src/main.pengu"
             PenguMaybe parsed = spark_parse_int(num);
             (void)parsed;
-            #line 487 "src/main.pengu"
+            #line 491 "src/main.pengu"
             if (parsed.is_present) {
-                #line 488 "src/main.pengu"
+                #line 492 "src/main.pengu"
                 opts.max_errors = (*( int32_t*)((parsed).value));
             }
-            #line 489 "src/main.pengu"
+            #line 493 "src/main.pengu"
             pengu_banish_maybe(&(parsed));
             pengu_banish_string(&(num));
         } else
         if (main_starts_with(a, pengu_string_from_cstr_len("--base-dir=", 11))) {
-            #line 491 "src/main.pengu"
+            #line 495 "src/main.pengu"
             PenguString bd = pengu_string_substring(a, (int)(11), (int)((((int32_t)(a).len))));
             (void)bd;
-            #line 492 "src/main.pengu"
+            #line 496 "src/main.pengu"
             pengu_banish_string(&(opts.base_dir));
-            #line 493 "src/main.pengu"
+            #line 497 "src/main.pengu"
             opts.base_dir = bd;
             pengu_cow_string_share(&(opts.base_dir));
         } else
         if (main_starts_with(a, pengu_string_from_cstr_len("--src-dir=", 10))) {
-            #line 495 "src/main.pengu"
+            #line 499 "src/main.pengu"
             PenguString sd = pengu_string_substring(a, (int)(10), (int)((((int32_t)(a).len))));
             (void)sd;
-            #line 496 "src/main.pengu"
+            #line 500 "src/main.pengu"
             pengu_banish_string(&(opts.src_dir));
-            #line 497 "src/main.pengu"
+            #line 501 "src/main.pengu"
             opts.src_dir = sd;
             pengu_cow_string_share(&(opts.src_dir));
         } else
         if (main_starts_with(a, pengu_string_from_cstr_len("--lib-dir=", 10))) {
-            #line 499 "src/main.pengu"
+            #line 503 "src/main.pengu"
             PenguString ld = pengu_string_substring(a, (int)(10), (int)((((int32_t)(a).len))));
             (void)ld;
-            #line 500 "src/main.pengu"
+            #line 504 "src/main.pengu"
             pengu_banish_string(&(opts.lib_dir));
-            #line 501 "src/main.pengu"
+            #line 505 "src/main.pengu"
             opts.lib_dir = ld;
             pengu_cow_string_share(&(opts.lib_dir));
         } else
         if (pengu_string_equal(a, pengu_string_from_cstr_len("--help", 6)) || pengu_string_equal(a, pengu_string_from_cstr_len("-h", 2))) {
-            #line 503 "src/main.pengu"
+            #line 507 "src/main.pengu"
             (void)(main_print_check_help());
-            #line 504 "src/main.pengu"
+            #line 508 "src/main.pengu"
             (void)(sema_options_free_options((&(opts))));
-            #line 505 "src/main.pengu"
+            #line 509 "src/main.pengu"
             int32_t _ret2669 = 0;
             psc_driver_target_free((&(tgt)));
             return _ret2669;
         } else
         if (main_starts_dash(a)) {
-            #line 507 "src/main.pengu"
+            #line 511 "src/main.pengu"
             PenguString unknown = pengu_string_format_ex("psc check: unknown option '%.*s'", (int)a.len, a.data);
             (void)unknown;
-            #line 508 "src/main.pengu"
-            (void)(spark_eprintln(unknown));
-            #line 509 "src/main.pengu"
-            pengu_banish_string(&(unknown));
-            #line 510 "src/main.pengu"
-            (void)(main_print_check_help());
-            #line 511 "src/main.pengu"
-            (void)(sema_options_free_options((&(opts))));
             #line 512 "src/main.pengu"
+            (void)(spark_eprintln(unknown));
+            #line 513 "src/main.pengu"
+            pengu_banish_string(&(unknown));
+            #line 514 "src/main.pengu"
+            (void)(main_print_check_help());
+            #line 515 "src/main.pengu"
+            (void)(sema_options_free_options((&(opts))));
+            #line 516 "src/main.pengu"
             int32_t _ret2670 = 2;
             psc_driver_target_free((&(tgt)));
             return _ret2670;
         } else {
-            #line 514 "src/main.pengu"
+            #line 518 "src/main.pengu"
             if (((int32_t)(path).len) > 0) {
-                #line 515 "src/main.pengu"
+                #line 519 "src/main.pengu"
                 (void)(__extension__(({ PenguString _push_tmp = a; pengu_cow_list_push(&(extra), &_push_tmp); })));
             } else {
-                #line 517 "src/main.pengu"
+                #line 521 "src/main.pengu"
                 path = a;
                 pengu_cow_string_share(&(path));
             }
         }
-        #line 518 "src/main.pengu"
+        #line 522 "src/main.pengu"
         i = (i + 1);
     }
-    #line 519 "src/main.pengu"
+    #line 523 "src/main.pengu"
     (void)(psc_driver_target_apply_sema(tgt, (&(opts))));
-    #line 520 "src/main.pengu"
+    #line 524 "src/main.pengu"
     PenguList _lst2671 = defs;
     for (int _li2672 = 0; _li2672 < _lst2671.len; _li2672++) {
         PenguString d = (*( PenguString*)pengu_list_at(&_lst2671, _li2672));
         (void)d;
-        #line 521 "src/main.pengu"
+        #line 525 "src/main.pengu"
         (void)(__extension__(({ PenguString _push_tmp = main_copy_path(d); pengu_cow_list_push(&(opts.defines), &_push_tmp); })));
     }
-    #line 522 "src/main.pengu"
+    #line 526 "src/main.pengu"
     int32_t di = 0;
     (void)di;
-    #line 523 "src/main.pengu"
+    #line 527 "src/main.pengu"
     while ((di < (defs).len)) {
-        #line 524 "src/main.pengu"
-        pengu_banish_string(&((*( PenguString*)pengu_list_at(&(defs), (int)((__extension__(({ int64_t _p_idx2673 = (int64_t)(di); pengu_assert_bounds(_p_idx2673, (int64_t)((defs).len), "src/main.pengu:524"); _p_idx2673; }))))))));
-        #line 525 "src/main.pengu"
+        #line 528 "src/main.pengu"
+        pengu_banish_string(&((*( PenguString*)pengu_list_at(&(defs), (int)((__extension__(({ int64_t _p_idx2673 = (int64_t)(di); pengu_assert_bounds(_p_idx2673, (int64_t)((defs).len), "src/main.pengu:528"); _p_idx2673; }))))))));
+        #line 529 "src/main.pengu"
         di = (di + 1);
     }
-    #line 526 "src/main.pengu"
+    #line 530 "src/main.pengu"
     pengu_banish_list(&(defs));
-    #line 527 "src/main.pengu"
+    #line 531 "src/main.pengu"
     PenguString abs_path = compass_cp_absolute(path);
     (void)abs_path;
-    #line 528 "src/main.pengu"
+    #line 532 "src/main.pengu"
     bool is_proj = false;
     (void)is_proj;
-    #line 529 "src/main.pengu"
+    #line 533 "src/main.pengu"
     if (((int32_t)(path).len) > 0) {
-        #line 530 "src/main.pengu"
+        #line 534 "src/main.pengu"
         is_proj = archivum_is_dir(abs_path);
     }
-    #line 531 "src/main.pengu"
+    #line 535 "src/main.pengu"
     pengu_banish_string(&(abs_path));
-    #line 532 "src/main.pengu"
+    #line 536 "src/main.pengu"
     if ((((!use_stdin)) && (((int32_t)(path).len) > 0)) && is_proj) {
-        #line 533 "src/main.pengu"
+        #line 537 "src/main.pengu"
         (void)(sema_options_free_options((&(opts))));
-        #line 534 "src/main.pengu"
+        #line 538 "src/main.pengu"
         int32_t _ret2674 = psc_cmd_build_run_check_project(path, tgt, target_given);
         psc_driver_target_free((&(tgt)));
         return _ret2674;
     }
-    #line 535 "src/main.pengu"
+    #line 539 "src/main.pengu"
     if (use_stdin && (((int32_t)(path).len) > 0)) {
-        #line 536 "src/main.pengu"
+        #line 540 "src/main.pengu"
         (void)(spark_eprintln(pengu_string_from_cstr_len("psc check: --stdin and a file are mutually exclusive", 52)));
-        #line 537 "src/main.pengu"
+        #line 541 "src/main.pengu"
         (void)(sema_options_free_options((&(opts))));
-        #line 538 "src/main.pengu"
+        #line 542 "src/main.pengu"
         int32_t _ret2675 = 2;
         psc_driver_target_free((&(tgt)));
         return _ret2675;
     }
-    #line 539 "src/main.pengu"
+    #line 543 "src/main.pengu"
     if (((!use_stdin)) && (((int32_t)(path).len) == 0)) {
-        #line 540 "src/main.pengu"
+        #line 544 "src/main.pengu"
         (void)(spark_eprintln(pengu_string_from_cstr_len("psc check: missing input file (or --stdin)", 42)));
-        #line 541 "src/main.pengu"
+        #line 545 "src/main.pengu"
         (void)(main_print_check_help());
-        #line 542 "src/main.pengu"
+        #line 546 "src/main.pengu"
         (void)(sema_options_free_options((&(opts))));
-        #line 543 "src/main.pengu"
+        #line 547 "src/main.pengu"
         int32_t _ret2676 = 2;
         psc_driver_target_free((&(tgt)));
         return _ret2676;
     }
-    #line 544 "src/main.pengu"
+    #line 548 "src/main.pengu"
     if (use_stdin) {
-        #line 545 "src/main.pengu"
+        #line 549 "src/main.pengu"
         PenguString text = io_read_stdin_all();
         (void)text;
-        #line 546 "src/main.pengu"
-        #line 547 "src/main.pengu"
+        #line 550 "src/main.pengu"
+        #line 551 "src/main.pengu"
         SemaResult r1 = sema_api_check_text(pengu_string_from_cstr_len("<stdin>", 7), text, opts);
         (void)r1;
-        #line 548 "src/main.pengu"
+        #line 552 "src/main.pengu"
         int32_t _ret2677 = main_report_check(r1, json_diags, json_u16, force_color, no_color);
         pengu_banish_string(&(text));
         psc_driver_target_free((&(tgt)));
         return _ret2677;
         pengu_banish_string(&(text));
     }
-    #line 549 "src/main.pengu"
+    #line 553 "src/main.pengu"
     SemaResult r2 = sema_api_check_file(path, opts);
     (void)r2;
-    #line 550 "src/main.pengu"
+    #line 554 "src/main.pengu"
     int32_t code = main_report_check(r2, json_diags, json_u16, force_color, no_color);
     (void)code;
-    #line 551 "src/main.pengu"
+    #line 555 "src/main.pengu"
     int32_t ei = 0;
     (void)ei;
-    #line 552 "src/main.pengu"
+    #line 556 "src/main.pengu"
     while ((ei < (extra).len)) {
-        #line 553 "src/main.pengu"
+        #line 557 "src/main.pengu"
         PenguList hargs = pengu_list_new(sizeof(PenguString), 0);
         (void)hargs;
-        #line 554 "src/main.pengu"
-        (void)(__extension__(({ PenguString _push_tmp = (*( PenguString*)pengu_list_at(&(args), (int)((__extension__(({ int64_t _p_idx2678 = (int64_t)(0); pengu_assert_bounds(_p_idx2678, (int64_t)((args).len), "src/main.pengu:554"); _p_idx2678; })))))); pengu_cow_list_push(&(hargs), &_push_tmp); })));
-        #line 555 "src/main.pengu"
+        #line 558 "src/main.pengu"
+        (void)(__extension__(({ PenguString _push_tmp = (*( PenguString*)pengu_list_at(&(args), (int)((__extension__(({ int64_t _p_idx2678 = (int64_t)(0); pengu_assert_bounds(_p_idx2678, (int64_t)((args).len), "src/main.pengu:558"); _p_idx2678; })))))); pengu_cow_list_push(&(hargs), &_push_tmp); })));
+        #line 559 "src/main.pengu"
         (void)(__extension__(({ PenguString _push_tmp = pengu_string_from_cstr_len("check", 5); pengu_cow_list_push(&(hargs), &_push_tmp); })));
-        #line 556 "src/main.pengu"
-        (void)(__extension__(({ PenguString _push_tmp = (*( PenguString*)pengu_list_at(&(extra), (int)((__extension__(({ int64_t _p_idx2679 = (int64_t)(ei); pengu_assert_bounds(_p_idx2679, (int64_t)((extra).len), "src/main.pengu:556"); _p_idx2679; })))))); pengu_cow_list_push(&(hargs), &_push_tmp); })));
-        #line 557 "src/main.pengu"
+        #line 560 "src/main.pengu"
+        (void)(__extension__(({ PenguString _push_tmp = (*( PenguString*)pengu_list_at(&(extra), (int)((__extension__(({ int64_t _p_idx2679 = (int64_t)(ei); pengu_assert_bounds(_p_idx2679, (int64_t)((extra).len), "src/main.pengu:560"); _p_idx2679; })))))); pengu_cow_list_push(&(hargs), &_push_tmp); })));
+        #line 561 "src/main.pengu"
         int32_t hc = main_dispatch(hargs);
         (void)hc;
-        #line 558 "src/main.pengu"
+        #line 562 "src/main.pengu"
         pengu_banish_list(&(hargs));
-        #line 559 "src/main.pengu"
+        #line 563 "src/main.pengu"
         if (hc != 0) {
-            #line 560 "src/main.pengu"
+            #line 564 "src/main.pengu"
             code = 1;
         }
-        #line 561 "src/main.pengu"
+        #line 565 "src/main.pengu"
         ei = (ei + 1);
     }
-    #line 562 "src/main.pengu"
+    #line 566 "src/main.pengu"
     pengu_banish_list(&(extra));
-    #line 563 "src/main.pengu"
+    #line 567 "src/main.pengu"
     int32_t _ret2680 = code;
     psc_driver_target_free((&(tgt)));
     return _ret2680;
     psc_driver_target_free((&(tgt)));
 }
 
-#line 569 "src/main.pengu"
+#line 573 "src/main.pengu"
 int32_t main_run_emit_c(PenguList args) {
     (void)args;
-    #line 570 "src/main.pengu"
+    #line 574 "src/main.pengu"
     SemaOptions opts = sema_options_default_options(pengu_string_from_cstr_len(".", 1));
     (void)opts;
-    #line 571 "src/main.pengu"
+    #line 575 "src/main.pengu"
     PenguString out_path = pengu_string_from_cstr_len("", 0);
     (void)out_path;
-    #line 572 "src/main.pengu"
+    #line 576 "src/main.pengu"
     PenguString split_dir = pengu_string_from_cstr_len("", 0);
     (void)split_dir;
-    #line 573 "src/main.pengu"
+    #line 577 "src/main.pengu"
     bool to_stdout = false;
     (void)to_stdout;
-    #line 574 "src/main.pengu"
+    #line 578 "src/main.pengu"
     PenguString path = pengu_string_from_cstr_len("", 0);
     (void)path;
-    #line 575 "src/main.pengu"
+    #line 579 "src/main.pengu"
     CgOptions cgp = psc_codegen_options_default_options(pengu_string_from_cstr_len(".", 1));
     (void)cgp;
-    #line 576 "src/main.pengu"
+    #line 580 "src/main.pengu"
     cgp.os_name = opts.os_name;
-    #line 577 "src/main.pengu"
+    #line 581 "src/main.pengu"
     cgp.arch = opts.arch;
-    #line 578 "src/main.pengu"
+    #line 582 "src/main.pengu"
     PenguList defs = pengu_list_new(sizeof(PenguString), 0);
     (void)defs;
-    #line 579 "src/main.pengu"
+    #line 583 "src/main.pengu"
     PenguString os_override = pengu_string_from_cstr_len("", 0);
     (void)os_override;
-    #line 580 "src/main.pengu"
+    #line 584 "src/main.pengu"
     PenguString arch_override = pengu_string_from_cstr_len("", 0);
     (void)arch_override;
-    #line 581 "src/main.pengu"
+    #line 585 "src/main.pengu"
     PenguString compiler_override = pengu_string_from_cstr_len("", 0);
     (void)compiler_override;
-    #line 582 "src/main.pengu"
+    #line 586 "src/main.pengu"
     Target tgt = psc_driver_target_host();
     (void)tgt;
-    #line 583 "src/main.pengu"
-    #line 584 "src/main.pengu"
+    #line 587 "src/main.pengu"
+    #line 588 "src/main.pengu"
     int32_t i = 2;
     (void)i;
-    #line 585 "src/main.pengu"
+    #line 589 "src/main.pengu"
     while ((i < (args).len)) {
-        #line 586 "src/main.pengu"
-        PenguString a = (*( PenguString*)pengu_list_at(&(args), (int)((__extension__(({ int64_t _p_idx2681 = (int64_t)(i); pengu_assert_bounds(_p_idx2681, (int64_t)((args).len), "src/main.pengu:586"); _p_idx2681; }))))));
+        #line 590 "src/main.pengu"
+        PenguString a = (*( PenguString*)pengu_list_at(&(args), (int)((__extension__(({ int64_t _p_idx2681 = (int64_t)(i); pengu_assert_bounds(_p_idx2681, (int64_t)((args).len), "src/main.pengu:590"); _p_idx2681; }))))));
         (void)a;
-        #line 587 "src/main.pengu"
+        #line 591 "src/main.pengu"
         if (pengu_string_equal(a, pengu_string_from_cstr_len("--split-dir", 11))) {
-            #line 588 "src/main.pengu"
+            #line 592 "src/main.pengu"
             if ((i + 1) >= (args).len) {
-                #line 589 "src/main.pengu"
+                #line 593 "src/main.pengu"
                 (void)(spark_eprintln(pengu_string_from_cstr_len("psc emit-c: missing value for '--split-dir'", 43)));
-                #line 590 "src/main.pengu"
+                #line 594 "src/main.pengu"
                 (void)(sema_options_free_options((&(opts))));
-                #line 591 "src/main.pengu"
+                #line 595 "src/main.pengu"
                 int32_t _ret2682 = 2;
                 psc_driver_target_free((&(tgt)));
                 return _ret2682;
             }
-            #line 592 "src/main.pengu"
-            pengu_banish_string(&(split_dir));
-            #line 593 "src/main.pengu"
-            split_dir = main_copy_path((*( PenguString*)pengu_list_at(&(args), (int)((__extension__(({ int64_t _p_idx2683 = (int64_t)(((i + 1))); pengu_assert_bounds(_p_idx2683, (int64_t)((args).len), "src/main.pengu:593"); _p_idx2683; })))))));
-            #line 594 "src/main.pengu"
-            i = (i + 1);
-        } else
-        if (main_starts_with(a, pengu_string_from_cstr_len("--split-dir=", 12))) {
             #line 596 "src/main.pengu"
             pengu_banish_string(&(split_dir));
             #line 597 "src/main.pengu"
+            split_dir = main_copy_path((*( PenguString*)pengu_list_at(&(args), (int)((__extension__(({ int64_t _p_idx2683 = (int64_t)(((i + 1))); pengu_assert_bounds(_p_idx2683, (int64_t)((args).len), "src/main.pengu:597"); _p_idx2683; })))))));
+            #line 598 "src/main.pengu"
+            i = (i + 1);
+        } else
+        if (main_starts_with(a, pengu_string_from_cstr_len("--split-dir=", 12))) {
+            #line 600 "src/main.pengu"
+            pengu_banish_string(&(split_dir));
+            #line 601 "src/main.pengu"
             split_dir = pengu_string_substring(a, (int)(12), (int)((((int32_t)(a).len))));
         } else
         if (pengu_string_equal(a, pengu_string_from_cstr_len("--stdout", 8))) {
-            #line 599 "src/main.pengu"
+            #line 603 "src/main.pengu"
             to_stdout = true;
         } else
         if (pengu_string_equal(a, pengu_string_from_cstr_len("--test", 6))) {
-            #line 601 "src/main.pengu"
+            #line 605 "src/main.pengu"
             cgp.is_test = true;
         } else
         if (pengu_string_equal(a, pengu_string_from_cstr_len("--library", 9))) {
-            #line 603 "src/main.pengu"
+            #line 607 "src/main.pengu"
             cgp.is_library = true;
         } else
         if (pengu_string_equal(a, pengu_string_from_cstr_len("--no-dce", 8))) {
-            #line 605 "src/main.pengu"
+            #line 609 "src/main.pengu"
             cgp.dce = false;
         } else
         if (pengu_string_equal(a, pengu_string_from_cstr_len("--prune-types", 13))) {
-            #line 607 "src/main.pengu"
+            #line 611 "src/main.pengu"
             cgp.prune_types = true;
         } else
         if (pengu_string_equal(a, pengu_string_from_cstr_len("--dce-scope=user", 16)) || pengu_string_equal(a, pengu_string_from_cstr_len("--tree-shake-user", 17))) {
-            #line 609 "src/main.pengu"
+            #line 613 "src/main.pengu"
             cgp.dce_scope_user = true;
         } else
         if (pengu_string_equal(a, pengu_string_from_cstr_len("--prune-native", 14))) {
-            #line 611 "src/main.pengu"
+            #line 615 "src/main.pengu"
             cgp.prune_native = true;
         } else
         if (pengu_string_equal(a, pengu_string_from_cstr_len("--no-line-markers", 17))) {
-            #line 613 "src/main.pengu"
+            #line 617 "src/main.pengu"
             cgp.line_markers = false;
         } else
         if (pengu_string_equal(a, pengu_string_from_cstr_len("--strict-c99", 12))) {
-            #line 615 "src/main.pengu"
+            #line 619 "src/main.pengu"
             cgp.strict_c99 = true;
         } else
         if (pengu_string_equal(a, pengu_string_from_cstr_len("--release-unsafe", 16))) {
-            #line 617 "src/main.pengu"
+            #line 621 "src/main.pengu"
             cgp.release_unsafe = true;
         } else
         if (pengu_string_equal(a, pengu_string_from_cstr_len("--debug", 7))) {
-            #line 619 "src/main.pengu"
+            #line 623 "src/main.pengu"
             cgp.debug = true;
         } else
         if (pengu_string_equal(a, pengu_string_from_cstr_len("--target", 8))) {
-            #line 621 "src/main.pengu"
+            #line 625 "src/main.pengu"
             if ((i + 1) >= (args).len) {
-                #line 622 "src/main.pengu"
+                #line 626 "src/main.pengu"
                 (void)(spark_eprintln(pengu_string_from_cstr_len("psc emit-c: missing value for '--target'", 40)));
-                #line 623 "src/main.pengu"
+                #line 627 "src/main.pengu"
                 (void)(sema_options_free_options((&(opts))));
-                #line 624 "src/main.pengu"
+                #line 628 "src/main.pengu"
                 int32_t _ret2684 = 2;
                 psc_driver_target_free((&(tgt)));
                 return _ret2684;
             }
-            #line 625 "src/main.pengu"
-            Target nt = psc_driver_target_parse((*( PenguString*)pengu_list_at(&(args), (int)((__extension__(({ int64_t _p_idx2685 = (int64_t)(((i + 1))); pengu_assert_bounds(_p_idx2685, (int64_t)((args).len), "src/main.pengu:625"); _p_idx2685; })))))));
+            #line 629 "src/main.pengu"
+            Target nt = psc_driver_target_parse((*( PenguString*)pengu_list_at(&(args), (int)((__extension__(({ int64_t _p_idx2685 = (int64_t)(((i + 1))); pengu_assert_bounds(_p_idx2685, (int64_t)((args).len), "src/main.pengu:629"); _p_idx2685; })))))));
             (void)nt;
-            #line 626 "src/main.pengu"
+            #line 630 "src/main.pengu"
             if (!nt.ok) {
-                #line 627 "src/main.pengu"
+                #line 631 "src/main.pengu"
                 PenguString terr = nt.error;
                 (void)terr;
-                #line 628 "src/main.pengu"
+                #line 632 "src/main.pengu"
                 PenguString tmsg = pengu_string_format_ex("psc emit-c: %.*s", (int)terr.len, terr.data);
                 (void)tmsg;
-                #line 629 "src/main.pengu"
-                (void)(spark_eprintln(tmsg));
-                #line 630 "src/main.pengu"
-                pengu_banish_string(&(tmsg));
-                #line 631 "src/main.pengu"
-                (void)(psc_driver_target_free((&(nt))));
-                #line 632 "src/main.pengu"
-                (void)(sema_options_free_options((&(opts))));
                 #line 633 "src/main.pengu"
+                (void)(spark_eprintln(tmsg));
+                #line 634 "src/main.pengu"
+                pengu_banish_string(&(tmsg));
+                #line 635 "src/main.pengu"
+                (void)(psc_driver_target_free((&(nt))));
+                #line 636 "src/main.pengu"
+                (void)(sema_options_free_options((&(opts))));
+                #line 637 "src/main.pengu"
                 int32_t _ret2686 = 2;
                 psc_driver_target_free((&(tgt)));
                 return _ret2686;
             }
-            #line 634 "src/main.pengu"
+            #line 638 "src/main.pengu"
             (void)(psc_driver_target_free((&(tgt))));
-            #line 635 "src/main.pengu"
+            #line 639 "src/main.pengu"
             tgt = nt;
             pengu_cow_string_share(&((tgt).error));
             pengu_cow_string_share(&((tgt).raw));
@@ -131250,37 +131258,37 @@ int32_t main_run_emit_c(PenguList args) {
             pengu_cow_string_share(&((tgt).arch));
             pengu_cow_string_share(&((tgt).env));
             pengu_cow_string_share(&((tgt).wasm_target));
-            #line 636 "src/main.pengu"
+            #line 640 "src/main.pengu"
             i = (i + 1);
         } else
         if (main_starts_with(a, pengu_string_from_cstr_len("--target=", 9))) {
-            #line 638 "src/main.pengu"
+            #line 642 "src/main.pengu"
             Target nt2 = __extension__(({ PenguString p_t0 = pengu_string_substring(a, (int)(9), (int)((((int32_t)(a).len)))); Target _p_ret = psc_driver_target_parse(p_t0); pengu_banish_string(&p_t0);  _p_ret; }));
             (void)nt2;
-            #line 639 "src/main.pengu"
+            #line 643 "src/main.pengu"
             if (!nt2.ok) {
-                #line 640 "src/main.pengu"
+                #line 644 "src/main.pengu"
                 PenguString terr2 = nt2.error;
                 (void)terr2;
-                #line 641 "src/main.pengu"
+                #line 645 "src/main.pengu"
                 PenguString tmsg2 = pengu_string_format_ex("psc emit-c: %.*s", (int)terr2.len, terr2.data);
                 (void)tmsg2;
-                #line 642 "src/main.pengu"
-                (void)(spark_eprintln(tmsg2));
-                #line 643 "src/main.pengu"
-                pengu_banish_string(&(tmsg2));
-                #line 644 "src/main.pengu"
-                (void)(psc_driver_target_free((&(nt2))));
-                #line 645 "src/main.pengu"
-                (void)(sema_options_free_options((&(opts))));
                 #line 646 "src/main.pengu"
+                (void)(spark_eprintln(tmsg2));
+                #line 647 "src/main.pengu"
+                pengu_banish_string(&(tmsg2));
+                #line 648 "src/main.pengu"
+                (void)(psc_driver_target_free((&(nt2))));
+                #line 649 "src/main.pengu"
+                (void)(sema_options_free_options((&(opts))));
+                #line 650 "src/main.pengu"
                 int32_t _ret2687 = 2;
                 psc_driver_target_free((&(tgt)));
                 return _ret2687;
             }
-            #line 647 "src/main.pengu"
+            #line 651 "src/main.pengu"
             (void)(psc_driver_target_free((&(tgt))));
-            #line 648 "src/main.pengu"
+            #line 652 "src/main.pengu"
             tgt = nt2;
             pengu_cow_string_share(&((tgt).error));
             pengu_cow_string_share(&((tgt).raw));
@@ -131291,712 +131299,712 @@ int32_t main_run_emit_c(PenguList args) {
             pengu_cow_string_share(&((tgt).wasm_target));
         } else
         if (pengu_string_equal(a, pengu_string_from_cstr_len("-D", 2)) || pengu_string_equal(a, pengu_string_from_cstr_len("--define", 8))) {
-            #line 650 "src/main.pengu"
+            #line 654 "src/main.pengu"
             if ((i + 1) >= (args).len) {
-                #line 651 "src/main.pengu"
+                #line 655 "src/main.pengu"
                 (void)(spark_eprintln(pengu_string_from_cstr_len("psc emit-c: missing value for '-D'", 34)));
-                #line 652 "src/main.pengu"
+                #line 656 "src/main.pengu"
                 (void)(sema_options_free_options((&(opts))));
-                #line 653 "src/main.pengu"
+                #line 657 "src/main.pengu"
                 int32_t _ret2688 = 2;
                 psc_driver_target_free((&(tgt)));
                 return _ret2688;
             }
-            #line 654 "src/main.pengu"
-            (void)(__extension__(({ PenguString _push_tmp = main_copy_path((*( PenguString*)pengu_list_at(&(args), (int)((__extension__(({ int64_t _p_idx2689 = (int64_t)(((i + 1))); pengu_assert_bounds(_p_idx2689, (int64_t)((args).len), "src/main.pengu:654"); _p_idx2689; }))))))); pengu_cow_list_push(&(defs), &_push_tmp); })));
-            #line 655 "src/main.pengu"
+            #line 658 "src/main.pengu"
+            (void)(__extension__(({ PenguString _push_tmp = main_copy_path((*( PenguString*)pengu_list_at(&(args), (int)((__extension__(({ int64_t _p_idx2689 = (int64_t)(((i + 1))); pengu_assert_bounds(_p_idx2689, (int64_t)((args).len), "src/main.pengu:658"); _p_idx2689; }))))))); pengu_cow_list_push(&(defs), &_push_tmp); })));
+            #line 659 "src/main.pengu"
             i = (i + 1);
         } else
         if (main_starts_with(a, pengu_string_from_cstr_len("-D", 2))) {
-            #line 657 "src/main.pengu"
+            #line 661 "src/main.pengu"
             if ((((int32_t)(a).len)) > 2) {
-                #line 658 "src/main.pengu"
+                #line 662 "src/main.pengu"
                 (void)(__extension__(({ PenguString _push_tmp = pengu_string_substring(a, (int)(2), (int)((((int32_t)(a).len)))); pengu_cow_list_push(&(defs), &_push_tmp); })));
             }
         } else
         if (main_starts_with(a, pengu_string_from_cstr_len("--target-compiler=", 18))) {
-            #line 660 "src/main.pengu"
+            #line 664 "src/main.pengu"
             pengu_banish_string(&(compiler_override));
-            #line 661 "src/main.pengu"
+            #line 665 "src/main.pengu"
             compiler_override = pengu_string_substring(a, (int)(18), (int)((((int32_t)(a).len))));
         } else
         if (main_starts_with(a, pengu_string_from_cstr_len("--target-os=", 12))) {
-            #line 663 "src/main.pengu"
+            #line 667 "src/main.pengu"
             pengu_banish_string(&(os_override));
-            #line 664 "src/main.pengu"
+            #line 668 "src/main.pengu"
             os_override = pengu_string_substring(a, (int)(12), (int)((((int32_t)(a).len))));
         } else
         if (main_starts_with(a, pengu_string_from_cstr_len("--target-arch=", 14))) {
-            #line 666 "src/main.pengu"
+            #line 670 "src/main.pengu"
             pengu_banish_string(&(arch_override));
-            #line 667 "src/main.pengu"
+            #line 671 "src/main.pengu"
             arch_override = pengu_string_substring(a, (int)(14), (int)((((int32_t)(a).len))));
         } else
         if (main_starts_with(a, pengu_string_from_cstr_len("--out=", 6))) {
-            #line 669 "src/main.pengu"
+            #line 673 "src/main.pengu"
             out_path = pengu_string_substring(a, (int)(6), (int)((((int32_t)(a).len))));
         } else
         if (pengu_string_equal(a, pengu_string_from_cstr_len("--help", 6)) || pengu_string_equal(a, pengu_string_from_cstr_len("-h", 2))) {
-            #line 671 "src/main.pengu"
+            #line 675 "src/main.pengu"
             (void)(main_print_emit_c_help());
-            #line 672 "src/main.pengu"
+            #line 676 "src/main.pengu"
             (void)(sema_options_free_options((&(opts))));
-            #line 673 "src/main.pengu"
+            #line 677 "src/main.pengu"
             int32_t _ret2690 = 0;
             psc_driver_target_free((&(tgt)));
             return _ret2690;
         } else
         if (main_starts_dash(a)) {
-            #line 675 "src/main.pengu"
+            #line 679 "src/main.pengu"
             PenguString unknown = pengu_string_format_ex("psc emit-c: unknown option '%.*s'", (int)a.len, a.data);
             (void)unknown;
-            #line 676 "src/main.pengu"
-            (void)(spark_eprintln(unknown));
-            #line 677 "src/main.pengu"
-            pengu_banish_string(&(unknown));
-            #line 678 "src/main.pengu"
-            (void)(main_print_emit_c_help());
-            #line 679 "src/main.pengu"
-            (void)(sema_options_free_options((&(opts))));
             #line 680 "src/main.pengu"
+            (void)(spark_eprintln(unknown));
+            #line 681 "src/main.pengu"
+            pengu_banish_string(&(unknown));
+            #line 682 "src/main.pengu"
+            (void)(main_print_emit_c_help());
+            #line 683 "src/main.pengu"
+            (void)(sema_options_free_options((&(opts))));
+            #line 684 "src/main.pengu"
             int32_t _ret2691 = 2;
             psc_driver_target_free((&(tgt)));
             return _ret2691;
         } else {
-            #line 682 "src/main.pengu"
+            #line 686 "src/main.pengu"
             if (((int32_t)(path).len) > 0) {
-                #line 683 "src/main.pengu"
+                #line 687 "src/main.pengu"
                 (void)(spark_eprintln(pengu_string_from_cstr_len("psc emit-c: only one input file is supported", 44)));
-                #line 684 "src/main.pengu"
+                #line 688 "src/main.pengu"
                 (void)(sema_options_free_options((&(opts))));
-                #line 685 "src/main.pengu"
+                #line 689 "src/main.pengu"
                 int32_t _ret2692 = 2;
                 psc_driver_target_free((&(tgt)));
                 return _ret2692;
             }
-            #line 686 "src/main.pengu"
+            #line 690 "src/main.pengu"
             path = a;
             pengu_cow_string_share(&(path));
         }
-        #line 687 "src/main.pengu"
+        #line 691 "src/main.pengu"
         i = (i + 1);
     }
-    #line 688 "src/main.pengu"
+    #line 692 "src/main.pengu"
     if (((int32_t)(path).len) == 0) {
-        #line 689 "src/main.pengu"
+        #line 693 "src/main.pengu"
         (void)(spark_eprintln(pengu_string_from_cstr_len("psc emit-c: missing input file", 30)));
-        #line 690 "src/main.pengu"
+        #line 694 "src/main.pengu"
         (void)(main_print_emit_c_help());
-        #line 691 "src/main.pengu"
+        #line 695 "src/main.pengu"
         (void)(sema_options_free_options((&(opts))));
-        #line 692 "src/main.pengu"
+        #line 696 "src/main.pengu"
         int32_t _ret2693 = 2;
         psc_driver_target_free((&(tgt)));
         return _ret2693;
     }
-    #line 693 "src/main.pengu"
+    #line 697 "src/main.pengu"
     (void)(psc_driver_target_apply_sema(tgt, (&(opts))));
-    #line 694 "src/main.pengu"
+    #line 698 "src/main.pengu"
     if (((int32_t)(os_override).len) > 0) {
-        #line 695 "src/main.pengu"
+        #line 699 "src/main.pengu"
         pengu_banish_string(&(opts.os_name));
-        #line 696 "src/main.pengu"
+        #line 700 "src/main.pengu"
         opts.os_name = main_copy_path(os_override);
     }
-    #line 697 "src/main.pengu"
+    #line 701 "src/main.pengu"
     if (((int32_t)(arch_override).len) > 0) {
-        #line 698 "src/main.pengu"
+        #line 702 "src/main.pengu"
         pengu_banish_string(&(opts.arch));
-        #line 699 "src/main.pengu"
+        #line 703 "src/main.pengu"
         opts.arch = main_copy_path(arch_override);
     }
-    #line 700 "src/main.pengu"
+    #line 704 "src/main.pengu"
     if (((int32_t)(compiler_override).len) > 0) {
-        #line 701 "src/main.pengu"
+        #line 705 "src/main.pengu"
         pengu_banish_string(&(opts.compiler));
-        #line 702 "src/main.pengu"
+        #line 706 "src/main.pengu"
         opts.compiler = main_copy_path(compiler_override);
     }
-    #line 703 "src/main.pengu"
+    #line 707 "src/main.pengu"
     pengu_banish_string(&(os_override));
-    #line 704 "src/main.pengu"
+    #line 708 "src/main.pengu"
     pengu_banish_string(&(arch_override));
-    #line 705 "src/main.pengu"
+    #line 709 "src/main.pengu"
     pengu_banish_string(&(compiler_override));
-    #line 706 "src/main.pengu"
+    #line 710 "src/main.pengu"
     PenguList _lst2694 = defs;
     for (int _li2695 = 0; _li2695 < _lst2694.len; _li2695++) {
         PenguString d = (*( PenguString*)pengu_list_at(&_lst2694, _li2695));
         (void)d;
-        #line 707 "src/main.pengu"
+        #line 711 "src/main.pengu"
         (void)(__extension__(({ PenguString _push_tmp = main_copy_path(d); pengu_cow_list_push(&(opts.defines), &_push_tmp); })));
     }
-    #line 708 "src/main.pengu"
+    #line 712 "src/main.pengu"
     int32_t di = 0;
     (void)di;
-    #line 709 "src/main.pengu"
+    #line 713 "src/main.pengu"
     while ((di < (defs).len)) {
-        #line 710 "src/main.pengu"
-        pengu_banish_string(&((*( PenguString*)pengu_list_at(&(defs), (int)((__extension__(({ int64_t _p_idx2696 = (int64_t)(di); pengu_assert_bounds(_p_idx2696, (int64_t)((defs).len), "src/main.pengu:710"); _p_idx2696; }))))))));
-        #line 711 "src/main.pengu"
+        #line 714 "src/main.pengu"
+        pengu_banish_string(&((*( PenguString*)pengu_list_at(&(defs), (int)((__extension__(({ int64_t _p_idx2696 = (int64_t)(di); pengu_assert_bounds(_p_idx2696, (int64_t)((defs).len), "src/main.pengu:714"); _p_idx2696; }))))))));
+        #line 715 "src/main.pengu"
         di = (di + 1);
     }
-    #line 712 "src/main.pengu"
-    pengu_banish_list(&(defs));
-    #line 713 "src/main.pengu"
-    (void)(psc_driver_target_apply_cg(tgt, (&(cgp))));
-    #line 714 "src/main.pengu"
-    cgp.os_name = opts.os_name;
-    #line 715 "src/main.pengu"
-    cgp.arch = opts.arch;
     #line 716 "src/main.pengu"
-    cgp.compiler = opts.compiler;
+    pengu_banish_list(&(defs));
     #line 717 "src/main.pengu"
-    cgp.defines = opts.defines;
+    (void)(psc_driver_target_apply_cg(tgt, (&(cgp))));
     #line 718 "src/main.pengu"
+    cgp.os_name = opts.os_name;
+    #line 719 "src/main.pengu"
+    cgp.arch = opts.arch;
+    #line 720 "src/main.pengu"
+    cgp.compiler = opts.compiler;
+    #line 721 "src/main.pengu"
+    cgp.defines = opts.defines;
+    #line 722 "src/main.pengu"
     if (((int32_t)(compiler_override).len) > 0) {
-        #line 719 "src/main.pengu"
+        #line 723 "src/main.pengu"
         cgp.target_compiler = compiler_override;
         pengu_cow_string_share(&(cgp.target_compiler));
     }
-    #line 720 "src/main.pengu"
+    #line 724 "src/main.pengu"
     SemaResult r = sema_api_check_file(path, opts);
     (void)r;
-    #line 721 "src/main.pengu"
+    #line 725 "src/main.pengu"
     if (!r.ok) {
-        #line 722 "src/main.pengu"
+        #line 726 "src/main.pengu"
         int32_t ignored = main_report_check(r, false, false, false, true);
         (void)ignored;
-        #line 723 "src/main.pengu"
+        #line 727 "src/main.pengu"
         int32_t _ret2697 = 1;
         psc_driver_target_free((&(tgt)));
         return _ret2697;
     }
-    #line 724 "src/main.pengu"
+    #line 728 "src/main.pengu"
     if ((r.program->modules).len > 0) {
-        #line 725 "src/main.pengu"
+        #line 729 "src/main.pengu"
         cgp.base_dir = r.program->options.base_dir;
     }
-    #line 726 "src/main.pengu"
+    #line 730 "src/main.pengu"
     cgp.entry_file = path;
     pengu_cow_string_share(&(cgp.entry_file));
-    #line 727 "src/main.pengu"
+    #line 731 "src/main.pengu"
     if (((int32_t)(split_dir).len) > 0) {
-        #line 728 "src/main.pengu"
+        #line 732 "src/main.pengu"
         CgUnitsResult ur = psc_codegen_api_generate_units(r.program, cgp);
         (void)ur;
-        #line 729 "src/main.pengu"
+        #line 733 "src/main.pengu"
         if (!ur.ok) {
-            #line 730 "src/main.pengu"
+            #line 734 "src/main.pengu"
             PenguString uerr = ur.error;
             (void)uerr;
-            #line 731 "src/main.pengu"
+            #line 735 "src/main.pengu"
             PenguString umsg = pengu_string_format_ex("psc emit-c: %.*s", (int)uerr.len, uerr.data);
             (void)umsg;
-            #line 732 "src/main.pengu"
-            (void)(spark_eprintln(umsg));
-            #line 733 "src/main.pengu"
-            pengu_banish_string(&(umsg));
-            #line 734 "src/main.pengu"
-            pengu_banish_string(&(uerr));
-            #line 735 "src/main.pengu"
-            (void)(psc_codegen_api_free_units((&(ur))));
             #line 736 "src/main.pengu"
-            (void)(sema_api_free_result((&(r))));
+            (void)(spark_eprintln(umsg));
             #line 737 "src/main.pengu"
+            pengu_banish_string(&(umsg));
+            #line 738 "src/main.pengu"
+            pengu_banish_string(&(uerr));
+            #line 739 "src/main.pengu"
+            (void)(psc_codegen_api_free_units((&(ur))));
+            #line 740 "src/main.pengu"
+            (void)(sema_api_free_result((&(r))));
+            #line 741 "src/main.pengu"
             int32_t _ret2698 = 1;
             psc_driver_target_free((&(tgt)));
             return _ret2698;
         }
-        #line 738 "src/main.pengu"
+        #line 742 "src/main.pengu"
         if (!archivum_create_dir(split_dir, true)) {
-            #line 739 "src/main.pengu"
+            #line 743 "src/main.pengu"
             (void)(spark_eprintln(pengu_string_from_cstr_len("psc emit-c: cannot create split directory", 41)));
-            #line 740 "src/main.pengu"
+            #line 744 "src/main.pengu"
             (void)(psc_codegen_api_free_units((&(ur))));
-            #line 741 "src/main.pengu"
+            #line 745 "src/main.pengu"
             (void)(sema_api_free_result((&(r))));
-            #line 742 "src/main.pengu"
+            #line 746 "src/main.pengu"
             int32_t _ret2699 = 2;
             psc_driver_target_free((&(tgt)));
             return _ret2699;
         }
-        #line 743 "src/main.pengu"
+        #line 747 "src/main.pengu"
         PenguString hp = pengu_string_format_ex("%.*s/bundle.h", (int)split_dir.len, split_dir.data);
         (void)hp;
-        #line 744 "src/main.pengu"
+        #line 748 "src/main.pengu"
         PenguString cp2 = pengu_string_format_ex("%.*s/core.c", (int)split_dir.len, split_dir.data);
         (void)cp2;
-        #line 745 "src/main.pengu"
+        #line 749 "src/main.pengu"
         if (!archivum_write_text(hp, ur.header)) {
-            #line 746 "src/main.pengu"
+            #line 750 "src/main.pengu"
             (void)(spark_eprintln(pengu_string_from_cstr_len("psc emit-c: cannot write bundle.h", 33)));
-            #line 747 "src/main.pengu"
+            #line 751 "src/main.pengu"
             (void)(psc_codegen_api_free_units((&(ur))));
-            #line 748 "src/main.pengu"
+            #line 752 "src/main.pengu"
             (void)(sema_api_free_result((&(r))));
-            #line 749 "src/main.pengu"
+            #line 753 "src/main.pengu"
             int32_t _ret2700 = 2;
             psc_driver_target_free((&(tgt)));
             return _ret2700;
         }
-        #line 750 "src/main.pengu"
+        #line 754 "src/main.pengu"
         if (!archivum_write_text(cp2, ur.core)) {
-            #line 751 "src/main.pengu"
+            #line 755 "src/main.pengu"
             (void)(spark_eprintln(pengu_string_from_cstr_len("psc emit-c: cannot write core.c", 31)));
-            #line 752 "src/main.pengu"
+            #line 756 "src/main.pengu"
             (void)(psc_codegen_api_free_units((&(ur))));
-            #line 753 "src/main.pengu"
+            #line 757 "src/main.pengu"
             (void)(sema_api_free_result((&(r))));
-            #line 754 "src/main.pengu"
+            #line 758 "src/main.pengu"
             int32_t _ret2701 = 2;
             psc_driver_target_free((&(tgt)));
             return _ret2701;
         }
-        #line 755 "src/main.pengu"
+        #line 759 "src/main.pengu"
         int32_t ui = 0;
         (void)ui;
-        #line 756 "src/main.pengu"
+        #line 760 "src/main.pengu"
         while ((ui < ur.units.len)) {
-            #line 757 "src/main.pengu"
-            CgUnit u = (*( CgUnit*)pengu_list_at(&(ur.units), (int)((__extension__(({ int64_t _p_idx2702 = (int64_t)(ui); pengu_assert_bounds(_p_idx2702, (int64_t)((ur.units).len), "src/main.pengu:757"); _p_idx2702; }))))));
+            #line 761 "src/main.pengu"
+            CgUnit u = (*( CgUnit*)pengu_list_at(&(ur.units), (int)((__extension__(({ int64_t _p_idx2702 = (int64_t)(ui); pengu_assert_bounds(_p_idx2702, (int64_t)((ur.units).len), "src/main.pengu:761"); _p_idx2702; }))))));
             (void)u;
-            #line 758 "src/main.pengu"
+            #line 762 "src/main.pengu"
             PenguString up = pengu_string_format_ex("%.*s/%.*s.c", (int)split_dir.len, split_dir.data, (int)u.name.len, u.name.data);
             (void)up;
-            #line 759 "src/main.pengu"
+            #line 763 "src/main.pengu"
             if (!archivum_write_text(up, u.text)) {
-                #line 760 "src/main.pengu"
+                #line 764 "src/main.pengu"
                 PenguString uw = pengu_string_format_ex("psc emit-c: cannot write %.*s.c", (int)u.name.len, u.name.data);
                 (void)uw;
-                #line 761 "src/main.pengu"
-                (void)(spark_eprintln(uw));
-                #line 762 "src/main.pengu"
-                pengu_banish_string(&(uw));
-                #line 763 "src/main.pengu"
-                (void)(psc_codegen_api_free_units((&(ur))));
-                #line 764 "src/main.pengu"
-                (void)(sema_api_free_result((&(r))));
                 #line 765 "src/main.pengu"
+                (void)(spark_eprintln(uw));
+                #line 766 "src/main.pengu"
+                pengu_banish_string(&(uw));
+                #line 767 "src/main.pengu"
+                (void)(psc_codegen_api_free_units((&(ur))));
+                #line 768 "src/main.pengu"
+                (void)(sema_api_free_result((&(r))));
+                #line 769 "src/main.pengu"
                 int32_t _ret2703 = 2;
                 psc_driver_target_free((&(tgt)));
                 return _ret2703;
             }
-            #line 766 "src/main.pengu"
+            #line 770 "src/main.pengu"
             ui = (ui + 1);
         }
-        #line 767 "src/main.pengu"
+        #line 771 "src/main.pengu"
         PenguString smsg = pengu_string_format_ex("wrote %d files to %.*s", ((int32_t)(((ur.units).len + 2))), (int)split_dir.len, split_dir.data);
         (void)smsg;
-        #line 768 "src/main.pengu"
-        (void)(spark_eprintln(smsg));
-        #line 769 "src/main.pengu"
-        pengu_banish_string(&(smsg));
-        #line 770 "src/main.pengu"
-        pengu_banish_string(&(hp));
-        #line 771 "src/main.pengu"
-        pengu_banish_string(&(cp2));
         #line 772 "src/main.pengu"
-        (void)(psc_codegen_api_free_units((&(ur))));
+        (void)(spark_eprintln(smsg));
         #line 773 "src/main.pengu"
-        (void)(sema_api_free_result((&(r))));
+        pengu_banish_string(&(smsg));
         #line 774 "src/main.pengu"
+        pengu_banish_string(&(hp));
+        #line 775 "src/main.pengu"
+        pengu_banish_string(&(cp2));
+        #line 776 "src/main.pengu"
+        (void)(psc_codegen_api_free_units((&(ur))));
+        #line 777 "src/main.pengu"
+        (void)(sema_api_free_result((&(r))));
+        #line 778 "src/main.pengu"
         int32_t _ret2704 = 0;
         psc_driver_target_free((&(tgt)));
         return _ret2704;
     }
-    #line 775 "src/main.pengu"
+    #line 779 "src/main.pengu"
     CgResult cr = psc_codegen_api_generate_c(r.program, cgp);
     (void)cr;
-    #line 776 "src/main.pengu"
+    #line 780 "src/main.pengu"
     if (!cr.ok) {
-        #line 777 "src/main.pengu"
+        #line 781 "src/main.pengu"
         PenguString cerr = cr.error;
         (void)cerr;
-        #line 778 "src/main.pengu"
+        #line 782 "src/main.pengu"
         PenguString cmsg = pengu_string_format_ex("psc emit-c: %.*s", (int)cerr.len, cerr.data);
         (void)cmsg;
-        #line 779 "src/main.pengu"
-        (void)(spark_eprintln(cmsg));
-        #line 780 "src/main.pengu"
-        pengu_banish_string(&(cmsg));
-        #line 781 "src/main.pengu"
-        pengu_banish_string(&(cerr));
-        #line 782 "src/main.pengu"
-        (void)(psc_codegen_api_free_result((&(cr))));
         #line 783 "src/main.pengu"
-        (void)(sema_api_free_result((&(r))));
+        (void)(spark_eprintln(cmsg));
         #line 784 "src/main.pengu"
+        pengu_banish_string(&(cmsg));
+        #line 785 "src/main.pengu"
+        pengu_banish_string(&(cerr));
+        #line 786 "src/main.pengu"
+        (void)(psc_codegen_api_free_result((&(cr))));
+        #line 787 "src/main.pengu"
+        (void)(sema_api_free_result((&(r))));
+        #line 788 "src/main.pengu"
         int32_t _ret2705 = 1;
         psc_driver_target_free((&(tgt)));
         return _ret2705;
     }
-    #line 785 "src/main.pengu"
+    #line 789 "src/main.pengu"
     if (to_stdout || (((int32_t)(out_path).len) == 0)) {
-        #line 786 "src/main.pengu"
+        #line 790 "src/main.pengu"
         (void)(spark_print(cr.bundle));
     } else {
-        #line 788 "src/main.pengu"
+        #line 792 "src/main.pengu"
         if (archivum_write_text(out_path, cr.bundle)) {
-            #line 789 "src/main.pengu"
+            #line 793 "src/main.pengu"
             PenguString smsg = pengu_string_format_ex("wrote %.*s (%d lines, %d bytes, %d includes)", (int)out_path.len, out_path.data, ((int32_t)(cr.stats.lines)), ((int32_t)(cr.stats.bytes)), ((int32_t)(cr.stats.includes)));
             (void)smsg;
-            #line 790 "src/main.pengu"
+            #line 794 "src/main.pengu"
             (void)(spark_eprintln(smsg));
-            #line 791 "src/main.pengu"
+            #line 795 "src/main.pengu"
             pengu_banish_string(&(smsg));
         } else {
-            #line 793 "src/main.pengu"
+            #line 797 "src/main.pengu"
             PenguString emsg = pengu_string_format_ex("psc emit-c: cannot write '%.*s'", (int)out_path.len, out_path.data);
             (void)emsg;
-            #line 794 "src/main.pengu"
-            (void)(spark_eprintln(emsg));
-            #line 795 "src/main.pengu"
-            pengu_banish_string(&(emsg));
-            #line 796 "src/main.pengu"
-            (void)(psc_codegen_api_free_result((&(cr))));
-            #line 797 "src/main.pengu"
-            (void)(sema_api_free_result((&(r))));
             #line 798 "src/main.pengu"
+            (void)(spark_eprintln(emsg));
+            #line 799 "src/main.pengu"
+            pengu_banish_string(&(emsg));
+            #line 800 "src/main.pengu"
+            (void)(psc_codegen_api_free_result((&(cr))));
+            #line 801 "src/main.pengu"
+            (void)(sema_api_free_result((&(r))));
+            #line 802 "src/main.pengu"
             int32_t _ret2706 = 2;
             psc_driver_target_free((&(tgt)));
             return _ret2706;
         }
     }
-    #line 799 "src/main.pengu"
+    #line 803 "src/main.pengu"
     (void)(psc_codegen_api_free_result((&(cr))));
-    #line 800 "src/main.pengu"
+    #line 804 "src/main.pengu"
     (void)(sema_api_free_result((&(r))));
-    #line 801 "src/main.pengu"
+    #line 805 "src/main.pengu"
     int32_t _ret2707 = 0;
     psc_driver_target_free((&(tgt)));
     return _ret2707;
     psc_driver_target_free((&(tgt)));
 }
 
-#line 807 "src/main.pengu"
+#line 811 "src/main.pengu"
 int32_t main_report_check(SemaResult result, bool json_diags, bool json_u16, bool force_color, bool no_color) {
     (void)result;
     (void)json_diags;
     (void)json_u16;
     (void)force_color;
     (void)no_color;
-    #line 808 "src/main.pengu"
+    #line 812 "src/main.pengu"
     DiagnosticBag* bag_ref = (&(result.program->diagnostics));
     (void)bag_ref;
-    #line 809 "src/main.pengu"
+    #line 813 "src/main.pengu"
     if (((bag_ref->error_count > 0) || (bag_ref->warning_count > 0)) || (bag_ref->info_count > 0)) {
-        #line 810 "src/main.pengu"
+        #line 814 "src/main.pengu"
         PenguString rendered = pengu_string_from_cstr_len("", 0);
         (void)rendered;
-        #line 811 "src/main.pengu"
+        #line 815 "src/main.pengu"
         if (json_diags && json_u16) {
-            #line 812 "src/main.pengu"
+            #line 816 "src/main.pengu"
             rendered = DiagnosticBag_render_json_utf16(bag_ref);
         } else
         if (json_diags) {
-            #line 814 "src/main.pengu"
+            #line 818 "src/main.pengu"
             rendered = DiagnosticBag_render_json(bag_ref);
         } else
         if (force_color && (!no_color)) {
-            #line 816 "src/main.pengu"
+            #line 820 "src/main.pengu"
             rendered = DiagnosticBag_render_colored(bag_ref);
         } else {
-            #line 818 "src/main.pengu"
+            #line 822 "src/main.pengu"
             rendered = DiagnosticBag_render_plain(bag_ref);
         }
-        #line 819 "src/main.pengu"
+        #line 823 "src/main.pengu"
         if (json_diags) {
-            #line 820 "src/main.pengu"
+            #line 824 "src/main.pengu"
             (void)(spark_eprintln(rendered));
         } else {
-            #line 822 "src/main.pengu"
+            #line 826 "src/main.pengu"
             (void)(spark_eprint(rendered));
         }
-        #line 823 "src/main.pengu"
+        #line 827 "src/main.pengu"
         pengu_banish_string(&(rendered));
     }
-    #line 824 "src/main.pengu"
+    #line 828 "src/main.pengu"
     bool bad = (((!result.ok)) || (bag_ref->error_count > 0));
     (void)bad;
-    #line 825 "src/main.pengu"
+    #line 829 "src/main.pengu"
     (void)(sema_api_free_result((&(result))));
-    #line 826 "src/main.pengu"
+    #line 830 "src/main.pengu"
     if (bad) {
-        #line 827 "src/main.pengu"
+        #line 831 "src/main.pengu"
         return 1;
     }
-    #line 828 "src/main.pengu"
+    #line 832 "src/main.pengu"
     return 0;
 }
 
-#line 834 "src/main.pengu"
+#line 838 "src/main.pengu"
 bool main_starts_with(PenguString s, PenguString prefix) {
     (void)s;
     (void)prefix;
-    #line 835 "src/main.pengu"
+    #line 839 "src/main.pengu"
     int32_t n = ((int32_t)(s).len);
     (void)n;
-    #line 836 "src/main.pengu"
+    #line 840 "src/main.pengu"
     int32_t m = ((int32_t)(prefix).len);
     (void)m;
-    #line 837 "src/main.pengu"
+    #line 841 "src/main.pengu"
     if (m > n) {
-        #line 838 "src/main.pengu"
+        #line 842 "src/main.pengu"
         return false;
     }
-    #line 839 "src/main.pengu"
+    #line 843 "src/main.pengu"
     const uint8_t* sb = ((const uint8_t*)((s).data));
     (void)sb;
-    #line 840 "src/main.pengu"
+    #line 844 "src/main.pengu"
     const uint8_t* pb = ((const uint8_t*)((prefix).data));
     (void)pb;
-    #line 841 "src/main.pengu"
+    #line 845 "src/main.pengu"
     int32_t i = 0;
     (void)i;
-    #line 842 "src/main.pengu"
+    #line 846 "src/main.pengu"
     while ((i < m)) {
-        #line 843 "src/main.pengu"
+        #line 847 "src/main.pengu"
         if ((((int32_t)(((sb)[i])))) != (((int32_t)(((pb)[i]))))) {
-            #line 844 "src/main.pengu"
+            #line 848 "src/main.pengu"
             return false;
         }
-        #line 845 "src/main.pengu"
+        #line 849 "src/main.pengu"
         i = (i + 1);
     }
-    #line 846 "src/main.pengu"
+    #line 850 "src/main.pengu"
     return true;
 }
 
-#line 852 "src/main.pengu"
+#line 856 "src/main.pengu"
 void main_print_parse_help(void) {
-    #line 853 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("Usage: psc parse <file> [options]", 33)));
-    #line 854 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --stdin                 read source from stdin", 48)));
-    #line 855 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --check                 only diagnostics, no AST dump", 55)));
-    #line 856 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --no-header             omit the AST dump header", 50)));
     #line 857 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --max-errors=N          stop after N errors (default 100)", 59)));
+    (void)(spark_println(pengu_string_from_cstr_len("Usage: psc parse <file> [options]", 33)));
     #line 858 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --stop-after-first      stop at the first syntax error", 56)));
+    (void)(spark_println(pengu_string_from_cstr_len("  --stdin                 read source from stdin", 48)));
     #line 859 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --diagnostics=plain|json|json-utf16", 37)));
+    (void)(spark_println(pengu_string_from_cstr_len("  --check                 only diagnostics, no AST dump", 55)));
     #line 860 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --color / --no-color", 22)));
+    (void)(spark_println(pengu_string_from_cstr_len("  --no-header             omit the AST dump header", 50)));
     #line 861 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --quiet                 suppress the banner (none by default)", 63)));
+    (void)(spark_println(pengu_string_from_cstr_len("  --max-errors=N          stop after N errors (default 100)", 59)));
     #line 862 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --stop-after-first      stop at the first syntax error", 56)));
+    #line 863 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --diagnostics=plain|json|json-utf16", 37)));
+    #line 864 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --color / --no-color", 22)));
+    #line 865 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --quiet                 suppress the banner (none by default)", 63)));
+    #line 866 "src/main.pengu"
     (void)(spark_println(pengu_string_from_cstr_len("  --help", 8)));
 }
 
-#line 868 "src/main.pengu"
+#line 872 "src/main.pengu"
 Session main_open_input(PenguString path, bool use_stdin, LexOptions opts) {
     (void)path;
     (void)use_stdin;
     (void)opts;
-    #line 869 "src/main.pengu"
+    #line 873 "src/main.pengu"
     if (use_stdin) {
-        #line 870 "src/main.pengu"
+        #line 874 "src/main.pengu"
         PenguString text = io_read_stdin_all();
         (void)text;
-        #line 871 "src/main.pengu"
-        #line 872 "src/main.pengu"
+        #line 875 "src/main.pengu"
+        #line 876 "src/main.pengu"
         Session _ret2708 = session_open_text(pengu_string_from_cstr_len("<stdin>", 7), text, opts);
         pengu_banish_string(&(text));
         return _ret2708;
         pengu_banish_string(&(text));
     }
-    #line 873 "src/main.pengu"
+    #line 877 "src/main.pengu"
     return session_open(path, opts);
 }
 
-#line 879 "src/main.pengu"
+#line 883 "src/main.pengu"
 bool main_starts_dash(PenguString s) {
     (void)s;
-    #line 880 "src/main.pengu"
+    #line 884 "src/main.pengu"
     if (((int32_t)(s).len) == 0) {
-        #line 881 "src/main.pengu"
+        #line 885 "src/main.pengu"
         return false;
     }
-    #line 882 "src/main.pengu"
+    #line 886 "src/main.pengu"
     const uint8_t* raw = ((const uint8_t*)((s).data));
     (void)raw;
-    #line 883 "src/main.pengu"
+    #line 887 "src/main.pengu"
     return ((((int32_t)(((raw)[0])))) == 45);
 }
 
-#line 889 "src/main.pengu"
+#line 893 "src/main.pengu"
 void main_print_help(void) {
-    #line 890 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("psc 0.53.5 \xe2\x80\x94 PenguScript compiler", 35)));
-    #line 891 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("", 0)));
-    #line 892 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("Usage:", 6)));
-    #line 893 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc lex <file> [options]", 26)));
     #line 894 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc lex --stdin [options]", 27)));
+    (void)(spark_println(pengu_string_from_cstr_len("psc 0.53.7 \xe2\x80\x94 PenguScript compiler", 35)));
     #line 895 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc parse <file> [options]", 28)));
+    (void)(spark_println(pengu_string_from_cstr_len("", 0)));
     #line 896 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc parse --stdin [options]", 29)));
+    (void)(spark_println(pengu_string_from_cstr_len("Usage:", 6)));
     #line 897 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc check <file> [options]", 28)));
+    (void)(spark_println(pengu_string_from_cstr_len("  psc lex <file> [options]", 26)));
     #line 898 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc emit-c <file> [options]", 29)));
+    (void)(spark_println(pengu_string_from_cstr_len("  psc lex --stdin [options]", 27)));
     #line 899 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc build [TARGET] [options]", 30)));
+    (void)(spark_println(pengu_string_from_cstr_len("  psc parse <file> [options]", 28)));
     #line 900 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc run [TARGET] [-- args]", 28)));
+    (void)(spark_println(pengu_string_from_cstr_len("  psc parse --stdin [options]", 29)));
     #line 901 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc expand [TARGET] [options]", 31)));
+    (void)(spark_println(pengu_string_from_cstr_len("  psc check <file> [options]", 28)));
     #line 902 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc init <name> [options]", 27)));
+    (void)(spark_println(pengu_string_from_cstr_len("  psc emit-c <file> [options]", 29)));
     #line 903 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc new <template> <name> [options]", 37)));
+    (void)(spark_println(pengu_string_from_cstr_len("  psc build [TARGET] [options]", 30)));
     #line 904 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc clean [TARGET] [--dry-run]", 32)));
+    (void)(spark_println(pengu_string_from_cstr_len("  psc run [TARGET] [-- args]", 28)));
     #line 905 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc doctor [--json]", 21)));
+    (void)(spark_println(pengu_string_from_cstr_len("  psc expand [TARGET] [options]", 31)));
     #line 906 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc metadata [--json]", 23)));
+    (void)(spark_println(pengu_string_from_cstr_len("  psc init <name> [options]", 27)));
     #line 907 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc test [TARGET] [options]", 29)));
+    (void)(spark_println(pengu_string_from_cstr_len("  psc new <template> <name> [options]", 37)));
     #line 908 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc eval EXPRESSION", 21)));
+    (void)(spark_println(pengu_string_from_cstr_len("  psc clean [TARGET] [--dry-run]", 32)));
     #line 909 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc time SCRIPT", 17)));
+    (void)(spark_println(pengu_string_from_cstr_len("  psc doctor [--json]", 21)));
     #line 910 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc watch SCRIPT", 18)));
+    (void)(spark_println(pengu_string_from_cstr_len("  psc metadata [--json]", 23)));
     #line 911 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc gc [--all]", 16)));
+    (void)(spark_println(pengu_string_from_cstr_len("  psc test [TARGET] [options]", 29)));
     #line 912 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc fmt [PATHS] [options]", 27)));
+    (void)(spark_println(pengu_string_from_cstr_len("  psc eval EXPRESSION", 21)));
     #line 913 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc doc [--output=DIR]", 24)));
+    (void)(spark_println(pengu_string_from_cstr_len("  psc time SCRIPT", 17)));
     #line 914 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc assets [--list]", 21)));
+    (void)(spark_println(pengu_string_from_cstr_len("  psc watch SCRIPT", 18)));
     #line 915 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc benchmark [options]", 25)));
+    (void)(spark_println(pengu_string_from_cstr_len("  psc gc [--all]", 16)));
     #line 916 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc selftest [args]", 21)));
+    (void)(spark_println(pengu_string_from_cstr_len("  psc fmt [PATHS] [options]", 27)));
     #line 917 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc tree [--json]", 19)));
+    (void)(spark_println(pengu_string_from_cstr_len("  psc doc [--output=DIR]", 24)));
     #line 918 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc add", 9)));
+    (void)(spark_println(pengu_string_from_cstr_len("  psc assets [--list]", 21)));
     #line 919 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc remove", 12)));
+    (void)(spark_println(pengu_string_from_cstr_len("  psc benchmark [options]", 25)));
     #line 920 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc upgrade", 13)));
+    (void)(spark_println(pengu_string_from_cstr_len("  psc selftest [args]", 21)));
     #line 921 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc verify", 12)));
+    (void)(spark_println(pengu_string_from_cstr_len("  psc tree [--json]", 19)));
     #line 922 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc vendor", 12)));
+    (void)(spark_println(pengu_string_from_cstr_len("  psc add", 9)));
     #line 923 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc update", 12)));
+    (void)(spark_println(pengu_string_from_cstr_len("  psc remove", 12)));
     #line 924 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc lsp", 9)));
+    (void)(spark_println(pengu_string_from_cstr_len("  psc upgrade", 13)));
     #line 925 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  psc bind", 10)));
+    (void)(spark_println(pengu_string_from_cstr_len("  psc verify", 12)));
     #line 926 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  psc vendor", 12)));
+    #line 927 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  psc update", 12)));
+    #line 928 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  psc lsp", 9)));
+    #line 929 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  psc bind", 10)));
+    #line 930 "src/main.pengu"
     (void)(spark_println(pengu_string_from_cstr_len("  psc version", 13)));
 }
 
-#line 936 "src/main.pengu"
+#line 940 "src/main.pengu"
 void main_print_check_help(void) {
-    #line 937 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("Usage: psc check <file> [options]", 33)));
-    #line 938 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --stdin                 read source from stdin", 48)));
-    #line 939 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --target=TRIPLE|wasm    host or wasm32-unknown-emscripten", 59)));
-    #line 940 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  -D NAME[=VALUE]         define for `when`", 43)));
     #line 941 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --diagnostics=plain|json|json-utf16", 37)));
+    (void)(spark_println(pengu_string_from_cstr_len("Usage: psc check <file> [options]", 33)));
     #line 942 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --color / --no-color", 22)));
-    #line 943 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --max-errors=N          stop after N errors (default 100)", 59)));
-    #line 944 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --stop-after-first      stop at the first semantic error", 58)));
-    #line 945 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --base-dir=DIR          project root (default '.')", 52)));
-    #line 946 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --src-dir=DIR           source directory (default 'src')", 58)));
-    #line 947 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --lib-dir=DIR           bindings directory (default 'lib')", 60)));
-    #line 948 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --deny-deprecated       treat W0006 as a failure", 50)));
-    #line 949 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --help", 8)));
-}
-
-#line 955 "src/main.pengu"
-void main_print_emit_c_help(void) {
-    #line 956 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("Usage: psc emit-c <file> [options]", 34)));
-    #line 957 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --out=FILE              write bundle.c to FILE", 48)));
-    #line 958 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --stdout                write the bundle to stdout (default)", 62)));
-    #line 959 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --test                  emit the integrated test runner", 57)));
-    #line 960 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --library               emit no main wrapper", 46)));
-    #line 961 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --no-dce                disable dead-code elimination", 55)));
-    #line 962 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --prune-types           prune unused types/consts", 51)));
-    #line 963 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --dce-scope=user        also prune project weaves", 51)));
-    #line 964 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --prune-native          prune unused includes/links", 53)));
-    #line 965 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --no-line-markers       omit #line directives", 47)));
-    #line 966 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --strict-c99            portable C99 (no GNU extensions)", 58)));
-    #line 967 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --target-compiler=NAME  gcc|clang|tcc|msvc", 44)));
-    #line 968 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --target=TRIPLE|wasm    host or wasm32-unknown-emscripten", 59)));
-    #line 969 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  -D NAME[=VALUE]         define for `when`", 43)));
-    #line 970 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --target-os=OS          linux|macos|windows|emscripten (default: host)", 72)));
-    #line 971 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --target-arch=ARCH      x64|arm64|x86|arm|wasm32 (default: host)", 66)));
-    #line 972 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --release-unsafe        disable bounds/overflow checks", 56)));
-    #line 973 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --debug                 debug profile", 39)));
-    #line 974 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --help", 8)));
-}
-
-#line 980 "src/main.pengu"
-void main_print_lex_help(void) {
-    #line 981 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("Usage: psc lex <file> [options]", 31)));
-    #line 982 "src/main.pengu"
     (void)(spark_println(pengu_string_from_cstr_len("  --stdin                 read source from stdin", 48)));
-    #line 983 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --check                 only diagnostics, no token dump", 57)));
-    #line 984 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --comments              include comment trivia in the dump", 60)));
-    #line 985 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --no-indent             omit INDENT/DEDENT tokens", 51)));
-    #line 986 "src/main.pengu"
+    #line 943 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --target=TRIPLE|wasm    host or wasm32-unknown-emscripten", 59)));
+    #line 944 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  -D NAME[=VALUE]         define for `when`", 43)));
+    #line 945 "src/main.pengu"
     (void)(spark_println(pengu_string_from_cstr_len("  --diagnostics=plain|json|json-utf16", 37)));
-    #line 987 "src/main.pengu"
+    #line 946 "src/main.pengu"
     (void)(spark_println(pengu_string_from_cstr_len("  --color / --no-color", 22)));
+    #line 947 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --max-errors=N          stop after N errors (default 100)", 59)));
+    #line 948 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --stop-after-first      stop at the first semantic error", 58)));
+    #line 949 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --base-dir=DIR          project root (default '.')", 52)));
+    #line 950 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --src-dir=DIR           source directory (default 'src')", 58)));
+    #line 951 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --lib-dir=DIR           bindings directory (default 'lib')", 60)));
+    #line 952 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --deny-deprecated       treat W0006 as a failure", 50)));
+    #line 953 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --help", 8)));
+}
+
+#line 959 "src/main.pengu"
+void main_print_emit_c_help(void) {
+    #line 960 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("Usage: psc emit-c <file> [options]", 34)));
+    #line 961 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --out=FILE              write bundle.c to FILE", 48)));
+    #line 962 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --stdout                write the bundle to stdout (default)", 62)));
+    #line 963 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --test                  emit the integrated test runner", 57)));
+    #line 964 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --library               emit no main wrapper", 46)));
+    #line 965 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --no-dce                disable dead-code elimination", 55)));
+    #line 966 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --prune-types           prune unused types/consts", 51)));
+    #line 967 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --dce-scope=user        also prune project weaves", 51)));
+    #line 968 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --prune-native          prune unused includes/links", 53)));
+    #line 969 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --no-line-markers       omit #line directives", 47)));
+    #line 970 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --strict-c99            portable C99 (no GNU extensions)", 58)));
+    #line 971 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --target-compiler=NAME  gcc|clang|tcc|msvc", 44)));
+    #line 972 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --target=TRIPLE|wasm    host or wasm32-unknown-emscripten", 59)));
+    #line 973 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  -D NAME[=VALUE]         define for `when`", 43)));
+    #line 974 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --target-os=OS          linux|macos|windows|emscripten (default: host)", 72)));
+    #line 975 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --target-arch=ARCH      x64|arm64|x86|arm|wasm32 (default: host)", 66)));
+    #line 976 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --release-unsafe        disable bounds/overflow checks", 56)));
+    #line 977 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --debug                 debug profile", 39)));
+    #line 978 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --help", 8)));
+}
+
+#line 984 "src/main.pengu"
+void main_print_lex_help(void) {
+    #line 985 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("Usage: psc lex <file> [options]", 31)));
+    #line 986 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --stdin                 read source from stdin", 48)));
+    #line 987 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --check                 only diagnostics, no token dump", 57)));
     #line 988 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr_len("  --quiet                 suppress the banner (none by default)", 63)));
+    (void)(spark_println(pengu_string_from_cstr_len("  --comments              include comment trivia in the dump", 60)));
     #line 989 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --no-indent             omit INDENT/DEDENT tokens", 51)));
+    #line 990 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --diagnostics=plain|json|json-utf16", 37)));
+    #line 991 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --color / --no-color", 22)));
+    #line 992 "src/main.pengu"
+    (void)(spark_println(pengu_string_from_cstr_len("  --quiet                 suppress the banner (none by default)", 63)));
+    #line 993 "src/main.pengu"
     (void)(spark_println(pengu_string_from_cstr_len("  --help", 8)));
 }
 
