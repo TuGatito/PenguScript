@@ -64,7 +64,7 @@ rune SpawnJob:
 
 ## A reactor with its own epoll/poll set and worker pool.
 rune EventLoop:
-    _handle as opaque
+    @public _handle as opaque
     tasks as list of Task
     timers as list of Timer
     jobs as list of Job

@@ -2,6 +2,17 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.53.9] — 2026-11-08 — Los campos con `_` también son privados
+
+### Añadido
+
+- Un campo cuyo nombre empieza por `_` solo se puede leer o inicializar desde el
+  módulo que lo declara (`E0043`). `@public` en la declaración del campo lo abre
+  a otros módulos; `std` lo usa en los handles compartidos (`filum._ptr`,
+  `coro._ptr`, `dynlib._handle`, `reactor._handle`, `ordinal._handle`).
+- Los campos promovidos por `fundere` heredan la privacidad del embed que los
+  declara.
+
 ## [0.53.8] — 2026-11-08 — Los nombres con `_` son privados de su módulo
 
 ### Añadido

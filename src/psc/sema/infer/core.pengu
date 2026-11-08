@@ -2119,6 +2119,7 @@ weave infer_field with s as ref to state.SemaState, node as int into int:
     if bnid >= 0:
         var pt as int is calling promoted_field_type with s, bt, bnid, node
         if pt > 0:
+            calling report_private_field with s, node, bt, bnid
             return pt
         if pt < 0:
             # E0087 ya emitido.
@@ -2174,6 +2175,7 @@ weave infer_arrow with s as ref to state.SemaState, node as int into int:
     if nid2 >= 0:
         var pt2 as int is calling promoted_field_type with s, target, nid2, node
         if pt2 > 0:
+            calling report_private_field with s, node, target, nid2
             return pt2
         if pt2 < 0:
             return 0
@@ -2189,6 +2191,27 @@ weave infer_arrow with s as ref to state.SemaState, node as int into int:
 ##
 ## ## Memoria
 ## Asigna un `StringBuilder` y los textos consultados.
+## Emite `E0043` si `nid` es un campo privado de otro modulo; `true` si lo hizo.
+##
+## ## Memoria
+## Puede anadir un diagnostico.
+weave report_private_field with s as ref to state.SemaState, node as int, ty as int, nid as int into bool:
+    if nid < 0:
+        return false
+    if not (calling name_is_private with s, nid):
+        return false
+    if calling embeds.field_is_public with s->types, ty, nid:
+        return false
+    var mod as int is calling embeds.field_module with s->types, ty, nid
+    if mod < 0 or mod == s->module->id:
+        return false
+    var txt as string is calling npool.text with s->names, nid
+    defer banish txt
+    var msg as string is "'{txt}' is private to its module"
+    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_PRIVATE, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), msg, "A leading '_' marks a field module-private; use the public field, or export it with '@public'.", ""
+    banish msg
+    return true
+
 ## `true` si el nombre empieza por `_` (y no es solo `_`): es privado del módulo.
 ##
 ## ## Memoria
@@ -2691,6 +2714,7 @@ weave infer_field_inits with s as ref to state.SemaState, node as int, ty as int
                     # que un campo que "falta" suele ser el síntoma de eso.
                     calling sdiag.node_error with s->bag, s->src, sdiag.CODE_UNDEFINED, (calling astutil.start_of with s->ast, fi), (calling astutil.end_of with s->ast, fi), "rune '{rune_name}' has no field '{txt}'", "Check the field name. Nested `with` initializers must be parenthesized: `field is (with ...)`.", ""
                 if check_fields and found:
+                    var ign2 as bool is calling report_private_field with s, fi, ty, vnid
                     if (calling seen.has with vnid):
                         calling sdiag.node_error with s->bag, s->src, sdiag.CODE_UNDEFINED, (calling astutil.start_of with s->ast, fi), (calling astutil.end_of with s->ast, fi), "field '{txt}' is initialized twice in this `with`", "Remove one of the two initializers.", ""
                     else:

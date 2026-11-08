@@ -992,7 +992,10 @@ weave collect_record with s as ref to state.SemaState, node as int, sk as sym.Se
                 var fc0 as int is calling astutil.node_child with s->ast, c, 0
                 if fc0 >= 0 and (calling astutil.kind_of with s->ast, fc0) == pskind.NodeKind.NdAttributes:
                     set fattrs is fc0
-                var fld as types.SemaField is with name is fname, type is ftype, flags is 0, attrs_node is fattrs, align_override is (calling field_align_override with s, c), decl_node is c
+                var fflags as int is 0
+                if calling attrs_named with s, fattrs, "public":
+                    set fflags is types.FIELD_PUBLIC
+                var fld as types.SemaField is with name is fname, type is ftype, flags is fflags, attrs_node is fattrs, align_override is (calling field_align_override with s, c), decl_node is c
                 calling pending_fields.push with fld
         set i is i + 1
     # El nombre del embed es el del campo contenedor: si choca con un campo
@@ -1099,6 +1102,25 @@ weave lint_embed_shadows with s as ref to state.SemaState, info_idx as int into 
 ##
 ## ## Memoria
 ## O(n).
+## `true` si el nodo de atributos contiene uno con ese nombre.
+##
+## ## Memoria
+## Consulta el pool; no asigna.
+weave attrs_named with s as ref to state.SemaState, attrs as int, want as string into bool:
+    if attrs < 0:
+        return false
+    var i as int is 0
+    while i < (calling astutil.child_count with s->ast, attrs):
+        var a as int is calling astutil.node_child with s->ast, attrs, i
+        if a >= 0:
+            var nm as string is calling astutil.first_token_text with s->src, s->lex, s->ast, a
+            var hit as bool is nm == want
+            banish nm
+            if hit:
+                return true
+        set i is i + 1
+    return false
+
 weave first_token_slot_after_attrs with s as ref to state.SemaState, node as int into int:
     var i as int is 0
     var n as int is calling astutil.child_count with s->ast, node

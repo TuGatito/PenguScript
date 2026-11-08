@@ -69,4 +69,33 @@ PENGU5
 "$PSC" check "$tmp/proj" >/dev/null 2>"$tmp/pub.err" \
   || { echo "FAIL: a.Box2 (publico) no debe fallar"; cat "$tmp/pub.err"; exit 1; }
 
+# Campos: `_` es privado; `@public` lo abre.
+cat >"$tmp/proj/src/a.pengu" <<'PENGU6'
+rune Box2:
+    n as int
+    @public _tag as int
+    _hidden as int
+PENGU6
+cat >"$tmp/proj/src/main.pengu" <<'PENGU7'
+import a
+
+weave main into int:
+    var b as a.Box2 is with n is 1
+    return b.n + b._tag
+PENGU7
+"$PSC" check "$tmp/proj" >/dev/null 2>"$tmp/pubf.err" \
+  || { echo "FAIL: un campo @public debe leerse"; cat "$tmp/pubf.err"; exit 1; }
+
+cat >"$tmp/proj/src/main.pengu" <<'PENGU8'
+import a
+
+weave main into int:
+    var b as a.Box2 is with n is 1
+    return b._hidden
+PENGU8
+"$PSC" check "$tmp/proj" >/dev/null 2>"$tmp/prif.err" \
+  && { echo "FAIL: un campo privado debe fallar"; exit 1; }
+grep -q "E0043" "$tmp/prif.err" \
+  || { echo "FAIL: falta E0043 para un campo privado"; cat "$tmp/prif.err"; exit 1; }
+
 echo "OK privacy"

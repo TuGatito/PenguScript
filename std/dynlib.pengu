@@ -14,7 +14,7 @@ when os != "windows":
     link "dl"
 
 rune Library:
-    _handle as opaque
+    @public _handle as opaque
 
 declare ccx_dyn_open with path as ref to frozen char into opaque
 declare ccx_dyn_symbol with handle as opaque, name as ref to frozen char into ref to void

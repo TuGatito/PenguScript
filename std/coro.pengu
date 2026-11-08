@@ -23,7 +23,7 @@ omen CoroutineState:
 
 ## Handle to a coroutine. The runtime owns the slot; do not copy it.
 rune Coroutine:
-    _ptr as opaque
+    @public _ptr as opaque
 
 ## Box used by `start` to carry the worker and its argument.
 rune CoroBox shard A:

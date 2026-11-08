@@ -68,16 +68,16 @@ weave cc_type_kind shard T into int:
 # --- Types ----------------------------------------------------------------
 
 rune LinkedList shard T:
-    _handle as ref to void
+    @public _handle as ref to void
 
 rune UnorderedSet shard T:
-    _handle as ref to void
+    @public _handle as ref to void
 
 rune OrderedSet shard T:
-    _handle as ref to void
+    @public _handle as ref to void
 
 rune OrderedMap shard K and V:
-    _handle as ref to void
+    @public _handle as ref to void
 
 weave new_linked_list shard T into LinkedList of T:
     return with _handle is calling ccx_ll_new with ((size of T) to int), 0

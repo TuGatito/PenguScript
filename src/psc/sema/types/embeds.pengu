@@ -171,6 +171,65 @@ weave field_type_at with t as ref to table.SemaTypeTable, ty as int, nid as int 
         return 0
     return calling field_type_via with t, ty, nid, (sigil of path)
 
+## Modulo del nominal que declara el campo `nid` visto desde `ty`, siguiendo la
+## promocion de `fundere`; `-1` si no se encuentra.
+##
+## ## Memoria
+## Asigna una ruta temporal.
+weave field_module with t as ref to table.SemaTypeTable, ty as int, nid as int into int:
+    var path as list of int is list of int
+    defer banish path
+    var r as int is calling route_into with t, ty, nid, (sigil of path), 0
+    if r != ROUTE_FOUND:
+        return -1
+    var cur as int is ty
+    var i as int is 0
+    while i < path->len:
+        var step as int is (path at i)
+        var nxt as int is calling own_field_type with t, cur, step
+        if nxt <= 0:
+            return -1
+        set cur is nxt
+        set i is i + 1
+    var base as int is calling unwrap with t, cur
+    var bt as tk.SemaType is (t->types at base)
+    if bt.kind != tk.SemaTypeKind.TkRune and bt.kind != tk.SemaTypeKind.TkEcho and bt.kind != tk.SemaTypeKind.TkOmen:
+        return -1
+    var info as table.SemaNominalInfo is (t->nominal_infos at bt.a)
+    return info.module
+
+## `true` si el campo `nid` (propio o promovido) lleva `@public`.
+##
+## ## Memoria
+## Asigna una ruta temporal.
+weave field_is_public with t as ref to table.SemaTypeTable, ty as int, nid as int into bool:
+    var path as list of int is list of int
+    defer banish path
+    var r as int is calling route_into with t, ty, nid, (sigil of path), 0
+    if r != ROUTE_FOUND:
+        return false
+    var cur as int is ty
+    var i as int is 0
+    while i < path->len:
+        var step as int is (path at i)
+        var nxt as int is calling own_field_type with t, cur, step
+        if nxt <= 0:
+            return false
+        set cur is nxt
+        set i is i + 1
+    var base as int is calling unwrap with t, cur
+    var bt as tk.SemaType is (t->types at base)
+    if bt.kind != tk.SemaTypeKind.TkRune and bt.kind != tk.SemaTypeKind.TkEcho and bt.kind != tk.SemaTypeKind.TkOmen:
+        return false
+    var info as table.SemaNominalInfo is (t->nominal_infos at bt.a)
+    var fi as int is 0
+    while fi < info.fields_count:
+        var f as table.SemaField is (t->fields at (info.fields_first + fi))
+        if f.name == nid:
+            return (f.flags & table.FIELD_PUBLIC) != 0
+        set fi is fi + 1
+    return false
+
 ## `true` si el rune tiene al menos un embed.
 ##
 ## ## Memoria

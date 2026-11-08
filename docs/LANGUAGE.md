@@ -1,7 +1,7 @@
 # PenguScript Language Reference
 
 PenguScript is a small, statically typed language that compiles to C. This
-reference documents the language as implemented by `psc` 0.53.8: every
+reference documents the language as implemented by `psc` 0.53.9: every
 construct, its semantics, and the C it lowers to.
 
 It is the *language* document of the documentation set:
@@ -146,7 +146,7 @@ own section (generics, memory, interop).
 * The keyword lists, type mappings and diagnostic codes are exhaustive; the
   prose is not — [PENGUNIC.md](PENGUNIC.md) covers *how to use* the language and
   [STDLIB.md](STDLIB.md) covers the standard library.
-* Version: `psc` 0.53.8. The ABI version the generated C expects is 3.
+* Version: `psc` 0.53.9. The ABI version the generated C expects is 3.
 
 ## 1. Lexical structure
 
@@ -1099,9 +1099,9 @@ import utils                      # src/utils.pengu
 Importing a module does not run code. There are no wildcard imports and no
 `from ... import ...`.
 
-A leading `_` is what makes a top-level name private: runes, aliases, constants,
-functions and methods that start with `_` are only reachable from their own
-module. Reaching one through an import (`a._secret`, `a._Hidden`, `a._helper()`)
+A leading `_` is what makes a name private: runes, aliases, constants,
+functions, methods and fields that start with `_` are only reachable from their
+own module (fields opt out with `@public`). Reaching one through an import (`a._secret`, `a._Hidden`, `a._helper()`)
 is `E0043`, and the diagnostic names the symbol. Fields follow the same rule in
 their own module (§9.9 fields promoted by `fundere` keep the visibility of the
 embed that declares them).
@@ -2422,6 +2422,7 @@ Attributes are written on the line above the declaration they modify.
 | `@packed` | `rune` | remove struct padding | `__attribute__((packed))` |
 | `@align(N)` | `rune` | set alignment | `__attribute__((aligned(N)))` |
 | `@mutates` | method in `enchanting` | assign the result back to the receiver | one C function, two call forms |
+| `@public` | field | let another module read a `_`-prefixed field (`E0043` otherwise) | no code change; compile-time flag |
 | `@shared` | `rune`, `omen` | allow `ref to T` to cross a `filum.start` boundary | no code change; compile-time flag |
 | `@spawn` | `weave` | marks the function that starts a thread; validates worker and ownership at each call | no code change; compiler contract |
 | `@coroutine` | `weave` | marks the function that starts a coroutine; validates worker and ownership | no code change; compiler contract |

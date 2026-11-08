@@ -52,7 +52,7 @@ en una fase del plan, o se elimina de la documentación.
 | `E0039` | `CODE_C_NAME_FIELD` | 1 | emitido | sí |
 | `E0041` | `CODE_ARRAY_SIZE` | 0 | **sin emisor** | sí |
 | `E0042` | `CODE_RANGE` | 0 | **sin emisor** | sí |
-| `E0043` | `CODE_PRIVATE` | 3 | emitido | sí |
+| `E0043` | `CODE_PRIVATE` | 4 | emitido | sí |
 | `E0044` | `CODE_JUDGE_EXHAUSTIVE` | 1 | emitido | sí |
 | `E0047` | `CODE_PRIMITIVE_METHOD` | 1 | emitido | sí |
 | `E0049` | `CODE_CONCEPT_OPERATOR` | 2 | emitido | sí |
