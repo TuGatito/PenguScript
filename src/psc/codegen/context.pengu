@@ -61,6 +61,10 @@ rune CgContext:
     errdefers as list of int
     ## `NameId` de los parámetros de la función en curso.
     param_names as list of int
+    ## `NameId` de los locales que son vistas prestadas de otro dueño
+    ## (elementos de `for`, payloads de `judge`): no se promocionan ni se
+    ## liberan aquí.
+    borrowed_names as list of int
     ## Destructores automáticos pendientes (`derive Drop`): nombre C (`NameId`).
     drop_names as list of int
     ## `TypeId` de cada destructor automático (paralelo a `drop_names`).
@@ -117,7 +121,7 @@ weave block_value_unset with c as ref to CgContext, node as int, expected as int
 weave new_context with p as ref to program.SemaProgram, o as opts.CgOptions into CgContext:
     var ns as names.CgNames is calling names.new_names with (sigil of p->names), (sigil of p->types)
     var cat as catalog.CgCatalog is calling catalog.catalog_collect with p, o
-    return with block_value is block_value_unset, program is p, options is o, names is ns, catalog is cat, emitter is calling emit.new_emitter, locals is list of CgLocal, defers is list of int, errdefers is list of int, param_names is list of int, drop_names is list of int, drop_types is list of int, drop_marks is list of int, scope_marks is list of int, err_marks is list of int, scope_loops is list of bool, with_targets is list of string, with_types is list of int, loop_names is list of string, unsafe_depth is 0, return_type is -1, current_module is -1, current_fn is "", self_type is -1, self_value is false, lambdas is list of CgLambda, errors is 0, tmp_seq is 0
+    return with block_value is block_value_unset, program is p, options is o, names is ns, catalog is cat, emitter is calling emit.new_emitter, locals is list of CgLocal, defers is list of int, errdefers is list of int, param_names is list of int, borrowed_names is list of int, drop_names is list of int, drop_types is list of int, drop_marks is list of int, scope_marks is list of int, err_marks is list of int, scope_loops is list of bool, with_targets is list of string, with_types is list of int, loop_names is list of string, unsafe_depth is 0, return_type is -1, current_module is -1, current_fn is "", self_type is -1, self_value is false, lambdas is list of CgLambda, errors is 0, tmp_seq is 0
 
 ## Libera el contexto.
 ##
@@ -132,6 +136,7 @@ weave context_free with c as ref to CgContext into void:
     banish c->defers
     banish c->errdefers
     banish c->param_names
+    banish c->borrowed_names
     banish c->drop_names
     banish c->drop_types
     banish c->drop_marks
@@ -304,6 +309,29 @@ weave clear_scopes with c as ref to CgContext into void:
 ## O(1) amortizado.
 weave add_param with c as ref to CgContext, name as int into void:
     calling c->param_names.push with name
+
+## Marca un local como vista prestada de otro dueño.
+##
+## Los elementos de `for` y los payloads de `judge` se copian del contenedor
+## con `memcpy`: el handle apunta a un buffer que liberará su dueño. Promover
+## o banishar ese local liberaría memoria ajena.
+##
+## ## Memoria
+## O(1) amortizado.
+weave mark_borrowed with c as ref to CgContext, name as int into void:
+    calling c->borrowed_names.push with name
+
+## ¿El `NameId` es una vista prestada?
+##
+## ## Memoria
+## O(n) sobre los préstamos del cuerpo.
+weave is_borrowed_name with c as ref to CgContext, name as int into bool:
+    var i as int is 0
+    while i < c->borrowed_names.len:
+        if (c->borrowed_names at i) == name:
+            return true
+        set i is i + 1
+    return false
 
 ## ¿El `NameId` es un parámetro de la función en curso?
 ##

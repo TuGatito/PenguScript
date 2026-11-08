@@ -1,0 +1,44 @@
+# Copiar `string` owned (SDS) y banisher las dos copias no debe filtrar ni
+# liberar dos veces: el binding copiado recibe su propio buffer
+# (`pengu_string_share_value`, ASan/LSan).
+#
+# Sin `set` sobre el string a proposito: reasignar un owned es el bug D, que
+# se arregla en su propia fase. Un campo leido presta su vista: no se banisha.
+
+rune Holder:
+    name as string
+
+weave make_name into string:
+    return "cam" + "po"
+
+weave by_copy into int:
+    var a as string is "hola" + " mundo"
+    var b as string is a
+    banish a
+    banish b
+    return 0
+
+weave by_field into int:
+    var h as Holder is with name is ("cam" + "po")
+    var c as string is h.name
+    if c != "campo":
+        banish h.name
+        return 3
+    banish h.name
+    return 0
+
+weave by_return into int:
+    var d as string is calling make_name
+    var e as string is d
+    banish d
+    banish e
+    return 0
+
+weave main into int:
+    if (calling by_copy) != 0:
+        return 1
+    if (calling by_field) != 0:
+        return 2
+    if (calling by_return) != 0:
+        return 3
+    return 0

@@ -223,6 +223,10 @@ weave note_move_source with c as ref to context.CgContext, node as int, ast as r
 ## Si el binding es un `NdVarRef` de tipo lista/mapa, emite la promoción en
 ## sitio (`pengu_cow_*_promote`): el origen pasa a tener cabecera COW con
 ## `rc = 1` y la copia siguiente solo incrementa el contador (O(1)).
+## Un parámetro o una vista prestada (elemento de `for`, payload de `judge`)
+## no es dueño del búfer: no se adopta. Los strings nunca se promocionan: un
+## binding legacy puede estar compartido sin contador con un campo o un
+## elemento de lista, así que el `share` copia.
 weave emit_cow_promote_source with c as ref to context.CgContext, kind as int, node as int, ast as ref to psast.PsAst into void:
     if kind < 2 or kind > 3 or node < 0:
         return
@@ -245,11 +249,13 @@ weave emit_cow_promote_source with c as ref to context.CgContext, kind as int, n
     var nid as int is calling npool.intern with (sigil of c->program->names), txt
     var cc as int is calling context.local_c_name with c, nid
     if cc >= 0 and not (calling context.is_param_name with c, nid):
+        if calling context.is_borrowed_name with c, nid:
+            return
         var nm as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), cc)
         defer banish nm
         if kind == 2:
             calling emit.line with (sigil of c->emitter), "pengu_cow_list_promote(&({nm}));"
-        else:
+        if kind == 3:
             calling emit.line with (sigil of c->emitter), "pengu_cow_map_promote(&({nm}));"
 
 ## Emite la copia profunda de un valor de `src` a `dst`.

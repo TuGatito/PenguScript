@@ -1,7 +1,7 @@
 # PenguScript Language Reference
 
 PenguScript is a small, statically typed language that compiles to C. This
-reference documents the language as implemented by `psc` 0.53.0: every
+reference documents the language as implemented by `psc` 0.53.1: every
 construct, its semantics, and the C it lowers to.
 
 It is the *language* document of the documentation set:
@@ -146,7 +146,7 @@ own section (generics, memory, interop).
 * The keyword lists, type mappings and diagnostic codes are exhaustive; the
   prose is not — [PENGUNIC.md](PENGUNIC.md) covers *how to use* the language and
   [STDLIB.md](STDLIB.md) covers the standard library.
-* Version: `psc` 0.53.0. The ABI version the generated C expects is 3.
+* Version: `psc` 0.53.1. The ABI version the generated C expects is 3.
 
 ## 1. Lexical structure
 
@@ -2129,6 +2129,14 @@ Banishing a string or container resets it to empty. A borrowed string
 (`is_owned == 0`) is a safe no-op. Banishing a `list of string` frees the list's
 own buffer but **not** the strings inside it: release each string, or use
 `pengu_banish_string_list`.
+
+Copying a `string` **owned** (an SDS) with a declaration such as
+`var b as string is a` gives `b` its own buffer
+(`pengu_string_share_value`): banishing both is safe. Reading a `string`
+field, `xs at i`, or a call result gives a *view* of that storage, so only the
+owner must be banished. Reassigning an owned `string` still leaks its previous
+buffer until §13.4 lands the generic swap, so prefer `banish` + reassignment
+over a plain `set`.
 
 Rejected targets (`E0008`): literals, temporaries (assign to a variable first),
 `seal` newtypes (convert explicitly), `frozen` values, and constants.

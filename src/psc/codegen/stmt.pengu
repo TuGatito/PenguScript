@@ -724,8 +724,10 @@ weave emit_for_in with c as ref to context.CgContext, node as int, ast as ref to
             calling emit.line with (sigil of c->emitter), "(void){cn2};"
             if ntxt != "_":
                 calling context.add_local with c, nid, lty.a, nid
+                calling context.mark_borrowed with c, nid
             if ntxt2 != "_":
                 calling context.add_local with c, nid2, lty.b, nid2
+                calling context.mark_borrowed with c, nid2
         else:
             calling emit.line with (sigil of c->emitter), "for (; pengu_map_iter_valid(&{itmp}); pengu_map_iter_advance(&{itmp})) {"
             calling emit.indent_more with (sigil of c->emitter)
@@ -733,6 +735,7 @@ weave emit_for_in with c as ref to context.CgContext, node as int, ast as ref to
             calling emit.line with (sigil of c->emitter), "(void){cn};"
             if ntxt != "_":
                 calling context.add_local with c, nid, lty.a, nid
+                calling context.mark_borrowed with c, nid
         calling emit_loop_block with c, body
         calling emit_continue_label with c, mlbl
         calling emit.indent_less with (sigil of c->emitter)
@@ -821,9 +824,11 @@ weave emit_for_in with c as ref to context.CgContext, node as int, ast as ref to
                     calling context.add_local with c, nid, 1, nid
                 if ntxt2 != "_":
                     calling context.add_local with c, nid2, lty.a, nid2
+                    calling context.mark_borrowed with c, nid2
             else:
                 if ntxt != "_":
                     calling context.add_local with c, nid, lty.a, nid
+                    calling context.mark_borrowed with c, nid
         calling emit_loop_block with c, body
         calling emit_continue_label with c, albl
         calling emit.indent_less with (sigil of c->emitter)
@@ -856,6 +861,7 @@ weave emit_for_in with c as ref to context.CgContext, node as int, ast as ref to
             calling context.add_local with c, nid, 1, nid
         if ntxt2 != "_":
             calling context.add_local with c, nid2, lty.a, nid2
+            calling context.mark_borrowed with c, nid2
     else:
         calling emit.line with (sigil of c->emitter), "for (int {idxt} = 0; {idxt} < {tmp}.len; {idxt}++) {"
         calling emit.indent_more with (sigil of c->emitter)
@@ -864,6 +870,7 @@ weave emit_for_in with c as ref to context.CgContext, node as int, ast as ref to
 
         if ntxt != "_":
             calling context.add_local with c, nid, lty.a, nid
+            calling context.mark_borrowed with c, nid
     calling emit_loop_block with c, body
     calling emit_continue_label with c, llbl
     calling emit.indent_less with (sigil of c->emitter)
@@ -1347,6 +1354,7 @@ weave emit_destructure with c as ref to context.CgContext, node as int, ast as r
                     calling emit.line with (sigil of c->emitter), "(void){rnm};"
                     var rnid as int is calling npool.intern with (sigil of c->program->names), rnm
                     calling context.add_local with c, rnid, fld2.type, rnid
+                    calling context.mark_borrowed with c, rnid
                     banish fnn
                     banish fcd
                     banish fct
@@ -2021,7 +2029,11 @@ weave emit_local with c as ref to context.CgContext, node as int, ast as ref to 
         defer banish val2
         if not is_drop and (calling value_is_place with c, vn, ast):
             calling drop.emit_cow_promote_source with c, (calling drop.cow_kind_of with c, ty), vn, ast
-        calling emit.line with (sigil of c->emitter), "{cdecl} = {val2};"
+        if not is_drop and (calling drop.cow_kind_of with c, ty) == 1 and (calling value_is_place with c, vn, ast):
+            # Copiar un `string` local: el destino recibe su propio buffer SDS.
+            calling emit.line with (sigil of c->emitter), "{cdecl} = pengu_string_share_value({val2});"
+        else:
+            calling emit.line with (sigil of c->emitter), "{cdecl} = {val2};"
         if not is_drop:
             calling share_assigned with c, ty, vn, ast, cn
         if is_drop:

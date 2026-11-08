@@ -2,6 +2,31 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.53.1] — 2026-11-08 — Copiar un `string` owned es seguro
+
+### Arreglado
+
+- Copiar un `string` owned (SDS) con `var b as string is a` dejaba los dos
+  bindings sobre el mismo búfer: el segundo `banish` liberaba memoria ya
+  liberada (doble free). Ahora el binding copiado recibe su propio búfer con
+  `pengu_string_share_value` (los COW suben el contador y las vistas prestadas
+  se quedan como vistas).
+- `pengu_string_share_value` / `pengu_string_share_owned` en el runtime: helpers
+  aditivos que no cambian el comportamiento de `pengu_cow_string_share` (sigue
+  siendo un no-op para SDS, de modo que las operaciones de `std` siguen
+  devolviendo SDS como antes).
+- `StringBuilder` copiado por valor (`var sb2 as StringBuilder is sb`) escribía
+  fuera del búfer cuando `_data` venía de una copia con capacidad exacta:
+  `_builder_prepare` sincroniza `_cap` con la capacidad real del SDS antes de
+  reservar.
+- Asignar a un `string` local desde otro `string` libera el valor anterior
+  (temp-swap), salvo en campos/arrows que pueden ser memoria recién asignada.
+
+### Añadido
+
+- `tests/pengu/cow_legacy_string.pengu`, `tests/leaks/l19_cow_legacy_string.pengu`,
+  `tests/golden_c/g41_cow_string_copy.*` y `tests/regress_cow_legacy.sh`.
+
 ## [0.53.0] — 2026-11-08 — Composición con `fundere`
 
 ### Añadido

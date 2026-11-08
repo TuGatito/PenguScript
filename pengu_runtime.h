@@ -2598,6 +2598,20 @@ static inline void pengu_string_append(PenguString *dst, PenguString v)
      cabecera es solo el bloque `hdr`. */
   /* Strings COW. */
   PenguString pengu_cow_string_new(const char *src, int len);
+  /**
+   * @brief Gives `dst` its own string buffer after being copied from another
+   * binding. COW buffers only bump the reference count; borrowed views stay
+   * borrowed; SDS-owned buffers are copied so that banishing both bindings is
+   * safe.
+   */
+  /**
+   * @brief Returns a value that owns its buffer independently of `src`.
+   * COW buffers bump the reference count, borrowed views stay borrowed, and
+   * SDS-owned buffers are copied.
+   */
+  PenguString pengu_string_share_value(PenguString src);
+
+  void pengu_string_share_owned(PenguString *dst);
   void pengu_cow_string_share(PenguString *s);
   void pengu_cow_string_ensure_unique(PenguString *s);
   int32_t pengu_cow_string_ref_count(PenguString s);

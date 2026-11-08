@@ -129,6 +129,51 @@ s.is_owned = PENGU_STRING_OWNED;
 return s;
 """
 
+## Makes `buf` an owned SDS buffer and returns its usable capacity.
+##
+## ## Motivo
+## Un `StringBuilder` puede acabar con un `_data` que **no** es un SDS propio:
+## si el builder se copia (struct copy), el campo `_data` se comparte y el
+## `share` COW lo convierte en un búfer COW (`is_owned == 3`) con capacidad
+## exacta. Escribir entonces como si fuera SDS desborda el búfer, porque
+## `_cap` describe la capacidad anterior. Este helper normaliza el campo:
+## copia el contenido a un SDS propio, libera el búfer anterior si era
+## nuestro (COW o `malloc`) y devuelve `alloc - 1`, que es la capacidad
+## usable sin contar el terminador.
+##
+## ## Memoria
+## Puede reasignar `_data`. No hace nada si ya es un SDS propio.
+antiquus _builder_prepare with buf as ref to string into int:
+    r"""
+sds fresh;
+size_t len;
+size_t alloc;
+if (!buf) return 0;
+if (!buf->data) {
+    fresh = sdsempty();
+    if (!fresh) return 0;
+    buf->data = fresh;
+    buf->len = 0;
+    buf->is_owned = PENGU_STRING_OWNED;
+    return 0;
+}
+if (buf->is_owned != PENGU_STRING_OWNED) {
+    len = (size_t)(buf->len > 0 ? buf->len : 0);
+    fresh = sdsnewlen(buf->data, len);
+    if (!fresh) return 0;
+    if (buf->is_owned == PENGU_STRING_OWNED_COW) {
+        pengu_cow_string_drop(buf);
+    } else if (buf->is_owned == PENGU_STRING_OWNED_RAW) {
+        free(buf->data);
+    }
+    buf->data = fresh;
+    buf->len = (int)len;
+    buf->is_owned = PENGU_STRING_OWNED;
+}
+alloc = sdsalloc(buf->data);
+return alloc > 0 ? (int)alloc - 1 : 0;
+"""
+
 ## Grows or shrinks the buffer to `new_cap` usable bytes, preserving contents.
 ##
 ## ## Motivo
@@ -1037,6 +1082,10 @@ enchanting StringBuilder:
             return
         if additional > 2147483647 - self->_len:
             calling spark.panic with "StringBuilder.reserve: capacity overflow"
+        # `_data` puede no ser un SDS propio (bucle copiado, `share` COW): se
+        # normaliza antes de calcular la capacidad real, que manda sobre `_cap`.
+        var real as int is calling _builder_prepare with (sigil of self->_data)
+        set self->_cap is real
         var need as int is self->_len + additional
         if need <= self->_cap:
             return
@@ -1066,6 +1115,8 @@ enchanting StringBuilder:
     weave shrink_to_fit into void:
         if self->_cap == self->_len:
             return
+        var real as int is calling _builder_prepare with (sigil of self->_data)
+        set self->_cap is real
         calling _builder_resize with (sigil of self->_data), self->_cap, self->_len
         set self->_cap is self->_len
 

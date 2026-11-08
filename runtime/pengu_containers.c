@@ -745,7 +745,6 @@ void pengu_cow_string_drop(PenguString *s)
 
 void pengu_cow_string_share(PenguString *s)
 {
-  PenguString c;
   if (!s || !s->data)
     return;
   if (s->is_owned == PENGU_STRING_OWNED_COW)
@@ -755,9 +754,41 @@ void pengu_cow_string_share(PenguString *s)
   }
   /* `s` no es COW (vista o SDS de otro binding): se deja tal cual. Copiar
      aqui obligaria a liberar o adoptar el SDS del origen, y el modelo actual
-     permite que dos bindings compartan un SDS sin contador (el que no se
-     banishea no libera nada). El primer `ensure_unique` lo promociona. */
-  (void)c;
+     permite que dos bindings compartan un SDS sin contador. El codegen usa
+     `pengu_string_share_owned` cuando el destino necesita un buffer propio. */
+}
+
+PenguString pengu_string_share_value(PenguString src)
+{
+  if (!src.data)
+    return src;
+  if (src.is_owned == PENGU_STRING_OWNED_COW)
+  {
+    pengu_cow_hdr_of(src.data)->rc += 1;
+    return src;
+  }
+  if (src.is_owned == PENGU_STRING_BORROWED)
+    return src;
+  return pengu_string_owned(src.data, src.len);
+}
+
+/* Da al handle `dst` un buffer propio tras copiarlo de otro binding.
+   - COW: sube el contador (comparten buffer sin copiar).
+   - prestado (rodata / vista de C): se queda como vista; `banish` es no-op.
+   - SDS/malloc legacy: copia a un SDS propio; el origen conserva el suyo, asi
+     que banisher los dos bindings es seguro. */
+void pengu_string_share_owned(PenguString *dst)
+{
+  if (!dst || !dst->data)
+    return;
+  if (dst->is_owned == PENGU_STRING_OWNED_COW)
+  {
+    pengu_cow_hdr_of(dst->data)->rc += 1;
+    return;
+  }
+  if (dst->is_owned != PENGU_STRING_OWNED && dst->is_owned != PENGU_STRING_OWNED_RAW)
+    return;
+  *dst = pengu_string_owned(dst->data, dst->len);
 }
 
 void pengu_cow_string_ensure_unique(PenguString *s)

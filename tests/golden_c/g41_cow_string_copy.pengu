@@ -1,0 +1,20 @@
+## Golden: copiar un `string` owned emite el `share` del binding copiado.
+##
+## `pengu_cow_string_share` es un no-op para SDS, pero la copia de un `string`
+## local emite `pengu_string_share_value`, que le da al binding copiado su
+## propio buffer: el `banish` de los dos es seguro.
+import std.spark
+
+rune Holder:
+    name as string
+
+weave main into int:
+    var a as string is "hola" + " mundo"
+    var b as string is a
+    calling spark.println with b
+    banish a
+    banish b
+    var h as Holder is with name is ("cam" + "po")
+    calling spark.println with h.name
+    banish h.name
+    return 0

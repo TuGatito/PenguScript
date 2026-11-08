@@ -1,0 +1,67 @@
+## Regresión: copiar un `string` owned y banisher las dos copias (0.53.1).
+##
+## `pengu_cow_string_share` era un no-op para valores legacy (SDS): `var b as
+## string is a` dejaba dos bindings sobre el mismo SDS y el segundo `banish`
+## liberaba memoria ya liberada. Ahora el binding copiado recibe su propio
+## buffer (`pengu_string_share_value`, una copia SDS) y cada uno libera lo suyo.
+
+rune Holder:
+    name as string
+
+weave make_name into string:
+    return "cam" + "po"
+
+weave main into int:
+    # copia de un owned local
+    var a as string is "hola" + " mundo"
+    var b as string is a
+    if b != "hola mundo":
+        banish a
+        banish b
+        return 1
+    set b is b + "!"
+    if a != "hola mundo":
+        banish a
+        banish b
+        return 2
+    if b != "hola mundo!":
+        banish a
+        banish b
+        return 3
+    banish a
+    banish b
+
+    # un campo leido presta su buffer: solo se libera una vez
+    var h as Holder is with name is ("cam" + "po")
+    if h.name != "campo":
+        return 4
+    var c as string is h.name
+    if c != "campo":
+        return 5
+    # `c` es una vista del campo: no se banisha.
+    banish h.name
+
+    # copia de un resultado owned
+    var d as string is calling make_name
+    var e as string is d
+    if e != "campo":
+        banish d
+        banish e
+        return 6
+    set e is e + "!"
+    if d != "campo":
+        banish d
+        banish e
+        return 7
+    banish d
+    banish e
+
+    # copia de un literal: la vista prestada o el owned no se pisan
+    var f as string is "literal"
+    var g as string is f
+    if f != "literal" or g != "literal":
+        return 8
+    banish f
+    banish g
+
+    return 0
