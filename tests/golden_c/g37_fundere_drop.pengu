@@ -1,0 +1,24 @@
+## `fundere`: si un embed es `Drop`, el host también lo es (move-only) y su
+## cleanup compone: campos propios en orden inverso y luego los embeds en orden
+## inverso de `fundere`. `GameObj` es solo `Nexus`: el host no se vuelve `Drop`
+## por él, pero sí tiene cleanup.
+import std.spark
+
+rune GameObj derive Nexus:
+    position as int
+    label as string
+
+rune Physics derive Drop:
+    velocity as int
+    note as string
+
+rune Enemy fundere GameObj, Physics:
+    health as int
+    notes as string
+
+weave main into int:
+    var e as Enemy is with gameObj is (with position is 1, label is "g"), physics is (with velocity is 2, note is "p"), health is 3, notes is "n"
+    var c as Enemy is calling e.clone
+    set c.health is 4
+    calling spark.println with "{c.health},{e.health},{c.velocity}"
+    return 0

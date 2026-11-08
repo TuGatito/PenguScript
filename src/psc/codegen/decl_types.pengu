@@ -313,19 +313,21 @@ weave emit_cleanup with c as ref to context.CgContext, t as catalog.CgType into 
         calling emit_omen_cleanup with c, ty, cname
         if (info.flags & types.NIF_DROP) != 0:
             calling emit.line with (sigil of c->emitter), "static inline void _pengu_rc_drop_{cname}(void* p) {{ _pengu_cleanup_{cname}(({cname}*)p); }}"
-            calling emit.line with (sigil of c->emitter), "static inline void _pengu_rc_drop_{cname}(void* p) {{ _pengu_cleanup_{cname}(({cname}*)p); }}"
             calling emit.line with (sigil of c->emitter), "static inline void _pengu_rc_clone_{cname}(const void* s, void* d) {{ *(({cname}*)d) = _pengu_deepclone_{cname}(({cname}*)s); }}"
         return
     calling emit.line with (sigil of c->emitter), "static inline void _pengu_cleanup_{cname}({cname}* p) {"
     calling emit.indent_more with (sigil of c->emitter)
     calling emit.line with (sigil of c->emitter), "(void)p;"
-    var i as int is 0
-    while i < info.fields_count:
+    # Orden inverso de declaración: los campos propios van tras los embeds, así
+    # que esto libera primero lo último declarado y después los embeds en orden
+    # inverso de `fundere` (como `defer` y como C++).
+    var i as int is info.fields_count - 1
+    while i >= 0:
         var f as types.SemaField is (c->program->types.fields at (info.fields_first + i))
         var fname as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), f.name)
-        defer banish fname
         calling drop.emit_drop_value with c, f.type, "p->{fname}"
-        set i is i + 1
+        banish fname
+        set i is i - 1
     if (info.flags & types.NIF_DROP) != 0:
         # Limpieza idempotente: tras liberar, el valor queda en cero, así que
         # `banish x` seguido del destructor automático no libera dos veces.

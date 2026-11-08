@@ -1,0 +1,31 @@
+# `fundere` + embed `Nexus` (sin `Drop`): el host es copiable y `banish` lo
+# limpia; el cleanup compuesto no debe filtrar (ASan/LSan).
+
+rune Tag derive Nexus:
+    label as string
+
+rune Entry fundere Tag:
+    note as string
+
+weave make_entry with n as string, m as string into Entry:
+    return with tag is (with label is n), note is m
+
+weave by_copy into int:
+    var a as Entry is calling make_entry with "copy", "note"
+    var b as Entry is a
+    if b.tag.label != a.tag.label:
+        return 1
+    banish a
+    banish b
+    return 0
+
+weave by_return into int:
+    var e as Entry is calling make_entry with "ret", "n"
+    return e.note length
+
+weave main into int:
+    if (calling by_copy) != 0:
+        return 1
+    if (calling by_return) != 1:
+        return 2
+    return 0

@@ -1,0 +1,39 @@
+## `fundere` propaga la memoria: un embed `Drop` hace `Drop` al host (move-only
+## y con cleanup compuesto) y un embed `Nexus` deja el host copiable pero
+## banishable. La propagación es recursiva.
+rune Leaf derive Drop:
+    n as int
+
+rune Mid fundere Leaf:
+    m as int
+
+rune Top fundere Mid:
+    t as int
+
+rune Tag derive Nexus:
+    label as int
+
+rune Entry fundere Tag:
+    note as int
+
+weave main into int:
+    # 1. `Drop` se propaga por dos niveles.
+    var a as Top is with mid is (with leaf is (with n is 1), m is 2), t is 3
+    var b as Top is calling a.clone
+    set b.t is 30
+    if a.t != 3 or b.t != 30:
+        return 1
+    if b.mid.leaf.n != 1:
+        return 2
+    banish b
+    # 2. `Nexus` no hace `Drop` al host: se puede copiar.
+    var e as Entry is with tag is (with label is 7), note is 8
+    var f as Entry is e
+    if f.tag.label != 7 or f.note != 8:
+        return 3
+    banish e
+    banish f
+    # 3. `Drop` en el segundo embed también cuenta.
+    var c as Top is with mid is (with leaf is (with n is 4), m is 5), t is 6
+    banish c
+    return 0

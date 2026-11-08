@@ -59,6 +59,10 @@ weave collect_module with s as ref to state.SemaState into void:
         if top >= 0:
             calling collect_top with s, top
         set i is i + 1
+    # `fundere` propaga `Drop`/`Nexus`: se hace al final para que todos los
+    # embeds del módulo ya tengan sus flags (los de otros módulos llegan antes
+    # por el orden topológico).
+    calling propagate_composition with s
 
 ## Predeclara nombres de tipos para permitir referencias hacia delante.
 ##
@@ -96,6 +100,155 @@ weave predeclare_types with s as ref to state.SemaState into void:
                         calling register_type with s, sk, nm, ty, stmt
                         calling s->module->type_ids.put with stmt, ty
         set i is i + 1
+
+## Inserta el concepto derivado `cid` en el rango del nominal `info_idx`.
+##
+## Los rangos `derived_first/count` son contiguos por nominal, así que insertar
+## en medio obliga a desplazar los siguientes. Solo se llama durante la
+## recolección, nunca en bucle caliente.
+##
+## ## Memoria
+## Reemplaza `types->derived`; no deja la lista vieja viva.
+weave add_derived_at with s as ref to state.SemaState, info_idx as int, cid as int into void:
+    if cid <= 0:
+        return
+    var info as types.SemaNominalInfo is (s->types->nominal_infos at info_idx)
+    var hi as int is 0
+    while hi < info.derived_count:
+        if (s->types->derived at (info.derived_first + hi)) == cid:
+            return
+        set hi is hi + 1
+    var pos as int is info.derived_first + info.derived_count
+    var out as list of int is list of int
+    var i as int is 0
+    var done as bool is false
+    while i < s->types->derived.len:
+        if i == pos:
+            calling out.push with cid
+            set done is true
+        calling out.push with (s->types->derived at i)
+        set i is i + 1
+    if not done:
+        calling out.push with cid
+    banish s->types->derived
+    set s->types->derived is out
+    # Desplaza los rangos posteriores al punto de inserción.
+    var ni as int is 0
+    while ni < s->types->nominal_infos.len:
+        var other as types.SemaNominalInfo is (s->types->nominal_infos at ni)
+        if other.derived_first >= pos and other.derived_count > 0:
+            set other.derived_first is other.derived_first + 1
+            set s->types->nominal_infos at (ni) is other
+        set ni is ni + 1
+    var mine as types.SemaNominalInfo is (s->types->nominal_infos at info_idx)
+    set mine.derived_count is mine.derived_count + 1
+    set s->types->nominal_infos at (info_idx) is mine
+
+## `true` si `ty` (o alguno de sus embeds) es `Drop`.
+##
+## ## Memoria
+## Recursivo con tope de profundidad; no asigna.
+weave composed_drop with s as ref to state.SemaState, ty as int, depth as int into bool:
+    if ty <= 0 or depth > 32:
+        return false
+    var u as int is calling embeds.unwrap with s->types, ty
+    if u <= 0:
+        return false
+    var t as tk.SemaType is calling types.at with s->types, u
+    if t.kind != tk.SemaTypeKind.TkRune and t.kind != tk.SemaTypeKind.TkEcho:
+        return false
+    var info as types.SemaNominalInfo is (s->types->nominal_infos at t.a)
+    if (info.flags & types.NIF_DROP) != 0:
+        return true
+    var i as int is 0
+    while i < info.fields_count:
+        var f as types.SemaField is (s->types->fields at (info.fields_first + i))
+        if (f.flags & types.FIELD_EMBED) == 0:
+            break
+        if calling composed_drop with s, f.type, depth + 1:
+            return true
+        set i is i + 1
+    return false
+
+## `true` si `ty` (o alguno de sus embeds) tiene el concepto `Nexus`.
+##
+## ## Memoria
+## Recursivo con tope de profundidad; no asigna.
+weave composed_nexus with s as ref to state.SemaState, ty as int, nexus as int, depth as int into bool:
+    if ty <= 0 or depth > 32 or nexus <= 0:
+        return false
+    var u as int is calling embeds.unwrap with s->types, ty
+    if u <= 0:
+        return false
+    var t as tk.SemaType is calling types.at with s->types, u
+    if t.kind != tk.SemaTypeKind.TkRune and t.kind != tk.SemaTypeKind.TkEcho:
+        return false
+    var info as types.SemaNominalInfo is (s->types->nominal_infos at t.a)
+    var hi as int is 0
+    while hi < info.derived_count:
+        if (s->types->derived at (info.derived_first + hi)) == nexus:
+            return true
+        set hi is hi + 1
+    var i as int is 0
+    while i < info.fields_count:
+        var f as types.SemaField is (s->types->fields at (info.fields_first + i))
+        if (f.flags & types.FIELD_EMBED) == 0:
+            break
+        if calling composed_nexus with s, f.type, nexus, depth + 1:
+            return true
+        set i is i + 1
+    return false
+
+## Propaga `Drop` (forzado, move-only) y `Nexus` (solo cleanup) por `fundere`.
+##
+## Si un embed es `Drop`, el host **es** `Drop`: copiarlo copiaría el embed sin
+## retener nada y su destructor correría dos veces. Si el embed solo es
+## `Nexus`, el host puede `banish` pero no se destruye solo.
+##
+## ## Memoria
+## Puede añadir conceptos a `derived` y símbolos `clone`/`drop`.
+weave propagate_composition with s as ref to state.SemaState into void:
+    var nexus as int is calling symbols.lookup_type_name with s->symbols, "Nexus"
+    var dropid as int is calling symbols.lookup_type_name with s->symbols, "Drop"
+    var changed as bool is true
+    var rounds as int is 0
+    while changed and rounds < 16:
+        set changed is false
+        var ty as int is 1
+        while ty < s->types->types.len:
+            var t as tk.SemaType is calling types.at with s->types, ty
+            if t.kind == tk.SemaTypeKind.TkRune or t.kind == tk.SemaTypeKind.TkEcho:
+                var info as types.SemaNominalInfo is (s->types->nominal_infos at t.a)
+                if info.template_info < 0 and info.module == s->module->id and info.fields_count > 0:
+                    var f0 as types.SemaField is (s->types->fields at info.fields_first)
+                    if (f0.flags & types.FIELD_EMBED) != 0:
+                        var has_drop as bool is false
+                        var has_nexus as bool is false
+                        var i as int is 0
+                        while i < info.fields_count:
+                            var f as types.SemaField is (s->types->fields at (info.fields_first + i))
+                            if (f.flags & types.FIELD_EMBED) == 0:
+                                break
+                            if calling composed_drop with s, f.type, 0:
+                                set has_drop is true
+                            if calling composed_nexus with s, f.type, nexus, 0:
+                                set has_nexus is true
+                            set i is i + 1
+                        if has_drop and (info.flags & types.NIF_DROP) == 0:
+                            set info.flags is info.flags | types.NIF_DROP
+                            set s->types->nominal_infos at (t.a) is info
+                            calling add_derived_at with s, t.a, dropid
+                            calling add_derived_at with s, t.a, nexus
+                            calling register_drop_methods with s, ty, info
+                            set changed is true
+                        else if has_nexus and not has_drop:
+                            var before as int is info.derived_count
+                            calling add_derived_at with s, t.a, nexus
+                            var after as types.SemaNominalInfo is (s->types->nominal_infos at t.a)
+                            if after.derived_count != before:
+                                set changed is true
+            set ty is ty + 1
+        set rounds is rounds + 1
 
 ## Recolecta un `top_stmt` (o un `stmt`/declaración directa).
 ##

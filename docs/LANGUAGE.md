@@ -1410,6 +1410,12 @@ rune Point derive Par, Ordo, Vinculum, Imago:
 Deriving a comparison concept on a generic rune bounds its parameters; the check
 happens at each substitution site.
 
+`fundere` propagates `Drop` and `Nexus` (and nothing else): a rune whose embed is
+`Drop` is itself `Drop` — move-only, with a composed `_pengu_cleanup_<T>` — and a
+rune whose embed is `Nexus` gets the cleanup helper but stays copyable. Other
+concepts (`Par`, `Ordo`, `Vinculum`, `Imago`, `Json`) are never inherited; write
+them on the host if you want them. See §9.9.
+
 ### 9.7.1 `derive Json`
 
 `Json` is a built-in concept that generates a JSON codec for a rune at compile

@@ -1778,6 +1778,9 @@ weave share_assigned with c as ref to context.CgContext, ty as int, vnode as int
     var cwk as int is calling drop.cow_kind_of with c, ty
     if cwk > 0:
         calling drop.emit_cow_share with c, cwk, target
+        return
+    # Struct con handles dentro: retener sus `string`/`list`/`map`.
+    calling drop.emit_share_value with c, ty, target, 0
 
 weave is_drop_type with c as ref to context.CgContext, ty as int into bool:
     var cur as int is ty

@@ -1,0 +1,47 @@
+# `fundere` + `derive Drop`: el host se vuelve `Drop` porque su embed lo es, y
+# el cleanup compuesto (campos propios y embeds en orden inverso) no debe
+# filtrar ni liberar dos veces (ASan/LSan).
+
+antiquus own_str with s as string into string:
+    r"""
+return pengu_string_copy(s);
+"""
+
+rune Physics derive Drop:
+    note as string
+    mass as int
+
+rune Body fundere Physics:
+    title as string
+    weight as int
+
+weave make_body with n as string into Body:
+    return with physics is (with note is (calling own_str with n), mass is 2), title is (calling own_str with n), weight is 3
+
+weave by_return with flag as bool into int:
+    var b as Body is calling make_body with "a"
+    if flag:
+        return b.weight
+    return 0
+
+weave by_banish into int:
+    var b as Body is calling make_body with "banish"
+    banish b
+    return 0
+
+weave by_nested into int:
+    var outer as Body is calling make_body with "outer"
+    var inner as Body is calling make_body with "inner"
+    set outer.physics.mass is inner.weight
+    return outer.weight + inner.weight
+
+weave main into int:
+    if (calling by_return with true) != 3:
+        return 1
+    if (calling by_return with false) != 0:
+        return 2
+    if (calling by_banish) != 0:
+        return 3
+    if (calling by_nested) != 6:
+        return 4
+    return 0

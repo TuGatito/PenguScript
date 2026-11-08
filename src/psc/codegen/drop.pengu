@@ -90,6 +90,46 @@ weave emit_cow_unique with c as ref to context.CgContext, kind as int, target as
         set fn is "pengu_cow_map_ensure_unique"
     calling emit.line with (sigil of c->emitter), "{fn}(&({target}));"
 
+## Emite los `share` de COW de un valor compuesto ya copiado.
+##
+## Copiar una struct copia sus handles tal cual: el contador de COW del `string`
+## o de la `list` interior no sube, y los dos destructores liberarían el mismo
+## buffer. Aquí se retienen, campo a campo y recursivamente.
+##
+## ## Memoria
+## O(campos alcanzables); no asigna estructuras propias.
+weave emit_share_value with c as ref to context.CgContext, ty as int, target as string, depth as int into void:
+    if ty <= 0 or depth > 16 or ty >= c->program->types.types.len:
+        return
+    var cwk as int is calling cow_kind_of with c, ty
+    if cwk > 0:
+        calling emit_cow_share with c, cwk, target
+        return
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    var cur as int is ty
+    var guard as int is 0
+    while (t.kind == tk.SemaTypeKind.TkAlias or t.kind == tk.SemaTypeKind.TkSeal) and guard < 16:
+        set cur is t.b
+        set t is calling types.at with (sigil of c->program->types), cur
+        set guard is guard + 1
+    if t.kind != tk.SemaTypeKind.TkRune and t.kind != tk.SemaTypeKind.TkEcho:
+        return
+    var info as types.SemaNominalInfo is (c->program->types.nominal_infos at t.a)
+    if (info.flags & types.NIF_DROP) != 0:
+        # Un `Drop` es move-only: nunca se copia.
+        return
+    if (info.flags & types.NIF_OPAQUE) != 0:
+        return
+    var i as int is 0
+    while i < info.fields_count:
+        var f as types.SemaField is (c->program->types.fields at (info.fields_first + i))
+        var fname as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), f.name)
+        var path as string is "({target}).{fname}"
+        calling emit_share_value with c, f.type, path, depth + 1
+        banish path
+        banish fname
+        set i is i + 1
+
 weave emit_drop_value with c as ref to context.CgContext, ty as int, target as string into void:
     if ty < 0 or ty >= c->program->types.types.len:
         return
