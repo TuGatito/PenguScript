@@ -38,7 +38,7 @@
 #endif
 
 /* =========================================================================
- * ABI v3 — Convenient Containers backend
+ * ABI v4 — copy-on-write containers and reference-counted handles
  *
  * PENGU_ABI_VERSION is bumped only by a breaking change to any layout below.
  * The generated C (`bundle.c`) and every prebuilt `libpengu_*.a` must agree on
@@ -84,8 +84,28 @@
  *
  * ABI v2 preserved the SDS migration: `PenguString` keeps the same 16-byte
  * layout, and an owned payload (`is_owned == 1`) is an SDS allocation.
+ *
+ * v4 (copy-on-write, layer 3): the three container handles keep their size and
+ * alignment, but the *buffer* they point at may now be a COW block:
+ *
+ *   [ PenguCowAux { size_t elem_size; void (*drop_elem)(void *); }   ]
+ *   [ PenguCowHdr { uint64_t magic; int32_t rc; int32_t pad; }       ]
+ *   [ elements ...                                                    ]
+ *
+ * `PenguList.data` points at the elements and `cap > 0`; `PenguString` marks
+ * the buffer with `is_owned == PENGU_STRING_OWNED_COW`; `PenguMap.state` gains
+ * `magic`/`rc`/`drop_key`/`drop_val` in `PenguMapState`. The runtime tells the
+ * two worlds apart by the magic word 16 bytes before `data`, so a 0.51 binary
+ * and a 0.52 binary can share containers: banishing either kind is correct, and
+ * the first mutation of a shared legacy buffer promotes it. Code that reaches
+ * into `list->data - sizeof(cc_vec_hdr_ty)` or frees `map->state` by hand must
+ * stop doing so.
+ *
+ * v4 also adds `Rc`/`Arc`/`Weak` handles (`std.consortium`): a pointer to the
+ * payload, preceded by a header that carries the strong/weak counters and the
+ * payload destructor and cloner.
  * ========================================================================= */
-#define PENGU_ABI_VERSION 3
+#define PENGU_ABI_VERSION 4
 
 /*
  * `align of T` in PenguScript. C11 `_Alignof` is exact; GCC/Clang keep working

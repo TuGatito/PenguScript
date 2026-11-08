@@ -2,6 +2,56 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.52.0] — 2026-11-07 — Gestión de memoria en tres capas
+
+### Añadido
+
+- **Capa 1 — `derive Drop`**: la runa se destruye en cada salida del scope
+  (`return`, `break`, `continue`, fin de bloque, `or return`) y es move-only.
+  Nuevos diagnósticos `E0080` (uso de un valor movido), `E0081` (copia implícita
+  de un tipo `Drop`), `E0084` (`@export` que devuelve un `Drop` por valor).
+  Métodos sintéticos `.clone()` (copia profunda) y `.drop()` (destrucción
+  explícita).
+- **Capa 2 — `std.consortium`** (módulo 70): `Rc of T`, `Arc of T`,
+  `WeakRc of T` y `WeakArc of T` con `new`, `get`, `get_mut`, `make_mut`,
+  `strong_count`, `weak_count`, `downgrade` y `upgrade`. `E0082` (`Rc` no cruza
+  un hilo) y `E0083` (`Arc of T` exige que `T` sea `@shared`).
+- **Capa 3 — contenedores copy-on-write**: `string`, `list` y `map` comparten
+  búfer al copiar y clonan en la primera mutación. Métodos `is_shared`,
+  `ref_count` y `make_unique`. El `banish` de un contenedor COW libera ahora sus
+  elementos (arregla el caso §21.4 de `PENGUNIC`).
+- `psc check --lint=cow` con `W0008` (copia de contenedor mutada dentro de un
+  bucle).
+- Flag `--legacy-copy` (y `[build] legacy_copy`) como escape al modelo de copia
+  anterior, más una fase de stress que compila el compilador sin él.
+- `tests/cow/` (test C del runtime), `tests/leaks/l13`–`l16`,
+  `tests/golden_c/g28`–`g33`, `tests/pengu/drop_paths.pengu`,
+  `move_paths.pengu`, `consortium_*` y los regress de `E0080`/`E0081`/`E0084`.
+
+### Cambiado
+
+- **ABI 4**: los handles de `string`/`list`/`map` conservan tamaño y alineación,
+  pero el búfer puede ser un bloque COW con cabecera (`PenguCowHdr`,
+  `PenguCowAux`). El runtime distingue ambos mundos por el magic de 16 bytes
+  antes de `data`, así que un binario de 0.51 y uno de 0.52 pueden compartir
+  contenedores.
+- LSP: completado de los métodos COW y de la superficie de `Rc`/`Arc`/`Weak`,
+  hover y definición sobre `cons.Rc` (resuelven a `std/consortium.pengu`),
+  alias `get_*` ocultos del completado.
+- `docs/LANGUAGE`, `docs/PENGUNIC`, `docs/STDLIB` (70 módulos) y `docs/api`
+  documentan las tres capas con el C representativo.
+- `psc test` vuelve a verde: el `judge` usado como valor con patrones
+  cualificados, la alternancia `when A | B` y los sujetos `string` emitían el
+  `switch` equivocado.
+
+### Corregido
+
+- `judge` como valor/sentencia: variantes cualificadas, alternancia, guardas y
+  sujetos `string` (`emit_judge_core` único).
+- Use-after-free en `std/compass` (`Path.from_str` guardaba un préstamo).
+- `E0009` duplicado en `diagnostics.pengu` (ganaba `E0077`).
+- `sizeof`/`alignof` de tipos genéricos anidados no instanciaban el tipo.
+
 ## [0.51.0] — 2026-11-07 — Cierre documental
 
 ### Añadido
