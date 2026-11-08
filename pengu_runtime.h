@@ -1678,6 +1678,26 @@ extern "C"
    * A `is_owned == 1` payload is an SDS string and is released with `sdsfree`;
    * `is_owned == 2` is a raw block (arena/regulus) released with `free`.
    */
+  #define PENGU_STRING_OWNED_COW 3
+  #define PENGU_COW_LIST_MAGIC 0x50434F574C495354ULL
+  #define PENGU_COW_MAP_MAGIC 0x50434F574D415053ULL
+  #define PENGU_COW_STRING_MAGIC 0x50434F5753545247ULL
+
+  typedef struct
+  {
+    uint64_t magic;
+    int32_t rc;
+    int32_t pad;
+  } PenguCowHdr;
+
+  typedef struct
+  {
+    size_t elem_size;
+    void (*drop_elem)(void *);
+  } PenguCowAux;
+
+  void pengu_cow_string_drop(PenguString *s);
+
   static inline void pengu_banish_string(PenguString *s)
   {
     if (!s)
@@ -1686,6 +1706,8 @@ extern "C"
     {
       if (s->is_owned == PENGU_STRING_OWNED)
         sdsfree(s->data);
+      else if (s->is_owned == PENGU_STRING_OWNED_COW)
+        pengu_cow_string_drop(s);
       else
         free(s->data);
     }
@@ -2288,8 +2310,19 @@ static inline void pengu_string_append(PenguString *dst, PenguString v)
    *
    * @param list Pointer to PenguList.
    */
+  void pengu_cow_list_drop(PenguList *list);
+
   static inline void pengu_banish_list(PenguList *list)
   {
+    if (!list)
+      return;
+    if (list->cap > 0 && list->data &&
+        ((const PenguCowHdr *)((const char *)list->data - sizeof(PenguCowHdr)))->magic ==
+            PENGU_COW_LIST_MAGIC)
+    {
+      pengu_cow_list_drop(list);
+      return;
+    }
     pengu_cc_list_banish(list);
   }
 
@@ -2530,6 +2563,55 @@ static inline void pengu_string_append(PenguString *dst, PenguString v)
     size_t val_size;
   } PenguMap;
 
+  /* ---- Copy-on-write (ABI 4, capa 3) ----------------------------------
+     El buffer de un contenedor COW lleva dos bloques de 16 bytes delante:
+
+       [aux: elem_size, drop_elem][hdr: magic, rc, pad][data ...]
+
+     `magic` cae justo en la posicion que un vector de CC usa para `size`
+     (16 bytes antes de `data`), y su valor es imposible como numero de
+     elementos, asi que la deteccion es O(1) y no colisiona con una lista
+     legacy.  `cap < 0` sigue significando "lista de arena": se comprueba
+     antes que el magic.
+
+     Un string COW reutiliza `is_owned == PENGU_STRING_OWNED_COW` y su
+     cabecera es solo el bloque `hdr`. */
+  /* Strings COW. */
+  PenguString pengu_cow_string_new(const char *src, int len);
+  void pengu_cow_string_share(PenguString *s);
+  void pengu_cow_string_ensure_unique(PenguString *s);
+  int32_t pengu_cow_string_ref_count(PenguString s);
+  bool pengu_cow_string_is_shared(PenguString s);
+  void pengu_cow_string_drop(PenguString *s);
+
+  /* Listas COW. */
+  PenguList pengu_cow_list_new(size_t elem_size, size_t cap);
+  void pengu_cow_list_share(PenguList *l);
+  void pengu_cow_list_ensure_unique(PenguList *l);
+  void pengu_cow_list_make_unique(PenguList *l);
+  void pengu_cow_list_drop_elem_hook(PenguList *l, void (*drop_elem)(void *));
+  void pengu_cow_list_push(PenguList *l, const void *elem);
+  void *pengu_cow_list_at(PenguList *l, int idx);
+  void *pengu_cow_list_at_mut(PenguList *l, int idx);
+  bool pengu_cow_list_owned(PenguList *l);
+  int32_t pengu_cow_list_ref_count(PenguList *l);
+  bool pengu_cow_list_is_shared(PenguList *l);
+  void pengu_cow_list_drop(PenguList *l);
+
+  /* Mapas COW. */
+  PenguMap pengu_cow_map_new(size_t key_size, size_t val_size);
+  void pengu_cow_map_share(PenguMap *m);
+  void pengu_cow_map_ensure_unique(PenguMap *m);
+  void pengu_cow_map_make_unique(PenguMap *m);
+  void pengu_cow_map_put(PenguMap *m, const void *key, const void *val);
+  void *pengu_cow_map_get(PenguMap *m, const void *key);
+  int32_t pengu_cow_map_ref_count(PenguMap *m);
+  bool pengu_cow_map_is_shared(PenguMap *m);
+  void pengu_cow_map_drop(PenguMap *m);
+  bool pengu_cow_map_owned(PenguMap *m);
+  void pengu_cow_map_set_drop(void *m, void (*drop_key)(void *), void (*drop_val)(void *));
+
+
   /* CC-backed map primitives (runtime/pengu_containers.c). */
   void pengu_cc_map_init(PenguMap *map, size_t key_size, size_t val_size);
   void pengu_cc_map_put(PenguMap *map, const void *key, const void *val);
@@ -2627,8 +2709,16 @@ static inline void pengu_string_append(PenguString *dst, PenguString v)
    *
    * @param map Pointer to PenguMap.
    */
+  bool pengu_cow_map_owned(PenguMap *map);
+  void pengu_cow_map_drop(PenguMap *map);
+
   static inline void pengu_banish_map(PenguMap *map)
   {
+    if (map && pengu_cow_map_owned(map))
+    {
+      pengu_cow_map_drop(map);
+      return;
+    }
     pengu_cc_map_banish(map);
   }
 

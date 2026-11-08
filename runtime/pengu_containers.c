@@ -188,6 +188,12 @@ typedef struct
   size_t key_size;
   size_t val_size;
   int key_kind; /* 1 = PenguString, 0 = bytes */
+  /* COW (ABI 4).  `magic` distingue un mapa COW de uno legacy; `rc` cuenta
+     los handles que comparten el estado. */
+  uint64_t magic;
+  int32_t rc;
+  void (*drop_key)(void *);
+  void (*drop_val)(void *);
 } PenguMapState;
 
 static PENGU_THREAD_LOCAL PenguMapState *g_pengu_cc_map_ctx = NULL;
@@ -662,4 +668,463 @@ void *pengu_arc_make_mut(void *p) {
     memcpy(np, p, h->size);
   pengu_arc_release(p);
   return np;
+}
+
+/* =========================================================================
+ * Copy-on-write de contenedores (capa 3, ABI 4)
+ *
+ * Layout de un buffer COW:
+ *
+ *   [PenguCowAux: elem_size, drop_elem][PenguCowHdr: magic, rc, pad][data]
+ *
+ * `PenguCowHdr` queda 16 bytes antes de `data`, exactamente donde un vector
+ * de CC guarda su `size`; el magic es un valor imposible como numero de
+ * elementos, asi que `pengu_banish_list` distingue ambos casos en O(1).
+ * `cap < 0` (lista de arena) se comprueba antes y nunca lleva cabecera.
+ * ========================================================================= */
+
+static PenguCowHdr *pengu_cow_hdr_of(const void *data)
+{
+  return (PenguCowHdr *)((char *)data - sizeof(PenguCowHdr));
+}
+
+static PenguCowAux *pengu_cow_aux_of(const void *data)
+{
+  return (PenguCowAux *)((char *)data - sizeof(PenguCowHdr) - sizeof(PenguCowAux));
+}
+
+/* ---- strings ---------------------------------------------------------- */
+
+PenguString pengu_cow_string_new(const char *src, int len)
+{
+  PenguString out;
+  size_t total;
+  char *base;
+  PenguCowHdr *hdr;
+  out.data = NULL;
+  out.len = 0;
+  out.is_owned = 0;
+  if (len < 0)
+    return out;
+  total = sizeof(PenguCowHdr) + (size_t)len + 1;
+  base = (char *)malloc(total);
+  if (!base)
+    return out;
+  hdr = (PenguCowHdr *)base;
+  hdr->magic = PENGU_COW_STRING_MAGIC;
+  hdr->rc = 1;
+  hdr->pad = 0;
+  out.data = base + sizeof(PenguCowHdr);
+  if (src && len > 0)
+    memcpy(out.data, src, (size_t)len);
+  out.data[len] = '\0';
+  out.len = len;
+  out.is_owned = PENGU_STRING_OWNED_COW;
+  return out;
+}
+
+static void pengu_cow_string_release_data(PenguString *s)
+{
+  PenguCowHdr *hdr;
+  if (!s || !s->data || s->is_owned != PENGU_STRING_OWNED_COW)
+    return;
+  hdr = pengu_cow_hdr_of(s->data);
+  if (--hdr->rc <= 0)
+    free((char *)hdr);
+}
+
+void pengu_cow_string_drop(PenguString *s)
+{
+  if (!s)
+    return;
+  pengu_cow_string_release_data(s);
+  s->data = NULL;
+  s->len = 0;
+  s->is_owned = 0;
+}
+
+void pengu_cow_string_share(PenguString *s)
+{
+  PenguString c;
+  if (!s || !s->data)
+    return;
+  if (s->is_owned == PENGU_STRING_OWNED_COW)
+  {
+    pengu_cow_hdr_of(s->data)->rc += 1;
+    return;
+  }
+  c = pengu_cow_string_new(s->data, s->len);
+  if (!c.data)
+    return;
+  pengu_banish_string(s);
+  *s = c;
+}
+
+void pengu_cow_string_ensure_unique(PenguString *s)
+{
+  PenguCowHdr *hdr;
+  PenguString c;
+  if (!s || !s->data)
+    return;
+  if (s->is_owned != PENGU_STRING_OWNED_COW)
+  {
+    pengu_cow_string_share(s);
+    return;
+  }
+  hdr = pengu_cow_hdr_of(s->data);
+  if (hdr->rc <= 1)
+    return;
+  c = pengu_cow_string_new(s->data, s->len);
+  if (!c.data)
+    return;
+  hdr->rc -= 1;
+  *s = c;
+}
+
+int32_t pengu_cow_string_ref_count(PenguString s)
+{
+  if (!s.data || s.is_owned != PENGU_STRING_OWNED_COW)
+    return 1;
+  return pengu_cow_hdr_of(s.data)->rc;
+}
+
+bool pengu_cow_string_is_shared(PenguString s)
+{
+  return pengu_cow_string_ref_count(s) > 1;
+}
+
+/* ---- listas ----------------------------------------------------------- */
+
+static size_t pengu_cow_list_bytes(size_t cap, size_t elem_size)
+{
+  size_t bytes = cap * elem_size;
+  return bytes == 0 ? 1 : bytes;
+}
+
+PenguList pengu_cow_list_new(size_t elem_size, size_t cap)
+{
+  PenguList l;
+  char *base;
+  PenguCowHdr *hdr;
+  PenguCowAux *aux;
+  if (cap == 0)
+    cap = 4;
+  if (elem_size == 0)
+    elem_size = 1;
+  l.data = NULL;
+  l.len = 0;
+  l.cap = 0;
+  l.elem_size = elem_size;
+  base = (char *)malloc(sizeof(PenguCowAux) + sizeof(PenguCowHdr) + pengu_cow_list_bytes(cap, elem_size));
+  if (!base)
+    return l;
+  aux = (PenguCowAux *)base;
+  aux->elem_size = elem_size;
+  aux->drop_elem = NULL;
+  hdr = (PenguCowHdr *)(base + sizeof(PenguCowAux));
+  hdr->magic = PENGU_COW_LIST_MAGIC;
+  hdr->rc = 1;
+  hdr->pad = 0;
+  l.data = base + sizeof(PenguCowAux) + sizeof(PenguCowHdr);
+  l.cap = (int)cap;
+  return l;
+}
+
+bool pengu_cow_list_owned(PenguList *l)
+{
+  if (!l || !l->data || l->cap <= 0)
+    return false;
+  return pengu_cow_hdr_of(l->data)->magic == PENGU_COW_LIST_MAGIC;
+}
+
+static void pengu_cow_list_grow(PenguList *l, size_t need)
+{
+  size_t cap = (size_t)l->cap;
+  size_t ncap;
+  size_t bytes;
+  char *base;
+  if (need <= cap)
+    return;
+  ncap = cap == 0 ? 4 : cap;
+  while (ncap < need)
+    ncap *= 2;
+  bytes = pengu_cow_list_bytes(ncap, l->elem_size);
+  base = (char *)realloc((char *)l->data - sizeof(PenguCowHdr) - sizeof(PenguCowAux),
+                         sizeof(PenguCowAux) + sizeof(PenguCowHdr) + bytes);
+  if (!base)
+    return;
+  l->data = base + sizeof(PenguCowAux) + sizeof(PenguCowHdr);
+  l->cap = (int)ncap;
+}
+
+void pengu_cow_list_drop(PenguList *l)
+{
+  PenguCowHdr *hdr;
+  PenguCowAux *aux;
+  if (!l || !l->data || l->cap <= 0)
+    return;
+  hdr = pengu_cow_hdr_of(l->data);
+  if (hdr->magic != PENGU_COW_LIST_MAGIC)
+    return;
+  if (--hdr->rc <= 0)
+  {
+    aux = pengu_cow_aux_of(l->data);
+    if (aux->drop_elem)
+    {
+      int i;
+      for (i = 0; i < l->len; i++)
+        aux->drop_elem((char *)l->data + (size_t)i * l->elem_size);
+    }
+    free((char *)aux);
+  }
+  l->data = NULL;
+  l->len = 0;
+  l->cap = 0;
+}
+
+void pengu_cow_list_share(PenguList *l)
+{
+  if (!l || !l->data || l->cap <= 0)
+    return;
+  if (pengu_cow_list_owned(l))
+  {
+    pengu_cow_hdr_of(l->data)->rc += 1;
+    return;
+  }
+}
+
+void pengu_cow_list_make_unique(PenguList *l)
+{
+  PenguCowHdr *hdr;
+  PenguCowAux *aux;
+  PenguList fresh;
+  if (!l || !l->data || l->cap <= 0)
+    return;
+  if (!pengu_cow_list_owned(l))
+  {
+    /* Promocion: copia el contenido legacy a un buffer COW. */
+    fresh = pengu_cow_list_new(l->elem_size, (size_t)(l->len > 0 ? l->len : l->cap));
+    if (!fresh.data)
+      return;
+    if (l->len > 0)
+      memcpy(fresh.data, l->data, (size_t)l->len * l->elem_size);
+    fresh.len = l->len;
+    pengu_cc_list_banish(l);
+    *l = fresh;
+    return;
+  }
+  hdr = pengu_cow_hdr_of(l->data);
+  if (hdr->rc <= 1)
+    return;
+  aux = pengu_cow_aux_of(l->data);
+  fresh = pengu_cow_list_new(aux->elem_size, (size_t)l->cap);
+  if (!fresh.data)
+    return;
+  aux = pengu_cow_aux_of(l->data);
+  aux->drop_elem = pengu_cow_aux_of(fresh.data)->drop_elem;
+  if (l->len > 0)
+    memcpy(fresh.data, l->data, (size_t)l->len * l->elem_size);
+  fresh.len = l->len;
+  hdr->rc -= 1;
+  *l = fresh;
+}
+
+void pengu_cow_list_ensure_unique(PenguList *l)
+{
+  pengu_cow_list_make_unique(l);
+}
+
+void pengu_cow_list_drop_elem_hook(PenguList *l, void (*drop_elem)(void *))
+{
+  PenguCowAux *aux;
+  if (!pengu_cow_list_owned(l))
+    return;
+  aux = pengu_cow_aux_of(l->data);
+  aux->drop_elem = drop_elem;
+}
+
+void pengu_cow_list_push(PenguList *l, const void *elem)
+{
+  if (!l || !elem)
+    return;
+  if (!pengu_cow_list_owned(l))
+  {
+    pengu_cow_list_make_unique(l);
+    if (!pengu_cow_list_owned(l))
+      return;
+  }
+  pengu_cow_list_make_unique(l);
+  pengu_cow_list_grow(l, (size_t)l->len + 1);
+  memcpy((char *)l->data + (size_t)l->len * l->elem_size, elem, l->elem_size);
+  l->len += 1;
+}
+
+void *pengu_cow_list_at(PenguList *l, int idx)
+{
+  if (!l || !l->data || idx < 0 || idx >= l->len)
+    return NULL;
+  return (char *)l->data + (size_t)idx * l->elem_size;
+}
+
+void *pengu_cow_list_at_mut(PenguList *l, int idx)
+{
+  pengu_cow_list_make_unique(l);
+  return pengu_cow_list_at(l, idx);
+}
+
+int32_t pengu_cow_list_ref_count(PenguList *l)
+{
+  if (!pengu_cow_list_owned(l))
+    return 1;
+  return pengu_cow_hdr_of(l->data)->rc;
+}
+
+bool pengu_cow_list_is_shared(PenguList *l)
+{
+  return pengu_cow_list_ref_count(l) > 1;
+}
+
+/* ---- mapas ------------------------------------------------------------ */
+
+static PenguMapState *pengu_cow_state_of(PenguMap *m)
+{
+  return (PenguMapState *)m->state;
+}
+
+bool pengu_cow_map_owned(PenguMap *m)
+{
+  if (!m || !m->state)
+    return false;
+  return pengu_cow_state_of(m)->magic == PENGU_COW_MAP_MAGIC;
+}
+
+PenguMap pengu_cow_map_new(size_t key_size, size_t val_size)
+{
+  PenguMap m = pengu_map_new(key_size, val_size);
+  if (m.state)
+  {
+    PenguMapState *st = pengu_cow_state_of(&m);
+    st->magic = PENGU_COW_MAP_MAGIC;
+    st->rc = 1;
+    st->drop_key = NULL;
+    st->drop_val = NULL;
+  }
+  return m;
+}
+
+void pengu_cow_map_set_drop(void *m, void (*drop_key)(void *), void (*drop_val)(void *))
+{
+  PenguMapState *st;
+  if (!m)
+    return;
+  st = pengu_cow_state_of((PenguMap *)m);
+  if (!st || st->magic != PENGU_COW_MAP_MAGIC)
+    return;
+  st->drop_key = drop_key;
+  st->drop_val = drop_val;
+}
+
+void pengu_cow_map_share(PenguMap *m)
+{
+  if (!pengu_cow_map_owned(m))
+    return;
+  pengu_cow_state_of(m)->rc += 1;
+}
+
+void pengu_cow_map_make_unique(PenguMap *m)
+{
+  PenguMapState *st;
+  PenguMap fresh;
+  PenguMapIter it;
+  if (!pengu_cow_map_owned(m))
+    return;
+  st = pengu_cow_state_of(m);
+  if (st->rc <= 1)
+    return;
+  fresh = pengu_map_new(st->key_size, st->val_size);
+  if (!fresh.state)
+    return;
+  {
+    PenguMapState *fs = pengu_cow_state_of(&fresh);
+    fs->magic = PENGU_COW_MAP_MAGIC;
+    fs->rc = 1;
+    fs->drop_key = st->drop_key;
+    fs->drop_val = st->drop_val;
+  }
+  it = pengu_map_iter_begin(m);
+  while (pengu_map_iter_valid(&it))
+  {
+    pengu_map_put(&fresh, pengu_map_iter_key(&it), pengu_map_iter_value(&it));
+    pengu_map_iter_advance(&it);
+  }
+  st->rc -= 1;
+  *m = fresh;
+}
+
+void pengu_cow_map_ensure_unique(PenguMap *m)
+{
+  pengu_cow_map_make_unique(m);
+}
+
+void pengu_cow_map_put(PenguMap *m, const void *key, const void *val)
+{
+  if (!m)
+    return;
+  if (!pengu_cow_map_owned(m))
+  {
+    pengu_cow_map_make_unique(m);
+    if (!pengu_cow_map_owned(m))
+      return;
+  }
+  pengu_cow_map_make_unique(m);
+  pengu_map_put(m, key, val);
+}
+
+void *pengu_cow_map_get(PenguMap *m, const void *key)
+{
+  if (!m)
+    return NULL;
+  return pengu_map_get(m, key);
+}
+
+int32_t pengu_cow_map_ref_count(PenguMap *m)
+{
+  if (!pengu_cow_map_owned(m))
+    return 1;
+  return pengu_cow_state_of(m)->rc;
+}
+
+bool pengu_cow_map_is_shared(PenguMap *m)
+{
+  return pengu_cow_map_ref_count(m) > 1;
+}
+
+void pengu_cow_map_drop(PenguMap *m)
+{
+  PenguMapState *st;
+  if (!m || !m->state)
+    return;
+  if (!pengu_cow_map_owned(m))
+    return;
+  st = pengu_cow_state_of(m);
+  if (--st->rc > 0)
+  {
+    m->state = NULL;
+    m->len = 0;
+    m->cap = 0;
+    return;
+  }
+  if (st->drop_key || st->drop_val)
+  {
+    PenguMapIter it = pengu_map_iter_begin(m);
+    while (pengu_map_iter_valid(&it))
+    {
+      if (st->drop_key)
+        st->drop_key((void *)pengu_map_iter_key(&it));
+      if (st->drop_val)
+        st->drop_val((void *)pengu_map_iter_value(&it));
+      pengu_map_iter_advance(&it);
+    }
+  }
+  pengu_cc_map_banish(m);
 }
