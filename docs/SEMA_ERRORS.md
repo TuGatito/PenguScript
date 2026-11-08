@@ -56,7 +56,7 @@ en una fase del plan, o se elimina de la documentación.
 | `E0044` | `CODE_JUDGE_EXHAUSTIVE` | 1 | emitido | sí |
 | `E0047` | `CODE_PRIMITIVE_METHOD` | 1 | emitido | sí |
 | `E0049` | `CODE_CONCEPT_OPERATOR` | 2 | emitido | sí |
-| `E0050` | `CODE_INFINITE_SIZE` | 0 | **sin emisor** | sí |
+| `E0050` | `CODE_INFINITE_SIZE` | 1 | emitido | sí |
 | `E0051` | `CODE_DANGLING` | 1 | emitido | sí |
 | `E0052` | `CODE_CONCEPT_DUP` | 0 | **sin emisor** | sí |
 | `E0053` | `CODE_CHAIN` | 8 | emitido | sí |

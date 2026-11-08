@@ -16,6 +16,7 @@ import psc.sema.state as state
 import psc.sema.check.body as checker
 import psc.sema.check.collect as collect
 import psc.sema.check.json as jsongen
+import psc.sema.check.size as sizer
 
 import std.archivum
 import std.compass
@@ -56,6 +57,7 @@ weave check_file with path as string, options as sopts.SemaOptions into SemaResu
     set p->root is root
     calling program.create_module_scopes with p
     calling collect_all with p
+    calling sizer.check_all_sizes with p
     calling jsongen.check_all_json with p
     calling check_bodies with p
     return with ok is (p->diagnostics.error_count == 0), program is p
@@ -245,6 +247,7 @@ weave check_text with path as string, text as string, options as sopts.SemaOptio
     calling program.discover_imports_of with p, m, 0, (sigil of visiting), 0
     calling program.create_module_scopes with p
     calling collect_all with p
+    calling sizer.check_all_sizes with p
     calling check_bodies with p
     return with ok is (p->diagnostics.error_count == 0), program is p
 

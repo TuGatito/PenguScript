@@ -1307,7 +1307,9 @@ rune Node cyclus:
 
 By-value recursion is infinite and rejected (`E0050`). `cyclus` marks the
 declaration as intentionally recursive; the cycle must still be broken by
-indirection (`ref to`, `list`, `map`, `slice`).
+indirection (`ref to`, `list`, `map`, `slice`). The same rule covers composition
+with `fundere`: `rune A fundere B:` where `B` contains `A` by value is `E0050`
+too, and the diagnostic shows the whole chain (`A -> B -> A`).
 
 A *generic* self-reference (`rune Node shard T:` with `ref to Node of T` inside)
 is rejected with `E0021` in 0.28.0: the type parameter is not in scope inside

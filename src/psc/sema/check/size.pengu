@@ -1,0 +1,225 @@
+## psc/sema/check/size.pengu — tipos de tamaño finito (E0050).
+##
+## Un rune (o echo) no puede contenerse a sí mismo por valor: el `struct` de C
+## saldría con tamaño infinito. El chequeo recorre el grafo de "contiene por
+## valor" y, cuando encuentra un ciclo, lo reporta con la cadena completa
+## (`A -> B -> A`).
+##
+## Cubre las dos formas de crear un ciclo:
+##
+## - `fundere`: `rune A fundere A:` o `rune A fundere B:` + `rune B fundere A:`.
+## - `cyclus` con un campo del propio tipo: `rune Node cyclus: next as Node`.
+##
+## La indirección rompe el ciclo: `ref to T`, `frozen ref to T`, `list of T`,
+## `map of K to V`, `slice of T`, `many T` y los handles de `std.consortium`
+## (`Rc`/`Arc`/`Weak`, que guardan un `ref` por dentro) no cuentan como
+## contención por valor.
+##
+## ## Memoria
+## Presta el programa; crea `SemaState` por módulo al diagnosticar.
+
+insignia sema_size_
+
+import std.builder
+
+import psc.sema.ast as astutil
+import psc.sema.diagnostics as sdiag
+import psc.sema.modules.loader as loader
+import psc.sema.modules.program as program
+import psc.sema.names as npool
+import psc.sema.state as state
+import psc.sema.types.kind as tk
+import psc.sema.types.table as types
+
+## Color de un tipo en el DFS de tamaños.
+const SIZE_UNVISITED as int is 0
+const SIZE_ACTIVE as int is 1
+const SIZE_DONE as int is 2
+
+## Tope de profundidad; un ciclo real se detecta mucho antes.
+const SIZE_MAX_DEPTH as int is 96
+
+# ---------------------------------------------------------------------------
+# API del pass
+# ---------------------------------------------------------------------------
+
+## Comprueba que ningún tipo nominal tenga tamaño infinito.
+##
+## ## Memoria
+## Presta el programa; libera las listas temporales al terminar.
+weave check_all_sizes with p as ref to program.SemaProgram into void:
+    var n as int is calling types.type_count with (sigil of p->types)
+    if n <= 1:
+        return
+    var color as list of int is list of int
+    var i as int is 0
+    while i < n:
+        calling color.push with SIZE_UNVISITED
+        set i is i + 1
+    var chain as list of int is list of int
+    set i is 1
+    while i < n:
+        var t as tk.SemaType is calling types.at with (sigil of p->types), i
+        if (t.kind == tk.SemaTypeKind.TkRune or t.kind == tk.SemaTypeKind.TkEcho) and (color at i) == SIZE_UNVISITED:
+            var ignored as bool is calling size_walk with p, (sigil of color), (sigil of chain), i, 0
+        set i is i + 1
+    banish chain
+    banish color
+
+# ---------------------------------------------------------------------------
+# Recorrido
+# ---------------------------------------------------------------------------
+
+## ¿Este tipo contiene sus hijos por valor?
+##
+## ## Memoria
+## Compara variantes; no asigna.
+weave contains_by_value with t as tk.SemaType into bool:
+    if t.kind == tk.SemaTypeKind.TkBase:
+        return false
+    if t.kind == tk.SemaTypeKind.TkRef or t.kind == tk.SemaTypeKind.TkFrozen:
+        return false
+    if t.kind == tk.SemaTypeKind.TkSlice or t.kind == tk.SemaTypeKind.TkMany:
+        return false
+    if t.kind == tk.SemaTypeKind.TkList or t.kind == tk.SemaTypeKind.TkMap:
+        return false
+    if t.kind == tk.SemaTypeKind.TkRange or t.kind == tk.SemaTypeKind.TkFn:
+        return false
+    if t.kind == tk.SemaTypeKind.TkOpaque or t.kind == tk.SemaTypeKind.TkAny:
+        return false
+    if t.kind == tk.SemaTypeKind.TkTypeParam:
+        return false
+    if t.kind == tk.SemaTypeKind.TkNull or t.kind == tk.SemaTypeKind.TkVoid:
+        return false
+    if t.kind == tk.SemaTypeKind.TkError:
+        return false
+    return true
+
+## Recorre un tipo y devuelve `true` si encuentra un ciclo.
+##
+## `chain` lleva la pila de nominales abiertos, en orden.
+##
+## ## Memoria
+## Presta `color`/`chain`; no asigna.
+weave size_walk with p as ref to program.SemaProgram, color as ref to list of int, chain as ref to list of int, ty as int, depth as int into bool:
+    if ty <= 0 or depth > SIZE_MAX_DEPTH:
+        return false
+    if not (calling types.valid with (sigil of p->types), ty):
+        return false
+    var t as tk.SemaType is calling types.at with (sigil of p->types), ty
+    if t.kind == tk.SemaTypeKind.TkAlias or t.kind == tk.SemaTypeKind.TkSeal:
+        return calling size_walk with p, color, chain, t.b, depth + 1
+    if not (calling contains_by_value with t):
+        return false
+    if t.kind == tk.SemaTypeKind.TkRune or t.kind == tk.SemaTypeKind.TkEcho or t.kind == tk.SemaTypeKind.TkOmen:
+        if (color at ty) == SIZE_ACTIVE:
+            calling report_size_cycle with p, chain, ty
+            return true
+        if (color at ty) == SIZE_DONE:
+            return false
+        set color at ty is SIZE_ACTIVE
+        calling chain->push with ty
+        var found as bool is calling size_walk_children with p, color, chain, t, depth
+        set color at ty is SIZE_DONE
+        var ignored as int is calling chain->pop
+        return found
+    if t.kind == tk.SemaTypeKind.TkArray:
+        return calling size_walk with p, color, chain, t.a, depth + 1
+    if t.kind == tk.SemaTypeKind.TkMaybe or t.kind == tk.SemaTypeKind.TkResult:
+        if calling size_walk with p, color, chain, t.a, depth + 1:
+            return true
+        return calling size_walk with p, color, chain, t.b, depth + 1
+    if t.kind == tk.SemaTypeKind.TkTuple:
+        var i as int is 0
+        var n as int is t.count
+        while i < n:
+            var c as int is calling types.type_child_at with (sigil of p->types), ty, i
+            if calling size_walk with p, color, chain, c, depth + 1:
+                return true
+            set i is i + 1
+    return false
+
+## Recorre los campos (o el payload de cada variante) de un nominal.
+##
+## ## Memoria
+## Presta `color`/`chain`; no asigna.
+weave size_walk_children with p as ref to program.SemaProgram, color as ref to list of int, chain as ref to list of int, t as tk.SemaType, depth as int into bool:
+    var info as types.SemaNominalInfo is (p->types.nominal_infos at t.a)
+    if t.kind == tk.SemaTypeKind.TkOmen:
+        var vi as int is 0
+        while vi < info.variants_count:
+            var v as types.SemaVariant is (p->types.variants at (info.variants_first + vi))
+            var pj as int is 0
+            while pj < v.payload_count:
+                var pf as types.SemaField is (p->types.fields at (v.payload_first + pj))
+                if calling size_walk with p, color, chain, pf.type, depth + 1:
+                    return true
+                set pj is pj + 1
+            set vi is vi + 1
+        return false
+    var fi as int is 0
+    while fi < info.fields_count:
+        var f as types.SemaField is (p->types.fields at (info.fields_first + fi))
+        if calling size_walk with p, color, chain, f.type, depth + 1:
+            return true
+        set fi is fi + 1
+    return false
+
+# ---------------------------------------------------------------------------
+# Diagnóstico
+# ---------------------------------------------------------------------------
+
+## Reporta el ciclo `A -> B -> A` en la declaración del tipo que lo cierra.
+##
+## ## Memoria
+## Crea un `SemaState` por módulo y strings owned; los libera.
+weave report_size_cycle with p as ref to program.SemaProgram, chain as ref to list of int, back as int into void:
+    var bt as tk.SemaType is calling types.at with (sigil of p->types), back
+    if bt.a < 0 or bt.a >= p->types.nominal_infos.len:
+        return
+    var info as types.SemaNominalInfo is (p->types.nominal_infos at bt.a)
+    if info.module < 0 or info.module >= p->modules.len or info.decl_node < 0:
+        return
+    var start as int is 0
+    var i as int is 0
+    while i < chain->len:
+        if (chain at i) == back:
+            set start is i
+            set i is chain->len
+        else:
+            set i is i + 1
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var j as int is start
+    while j < chain->len:
+        var ct as tk.SemaType is calling types.at with (sigil of p->types), (chain at j)
+        var cn as string is calling npool.text with (sigil of p->names), ct.name
+        calling sb.append with cn
+        calling sb.append with " -> "
+        set j is j + 1
+    var bn as string is calling npool.text with (sigil of p->names), bt.name
+    calling sb.append with bn
+    var chaintext as string is calling sb.finish
+    defer banish chaintext
+    var m as loader.SemaModule is (p->modules at info.module)
+    var st as state.SemaState is with program is p, module is (sigil of m), src is (sigil of m.source), lex is (sigil of m.lex), ast is (sigil of m.parse.ast), types is (sigil of p->types), symbols is (sigil of p->symbols), names is (sigil of p->names), bag is (sigil of p->diagnostics), opts is (sigil of p->options), annotations is (sigil of m.annotations), hooks is (calling state.default_hooks), errors is 0, max_errors is p->options.max_errors, stop_after_first is p->options.stop_after_first, stop is false, allow_mutating is false
+    var msg as StringBuilder is calling StringBuilder.new
+    defer banish msg
+    calling msg.append with "type '"
+    calling msg.append with bn
+    calling msg.append with "' has infinite size: "
+    calling msg.append with chaintext
+    var mtext as string is calling msg.finish
+    defer banish mtext
+    var help as StringBuilder is calling StringBuilder.new
+    defer banish help
+    calling help.append with "Break the cycle with 'ref to "
+    calling help.append with bn
+    calling help.append with "', 'list of "
+    calling help.append with bn
+    calling help.append with "', or an 'Rc'/'Arc' handle; a rune cannot contain itself by value."
+    var htext as string is calling help.finish
+    defer banish htext
+    var start_off as int is calling astutil.start_of with (sigil of m.parse.ast), info.decl_node
+    var end_off as int is calling astutil.end_of with (sigil of m.parse.ast), info.decl_node
+    calling sdiag.node_error with st.bag, st.src, sdiag.CODE_INFINITE_SIZE, start_off, end_off, mtext, htext, ""

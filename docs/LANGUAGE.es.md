@@ -1315,7 +1315,9 @@ rune Node cyclus:
 
 La recursión por valor es infinita y se rechaza (`E0050`). `cyclus` marca la
 declaración como intencionadamente recursiva; el ciclo debe romperse igualmente
-con indirección (`ref to`, `list`, `map`, `slice`).
+con indirección (`ref to`, `list`, `map`, `slice`). La misma regla cubre la
+composición con `fundere`: `rune A fundere B:` donde `B` contiene `A` por valor
+también es `E0050`, y el diagnóstico muestra la cadena completa (`A -> B -> A`).
 
 Una autorreferencia *genérica* (`rune Node shard T:` con `ref to Node of T`
 dentro) se rechaza con `E0021` en 0.28.0: el parámetro de tipo no está en scope
