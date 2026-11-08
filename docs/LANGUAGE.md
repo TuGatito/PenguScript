@@ -1,7 +1,7 @@
 # PenguScript Language Reference
 
 PenguScript is a small, statically typed language that compiles to C. This
-reference documents the language as implemented by `psc` 0.52.0: every
+reference documents the language as implemented by `psc` 0.53.0: every
 construct, its semantics, and the C it lowers to.
 
 It is the *language* document of the documentation set:
@@ -146,7 +146,7 @@ own section (generics, memory, interop).
 * The keyword lists, type mappings and diagnostic codes are exhaustive; the
   prose is not — [PENGUNIC.md](PENGUNIC.md) covers *how to use* the language and
   [STDLIB.md](STDLIB.md) covers the standard library.
-* Version: `psc` 0.52.0. The ABI version the generated C expects is 3.
+* Version: `psc` 0.53.0. The ABI version the generated C expects is 3.
 
 ## 1. Lexical structure
 
@@ -1572,6 +1572,180 @@ allowed (`E0014`); `if`, `var`, `defer` and `banish` are rejected. Mutability
 follows the binding: `let p with:` builds once and freezes the name; `with
 let_ptr:` where `let_ptr as ref to T` stays mutable because the pointee is.
 
+### 9.9 `fundere` — composition
+
+`fundere` declares that a rune *composes* another rune: the embedded rune is
+stored inline as the first field, and its fields and methods are reachable
+through the host without writing the path. It is struct embedding, not
+inheritance.
+
+```pengu-fragment
+rune Enemy fundere GameObj, Physics:
+    health as int
+```
+
+What it is **not**: there is no subtyping (`ref to Enemy` is not a
+`ref to GameObj`, `E0005`), no vtable and no dynamic dispatch, no implicit
+interface inheritance, and no implicit constructor (`Enemy.new` never calls
+`GameObj.new`).
+
+#### 9.9.1 Syntax
+
+```pengu-fragment
+rune Enemy fundere GameObj:                       # field `gameObj`
+rune Enemy fundere GameObj, Physics:              # two embeds
+rune Enemy fundere GameObj as base, Physics:      # named field
+rune Player fundere GameObj, Inventory of Item as inv:
+```
+
+`fundere` is a hard keyword. It goes after the rune name (and an optional
+`cyclus`) and before `shard`, `where` and `derive`; `rune X shard T fundere Y`
+is `E0000` with a help that shows the right order. Embeds are separated by `,`
+or `and`.
+
+The field name defaults to the type name with a lowercased first letter
+(`GameObj` → `gameObj`, `Position3D` → `position3D`, `Box of int` → `box`).
+`as` is required (`E0089`) when the default name would collide with another
+field or embed, or when the type has more than one type argument
+(`Box of K and V`).
+
+#### 9.9.2 Fields
+
+```pengu
+rune GameObj:
+    position as Vec2
+    bounds as Rect
+
+rune Enemy fundere GameObj:
+    health as int
+```
+
+`e.position` and `e.gameObj.position` are the same place:
+
+```c
+typedef struct { Vec2 position; Rect bounds; } GameObj;
+typedef struct { GameObj gameObj; int32_t health; } Enemy;
+
+e.gameObj.position.x = 10;   /* both spellings compile to this */
+```
+
+Resolution for `expr.field`, where `expr` has type `Host`:
+
+1. A field declared by `Host` wins.
+2. If exactly one embed (recursively) declares it, it is promoted.
+3. If more than one does, `E0087`; write the explicit path (`host.a.field`).
+4. Otherwise `E0004`, as before.
+
+A host field may shadow a promoted field on purpose: `e.speed` is the host's
+`speed` and `e.gameObj.speed` is still the embed's. `--lint=shadow` reports it
+as `W0009`; it never blocks a build.
+
+#### 9.9.3 Methods
+
+Methods of the embed are promoted with the same rules: the host's own
+`enchanting` wins, a unique embed wins, two embeds give `E0088`. Promotion is
+recursive (`A fundere B` and `B fundere C` gives `A` the methods of `C`).
+
+```pengu
+enchanting GameObj:
+    weave move with dx as float into void:
+        set self->position.x is self->position.x + dx
+
+calling enemy.move with 1.0      # GameObj_move(&enemy.gameObj, 1.0)
+```
+
+`self` inside `move` is `ref to GameObj` pointing at `&enemy.gameObj`: the
+embed cannot see the host.
+
+* `ritual` methods are **not** promoted (`E0004`, with a help that says to call
+  them on the embed's type); a ritual of `GameObj` builds a `GameObj`, not an
+  `Enemy`. Declare your own ritual on the host instead.
+* `@mutates` methods are promoted and mutate the embed's field:
+
+```c
+enemy.gameObj = GameObj_moved(&enemy.gameObj, 1.0);
+```
+
+#### 9.9.4 Construction
+
+Both forms build the same value. The promoted form routes each field to its
+embed:
+
+```pengu
+var e as Enemy is with
+    position is (with x is 0.0, y is 0.0),
+    bounds is (with w is 32, h is 32),
+    health is 100
+
+var f as Enemy is with
+    gameObj is (with position is (with x is 0.0, y is 0.0), bounds is (with w is 32, h is 32)),
+    health is 100
+```
+
+```c
+Enemy e = (Enemy){ .gameObj = (GameObj){ .position = (Vec2){ .x = 0.0, .y = 0.0 }, .bounds = (Rect){ .w = 32, .h = 32 } }, .health = 100 };
+```
+
+A promoted field that exists in more than one embed is `E0087`; mixing the
+whole embed and its promoted fields in the same initializer is also `E0087`
+(the two would be written twice in C). Inside `with host:` a leading dot
+resolves through promotion too: `set .position.x is 10` writes
+`host.gameObj.position.x`.
+
+#### 9.9.5 Memory
+
+`fundere` changes what cleanups exist, never how values move:
+
+* If **any** embed is `Drop`, the host is `Drop`: move-only, with a composed
+  `_pengu_cleanup_<Host>` that calls the embed's cleanup. Copying it is `E0080`.
+* If an embed is `Nexus` but not `Drop`, the host gets the cleanup helper and the
+  `Nexus` concept (so `banish` is allowed) but is **not** `Drop`.
+* If nothing needs cleanup, the host stays trivial and `Copy`.
+
+The cleanup runs the host's own fields in reverse declaration order and then
+the embeds in reverse `fundere` order:
+
+```c
+static inline void _pengu_cleanup_Enemy(Enemy* p) {
+    pengu_banish_string(&(p->notes));
+    _pengu_cleanup_Physics(&(p->physics));
+    _pengu_cleanup_GameObj(&(p->gameObj));
+    memset(p, 0, sizeof(*p));
+}
+```
+
+`Rc`, `Arc`, `Weak`, `Rc`-like handles, `string`, `list` and `map` inside an
+embed are handled by the same rules as always: the embed is just a field.
+
+#### 9.9.6 Layout, generics and size
+
+The C struct stores the embeds first, in `fundere` order, then the host's own
+fields in declaration order. `@packed` and `@align(N)` on the host apply to the
+host struct; each embed keeps its own layout.
+
+Embeds may be generic: `rune Enemy fundere Box of T shard T:`. The field is
+`box: Box of T`, and the fields of `Box` are promoted per instantiation.
+
+`fundere` never creates a value of infinite size: `rune A fundere A`,
+`A fundere B` with `B fundere A`, or an embed that contains the host by value
+is `E0050` (the same check `cyclus` uses), with the cycle printed as
+`A -> B -> A`. A `ref to`, a `list` or an `Rc`/`Arc` breaks the cycle.
+
+#### 9.9.7 Diagnostics
+
+| Code | Meaning |
+| --- | --- |
+| `E0085` | `fundere` type is not a `rune` (echo, omen, seal, opaque, base type) |
+| `E0087` | a promoted field is ambiguous between two embeds |
+| `E0088` | a promoted method is ambiguous between two embeds |
+| `E0089` | the embed has no implicit field name, or two embeds share a name |
+| `E0050` | the composition has infinite size |
+| `W0009` | a host field shadows a promoted field (`--lint=shadow`) |
+
+Language servers see promoted members: hover shows the field and its declaring
+embed, completion lists own and promoted members together, and go-to-definition
+on `enemy.position` jumps to `GameObj.position`.
+
 ## 10. Methods and concepts
 
 ### 10.1 `enchanting` — methods on a type
@@ -2081,6 +2255,11 @@ cleanup zeroes the value: `banish a` followed by the automatic drop frees once.
 A `Drop` type may not be generic, and its fields may not be `maybe`/`result`
 (the deep clone cannot copy those boxes yet); both are `E0005` with a message
 that says what to do instead.
+
+`derive Drop` also composes through `fundere`: if any embedded rune is `Drop`,
+the host becomes `Drop` automatically (it cannot opt out — copying it would
+free the embed twice) and its cleanup runs the host's fields and then the
+embeds, in reverse order. See §9.9.5.
 
 ### 13.10 Move by default
 
@@ -2818,9 +2997,11 @@ directive      = "include" string | "link" string | "ldflag" string
 
 import_decl    = "import" dotted [ "as" ident ] ;
 const_decl     = "const" ident [ "as" type ] "is" expr ;
-rune_decl      = "rune" ident [ "cyclus" ] [ "shard" ident { "," ident } ]
-                 [ "where" bounds ] [ "derive" ident { "," ident } ] ":"
-                 { field } ;
+rune_decl      = "rune" ident [ "cyclus" ] [ "fundere" embed_list ]
+                 [ "shard" ident { "," ident } ] [ "where" bounds ]
+                 [ "derive" ident { "," ident } ] ":" { field } ;
+embed_list     = embed { ( "," | "and" ) embed } ;
+embed          = type [ "as" ident ] ;
 field          = ident "as" type ;
 echo_decl      = "echo" ident ":" { field } ;
 omen_decl      = "omen" ident [ "with" "string" ] ":"

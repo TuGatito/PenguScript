@@ -1,7 +1,7 @@
 # The Pengunic Manual
 
 How to write PenguScript that is safe, idiomatic and fast: the engineering
-manual for the language implemented by `psc` 0.52.0.
+manual for the language implemented by `psc` 0.53.0.
 
 It is the *practice* document of the documentation set:
 
@@ -331,7 +331,7 @@ binary. From a checkout:
 $ bash tools/build_bootstrap.sh     # builds build/psc-stage0 from the C bundle
 $ ./build/psc-stage0 build .        # self-hosts build/psc
 $ ./build/psc --version
-psc 0.52.0 (F13)
+psc 0.53.0 (F13)
 ```
 
 `build/psc` is the compiler you use from then on. `psc doctor` reports what it
@@ -1026,6 +1026,52 @@ A rune needs `as T` to be destructured: the compiler must know the field order.
 When a call returns several values, bind them in one step instead of keeping an
 anonymous tuple around.
 
+### 7.13 Compose with `fundere`, do not imitate inheritance
+
+`fundere` is for "this value *has* that value, and reaching into it is noise".
+It is not a way to build a type hierarchy: the host is not a subtype of the
+embed, and nothing dispatches.
+
+```pengu-fragment
+rune GameObj:
+    position as Vec2
+    bounds as Rect
+
+rune Enemy fundere GameObj:
+    health as int
+```
+
+Use it when all of these hold:
+
+* the host genuinely owns one embed of that type (one `GameObj`, one `Physics`);
+* the embed is a stable part of the host's layout, not a pointer to a shared one;
+* you want `enemy.position` because the embed has no identity of its own.
+
+Write the field explicitly when any of these holds:
+
+* you need to pass the embed to C (`sigil of e.gameObj` is still how you do it,
+  but a named field makes the boundary obvious);
+* the host has several embeds of the same type — name them (`as left`, `as right`);
+* the relationship is "can do", not "is made of". That is a `concept` and an
+  explicit `bind`, never a `fundere`;
+* the embed would be a pointer/view. `fundere` stores the value inline.
+
+Two traps:
+
+* **Shadowing as a design.** If a host field shadows a promoted field, the host
+  wins silently. It is legal and occasionally right (narrowing a type), but
+  `--lint=shadow` exists because it is usually a rename waiting to happen.
+* **Inheritance in disguise.** `rune Dog fundere Animal` reads like `Dog is an
+  Animal`, and it is not: `ref to Dog` cannot be passed where `ref to Animal` is
+  expected, `Animal`'s rituals are not inherited, and `Animal`'s concepts are not
+  inherited either. If you want substitutability, define a `concept` and `bind`
+  both types.
+
+`fundere` propagates exactly two things, because memory demands it: `Drop` and
+`Nexus`. A host with a `Drop` embed is `Drop` (move-only, composed destructor),
+and a host with a `Nexus` embed can `banish`. Everything else is written on the
+host on purpose.
+
 ## 8. Anti-patterns
 
 Each row is a real mistake seen in this codebase or in code ported from C. The
@@ -1040,6 +1086,7 @@ expanded examples after the table show the four most expensive ones.
 | `var r is 0` + `if`/`else` | `if cond then a else b` | one assignment |
 | `x.foo` to call | `calling x.foo` | invocation is always explicit |
 | `self.hp` | `self->hp` | `self` is a reference (`E0003`) |
+| `rune Dog fundere Animal` to model "is-a" | `concept` + `bind`, or a named field | `fundere` is composition: no subtyping, no inherited methods |
 | `bool` success + out-param | `result of T to E` | the failure carries a cause |
 | `panic` for user input | `maybe`/`result` | panic is for bugs |
 | `return maybe none` to signal an error | `result` with a named error | absence is not a cause |
@@ -3553,7 +3600,7 @@ truncates, and `transmute`, which reinterprets bits.
 **Are there threads and coroutines?**
 Yes. 0.30.0 added first-class threads (`filum.start`, `join`, `detach`, `free`),
 0.31.0 added `std.coro` (explicit stackful coroutines with `resume` and `yield`
-on the same thread) and 0.52.0 adds `std.reactor`: an explicit `EventLoop` that
+on the same thread) and 0.53.0 adds `std.reactor`: an explicit `EventLoop` that
 calls `epoll_wait`/`poll` and resumes tasks. There is no `async`/`await` keyword
 and no hidden scheduler: you create the loop, `spawn` and call `run`. The stdlib
 `*_async` variants are functions that suspend the current coroutine and only

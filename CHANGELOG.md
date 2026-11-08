@@ -2,6 +2,71 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.53.0] — 2026-11-08 — Composición con `fundere`
+
+### Añadido
+
+- **`fundere`**: cláusula de `rune` que compone otras runas sin herencia. El
+  embed se guarda inline como primer campo (en orden de `fundere`) y sus campos
+  y métodos se promueven: `e.position` es `e.gameObj.position`, y
+  `calling e.move` es `GameObj_move(&e.gameObj)`. Keyword dura, varios embeds
+  separados por `,` o `and`, nombre implícito `lowercase-first` y `as` para
+  nombrarlos. Sin vtable, sin subtipado y sin dispatch dinámico.
+- Promoción de campos y métodos **recursiva** (`A fundere B`, `B fundere C`),
+  con el campo/método propio ganando siempre. Los `ritual` no se promueven; los
+  `@mutates` sí y mutan el campo del embed.
+- Construcción promovida: `with position is (…), health is 100` se agrupa en
+  `.gameObj = (GameObj){…}` (el AST no se muta; agrupa el codegen). Forma
+  explícita y promovida producen el mismo C.
+- **Memoria compuesta**: si un embed es `Drop`, el host es `Drop` (move-only,
+  `_pengu_cleanup_Host` recursivo); si es `Nexus`, el host recibe el helper y el
+  concepto `Nexus` pero sigue copiable. Solo se propagan `Drop` y `Nexus`;
+  `Par`, `Ordo`, `Vinculum`, `Imago` y `Json` se escriben en el host.
+- Diagnósticos `E0085` (no es una runa), `E0087` (campo ambiguo), `E0088`
+  (método ambiguo), `E0089` (sin nombre implícito o nombre repetido) y el
+  aviso opcional `W0009` (`--lint=shadow`, campo del host tapando uno promovido).
+- **`E0050` (tamaño infinito) implementado** para `fundere` y para `cyclus`:
+  auto-embed, composición mutua o un embed que contiene al host por valor,
+  con la cadena `A -> B -> A` en el mensaje. `ref to`, `list` y `Rc`/`Arc`
+  rompen el ciclo. `docs/LANGUAGE` §9.2 decía que ya se comprobaba; ahora es
+  cierto.
+- LSP: hover de campos y métodos promovidos (con la nota «promoted»),
+  completado que mezcla propios y promovidos, e ir a la definición de un campo
+  (promovido o propio) saltando a la runa que lo declara.
+- VS Code: `fundere` en la gramática y snippet `rune-fundere`.
+- Tests: `g34`–`g40`, `tests/pengu/fundere_*.pengu`, `mutates_generic.pengu`,
+  `interp_values.pengu`, 8 `regress_fundere_*.sh`, `regress_cyclus_infinite.sh`,
+  `tests/leaks/l17`–`l18` y el fixture de LSP `tests/lsp/fixtures/fundere/`.
+- Docs: `LANGUAGE` §9.9 (EN/ES), referencias en §9.7 y §13.9, Apéndice C;
+  `PENGUNIC` §7.13 y una fila nueva en la tabla de anti-patrones.
+
+### Cambiado
+
+- `_pengu_cleanup_<T>` recorre ahora los campos en **orden inverso** de
+  declaración (como `defer` y como C++). Ningún golden existente cambió: ninguno
+  tenía dos campos con limpieza, que es justo el caso donde el orden se nota.
+- La interpolación de un valor no escalar usa `const char*` en la llamada a
+  `pengu_string_format` en vez de la struct `PenguString`; antes, imprimir un
+  campo de tipo runa corrompía el siguiente `{…}` de la misma cadena.
+
+### Arreglado
+
+- Campos inexistentes: `a.nope` ahora es `E0004` en el chequeo semántico (antes
+  solo fallaba al compilar el C generado).
+- `with` y accesos encadenados: `set .inner.y is 2` ya infiere el tipo del último
+  campo, no el del primero (`E0005` espurio).
+- `E0087` se emitía dos veces cuando el nodo se infería desde `return` y desde
+  el escape del local.
+- El cleanup de un `omen` emitía `_pengu_rc_drop_<T>` dos veces.
+- `cg_field_type` no resolvía campos detrás de un `ref`, así que el compilador
+  dejó de auto-compilarse con el primer cambio de `fundere`.
+- `@mutates` que devuelve el propio tipo genérico (`Box of T`) daba `E0067`; y
+  `@mutates` promovido sobre un embed genérico generaba el nombre del template
+  en vez de la especialización (`Box_doubled` en vez de
+  `Box_doubled_instN`).
+- `grouped_init_body` nombraba `Box of T` sin sustituir el parámetro y emitía
+  `Box__T` dentro de una función que devuelve `Box__int`.
+
 ## [0.52.0] — 2026-11-07 — Gestión de memoria en tres capas
 
 ### Añadido

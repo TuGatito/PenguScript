@@ -1,7 +1,7 @@
 # El Manual Pengunic
 
 Cómo escribir PenguScript seguro, idiomático y rápido: el manual de ingeniería
-del lenguaje que implementa `psc` 0.52.0.
+del lenguaje que implementa `psc` 0.53.0.
 
 Es el documento de *práctica* del conjunto de documentación:
 
@@ -334,7 +334,7 @@ binario `psc`. Desde un checkout:
 $ bash tools/build_bootstrap.sh     # builds build/psc-stage0 from the C bundle
 $ ./build/psc-stage0 build .        # self-hosts build/psc
 $ ./build/psc --version
-psc 0.52.0 (F13)
+psc 0.53.0 (F13)
 ```
 
 A partir de ahí usas `build/psc`. `psc doctor` informa de lo que encontró: el
@@ -1038,6 +1038,52 @@ Una runa necesita `as T` para desestructurarse: el compilador debe conocer el
 orden de los campos. Cuando una llamada devuelve varios valores, lígalos de una
 vez en lugar de guardar una tupla anónima.
 
+### 7.13 Compón con `fundere`, no imites la herencia
+
+`fundere` sirve para "este valor *tiene* aquel valor, y entrar en él es ruido".
+No es una forma de construir una jerarquía: el host no es subtipo del embed y no
+hay dispatch.
+
+```pengu-fragment
+rune GameObj:
+    position as Vec2
+    bounds as Rect
+
+rune Enemy fundere GameObj:
+    health as int
+```
+
+Úsalo cuando se cumplan todas estas:
+
+* el host realmente posee un embed de ese tipo (un `GameObj`, un `Physics`);
+* el embed es parte estable del layout del host, no un puntero a uno compartido;
+* quieres `enemy.position` porque el embed no tiene identidad propia.
+
+Escribe el campo explícito cuando se cumpla alguna de estas:
+
+* necesitas pasar el embed a C (`sigil of e.gameObj` sigue siendo la forma, pero
+  un campo con nombre deja clara la frontera);
+* el host tiene varios embeds del mismo tipo — nómbralos (`as left`, `as right`);
+* la relación es "puede hacer", no "está hecho de". Eso es un `concept` y un
+  `bind` explícito, nunca un `fundere`;
+* el embed sería un puntero o una vista. `fundere` guarda el valor inline.
+
+Dos trampas:
+
+* **El shadowing como diseño.** Si un campo del host tapa un campo promovido,
+  gana el host en silencio. Es legal y a veces correcto (estrechar un tipo), pero
+  `--lint=shadow` existe porque normalmente es un renombrado pendiente.
+* **Herencia disfrazada.** `rune Dog fundere Animal` se lee como `Dog es un
+  Animal`, y no lo es: `ref to Dog` no se puede pasar donde se espera
+  `ref to Animal`, los rituales de `Animal` no se heredan y los conceptos de
+  `Animal` tampoco. Si quieres substituibilidad, define un `concept` y haz
+  `bind` de los dos tipos.
+
+`fundere` propaga exactamente dos cosas, porque la memoria lo exige: `Drop` y
+`Nexus`. Un host con un embed `Drop` es `Drop` (move-only, destructor compuesto)
+y un host con un embed `Nexus` puede `banish`. Todo lo demás se escribe en el
+host a propósito.
+
 ## 8. Anti-patrones
 
 Cada fila es un error real visto en este código o en código portado de C. Los
@@ -1052,6 +1098,7 @@ ejemplos desarrollados tras la tabla muestran los cuatro más caros.
 | `var r is 0` + `if`/`else` | `if cond then a else b` | una asignación |
 | `x.foo` para llamar | `calling x.foo` | la invocación es siempre explícita |
 | `self.hp` | `self->hp` | `self` es una referencia (`E0003`) |
+| `rune Dog fundere Animal` para modelar "es-un" | `concept` + `bind`, o un campo con nombre | `fundere` es composición: sin subtipado ni métodos heredados |
 | `bool` de éxito + parámetro de salida | `result of T to E` | el fallo lleva una causa |
 | `panic` para entrada de usuario | `maybe`/`result` | panic es para bugs |
 | `return maybe none` para señalar un error | `result` con un error con nombre | la ausencia no es una causa |
@@ -3595,7 +3642,7 @@ trunca, y `transmute`, que reinterpreta bits.
 **¿Hay hilos y corrutinas?**
 Sí. 0.30.0 añadió hilos de primera clase (`filum.start`, `join`, `detach`,
 `free`), 0.31.0 añadió `std.coro` (corrutinas stackful explícitas con `resume` y
-`yield`, en el mismo hilo) y 0.52.0 añade `std.reactor`: un `EventLoop` explícito
+`yield`, en el mismo hilo) y 0.53.0 añade `std.reactor`: un `EventLoop` explícito
 que hace `epoll_wait`/`poll` y reanuda las tareas. No hay `async`/`await` como
 palabras clave ni un planificador escondido: tú creas el loop, haces `spawn` y
 llamas `run`. Las variantes `*_async` de la stdlib son funciones que suspenden la
