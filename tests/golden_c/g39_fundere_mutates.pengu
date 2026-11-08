@@ -1,0 +1,29 @@
+## `@mutates` promovido: la mutación se escribe en el campo del embed, no en el
+## host. Vale la forma de sentencia, dentro de `with:` y la forma pura
+## `get_<metodo>`.
+import std.spark
+
+rune Core:
+    n as int
+
+enchanting Core:
+    @mutates
+    weave bumped with dx as int into Core:
+        return with n is self->n + dx
+
+rune Mid fundere Core:
+    mid as int
+
+rune Top fundere Mid:
+    top as int
+
+weave main into int:
+    var t as Top is with mid is (with core is (with n is 1), mid is 2), top is 3
+    calling t.bumped with 10
+    calling spark.println with "{t.top},{t.core.n}"
+    with t:
+        calling .bumped with 100
+    calling spark.println with "{t.core.n}"
+    var copy as Core is calling t.get_bumped with 5
+    calling spark.println with "{copy.n},{t.core.n}"
+    return 0

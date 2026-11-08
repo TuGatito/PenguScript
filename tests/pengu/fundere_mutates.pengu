@@ -1,0 +1,48 @@
+## `@mutates` promovido por `fundere`.
+##
+## El receptor de la mutación es siempre el campo del embed: el embed no sabe
+## que forma parte de un host, así que no puede mutarlo entero.
+rune Core:
+    n as int
+
+enchanting Core:
+    @mutates
+    weave bumped with dx as int into Core:
+        return with n is self->n + dx
+
+rune Mid fundere Core:
+    mid as int
+
+rune Top fundere Mid:
+    top as int
+
+weave main into int:
+    # 1. Forma de sentencia sobre un embed promovido.
+    var t as Top is with mid is (with core is (with n is 1), mid is 2), top is 3
+    calling t.bumped with 10
+    if t.core.n != 11:
+        return 1
+    if t.top != 3:
+        return 2
+    # 2. Promoción recursiva: el receptor es `t.mid.core`.
+    calling t.mid.bumped with 1
+    if t.core.n != 12:
+        return 3
+    # 3. Dentro de `with:` el receptor es el host direccionado.
+    with t:
+        calling .bumped with 100
+    if t.core.n != 112:
+        return 4
+    # 4. Forma pura `get_<metodo>`: no muta el receptor.
+    var copy as Core is calling t.get_bumped with 5
+    if copy.n != 117:
+        return 5
+    if t.core.n != 112:
+        return 6
+    # 5. Un método propio del host gana al promovido.
+    var c as Core is with n is 0
+    var r as Mid is with core is c, mid is 9
+    calling r.bumped with 3
+    if r.core.n != 3:
+        return 7
+    return 0

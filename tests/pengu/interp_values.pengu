@@ -1,0 +1,28 @@
+## Regresión: un valor que la interpolación no sabe formatear no corrompe los
+## `{…}` siguientes del mismo literal.
+##
+## `%s` de `pengu_string_format_ex` lee un `const char*`; emitir ahí un
+## `PenguString` (una struct) desalineaba el varargs y los argumentos
+## posteriores salían con valores falsos.
+rune Inner:
+    n as int
+
+rune Out:
+    inner as Inner
+    top as int
+
+weave main into int:
+    var o as Out is with inner is (with n is 1), top is 3
+    var a as string is "{o.inner},{o.top}"
+    defer banish a
+    if a != ",3":
+        return 1
+    var b as string is "{o.top},{o.inner},{o.top}"
+    defer banish b
+    if b != "3,,3":
+        return 2
+    var c as string is "{o.inner}|{o.inner}"
+    defer banish c
+    if c != "|":
+        return 3
+    return 0

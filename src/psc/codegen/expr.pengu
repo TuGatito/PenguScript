@@ -4432,6 +4432,47 @@ weave method_receiver with c as ref to context.CgContext, target as int, ast as 
                 return calling npool.copy_string with rt.text
     return "&({rt.text})"
 
+## Añade al texto de un receptor el camino del embed que declara el método.
+##
+## Devuelve `base` tal cual cuando el método es propio del receptor; cuando el
+## método viene de un embed promovido por `fundere`, devuelve
+## `base.embed...` (`base->embed...` si `base` es un puntero). Es el punto que
+## comparten el `get_<metodo>` de `@mutates` y la asignación de vuelta.
+##
+## ## Memoria
+## Devuelve string owned.
+weave with_embed_path with c as ref to context.CgContext, base as string, base_ty as int, want as int, isptr as bool into string:
+    var host as int is calling cg_nominal_of with c, base_ty
+    var wty as int is calling cg_nominal_of with c, want
+    if host <= 0 or wty <= 0:
+        return calling npool.copy_string with base
+    var path as list of int is calling cg_embed_path_to with c, host, wty, 0
+    if path.len == 0:
+        banish path
+        return calling npool.copy_string with base
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with base
+    var sep as string is "."
+    if isptr:
+        set sep is "->"
+    var cur as int is host
+    var pi as int is 0
+    while pi < path.len:
+        var ct as tk.SemaType is calling types.at with (sigil of c->program->types), cur
+        var cinfo as types.SemaNominalInfo is (c->program->types.nominal_infos at ct.a)
+        var fld as types.SemaField is (c->program->types.fields at (cinfo.fields_first + (path at pi)))
+        var fname as string is calling npool.text with (sigil of c->program->names), fld.name
+        calling sb.append with sep
+        calling sb.append with fname
+        set sep is "."
+        var nxt as int is calling cg_nominal_of with c, fld.type
+        if nxt > 0:
+            set cur is nxt
+        set pi is pi + 1
+    banish path
+    return calling sb.finish
+
 ## Expande la forma pura `get_<metodo>` de un método `@mutates`.
 ##
 ## El alias semántico lleva `SYM_GET_ALIAS` + `alias_of`; no existe en el
@@ -4520,7 +4561,12 @@ weave get_alias_call with c as ref to context.CgContext, node as int, ast as ref
             set gsi is c->catalog.functions.len
         else:
             set gsi is gsi + 1
-    var ct as string is calling ctype.c_type with (sigil of c->names), recv_ty
+    # La copia temporal es del tipo del receptor del método: cuando el método
+    # viene de un embed promovido, es el embed (no el host).
+    var holder_ty as int is recv_ty
+    if fm.recv_type > 0:
+        set holder_ty is fm.recv_type
+    var ct as string is calling ctype.c_type with (sigil of c->names), holder_ty
     defer banish ct
     var cname as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), fm.c_name)
     defer banish cname
@@ -4546,7 +4592,9 @@ weave get_alias_call with c as ref to context.CgContext, node as int, ast as ref
     calling sb.append with " "
     calling sb.append with tmp
     calling sb.append with " = "
-    calling sb.append with rt.text
+    var fixed as string is calling with_embed_path with c, rt.text, recv_ty, fm.recv_type, (calling receiver_is_pointer with c, rt, fm.self_value)
+    defer banish fixed
+    calling sb.append with fixed
     calling sb.append with "; "
     if not ret_void:
         calling sb.append with tmp
@@ -6069,8 +6117,12 @@ weave append_interp_value with c as ref to context.CgContext, fmt as ref to Stri
             calling fmt.append with "%s"
             calling args.append with (calling sb3.finish)
             return
+    # `%s` de `pengu_string_format_ex` lee un `const char*`, no un
+    # `PenguString` (que es una struct): pasar la struct por varargs desalinea
+    # el argumento siguiente y las interpolaciones posteriores del mismo
+    # literal imprimen valores falsos.
     calling fmt.append with "%s"
-    calling args.append with "pengu_string_from_cstr(\"\")"
+    calling args.append with "\"\""
 
 ## Campo nominal de un tipo por nombre.
 ##
@@ -6295,7 +6347,7 @@ weave interp_expr with c as ref to context.CgContext, node as int, content as st
                 banish ptxt
                 if not used:
                     calling fmt.append with "%s"
-                    calling args.append with "pengu_string_from_cstr(\"\")"
+                    calling args.append with "\"\""
             else:
                 var it as loader.SemaInterp is (m.interps at ii)
                 # Emite con una copia del programa cuyo módulo actual es el
@@ -6318,7 +6370,7 @@ weave interp_expr with c as ref to context.CgContext, node as int, content as st
                 set c->program->modules at midx is oldmod
                 if expr_c == "":
                     calling fmt.append with "%s"
-                    calling args.append with "pengu_string_from_cstr(\"\")"
+                    calling args.append with "\"\""
                 else:
                     calling append_interp_value with c, (sigil of fmt), (sigil of args), expr_c, ty, it.spec
                 banish expr_c

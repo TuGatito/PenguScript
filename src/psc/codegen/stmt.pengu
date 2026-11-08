@@ -607,15 +607,26 @@ weave emit_expr_statement with c as ref to context.CgContext, e2 as int, ast as 
     var m2 as loader.SemaModule is (c->program->modules at c->current_module)
     var asid2 as int is calling ann.symbol_of with (sigil of m2.annotations), e2
     var mutating2 as bool is false
+    var mut_recv as int is -1
     if asid2 >= 0:
         var asv2 as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), asid2
         if (asv2.flags & sym.SYM_MUTATING) != 0 and (asv2.flags & sym.SYM_GET_ALIAS) == 0:
             set mutating2 is true
+            set mut_recv is (calling expr.node_type with c, e2)
     if mutating2:
         var tgt2 as int is calling astutil.node_child with ast, e2, 0
         var rtv as expr.CgTarget is calling expr.resolve_target with c, tgt2, ast, true
         defer banish rtv.text
-        calling emit.line with (sigil of c->emitter), "{rtv.text} = {v2};"
+        # Método promovido: la asignación de vuelta va al campo del embed, no al
+        # host (el embed no sabe que es un embed).
+        var host_ty as int is rtv.type_id
+        if host_ty <= 0:
+            var tbase as int is calling astutil.node_child with ast, tgt2, 0
+            if tbase >= 0:
+                set host_ty is calling expr.node_type with c, tbase
+        var fixed as string is calling expr.with_embed_path with c, rtv.text, host_ty, mut_recv, (calling expr.receiver_is_pointer with c, rtv, false)
+        defer banish fixed
+        calling emit.line with (sigil of c->emitter), "{fixed} = {v2};"
     else:
         calling emit.line with (sigil of c->emitter), "(void)({v2});"
 
