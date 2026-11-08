@@ -932,6 +932,11 @@ field {name}: {fty}
 ```
 
 "
+        var fown as int is calling query.own_field_type_at with p->program, rt, name
+        if fown <= 0:
+            calling sb.append with "Promoted by `fundere` from the embed.
+
+"
         var fsz as int is calling layout.type_size with p->program, ft
         if fsz > 0:
             calling sb.append with "**Size:** ≈ {fsz} bytes
@@ -1082,12 +1087,35 @@ weave handle_definition with st as ref to State, id as rpc.JsonRpcId, params as 
                         set mi is mi + 1
                     banish mids
             banish w
-            if sid < 0:
+            # Definición de un campo (propio o promovido por `fundere`).
+            var field_done as bool is false
+            if sid < 0 and dotm >= 0:
+                var wf as string is calling word_at with text, off
+                if wf length > 0:
+                    var rtf as int is calling query.receiver_type_at with sp->program, mid, text, dotm
+                    if rtf > 0:
+                        var fm as int is -1
+                        var fnode as int is calling query.field_decl_at with sp->program, rtf, wf, (sigil of fm)
+                        if fnode >= 0 and fm >= 0 and fm < sp->program->modules.len:
+                            var fstart as int is calling query.field_name_start with sp->program, fm, fnode, wf
+                            if fstart >= 0:
+                                var fmod as loader.SemaModule is (sp->program->modules at fm)
+                                var furi as string is calling luri.path_to_uri with fmod.canonical_path
+                                var ftext as string is calling copy with fmod.source.text
+                                var floc as JsonValue is calling JsonValue.empty_object
+                                calling floc.put_json with "uri", (calling JsonValue.string_val with (calling copy with furi))
+                                calling floc.put_json with "range", (calling lpos.range_json with ftext, fstart, fstart + (wf length))
+                                banish ftext
+                                banish furi
+                                set res is floc
+                                set field_done is true
+                banish wf
+            if sid < 0 and not field_done:
                 var w2 as string is calling word_at with text, off
                 if w2 length > 0:
                     set sid is calling type_symbol_lookup with sp, mid, text, off, w2
                 banish w2
-            if sid < 0:
+            if sid < 0 and not field_done:
                 set sid is calling query.symbol_at_offset with sp->program, mid, text, off
             if sid >= 0:
                 var si as sym.SemaSymbol is calling query.symbol_at with sp->program, sid
@@ -1502,6 +1530,13 @@ weave add_field_completions with p as ref to sema_api.SemaResult, arr as ref to 
             calling add_completion with arr, seen, nm, 5, ft, "", ""
             banish ft
         set i is i + 1
+    # Campos promovidos por `fundere` (recursivo; `seen` evita duplicados).
+    var ei as int is 0
+    while ei < info.fields_count:
+        var ef as types.SemaField is (p->program->types.fields at (info.fields_first + ei))
+        if (ef.flags & types.FIELD_EMBED) != 0 and ef.type > 0:
+            calling add_field_completions with p, arr, seen, ef.type, prefix
+        set ei is ei + 1
 
 ## Añade las variantes de un `omen`.
 weave add_variant_completions with p as ref to sema_api.SemaResult, arr as ref to JsonValue, seen as ref to map of string to bool, type_id as int, prefix as string into void:

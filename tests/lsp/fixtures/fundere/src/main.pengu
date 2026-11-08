@@ -1,0 +1,26 @@
+## Fixture de LSP para `fundere`: hover, completion y definición sobre campos
+## y métodos promovidos.
+import std.spark
+
+rune Vec2:
+    x as float
+    y as float
+
+rune GameObj:
+    position as Vec2
+    bounds as Vec2
+
+enchanting GameObj:
+    weave move with dx as float, dy as float into void:
+        set self->position.x is self->position.x + dx
+        set self->position.y is self->position.y + dy
+
+rune Enemy fundere GameObj:
+    health as int
+
+weave main into int:
+    var e as Enemy is with position is (with x is 1.0, y is 2.0), bounds is (with x is 3.0, y is 4.0), health is 10
+    set e.position.x is 5.0
+    calling e.move with 1.0, 0.0
+    calling spark.println with "{e.health}"
+    return e.health

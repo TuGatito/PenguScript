@@ -14,6 +14,7 @@ import psc.sema.modules.program as program
 import psc.sema.names as npool
 import psc.sema.symbols.symbol as sym
 import psc.sema.symbols.table as symbols
+import psc.sema.types.embeds as embeds
 import psc.sema.types.kind as tk
 import psc.sema.types.table as types
 import psc.docgen.sig as sig
@@ -351,7 +352,37 @@ weave methods_for_type with p as ref to program.SemaProgram, type_id as int into
                             if tb == rb:
                                 calling out.push with i
         set i is i + 1
+    # Métodos promovidos por `fundere`, recursivo sobre los embeds.
+    var ety as tk.SemaType is calling types.at with (sigil of p->types), type_id
+    if ety.kind == tk.SemaTypeKind.TkRune or ety.kind == tk.SemaTypeKind.TkEcho:
+        if ety.a >= 0 and ety.a < p->types.nominal_infos.len:
+            var einfo as types.SemaNominalInfo is (p->types.nominal_infos at ety.a)
+            var ei as int is 0
+            while ei < einfo.fields_count:
+                var ef as types.SemaField is (p->types.fields at (einfo.fields_first + ei))
+                if (ef.flags & types.FIELD_EMBED) != 0 and ef.type > 0:
+                    var sub as list of int is calling methods_for_type with p, ef.type
+                    var si2 as int is 0
+                    while si2 < sub.len:
+                        var cand as int is (sub at si2)
+                        if not (calling list_has with out, cand):
+                            calling out.push with cand
+                        set si2 is si2 + 1
+                    banish sub
+                set ei is ei + 1
     return out
+
+## `true` si `xs` contiene `v`.
+##
+## ## Memoria
+## No asigna.
+weave list_has with xs as list of int, v as int into bool:
+    var i as int is 0
+    while i < xs.len:
+        if (xs at i) == v:
+            return true
+        set i is i + 1
+    return false
 
 ## Tipo de un campo de `rune`/`echo` (`-1` si no existe).
 weave field_type_at with p as ref to program.SemaProgram, type_id as int, name as string into int:
@@ -369,6 +400,115 @@ weave field_type_at with p as ref to program.SemaProgram, type_id as int, name a
         var fnm as string is calling npool.text with (sigil of p->names), f.name
         if fnm == name:
             return f.type
+        set i is i + 1
+    # Campo promovido por `fundere` (sin diagnóstico: el sema ya emitió E0087).
+    var nid as int is calling npool.intern with (sigil of p->names), name
+    var promoted as int is calling embeds.field_type_at with (sigil of p->types), type_id, nid
+    if promoted > 0:
+        return promoted
+    return -1
+
+## Tipo del campo propio `name` (`-1` si no lo declara el tipo mismo).
+##
+## Sirve para distinguir un campo propio de uno promovido por `fundere`.
+##
+## ## Memoria
+## No asigna.
+weave own_field_type_at with p as ref to program.SemaProgram, type_id as int, name as string into int:
+    if type_id <= 0:
+        return -1
+    var ty as tk.SemaType is calling types.at with (sigil of p->types), type_id
+    var steps as int is 0
+    while steps < 16 and (ty.kind == tk.SemaTypeKind.TkRef or ty.kind == tk.SemaTypeKind.TkFrozen or ty.kind == tk.SemaTypeKind.TkAlias or ty.kind == tk.SemaTypeKind.TkSeal):
+        if ty.kind == tk.SemaTypeKind.TkAlias or ty.kind == tk.SemaTypeKind.TkSeal:
+            if ty.b <= 0:
+                return -1
+            set ty is calling types.at with (sigil of p->types), ty.b
+        else:
+            if ty.a <= 0:
+                return -1
+            set ty is calling types.at with (sigil of p->types), ty.a
+        set steps is steps + 1
+    if (ty.kind != tk.SemaTypeKind.TkRune and ty.kind != tk.SemaTypeKind.TkEcho) or ty.a < 0 or ty.a >= p->types.nominal_infos.len:
+        return -1
+    var info as types.SemaNominalInfo is (p->types.nominal_infos at ty.a)
+    var i as int is 0
+    while i < info.fields_count:
+        var f as types.SemaField is (p->types.fields at (info.fields_first + i))
+        var fnm as string is calling npool.text with (sigil of p->names), f.name
+        if fnm == name:
+            return f.type
+        set i is i + 1
+    return -1
+
+## Nodo `NdFieldDecl` que declara `name` visto desde `type_id`.
+##
+## Sigue `fundere`: si el campo no es propio, entra en los embeds. `out_module`
+## recibe el módulo del rune que lo declara. Devuelve `-1` si no existe.
+##
+## ## Memoria
+## No asigna.
+weave field_decl_at with p as ref to program.SemaProgram, type_id as int, name as string, out_module as ref to int into int:
+    set out_module is -1
+    if type_id <= 0:
+        return -1
+    var ty as tk.SemaType is calling types.at with (sigil of p->types), type_id
+    var steps as int is 0
+    while steps < 16 and (ty.kind == tk.SemaTypeKind.TkRef or ty.kind == tk.SemaTypeKind.TkFrozen or ty.kind == tk.SemaTypeKind.TkAlias or ty.kind == tk.SemaTypeKind.TkSeal):
+        if ty.kind == tk.SemaTypeKind.TkAlias or ty.kind == tk.SemaTypeKind.TkSeal:
+            if ty.b <= 0:
+                return -1
+            set ty is calling types.at with (sigil of p->types), ty.b
+        else:
+            if ty.a <= 0:
+                return -1
+            set ty is calling types.at with (sigil of p->types), ty.a
+        set steps is steps + 1
+    if (ty.kind != tk.SemaTypeKind.TkRune and ty.kind != tk.SemaTypeKind.TkEcho) or ty.a < 0 or ty.a >= p->types.nominal_infos.len:
+        return -1
+    var info as types.SemaNominalInfo is (p->types.nominal_infos at ty.a)
+    var i as int is 0
+    while i < info.fields_count:
+        var f as types.SemaField is (p->types.fields at (info.fields_first + i))
+        var fnm as string is calling npool.text with (sigil of p->names), f.name
+        if fnm == name:
+            set out_module is info.module
+            return f.decl_node
+        set i is i + 1
+    var ei as int is 0
+    while ei < info.fields_count:
+        var ef as types.SemaField is (p->types.fields at (info.fields_first + ei))
+        if (ef.flags & types.FIELD_EMBED) != 0 and ef.type > 0:
+            var fm as int is -1
+            var found as int is calling field_decl_at with p, ef.type, name, (sigil of fm)
+            if found >= 0:
+                set out_module is fm
+                return found
+        set ei is ei + 1
+    return -1
+
+## Offset del nombre `name` dentro del nodo `node` de un módulo.
+##
+## ## Memoria
+## No asigna.
+weave field_name_start with p as ref to program.SemaProgram, mid as int, node as int, name as string into int:
+    if mid < 0 or mid >= p->modules.len or node < 0:
+        return -1
+    var m as loader.SemaModule is (p->modules at mid)
+    var ast as ref to psast.PsAst is (sigil of m.parse.ast)
+    var st0 as int is calling astutil.start_of with ast, node
+    var en0 as int is calling astutil.end_of with ast, node
+    var text as string is m.source.text
+    var i as int is 0
+    while i < m.lex.tokens.len:
+        var tok as pstoken.Token is (m.lex.tokens at i)
+        if tok.start >= st0 and tok.end <= en0:
+            if tok.kind == pstoken.TokenKind.TokIdentifier:
+                var lex as string is text at tok.start to tok.end
+                var same as bool is lex == name
+                banish lex
+                if same:
+                    return tok.start
         set i is i + 1
     return -1
 

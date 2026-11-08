@@ -46,6 +46,8 @@ weave keyword_doc with word as string into string:
         return "**where** — Adds constraints to generic parameters, for example `where T: Donum` or `where T: Integrum`."
     if word == "derive":
         return "**derive** — Asks the compiler to generate standard implementations (for example equality or default values) for a type."
+    if word == "fundere":
+        return "**fundere** — Composes another rune into this one: its fields and methods are promoted, and it is stored inline as the first field.\n\nIt is struct embedding, not inheritance: no subtyping and no dynamic dispatch. If any embedded rune is `Drop`, the host becomes `Drop` too.\n\nExample: `rune Enemy fundere GameObj, Physics:`"
     if word == "cyclus":
         return "**cyclus** — Marks a declaration as intentionally self-referential, such as a node that contains a reference to another node of the same type."
     if word == "donum":

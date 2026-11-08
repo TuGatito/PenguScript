@@ -362,6 +362,54 @@ def main() -> int:
     finally:
         rc.shutdown()
 
+    # `fundere`: hover, completion y definición sobre miembros promovidos.
+    fund = ROOT / "tests" / "lsp" / "fixtures" / "fundere"
+    fmain = fund / "src" / "main.pengu"
+    furi = fmain.as_uri()
+    ftext = fmain.read_text()
+    flines = ftext.splitlines()
+
+    def fpos(needle: str, delta: int = 0) -> dict:
+        for ln, line in enumerate(flines):
+            at = line.find(needle)
+            if at >= 0:
+                return {"line": ln, "character": at + delta}
+        raise AssertionError(f"needle {needle!r} not found")
+
+    fc = Client(fund)
+    try:
+        fc.request("initialize", {"rootUri": fund.as_uri(), "capabilities": {}})
+        fdiag = fc.open(furi, ftext)
+        assert_eq("fundere fixture diagnostics", fdiag["diagnostics"], [])
+
+        # Hover del campo promovido: tipo del embed y nota de promoción.
+        fh = fc.request("textDocument/hover", {"textDocument": {"uri": furi}, "position": fpos("e.position.x", 2)})["result"]
+        assert_true("fundere hover exists", fh is not None)
+        fhv = fh["contents"]["value"]
+        assert_true("fundere hover field", "field position" in fhv)
+        assert_true("fundere hover Vec2", "Vec2" in fhv)
+        assert_true("fundere hover promoted note", "Promoted by" in fhv)
+
+        # Hover del método promovido.
+        mh = fc.request("textDocument/hover", {"textDocument": {"uri": furi}, "position": fpos("e.move", 2)})["result"]
+        assert_true("fundere method hover exists", mh is not None)
+        assert_true("fundere method hover", "move" in mh["contents"]["value"])
+
+        # Completion tras `e.` mezcla campos propios y promovidos.
+        fc_ = fc.request("textDocument/completion", {"textDocument": {"uri": furi}, "position": fpos("e.position.x", 2)})["result"]
+        labels = [item["label"] for item in fc_]
+        assert_true("fundere completion promoted", "position" in labels and "bounds" in labels)
+        assert_true("fundere completion own", "health" in labels)
+
+        # Ir a la definición del campo promovido: la línea `position as Vec2`.
+        fd = fc.request("textDocument/definition", {"textDocument": {"uri": furi}, "position": fpos("e.position.x", 2)})["result"]
+        assert_true("fundere definition exists", fd is not None)
+        decl_line = next(ln for ln, line in enumerate(flines) if line.strip() == "position as Vec2")
+        assert_eq("fundere definition uri", fd["uri"], furi)
+        assert_eq("fundere definition line", fd["range"]["start"]["line"], decl_line)
+    finally:
+        fc.shutdown()
+
     print("OK LSP protocol tests")
     return 0
 
