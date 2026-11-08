@@ -133,6 +133,14 @@ English: [PENGUNIC.md](PENGUNIC.md).
   - [17.2 La tabla de propiedad](#172-la-tabla-de-propiedad)
   - [17.3 Runes con `Nexus`](#173-runes-con-nexus)
   - [17.4 Mover es copiar](#174-mover-es-copiar)
+  - [17.5 La pila y el montón, para quien viene de Python o Java](#175-la-pila-y-el-montón-para-quien-viene-de-python-o-java)
+  - [17.6 Puntero, dueño y préstamo](#176-puntero-dueño-y-préstamo)
+  - [17.7 Capa 1 — `derive Drop`](#177-capa-1-derive-drop)
+  - [17.8 Capa 2 — `std.consortium`](#178-capa-2-stdconsortium)
+  - [17.9 Capa 3 — copy-on-write](#179-capa-3-copy-on-write)
+  - [17.10 Caso de estudio: un ECS](#1710-caso-de-estudio-un-ecs)
+  - [17.11 Cómo elegir capa](#1711-cómo-elegir-capa)
+  - [17.12 Reglas](#1712-reglas)
 - [18. `banish` en profundidad](#18-banish-en-profundidad)
   - [18.1 Qué acepta](#181-qué-acepta)
   - [18.2 Comportamiento por tipo](#182-comportamiento-por-tipo)
@@ -2050,11 +2058,22 @@ Pasa esta lista en cada cambio que toque entrada, FFI, memoria o caminos de erro
 
 ### 17.1 Qué garantiza el lenguaje
 
-PenguScript no tiene recolector de basura, ni borrow checker, ni liberación
-automática al salir del ámbito. El compilador garantiza una cosa: todo valor está
-bien tipado, y `banish` (E0008) solo acepta algo que de verdad puede liberar.
+PenguScript no tiene recolector de basura ni borrow checker. Tiene tres capas de
+gestión de memoria, cada una opt-in y visible en el tipo:
 
-Todo lo demás es una convención que sostienen la revisión y los tests:
+* **Capa 1** — `derive Drop`: la runa se destruye sola al salir del scope y no se
+  copia: se mueve (§17.7).
+* **Capa 2** — `std.consortium`: `Rc`/`Arc`/`Weak` cuando varios dueños deben
+  sobrevivirse unos a otros (§17.8).
+* **Capa 3** — contenedores copy-on-write: copiar es O(1) y la primera mutación
+  clona el búfer (§17.9).
+
+Fuera de esas tres capas el modelo sigue siendo manual. El compilador garantiza
+que todo valor está bien tipado, que `banish` (E0008) solo acepta algo que de
+verdad puede liberar, y que un valor `Drop` no se usa después de moverse (E0080)
+ni se copia por accidente (E0081).
+
+Lo demás es una convención que sostienen la revisión y los tests:
 
 * quién es dueño de un valor,
 * cuándo se libera,
@@ -2126,14 +2145,268 @@ Por eso la propiedad debe verse en la firma y en la documentación `##`:
 `weave take with s as string into void` significa "ahora soy dueño de `s`";
 `with s as ref to frozen string` significa "lo presto".
 
+Esto vale para los tipos sin destructor. En un tipo `derive Drop` (§17.7) sí hay
+movimiento de verdad: la asignación vacía el origen y el compilador lo sabe, así
+que usar el origen después es `E0080` y copiarlo sin `.clone()` es `E0081`.
+
 **Reglas**
 
 * Todo valor propio tiene exactamente un dueño, nombrado en la documentación.
 * Copiar un handle propio es un bug salvo que sea una copia profunda explícita.
-* `derive Nexus` hace que un rune sea dueño de sus campos; trata las copias como
-  alias.
-* La transferencia de propiedad es una convención que documentas, no una función
-  del compilador.
+* `derive Drop` hace que un rune sea dueño de sus campos y que el compilador
+  compruebe los movimientos; `derive Nexus` solo aporta la limpieza.
+* La transferencia de propiedad es una convención que documentas, salvo en los
+  tipos `Drop`, donde la comprueba el compilador.
+
+### 17.5 La pila y el montón, para quien viene de Python o Java
+
+En Python o Java no piensas dónde vive un valor: `x = [1, 2]` crea una lista y
+ya está. En PenguScript hay dos lugares donde puede vivir, y elegir es parte de
+escribir el programa.
+
+* **La pila (stack)** son las variables locales. Vive mientras dura la llamada
+  y muere sola al volver: no hay nada que liberar. Un `int`, un `bool`, un
+  `Vec2`, un `Buffer` con sus campos dentro, viven en la pila si los declaras
+  como locales.
+* **El montón (heap)** son los búferes que crecen o que deben sobrevivir a la
+  llamada. `string`, `list of T`, `map of K to V`, `Rc of T` y `std.arena` viven
+  ahí. Un valor de la pila puede contener un *handle* de 24 bytes que apunta a
+  un búfer del montón.
+
+```pengu-fragment
+var n as int is 7                      # pila, se va sola
+var s as string is "hola"              # pila el handle, montón el texto
+banish s                               # libera el texto
+```
+
+Una `string` vacía o un `list` vacío no tienen búfer: el handle está a cero y
+`banish` no hace nada. Por eso banishear dos veces no es "seguro" pero tampoco
+revienta siempre: deja el handle a cero solo si el tipo es `Drop`.
+
+**Por qué no hay GC.** Un recolector necesita pausas, memoria extra y saber
+dónde están todos los punteros. PenguScript compila a C y quiere que el coste de
+cada línea sea el que ves: si una función reserva, se nota en su firma y en su
+`##`; si libera, también. El GC esconde ese coste.
+
+### 17.6 Puntero, dueño y préstamo
+
+Tres palabras que en Python o Java no necesitas y aquí sí.
+
+* **Puntero** (`ref to T`): una dirección a un valor que vive en otro sitio. No
+  eres dueño de lo que apunta. `ref to frozen T` es lo mismo, pero el compilador
+  no te deja escribir a través de él.
+* **Dueño**: quien tiene la obligación de liberar. En un `string` propio es el
+  binding que lo creó; en un `Rc` es el contador; en una `list` propia es el
+  binding que la creó.
+* **Préstamo**: pasar un valor a una función sin transferir la obligación. Un
+  parámetro de tipo contenedor **es** un préstamo por defecto (`§13.7` de
+  `LANGUAGE`): el callee no debe banishearlo.
+
+```pengu
+import std.scrolls
+
+weave describe with s as string into int:    # prestamo: no libera
+    return calling scrolls.len with s
+
+weave take with s as string into void:       # toma propiedad (documentado)
+    banish s
+```
+
+La regla que evita casi todos los bugs: **si guardas un parámetro, copia**. Un
+parámetro es un préstamo; si lo metes en un campo y el que llamó libera el
+temporal, tu campo queda colgando.
+
+```pengu-fragment
+# MAL: guarda el préstamo
+return with data is s
+
+# BIEN: guarda una copia propia (concatenar crea un string nuevo)
+return with data is (s + "")
+```
+
+### 17.7 Capa 1 — `derive Drop`
+
+Úsala cuando un valor tenga **un** dueño y su vida coincida con un scope. Es el
+caso normal: un `Buffer` que se lee de un archivo, un `Parser`, una conexión,
+un `World` de un juego.
+
+```pengu
+rune Frame derive Drop:
+    name as string
+    ticks as int
+
+weave read_frame with path as string into Frame:
+    return with name is (path + ""), ticks is 0
+
+weave main into int:
+    var f as Frame is calling read_frame with "a.txt"
+    calling print with "{f.ticks}"
+    return 0        # _pengu_cleanup_Frame(&(f)) insertado aquí
+```
+
+No escribes `banish f`: el compilador lo hace en cada salida (`return`, `break`,
+`continue`, fin de bloque, `or return`). El destructor es el de `derive Nexus`
+más un `memset` que lo deja a cero, así que `banish` manual sigue funcionando y
+el drop posterior es no-op.
+
+Y no se copia: se mueve.
+
+```pengu-fragment
+var a as Frame is calling read_frame with "a.txt"
+var b as Frame is a            # mueve: `a` ya no existe
+calling print with "{a.ticks}" # error[E0080]
+```
+
+**Cuándo no usarla.** Cuando el valor tiene varios dueños que no sabes cuál
+muere al final: ahí va la capa 2. Cuando el valor es un componente diminuto que
+vive en un array contiguo: no le pongas destructor, el array es el dueño.
+
+**Anti-ejemplo.** Guardar un parámetro prestado en un campo `Drop` y no copiarlo.
+El destructor libera lo que el llamador sigue usando. Ese fue un bug real en
+`std/compass` (`Path.from_str`), arreglado con `cp_own`.
+
+### 17.8 Capa 2 — `std.consortium`
+
+Úsala cuando dos partes del programa deben ver el mismo valor y no hay una
+jerarquía clara: un documento con dos vistas, un nodo con padre y caché, un
+asset que comparten varias escenas.
+
+```pengu
+import std.consortium
+import std.spark
+
+weave main into int:
+    var doc as Rc of int is calling Rc.new with 42
+    var view as Rc of int is doc          # un incremento, O(1)
+    calling spark.println with "{calling view.strong_count}"   # 2
+    banish doc
+    banish view
+    return 0
+```
+
+`Rc` copia implícita porque cuesta un incremento no atómico. `Arc` cruza hilos,
+y su copia es atómica: por eso se escribe `.clone()`.
+
+```pengu-fragment
+var shared as Arc of Counter is calling Arc.new with c
+var other as Arc of Counter is calling shared.clone   # explícito y atómico
+```
+
+Para mutar hay tres puertas, y las tres dicen lo que cuestan:
+
+* `get` devuelve `ref to frozen T`: leer, nunca escribir.
+* `get_mut` devuelve `maybe ref to T` y solo funciona si eres el único dueño.
+* `make_mut` clona el valor si está compartido; puede costar O(n).
+
+**Cuándo no usarla.** Para un valor con un dueño claro: `Rc` es más caro y
+esconde quién libera. Para un contador dentro de un bucle: el contador es
+tráfico de caché.
+
+**Ciclos.** Un padre que apunta a un hijo y un hijo que apunta al padre con
+`Rc` no se libera nunca. El hijo guarda `WeakRc` y sube con `upgrade`, que
+devuelve `maybe Rc`.
+
+### 17.9 Capa 3 — copy-on-write
+
+`string`, `list of T` y `map of K to V` comparten el búfer al copiar. Copiar es
+O(1) y la primera mutación clona:
+
+```pengu-fragment
+var a as list of int is [1, 2]
+var b as list of int is a          # O(1), comparten bufer
+calling b.push with 3              # clona el bufer de b
+# a.len == 2, b.len == 3
+```
+
+Esto hace que el patrón "paso una lista a una función que la modifica" deje de
+ser una copia silenciosa de O(n) y pase a ser gratis hasta que se mute. El
+precio: mutar una copia compartida cuesta una copia entera, y por eso existe el
+aviso `W0008`:
+
+```bash
+psc check --lint=cow src/
+```
+
+El aviso señala un `var x is y` dentro de un bucle cuyo cuerpo muta `x`: cada
+iteración clona el búfer. La solución es sacar la copia fuera del bucle, o
+`make_unique` una vez y reutilizar.
+
+Tres métodos hacen visible el estado: `is_shared`, `ref_count` y `make_unique`.
+
+**Cuándo no usarla.** Cuando el contenedor se muta una vez por iteración y no se
+copia; ahí el COW solo añade un contador que nadie usa. Y no la confundas con
+propiedad: `banish` sigue siendo tu responsabilidad.
+
+### 17.10 Caso de estudio: un ECS
+
+Un ECS (entidad-componente-sistema) es el ejemplo perfecto porque cada pieza
+tiene una vida distinta.
+
+```pengu
+rune Position:
+    x as float
+    y as float
+
+rune Velocity:
+    dx as float
+    dy as float
+
+rune World derive Drop:
+    positions as list of Position
+    velocities as list of Velocity
+    alive as list of bool
+    assets as map of string to Rc of Asset
+```
+
+* **`World` y sus `Storage`**: capa 1. El mundo es dueño de sus arrays y muere
+  con el scope del juego o de la escena. `derive Drop` libera los tres búferes y
+  nadie escribe `banish world`.
+* **Componentes** (`Position`, `Velocity`): ninguna capa. Son datos planos,
+  `~8` bytes, viven dentro del array contiguo del mundo. Darles destructor haría
+  que cada `push` registrara una limpieza que no hace nada.
+* **Sistemas**: ninguna capa. Reciben `ref to World` o `ref to frozen World` y
+  no son dueños de nada.
+* **Assets compartidos** (una textura que usan dos escenas): capa 2, con `Rc`.
+  La escena que muere primero suelta su handle; la textura se libera cuando se
+  va la última.
+* **Snapshots / replays**: capa 3. Copiar el estado del mundo para un replay es
+  O(1) por array; si el replay solo lee, nunca se clona el búfer.
+
+```pengu-fragment
+var snapshot as World is world      # O(1): comparte los tres arrays
+calling snapshot.positions.push with p   # clona solo ese array
+```
+
+**Anti-ejemplo.** Poner `Rc` en cada componente "por si acaso": cada componente
+pasa de 8 bytes a 16 más una reserva y un contador por acceso. El ECS existe
+para evitar exactamente eso.
+
+### 17.11 Cómo elegir capa
+
+| Si el valor… | Usa | Coste visible |
+| --- | --- | --- |
+| tiene un dueño y una vida de scope | `derive Drop` | destructor en cada salida |
+| lo comparten varios dueños sin jerarquía | `Rc` | incremento por copia |
+| lo comparten varios hilos | `Arc` + `@shared` | atómico por copia, move-only |
+| es un ciclo | `WeakRc` / `WeakArc` | `upgrade` devuelve `maybe` |
+| es dato plano dentro de un array | nada | cero |
+| se copia mucho y se muta poco | COW (por defecto) | copia completa al mutar |
+| se copia y se muta en un bucle | COW + `make_unique` | una copia, no por iteración |
+
+### 17.12 Reglas
+
+1. Si tiene un dueño y vive en un scope, `derive Drop`. No escribas `banish`.
+2. Si un parámetro es contenedor o `Drop`, es un préstamo: si lo guardas, copia.
+3. Si hay varios dueños y no sabes cuál muere al final, `Rc`. Si cruzan hilos,
+   `Arc` y `clone` explícito.
+4. Si hay un ciclo, un lado es `Weak`; `upgrade` antes de usar.
+5. Para mutar un valor compartido: `get_mut` si eres el único dueño, `make_mut`
+   si puede estar compartido. Nunca mutar por `get`.
+6. Los componentes y los datos planos no llevan destructor: el array es el
+   dueño.
+7. Copiar un contenedor es barato; mutar una copia compartida no. Si el
+   `--lint=cow` avisa en un bucle, saca la copia o `make_unique`.
+8. Documenta en `##` quién libera cuando la firma no lo diga.
 
 ## 18. `banish` en profundidad
 

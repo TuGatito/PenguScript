@@ -133,6 +133,14 @@ Spanish: [PENGUNIC.es.md](PENGUNIC.es.md).
   - [17.2 The ownership table](#172-the-ownership-table)
   - [17.3 Runes with `Nexus`](#173-runes-with-nexus)
   - [17.4 Moves are copies](#174-moves-are-copies)
+  - [17.5 The stack and the heap, for people coming from Python or Java](#175-the-stack-and-the-heap-for-people-coming-from-python-or-java)
+  - [17.6 Pointer, owner and borrow](#176-pointer-owner-and-borrow)
+  - [17.7 Layer 1 — `derive Drop`](#177-layer-1-derive-drop)
+  - [17.8 Layer 2 — `std.consortium`](#178-layer-2-stdconsortium)
+  - [17.9 Layer 3 — copy-on-write](#179-layer-3-copy-on-write)
+  - [17.10 Case study: an ECS](#1710-case-study-an-ecs)
+  - [17.11 How to choose a layer](#1711-how-to-choose-a-layer)
+  - [17.12 Rules](#1712-rules)
 - [18. `banish` in depth](#18-banish-in-depth)
   - [18.1 What it accepts](#181-what-it-accepts)
   - [18.2 Per-type behaviour](#182-per-type-behaviour)
@@ -2025,9 +2033,20 @@ Run this list on every change that touches input, FFI, memory or error paths.
 
 ### 17.1 What the language guarantees
 
-PenguScript has no garbage collector, no borrow checker and no automatic
-release at scope exit. The compiler guarantees one thing: every value is
-well-typed, and `banish` (E0008) only accepts something it can actually free.
+PenguScript has no garbage collector and no borrow checker. It has three layers
+of memory management, each one opt-in and visible in the type:
+
+* **Layer 1** — `derive Drop`: the rune is destroyed at scope exit and is never
+  copied, only moved (§17.7).
+* **Layer 2** — `std.consortium`: `Rc`/`Arc`/`Weak` for the cases where several
+  owners must outlive one another (§17.8).
+* **Layer 3** — copy-on-write containers: copying is O(1) and the first mutation
+  clones the buffer (§17.9).
+
+Outside those three layers the model is still manual. The compiler guarantees
+that every value is well-typed, that `banish` (E0008) only accepts something it
+can actually free, and that a `Drop` value is not used after a move (E0080) or
+copied by accident (E0081).
 
 Everything else is a convention enforced by review and tests:
 
@@ -2099,12 +2118,268 @@ That is why ownership must be visible in the signature and the `##` docs:
 `weave take with s as string into void` means "I own `s` now"; `with s as
 ref to frozen string` means "I borrow it".
 
+That holds for types without a destructor. A `derive Drop` type (§17.7) has a
+real move: assignment empties the source, the compiler knows it, so using the
+source afterwards is `E0080` and copying it without `.clone()` is `E0081`.
+
 **Rules**
 
 * Every owning value has exactly one owner, named in the docs.
 * Copying an owning handle is a bug unless it is an explicit deep copy.
-* `derive Nexus` makes a rune own its fields; treat copies as aliases.
-* Ownership transfer is a convention you document, not a compiler feature.
+* `derive Drop` makes a rune own its fields and lets the compiler check the
+  moves; `derive Nexus` only adds the cleanup helper.
+* Ownership transfer is a convention you document, except on `Drop` types,
+  where the compiler enforces it.
+
+### 17.5 The stack and the heap, for people coming from Python or Java
+
+In Python or Java you do not think about where a value lives: `x = [1, 2]`
+creates a list and that is it. In PenguScript there are two places a value can
+live, and choosing one is part of writing the program.
+
+* **The stack** is your local variables. It lives for the duration of the call
+  and dies on its own when you return: there is nothing to free. An `int`, a
+  `bool`, a `Vec2`, a `Buffer` with its fields inline, live on the stack when
+  you declare them as locals.
+* **The heap** is the buffers that grow or must outlive the call. `string`,
+  `list of T`, `map of K to V`, `Rc of T` and `std.arena` live there. A stack
+  value can hold a 24-byte *handle* pointing at a heap buffer.
+
+```pengu-fragment
+var n as int is 7                      # stack, gone by itself
+var s as string is "hola"              # handle on the stack, text on the heap
+banish s                               # frees the text
+```
+
+An empty `string` or an empty `list` has no buffer: the handle sits at zero and
+`banish` does nothing. That is why banishing twice is not "safe" but does not
+always blow up either: it only leaves the handle at zero if the type is `Drop`.
+
+**Why there is no GC.** A collector needs pauses, extra memory and a way to find
+every pointer. PenguScript compiles to C and wants the cost of each line to be
+the one you see: if a function allocates, it shows in its signature and its
+`##`; if it frees, too. A GC hides that cost.
+
+### 17.6 Pointer, owner and borrow
+
+Three words you do not need in Python or Java and do need here.
+
+* **Pointer** (`ref to T`): an address of a value that lives elsewhere. You do
+  not own what it points at. `ref to frozen T` is the same, but the compiler
+  will not let you write through it.
+* **Owner**: whoever is obliged to free. For an owning `string` it is the
+  binding that created it; for an `Rc` it is the counter; for an owning `list`
+  it is the binding that created it.
+* **Borrow**: handing a value to a function without transferring the obligation.
+  A parameter of container type **is** a borrow by default (LANGUAGE §13.7): the
+  callee must not banish it.
+
+```pengu
+import std.scrolls
+
+weave describe with s as string into int:    # borrow: does not free
+    return calling scrolls.len with s
+
+weave take with s as string into void:       # takes ownership (documented)
+    banish s
+```
+
+The rule that prevents most bugs: **if you store a parameter, copy it**. A
+parameter is a borrow; if you put it in a field and the caller frees the
+temporary, your field dangles.
+
+```pengu-fragment
+# WRONG: stores the borrow
+return with data is s
+
+# RIGHT: stores an owned copy (concatenation creates a new string)
+return with data is (s + "")
+```
+
+### 17.7 Layer 1 — `derive Drop`
+
+Use it when a value has **one** owner and its life matches a scope. That is the
+normal case: a `Buffer` read from a file, a `Parser`, a connection, a game
+`World`.
+
+```pengu
+rune Frame derive Drop:
+    name as string
+    ticks as int
+
+weave read_frame with path as string into Frame:
+    return with name is (path + ""), ticks is 0
+
+weave main into int:
+    var f as Frame is calling read_frame with "a.txt"
+    calling print with "{f.ticks}"
+    return 0        # _pengu_cleanup_Frame(&(f)) inserted here
+```
+
+You do not write `banish f`: the compiler does it at every exit (`return`,
+`break`, `continue`, end of block, `or return`). The destructor is the one
+`derive Nexus` generated plus a `memset` that leaves the value at zero, so a
+manual `banish` still works and the later drop is a no-op.
+
+And it is not copied: it moves.
+
+```pengu-fragment
+var a as Frame is calling read_frame with "a.txt"
+var b as Frame is a            # moves: `a` no longer exists
+calling print with "{a.ticks}" # error[E0080]
+```
+
+**When not to use it.** When the value has several owners and you cannot tell
+which dies last: that is layer 2. When the value is a tiny component living in a
+contiguous array: give it no destructor, the array is the owner.
+
+**Anti-example.** Storing a borrowed parameter in a `Drop` field without copying
+it. The destructor frees what the caller still uses. That was a real bug in
+`std/compass` (`Path.from_str`), fixed with `cp_own`.
+
+### 17.8 Layer 2 — `std.consortium`
+
+Use it when two parts of the program must see the same value and there is no
+clear hierarchy: a document with two views, a node with a parent and a cache, an
+asset shared by several scenes.
+
+```pengu
+import std.consortium
+import std.spark
+
+weave main into int:
+    var doc as Rc of int is calling Rc.new with 42
+    var view as Rc of int is doc          # one increment, O(1)
+    calling spark.println with "{calling view.strong_count}"   # 2
+    banish doc
+    banish view
+    return 0
+```
+
+`Rc` copies implicitly because it costs one non-atomic increment. `Arc` crosses
+threads, and its copy is atomic: that is why you spell it `.clone()`.
+
+```pengu-fragment
+var shared as Arc of Counter is calling Arc.new with c
+var other as Arc of Counter is calling shared.clone   # explicit and atomic
+```
+
+There are three doors to mutation, and each one says what it costs:
+
+* `get` returns `ref to frozen T`: read, never write.
+* `get_mut` returns `maybe ref to T` and only succeeds when you are the sole
+  owner.
+* `make_mut` clones the value when it is shared; it may cost O(n).
+
+**When not to use it.** For a value with a clear owner: `Rc` is more expensive
+and hides who frees. For a counter inside a loop: the counter is cache traffic.
+
+**Cycles.** A parent pointing at a child and a child pointing at the parent with
+`Rc` never gets freed. The child stores `WeakRc` and climbs back with `upgrade`,
+which returns `maybe Rc`.
+
+### 17.9 Layer 3 — copy-on-write
+
+`string`, `list of T` and `map of K to V` share the buffer when copied. Copying
+is O(1) and the first mutation clones:
+
+```pengu-fragment
+var a as list of int is [1, 2]
+var b as list of int is a          # O(1), they share the buffer
+calling b.push with 3              # clones b's buffer
+# a.len == 2, b.len == 3
+```
+
+This turns "pass a list to a function that modifies it" from a silent O(n) copy
+into free until something mutates. The price: mutating a shared copy costs a
+full copy, which is why there is a warning (`W0008`):
+
+```bash
+psc check --lint=cow src/
+```
+
+The warning points at a `var x is y` inside a loop whose body mutates `x`: every
+iteration clones the buffer. The fix is to hoist the copy out of the loop, or
+`make_unique` once and reuse it.
+
+Three methods make the state visible: `is_shared`, `ref_count` and
+`make_unique`.
+
+**When not to use it.** When the container is mutated once per iteration and
+never copied; there the COW only adds a counter nobody reads. And do not confuse
+it with ownership: `banish` is still your job.
+
+### 17.10 Case study: an ECS
+
+An ECS (entity-component-system) is the perfect example because each piece has a
+different lifetime.
+
+```pengu
+rune Position:
+    x as float
+    y as float
+
+rune Velocity:
+    dx as float
+    dy as float
+
+rune World derive Drop:
+    positions as list of Position
+    velocities as list of Velocity
+    alive as list of bool
+    assets as map of string to Rc of Asset
+```
+
+* **`World` and its `Storage`**: layer 1. The world owns its arrays and dies
+  with the scope of the game or the scene. `derive Drop` frees the three buffers
+  and nobody writes `banish world`.
+* **Components** (`Position`, `Velocity`): no layer. They are flat data, `~8`
+  bytes, living inside the world's contiguous array. Giving them a destructor
+  would make every `push` register a cleanup that does nothing.
+* **Systems**: no layer. They take `ref to World` or `ref to frozen World` and
+  own nothing.
+* **Shared assets** (a texture used by two scenes): layer 2, with `Rc`. The
+  scene that dies first drops its handle; the texture is freed when the last one
+  goes.
+* **Snapshots / replays**: layer 3. Copying the world state for a replay is O(1)
+  per array; if the replay only reads, the buffer is never cloned.
+
+```pengu-fragment
+var snapshot as World is world      # O(1): shares the three arrays
+calling snapshot.positions.push with p   # clones only that array
+```
+
+**Anti-example.** Putting `Rc` on every component "just in case": each component
+goes from 8 bytes to 16 plus an allocation and a counter per access. The ECS
+exists to avoid exactly that.
+
+### 17.11 How to choose a layer
+
+| If the value… | Use | Visible cost |
+| --- | --- | --- |
+| has one owner and a scope lifetime | `derive Drop` | destructor at every exit |
+| is shared by several owners with no hierarchy | `Rc` | one increment per copy |
+| is shared across threads | `Arc` + `@shared` | atomic per copy, move-only |
+| is a cycle | `WeakRc` / `WeakArc` | `upgrade` returns `maybe` |
+| is flat data inside an array | nothing | zero |
+| is copied a lot and mutated little | COW (default) | full copy on mutation |
+| is copied and mutated in a loop | COW + `make_unique` | one copy, not per iteration |
+
+### 17.12 Rules
+
+1. If it has one owner and lives in a scope, `derive Drop`. Do not write
+   `banish`.
+2. If a parameter is a container or `Drop`, it is a borrow: if you store it,
+   copy it.
+3. If several owners exist and you cannot tell which dies last, `Rc`. If they
+   cross threads, `Arc` and an explicit `clone`.
+4. If there is a cycle, one side is `Weak`; `upgrade` before using it.
+5. To mutate a shared value: `get_mut` if you are the sole owner, `make_mut` if
+   it may be shared. Never mutate through `get`.
+6. Components and flat data carry no destructor: the array is the owner.
+7. Copying a container is cheap; mutating a shared copy is not. If `--lint=cow`
+   warns inside a loop, hoist the copy or `make_unique`.
+8. Document in `##` who frees when the signature does not say.
 
 ## 18. `banish` in depth
 
