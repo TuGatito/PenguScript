@@ -131,3 +131,56 @@ weave type_is_share with s as ref to state.SemaState, ty as int into bool:
         set info is (s->types->nominal_infos at info.template_info)
     var bn as string is calling npool.text with s->names, info.base_name
     return bn == "Rc" or bn == "WeakRc" or bn == "WeakArc"
+
+## Clase de handle de `std.consortium` de un tipo.
+##
+## `0` no es un handle, `1` `Rc`, `2` `WeakRc`, `3` `Arc`, `4` `WeakArc`.
+weave consortium_kind with s as ref to state.SemaState, ty as int into int:
+    if ty <= 0 or ty >= s->types->types.len:
+        return 0
+    var t as tk.SemaType is calling types.at with s->types, ty
+    var steps as int is 0
+    while steps < 32 and (t.kind == tk.SemaTypeKind.TkAlias or t.kind == tk.SemaTypeKind.TkSeal):
+        if t.b <= 0:
+            return 0
+        set t is calling types.at with s->types, t.b
+        set steps is steps + 1
+    if t.kind != tk.SemaTypeKind.TkRune or t.a < 0 or t.a >= s->types->nominal_infos.len:
+        return 0
+    var info as types.SemaNominalInfo is (s->types->nominal_infos at t.a)
+    if info.template_info >= 0 and info.template_info < s->types->nominal_infos.len:
+        set info is (s->types->nominal_infos at info.template_info)
+    var bn as string is calling npool.text with s->names, info.base_name
+    if bn == "Rc":
+        return 1
+    if bn == "WeakRc":
+        return 2
+    if bn == "Arc":
+        return 3
+    if bn == "WeakArc":
+        return 4
+    return 0
+
+## Comprueba que el payload de un `Arc of T` / `WeakArc of T` sea `@shared`.
+weave arc_payload_shared with s as ref to state.SemaState, ty as int into bool:
+    var t as tk.SemaType is calling types.at with s->types, ty
+    var iid as int is ty
+    var steps as int is 0
+    while steps < 32 and (t.kind == tk.SemaTypeKind.TkAlias or t.kind == tk.SemaTypeKind.TkSeal):
+        set iid is t.b
+        set t is calling types.at with s->types, iid
+        set steps is steps + 1
+    if not calling s->symbols->instance_by_type.has with iid:
+        return false
+    var idx as int is calling s->symbols->instance_by_type.get with iid
+    if idx < 0 or idx >= s->symbols->instances.len:
+        return false
+    var inst as sym.SemaInstance is (s->symbols->instances at idx)
+    if inst.args_count < 1:
+        return false
+    var payload as int is (s->symbols->instance_args at inst.args_first)
+    var pt as tk.SemaType is calling types.at with s->types, payload
+    if pt.kind != tk.SemaTypeKind.TkRune and pt.kind != tk.SemaTypeKind.TkEcho:
+        return false
+    var pi as types.SemaNominalInfo is (s->types->nominal_infos at pt.a)
+    return (pi.flags & types.NIF_SHARED) != 0

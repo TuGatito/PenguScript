@@ -724,6 +724,10 @@ weave type_has_unshared_ref with s as ref to state.SemaState, id as int, depth a
     if t.kind == tk.SemaTypeKind.TkSlice or t.kind == tk.SemaTypeKind.TkOpaque or t.kind == tk.SemaTypeKind.TkMany:
         return true
     if t.kind == tk.SemaTypeKind.TkRune or t.kind == tk.SemaTypeKind.TkEcho:
+        # Los handles de `std.consortium` ocultan su puntero interno: la
+        # seguridad del cruce la decide `check_spawn_arg` (`E0082`/`E0083`).
+        if (calling moves.consortium_kind with s, (calling types.intern_type with s->types, t)) != 0:
+            return false
         var ni as types.SemaNominalInfo is (s->types->nominal_infos at t.a)
         var i as int is 0
         while i < ni.fields_count:
@@ -799,6 +803,14 @@ weave check_spawn_arg with s as ref to state.SemaState, anode as int, aty as int
     if at.kind == tk.SemaTypeKind.TkRef:
         calling check_spawn_ref with s, anode, aty
         return
+    var ck as int is calling moves.consortium_kind with s, aty
+    if ck == 1 or ck == 2:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_RC_CROSS_THREAD, (calling astutil.start_of with s->ast, anode), (calling astutil.end_of with s->ast, anode), "an 'Rc' cannot cross a thread boundary", "Use 'Arc of T' for shared ownership across threads, or keep the 'Rc' in one thread.", ""
+        return
+    if ck == 3 or ck == 4:
+        if not calling moves.arc_payload_shared with s, aty:
+            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_ARC_NOT_SHARED, (calling astutil.start_of with s->ast, anode), (calling astutil.end_of with s->ast, anode), "an 'Arc of T' crossing a thread boundary requires 'T' to be @shared", "Mark the payload rune with @shared, or send an owned value instead.", ""
+            return
     if at.kind == tk.SemaTypeKind.TkSlice or at.kind == tk.SemaTypeKind.TkOpaque or at.kind == tk.SemaTypeKind.TkFn or at.kind == tk.SemaTypeKind.TkMany:
         calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MEMORY_OP, (calling astutil.start_of with s->ast, anode), (calling astutil.end_of with s->ast, anode), "value cannot cross a thread boundary", "Pass an owning value by local name, or a ref to an @shared rune.", ""
         return
@@ -806,6 +818,15 @@ weave check_spawn_arg with s as ref to state.SemaState, anode as int, aty as int
         if calling type_has_unshared_ref with s, aty, 0:
             calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MEMORY_OP, (calling astutil.start_of with s->ast, anode), (calling astutil.end_of with s->ast, anode), "value contains a ref to a type that is not @shared", "Mark the referenced rune with @shared, or pass an owned value without refs.", ""
             return
+    # `filum.start` construye un `SpawnBox of A` en su cuerpo genérico. Si A es
+    # a su vez una instancia genérica (`Arc of T`), la instanciación debe
+    # ocurrir en F3: el catálogo de tipos se cierra antes del codegen.
+    var boxid as int is calling symbols.lookup_type_name with s->symbols, "SpawnBox"
+    if boxid > 0:
+        var boxargs as list of int is list of int
+        defer banish boxargs
+        calling boxargs.push with aty
+        var ignored_box as int is calling ginst.instantiate_nominal with s->symbols, boxid, boxargs
     calling check_arg_ownership with s, anode, aty, sym.SYM_MOVED
 
 weave infer_spawn with s as ref to state.SemaState, node as int, args as int, arg_types as list of int into void:
@@ -873,6 +894,10 @@ weave infer_spawn with s as ref to state.SemaState, node as int, args as int, ar
 ## diagnóstico diga "coroutine".
 weave check_coro_arg with s as ref to state.SemaState, anode as int, aty as int into void:
     var at as tk.SemaType is calling types.at with s->types, aty
+    var cck as int is calling moves.consortium_kind with s, aty
+    if cck == 1 or cck == 2:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_RC_CROSS_THREAD, (calling astutil.start_of with s->ast, anode), (calling astutil.end_of with s->ast, anode), "an 'Rc' cannot cross a coroutine boundary", "Use 'Arc of T' if the value must be shared, or keep the 'Rc' in one task.", ""
+        return
     if at.kind == tk.SemaTypeKind.TkMany:
         calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MEMORY_OP, (calling astutil.start_of with s->ast, anode), (calling astutil.end_of with s->ast, anode), "value cannot cross a coroutine boundary", "Pass one value: use a tuple or a rune to carry several.", ""
         return

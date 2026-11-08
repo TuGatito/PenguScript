@@ -1,0 +1,27 @@
+## `Arc of @shared T` cruza la frontera de un hilo.
+import std.consortium
+import std.filum
+import std.spark
+
+@shared
+rune Counter:
+    value as int
+
+weave bump with a as Arc of Counter into void:
+    var p as ref to frozen Counter is calling a.get
+    if (p->value) != 3:
+        calling spark.panic with "arc payload wrong in the thread"
+    return
+
+weave main into int:
+    var c as Counter is with value is 3
+    var a as Arc of Counter is calling Arc.new with c
+    var b as Arc of Counter is calling a.clone
+    if (calling a.strong_count) != 2:
+        return 1
+    var t as filum.Thread is calling filum.start with bump, b
+    var r as result of void to filum.ThreadError is calling t.join
+    if not r.is_ok:
+        return 2
+    calling spark.println with "arc thread ok"
+    return 0
