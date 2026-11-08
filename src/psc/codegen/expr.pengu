@@ -5632,13 +5632,147 @@ weave omen_init_expr with c as ref to context.CgContext, node as int, ast as ref
 ##
 ## ## Memoria
 ## Strings owned.
-weave with_init_expr with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst, ty as int into string:
+## Añade una entrada (`campo`, valor) al inicializador agrupado de un rune.
+##
+## `path` son los índices de los campos `fundere` que hay que atravesar para
+## llegar al campo; vacío para un campo propio. La resolución la comparte con la
+## sema, así que el codegen no puede discrepar de la validación.
+##
+## ## Memoria
+## `path`, `txt` y las listas pasan a ser owned por el llamador.
+weave push_init_entry with c as ref to context.CgContext, ty as int, name_tok as int, val as int, paths as ref to list of list of int, values as ref to list of int, tys as ref to list of int, leafs as ref to list of string into void:
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var txt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), name_tok
+    var nid as int is calling npool.intern with (sigil of c->program->names), txt
+    var path as list of int is list of int
+    var route as int is calling embeds.route_into with (sigil of c->program->types), ty, nid, (sigil of path), 0
+    if route != embeds.ROUTE_FOUND:
+        # La sema ya emitió el diagnóstico; se emite plano para no romper el C.
+        banish path
+        set path is list of int
+    # Tipo del campo final: se recorre el camino hasta el embed que lo declara y
+    # allí se busca el campo por nombre.
+    var parent as int is ty
+    var ok as bool is true
+    var pi as int is 0
+    while pi < path.len:
+        var cur as int is calling embeds.unwrap with (sigil of c->program->types), parent
+        var cur_t as tk.SemaType is calling types.at with (sigil of c->program->types), cur
+        if cur_t.kind != tk.SemaTypeKind.TkRune and cur_t.kind != tk.SemaTypeKind.TkEcho:
+            set ok is false
+        else:
+            var step as int is (path at pi)
+            var nxt as int is calling embeds.own_field_type with (sigil of c->program->types), parent, step
+            if nxt <= 0:
+                set ok is false
+            else:
+                set parent is nxt
+        set pi is pi + 1
+    var leaf_ty as int is -1
+    if ok:
+        var own as int is calling embeds.own_field_type with (sigil of c->program->types), parent, nid
+        if own > 0:
+            set leaf_ty is own
+    calling tys->push with leaf_ty
+    calling values->push with val
+    calling leafs->push with txt
+    calling paths->push with path
+
+## Cuerpo de un inicializador de rune con los campos promovidos agrupados.
+##
+## Emite `.embed = (Embed){ ... }` para cada embed que recibe algún campo
+## promovido y deja los campos propios al mismo nivel. C no admite dos
+## designadores del mismo miembro, así que un embed solo puede aparecer una vez.
+##
+## ## Memoria
+## Devuelve string owned; no consume las listas.
+weave grouped_init_body with c as ref to context.CgContext, ty as int, paths as list of list of int, values as list of int, tys as list of int, leafs as list of string into string:
     var ct as string is calling ctype.c_type with (sigil of c->names), ty
     defer banish ct
-    var m as loader.SemaModule is (c->program->modules at c->current_module)
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb
     calling sb.append with "({ct}){"
+    var first as bool is true
+    var ut as int is calling embeds.unwrap with (sigil of c->program->types), ty
+    var tt as tk.SemaType is calling types.at with (sigil of c->program->types), ut
+    if tt.kind == tk.SemaTypeKind.TkRune or tt.kind == tk.SemaTypeKind.TkEcho:
+        var info as types.SemaNominalInfo is (c->program->types.nominal_infos at tt.a)
+        var fi as int is 0
+        while fi < info.fields_count:
+            var f as types.SemaField is (c->program->types.fields at (info.fields_first + fi))
+            if (f.flags & types.FIELD_EMBED) != 0:
+                var any as bool is false
+                var i as int is 0
+                while i < paths.len:
+                    var p as list of int is (paths at i)
+                    if p.len > 0 and (p at 0) == f.name:
+                        set any is true
+                    set i is i + 1
+                if any:
+                    var sub as list of list of int is list of list of int
+                    var sv as list of int is list of int
+                    var st as list of int is list of int
+                    var sl as list of string is list of string
+                    set i is 0
+                    while i < paths.len:
+                        var p2 as list of int is (paths at i)
+                        if p2.len > 0 and (p2 at 0) == f.name:
+                            var np as list of int is list of int
+                            var j as int is 1
+                            while j < p2.len:
+                                calling np.push with (p2 at j)
+                                set j is j + 1
+                            calling sub.push with np
+                            calling sv.push with (values at i)
+                            calling st.push with (tys at i)
+                            calling sl.push with (leafs at i)
+                        set i is i + 1
+                    var fn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), f.name)
+                    var inner as string is calling grouped_init_body with c, f.type, sub, sv, st, sl
+                    if not first:
+                        calling sb.append with ", "
+                    calling sb.append with ".{fn} = {inner}"
+                    set first is false
+                    banish fn
+                    banish inner
+                    banish sub
+                    banish sv
+                    banish st
+                    banish sl
+            set fi is fi + 1
+    var i2 as int is 0
+    while i2 < paths.len:
+        var p3 as list of int is (paths at i2)
+        if p3.len == 0:
+            var fn2 as string is (leafs at i2)
+            var vty as int is (tys at i2)
+            var av as string is ""
+            if vty > 0:
+                set av is calling emit_expr_as with c, (values at i2), vty
+            else:
+                set av is calling emit_expr with c, (values at i2)
+            if not first:
+                calling sb.append with ", "
+            calling sb.append with ".{fn2} = {av}"
+            set first is false
+            banish av
+        set i2 is i2 + 1
+    calling sb.append with "}"
+    return calling sb.finish
+
+## Emite `Tipo with: set .campo is v` como inicializador agrupado.
+##
+## ## Memoria
+## Strings owned.
+weave with_init_expr with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst, ty as int into string:
+    var paths as list of list of int is list of list of int
+    defer banish paths
+    var values as list of int is list of int
+    defer banish values
+    var tys as list of int is list of int
+    defer banish tys
+    var leafs as list of string is list of string
+    defer banish leafs
     var i as int is 0
     var n as int is calling astutil.child_count with ast, node
     while i < n:
@@ -5654,48 +5788,23 @@ weave with_init_expr with c as ref to context.CgContext, node as int, ast as ref
                     var wt as int is calling astutil.node_child with ast, tgt, 0
                     var ft as int is calling astutil.token_child with ast, wt, 0
                     if ft >= 0:
-                        var fn as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), ft
-                        var fty as int is -1
-                        var sty as tk.SemaType is calling types.at with (sigil of c->program->types), ty
-                        var guard as int is 0
-                        while guard < 16 and (sty.kind == tk.SemaTypeKind.TkAlias or sty.kind == tk.SemaTypeKind.TkSeal):
-                            set sty is calling types.at with (sigil of c->program->types), sty.b
-                            set guard is guard + 1
-                        if sty.kind == tk.SemaTypeKind.TkRune or sty.kind == tk.SemaTypeKind.TkEcho:
-                            var sinfo as types.SemaNominalInfo is (c->program->types.nominal_infos at sty.a)
-                            var fi as int is 0
-                            var fnid as int is calling npool.intern with (sigil of c->program->names), fn
-                            while fi < sinfo.fields_count:
-                                var sf as types.SemaField is (c->program->types.fields at (sinfo.fields_first + fi))
-                                if sf.name == fnid:
-                                    set fty is sf.type
-                                set fi is fi + 1
-                        var av as string is ""
-                        if fty >= 0:
-                            set av is calling emit_expr_as with c, val, fty
-                        else:
-                            set av is calling emit_expr with c, val
-                        if i > 0:
-                            calling sb.append with ", "
-                        calling sb.append with ".{fn} = {av}"
-                        banish av
-                        banish fn
+                        calling push_init_entry with c, ty, ft, val, (sigil of paths), (sigil of values), (sigil of tys), (sigil of leafs)
         set i is i + 1
-    calling sb.append with "}"
-    return calling sb.finish
+    return calling grouped_init_body with c, ty, paths, values, tys, leafs
 
 ## Emite `Tipo is:` con `campo is valor` (bloque indentado).
 ##
 ## ## Memoria
 ## Strings owned.
 weave indent_init_expr with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst, ty as int into string:
-    var m as loader.SemaModule is (c->program->modules at c->current_module)
-    var ct as string is calling ctype.c_type with (sigil of c->names), ty
-    defer banish ct
-    var st as tk.SemaType is calling types.at with (sigil of c->program->types), ty
-    var sb as StringBuilder is calling StringBuilder.new
-    defer banish sb
-    calling sb.append with "({ct}){"
+    var paths as list of list of int is list of list of int
+    defer banish paths
+    var values as list of int is list of int
+    defer banish values
+    var tys as list of int is list of int
+    defer banish tys
+    var leafs as list of string is list of string
+    defer banish leafs
     var entries as int is node
     var i as int is 0
     var n as int is calling astutil.child_count with ast, node
@@ -5704,37 +5813,15 @@ weave indent_init_expr with c as ref to context.CgContext, node as int, ast as r
         if c0 >= 0 and (calling astutil.kind_of with ast, c0) == pskind.NodeKind.NdIndentEntries:
             set entries is c0
             set n is calling astutil.child_count with ast, c0
-    var first as bool is true
     while i < n:
         var fe as int is calling astutil.node_child with ast, entries, i
         if fe >= 0 and (calling astutil.kind_of with ast, fe) == pskind.NodeKind.NdFieldEntry:
             var ft as int is calling astutil.token_child with ast, fe, 0
             var fv as int is calling astutil.node_child with ast, fe, 1
             if ft >= 0 and fv >= 0:
-                var fn as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), ft
-                var fty as int is -1
-                var info as types.SemaNominalInfo is (c->program->types.nominal_infos at st.a)
-                var fi as int is 0
-                while fi < info.fields_count:
-                    var sf as types.SemaField is (c->program->types.fields at (info.fields_first + fi))
-                    var fnid as int is calling npool.intern with (sigil of c->program->names), fn
-                    if sf.name == fnid:
-                        set fty is sf.type
-                    set fi is fi + 1
-                var av as string is ""
-                if fty >= 0:
-                    set av is calling emit_expr_as with c, fv, fty
-                else:
-                    set av is calling emit_expr with c, fv
-                if not first:
-                    calling sb.append with ", "
-                calling sb.append with ".{fn} = {av}"
-                set first is false
-                banish av
-                banish fn
+                calling push_init_entry with c, ty, ft, fv, (sigil of paths), (sigil of values), (sigil of tys), (sigil of leafs)
         set i is i + 1
-    calling sb.append with "}"
-    return calling sb.finish
+    return calling grouped_init_body with c, ty, paths, values, tys, leafs
 
 ## Emite una inicialización de rune/echo.
 ##
@@ -5744,11 +5831,14 @@ weave struct_init_expr with c as ref to context.CgContext, node as int, ast as r
     var ty as int is wanted
     if ty < 0:
         set ty is calling node_type with c, node
-    var ct as string is calling ctype.c_type with (sigil of c->names), ty
-    defer banish ct
-    var sb as StringBuilder is calling StringBuilder.new
-    defer banish sb
-    calling sb.append with "({ct}){"
+    var paths as list of list of int is list of list of int
+    defer banish paths
+    var values as list of int is list of int
+    defer banish values
+    var tys as list of int is list of int
+    defer banish tys
+    var leafs as list of string is list of string
+    defer banish leafs
     var i as int is 0
     var n as int is calling astutil.child_count with ast, node
     while i < n:
@@ -5756,34 +5846,10 @@ weave struct_init_expr with c as ref to context.CgContext, node as int, ast as r
         if fi >= 0:
             var nt as int is calling astutil.token_child with ast, fi, 0
             var vn as int is calling astutil.node_child with ast, fi, 1
-            if nt >= 0 and vn >= 0:
-                var m as loader.SemaModule is (c->program->modules at c->current_module)
-                var fn as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), nt
-                defer banish fn
-                var fty as int is -1
-                if ty >= 0:
-                    var stt as tk.SemaType is calling types.at with (sigil of c->program->types), ty
-                    if stt.kind == tk.SemaTypeKind.TkRune or stt.kind == tk.SemaTypeKind.TkEcho:
-                        var sinfo as types.SemaNominalInfo is (c->program->types.nominal_infos at stt.a)
-                        var fi2 as int is 0
-                        while fi2 < sinfo.fields_count:
-                            var sf2 as types.SemaField is (c->program->types.fields at (sinfo.fields_first + fi2))
-                            var fnid2 as int is calling npool.intern with (sigil of c->program->names), fn
-                            if sf2.name == fnid2:
-                                set fty is sf2.type
-                            set fi2 is fi2 + 1
-                var val as string is ""
-                if fty >= 0:
-                    set val is calling emit_expr_as with c, vn, fty
-                else:
-                    set val is calling emit_expr with c, vn
-                defer banish val
-                if i > 0:
-                    calling sb.append with ", "
-                calling sb.append with ".{fn} = {val}"
+            if nt >= 0 and vn >= 0 and ty > 0:
+                calling push_init_entry with c, ty, nt, vn, (sigil of paths), (sigil of values), (sigil of tys), (sigil of leafs)
         set i is i + 1
-    calling sb.append with "}"
-    return calling sb.finish
+    return calling grouped_init_body with c, ty, paths, values, tys, leafs
 
 ## Escapa un literal preservando los escapes que C ya entiende.
 ##

@@ -1,0 +1,26 @@
+## Construcción con campos promovidos: cada campo se enruta a su embed y los
+## del mismo embed se agrupan en un solo designador (C no admite dos).
+import std.spark
+
+rune Vec2:
+    x as int
+    y as int
+
+rune GameObj:
+    position as Vec2
+    bounds as int
+
+rune Physics:
+    velocity as int
+
+rune Enemy fundere GameObj, Physics:
+    health as int
+
+weave main into int:
+    # Forma promovida, con un `with` anidado dentro de un campo promovido.
+    var e as Enemy is with position is (with x is 1, y is 2), bounds is 3, velocity is 4, health is 5
+    calling spark.println with "{e.position.x},{e.position.y},{e.bounds},{e.velocity},{e.health}"
+    # Forma explícita, equivalente.
+    var f as Enemy is with gameObj is (with position is (with x is 10, y is 20), bounds is 30), physics is (with velocity is 40), health is 50
+    calling spark.println with "{f.position.x},{f.position.y},{f.bounds},{f.velocity},{f.health}"
+    return 0

@@ -2579,8 +2579,33 @@ weave has_nominal_fields with s as ref to state.SemaState, ty as int into bool:
 ## tipo del campo se pasa como tipo esperado para conservar el contexto de
 ## `maybe`/`result` (`with data is maybe none`).
 ##
+## Un nombre puede ser un campo propio o un campo promovido por `fundere`; el
+## segundo caso se acepta y el codegen lo agrupa bajo su embed. Si el nombre
+## aparece en dos embeds es `E0087`, y si el embed se inicializa a la vez por su
+## nombre y por campos promovidos también (serían dos designadores del mismo
+## miembro en C).
+##
 ## ## Memoria
 ## O(campos); reutiliza el estado de inferencia.
+## `NameId` del campo si el índice `idx` es un embed; `-1` si no.
+##
+## ## Memoria
+## No asigna.
+weave embed_field_name with s as ref to state.SemaState, ty as int, idx as int into int:
+    if idx < 0:
+        return -1
+    var u as int is calling underlying_type with s, ty
+    var t as tk.SemaType is calling types.at with s->types, u
+    if t.kind != tk.SemaTypeKind.TkRune and t.kind != tk.SemaTypeKind.TkEcho:
+        return -1
+    var info as types.SemaNominalInfo is (s->types->nominal_infos at t.a)
+    if idx >= info.fields_count:
+        return -1
+    var f as types.SemaField is (s->types->fields at (info.fields_first + idx))
+    if (f.flags & types.FIELD_EMBED) == 0:
+        return -1
+    return f.name
+
 weave infer_field_inits with s as ref to state.SemaState, node as int, ty as int into void:
     var i as int is 0
     var n as int is calling astutil.child_count with s->ast, node
@@ -2588,6 +2613,14 @@ weave infer_field_inits with s as ref to state.SemaState, node as int, ty as int
     var rune_name as string is ""
     var seen as map of int to bool is map of int to bool
     defer banish seen
+    # Embeds que reciben campos promovidos y embeds inicializados por su nombre:
+    # las dos formas a la vez serían dos designadores del mismo miembro en C.
+    var promoted_embeds as list of int is list of int
+    defer banish promoted_embeds
+    var explicit_embeds as list of int is list of int
+    defer banish explicit_embeds
+    var explicit_nodes as list of int is list of int
+    defer banish explicit_nodes
     if ty > 0 and (calling has_nominal_fields with s, ty):
         set check_fields is true
         var t3 as int is calling underlying_type with s, ty
@@ -2598,42 +2631,73 @@ weave infer_field_inits with s as ref to state.SemaState, node as int, ty as int
     while i < n:
         var fi as int is calling astutil.node_child with s->ast, node, i
         if fi >= 0 and (calling astutil.kind_of with s->ast, fi) == pskind.NodeKind.NdFieldInit:
-            var expected as int is -1
             var nm as int is calling astutil.token_child with s->ast, fi, 0
-            if nm >= 0 and ty > 0:
-                var txt as string is calling astutil.token_text with s->src, s->lex, nm
-                var txt_owned as bool is true
-                var ft as int is calling field_type with s, ty, txt
-                if ft > 0:
-                    set expected is ft
-                if check_fields:
-                    # Campo: debe existir en el rune y no repetirse. La coma de un
-                    # `with` anidado liga al `with` más interno, así que un campo
-                    # que "falta" suele ser el síntoma de ese anidamiento.
-                    var nid as int is calling npool.find with s->names, txt
-                    if nid < 0 or (calling nominal_field_index with s, ty, nid) < 0:
-                        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_UNDEFINED, (calling astutil.start_of with s->ast, fi), (calling astutil.end_of with s->ast, fi), "rune '{rune_name}' has no field '{txt}'", "Check the field name. Nested `with` initializers must be parenthesized: `field is (with ...)`.", ""
-                        banish txt
-                        set txt_owned is false
-                    else if (calling seen.has with nid):
-                        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_UNDEFINED, (calling astutil.start_of with s->ast, fi), (calling astutil.end_of with s->ast, fi), "field '{txt}' is initialized twice in this `with`", "Remove one of the two initializers.", ""
-                        banish txt
-                        set txt_owned is false
-                    else:
-                        calling seen.put with nid, true
-                if txt_owned:
-                    banish txt
+            var val as int is -1
             var ci as int is 0
             var cn as int is calling astutil.child_count with s->ast, fi
-            var val as int is -1
             while ci < cn:
-                var c as int is calling astutil.node_child with s->ast, fi, ci
-                if c >= 0:
-                    set val is c
+                var vc as int is calling astutil.node_child with s->ast, fi, ci
+                if vc >= 0:
+                    set val is vc
                 set ci is ci + 1
+            var expected as int is -1
+            if nm >= 0 and ty > 0:
+                var txt as string is calling astutil.token_text with s->src, s->lex, nm
+                var vnid as int is calling npool.find with s->names, txt
+                var direct as bool is vnid >= 0 and (calling nominal_field_index with s, ty, vnid) >= 0
+                var found as bool is direct
+                var ambiguous as bool is false
+                set expected is calling field_type with s, ty, txt
+                if direct:
+                    if expected <= 0:
+                        set expected is calling embeds.own_field_type with s->types, ty, vnid
+                else if vnid >= 0:
+                    var rpath as list of int is list of int
+                    var route as int is calling embeds.route_into with s->types, ty, vnid, (sigil of rpath), 0
+                    if route == embeds.ROUTE_FOUND:
+                        set found is true
+                        set expected is calling promoted_field_type with s, ty, vnid, fi
+                        if rpath.len > 0:
+                            # `route_into` guarda el `NameId` del campo embed.
+                            calling promoted_embeds.push with (rpath at 0)
+                    else if route == embeds.ROUTE_AMBIGUOUS:
+                        set ambiguous is true
+                        var ign as int is calling promoted_field_type with s, ty, vnid, fi
+                    banish rpath
+                if check_fields and not found and not ambiguous:
+                    # La coma de un `with` anidado liga al `with` más interno, así
+                    # que un campo que "falta" suele ser el síntoma de eso.
+                    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_UNDEFINED, (calling astutil.start_of with s->ast, fi), (calling astutil.end_of with s->ast, fi), "rune '{rune_name}' has no field '{txt}'", "Check the field name. Nested `with` initializers must be parenthesized: `field is (with ...)`.", ""
+                if check_fields and found:
+                    if (calling seen.has with vnid):
+                        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_UNDEFINED, (calling astutil.start_of with s->ast, fi), (calling astutil.end_of with s->ast, fi), "field '{txt}' is initialized twice in this `with`", "Remove one of the two initializers.", ""
+                    else:
+                        calling seen.put with vnid, true
+                        if direct:
+                            var didx as int is calling nominal_field_index with s, ty, vnid
+                            if (calling embed_field_name with s, ty, didx) >= 0:
+                                calling explicit_embeds.push with vnid
+                                calling explicit_nodes.push with fi
+                banish txt
             if val >= 0:
                 var ignored as int is calling infer with s, val, expected
         set i is i + 1
+    # Conflicto: el mismo embed inicializado por nombre y por campos promovidos.
+    var ei as int is 0
+    while ei < explicit_embeds.len:
+        var k as int is (explicit_embeds at ei)
+        var viaprom as bool is false
+        var pi as int is 0
+        while pi < promoted_embeds.len:
+            if (promoted_embeds at pi) == k:
+                set viaprom is true
+            set pi is pi + 1
+        if viaprom:
+            var ktxt as string is calling npool.text with s->names, k
+            var enode as int is (explicit_nodes at ei)
+            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_EMBED_AMBIGUOUS_FIELD, (calling astutil.start_of with s->ast, enode), (calling astutil.end_of with s->ast, enode), "field '{ktxt}' is initialized explicitly and through promoted fields", "Keep one form: either the embed as a whole or its promoted fields.", ""
+            banish ktxt
+        set ei is ei + 1
 
 ## `do:` como expresión de bloque.
 ##

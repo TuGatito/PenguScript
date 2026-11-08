@@ -86,7 +86,7 @@ en una fase del plan, o se elimina de la documentación.
 | `E0083` | `CODE_ARC_NOT_SHARED` | 1 | emitido | sí |
 | `E0084` | `CODE_EXPORT_DROP` | 1 | emitido | sí |
 | `E0085` | `CODE_EMBED_NOT_RUNE` | 1 | emitido | sí |
-| `E0087` | `CODE_EMBED_AMBIGUOUS_FIELD` | 1 | emitido | sí |
+| `E0087` | `CODE_EMBED_AMBIGUOUS_FIELD` | 2 | emitido | sí |
 | `E0088` | `CODE_EMBED_AMBIGUOUS_METHOD` | 1 | emitido | sí |
 | `E0089` | `CODE_EMBED_NAME` | 3 | emitido | sí |
 | `W0001` | `WARN_TRANSMUTE` | 0 | **sin emisor** | sí |

@@ -1,0 +1,40 @@
+## Construcción de un host `fundere`: la forma promovida enruta cada campo a su
+## embed, la explícita sigue funcionando, y las dos se pueden mezclar mientras
+## no apunten al mismo embed.
+rune Vec2:
+    x as int
+    y as int
+
+rune GameObj:
+    position as Vec2
+    bounds as int
+
+rune Physics:
+    velocity as int
+
+rune Enemy fundere GameObj, Physics:
+    health as int
+
+weave main into int:
+    # 1. Promovida, con `with` anidado dentro de un campo promovido.
+    var a as Enemy is with position is (with x is 1, y is 2), bounds is 3, velocity is 4, health is 5
+    if a.position.x != 1 or a.position.y != 2 or a.bounds != 3 or a.velocity != 4 or a.health != 5:
+        return 1
+    if a.gameObj.position.y != 2:
+        return 2
+    # 2. Explícita.
+    var b as Enemy is with gameObj is (with position is (with x is 10, y is 20), bounds is 30), physics is (with velocity is 40), health is 50
+    if b.position.x != 10 or b.velocity != 40 or b.health != 50:
+        return 3
+    # 3. Explícita en un embed y promovida en el otro.
+    var c as Enemy is with gameObj is (with position is (with x is 7, y is 8), bounds is 9), velocity is 6, health is 5
+    if c.position.y != 8 or c.bounds != 9 or c.velocity != 6:
+        return 4
+    # 4. Forma `with:` como expresión.
+    var d as Enemy is with:
+        set .position is (with x is 11, y is 12)
+        set .velocity is 13
+        set .health is 14
+    if d.position.x != 11 or d.velocity != 13 or d.health != 14:
+        return 5
+    return 0
