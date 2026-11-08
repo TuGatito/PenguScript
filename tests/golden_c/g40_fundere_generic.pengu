@@ -1,0 +1,25 @@
+## Golden: `fundere` sobre un embed genérico. La llamada promovida usa la
+## especialización de la instancia (`Box_doubled_instN`) y su receptor es el
+## campo del embed (`&(h.box)`), no el host.
+import std.spark
+
+rune Box shard T:
+    value as T
+
+enchanting Box shard T:
+    weave doubled into T:
+        return self->value + self->value
+
+rune Holder fundere Box of int:
+    tag as int
+
+weave main into int:
+    var h as Holder is with value is 5, tag is 1
+    calling spark.println with "{h.tag}"
+    calling spark.println with "{h.value}"
+    var first as int is calling h.doubled
+    calling spark.println with "{first}"
+    set h.value is 6
+    var second as int is calling h.doubled
+    calling spark.println with "{second}"
+    return 0

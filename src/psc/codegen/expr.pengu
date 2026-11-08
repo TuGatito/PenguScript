@@ -2298,12 +2298,18 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
                         set rct_id is rct_ty.a
                     set rct_ty is calling types.at with (sigil of c->program->types), rct_id
                     set rct_guard is rct_guard + 1
+                # Un método promovido por `fundere` se declara en el embed: la
+                # instancia que hay que buscar es la del campo, no la del host.
+                var rct_eff as int is rct_id
+                var rct_prom as int is calling cg_promoted_embed_nominal with c, rct_id, nid, 0
+                if rct_prom > 0:
+                    set rct_eff is rct_prom
                 var rctype as string is calling ctype.c_type with (sigil of c->names), rct_id
                 # Una instancia tiene prioridad sobre la plantilla `Box_get`.
                 var psi as int is 0
                 while psi < c->catalog.functions.len:
                     var psf as catalog.CgFunction is (c->catalog.functions at psi)
-                    if psf.is_method and psf.is_spec and psf.recv_type == rct_id and psf.name == nid:
+                    if psf.is_method and psf.is_spec and psf.recv_type == rct_eff and psf.name == nid:
                         set fslot is psi
                         banish cname
                         set cname is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), psf.c_name)
@@ -2548,6 +2554,25 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
             var mrt as CgTarget is calling resolve_target with c, mt0, ast, true
             defer banish mrt.text
             var mrid as int is mrt.type_id
+            # Método promovido por `fundere`: la especialización se calcula con
+            # el tipo del embed (su receptor real), no con el del host.
+            if mrid > 0 and mg.recv_type > 0:
+                var mhost as int is calling cg_nominal_of with c, mrid
+                if mhost > 0:
+                    var mpath as list of int is calling cg_embed_path_soft with c, mhost, mg.recv_type, 0
+                    if mpath.len > 0:
+                        var cur2 as int is mhost
+                        var pj as int is 0
+                        while pj < mpath.len:
+                            var ct2 as tk.SemaType is calling types.at with (sigil of c->program->types), cur2
+                            var cinfo2 as types.SemaNominalInfo is (c->program->types.nominal_infos at ct2.a)
+                            var fld2 as types.SemaField is (c->program->types.fields at (cinfo2.fields_first + (mpath at pj)))
+                            set mrid is fld2.type
+                            var nxt2 as int is calling cg_nominal_of with c, fld2.type
+                            if nxt2 > 0:
+                                set cur2 is nxt2
+                            set pj is pj + 1
+                    banish mpath
             if mrid > 0:
                 var mig as int is calling generics.ensure_method_spec with c, fslot, mrid, node
                 if mig > 0 and mig != fslot:
@@ -3059,6 +3084,31 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
             else:
                 set clr is "{clrf}(&({tgt.text}))"
             return clr
+    # Método promovido sobre un embed genérico: el receptor real es la
+    # instancia (`Box__int`), así que la llamada usa su especialización y no el
+    # nombre del template.
+    var fixnode as int is calling astutil.node_child with ast, node, 0
+    if fslot >= 0 and fixnode >= 0:
+        var ffx as catalog.CgFunction is (c->catalog.functions at fslot)
+        if ffx.is_method and ffx.recv_type > 0:
+            var ety as int is calling cg_promoted_embed_type with c, fixnode, ast, ffx.recv_type
+            if ety > 0:
+                var six as int is -1
+                var sci as int is 0
+                while sci < c->catalog.functions.len:
+                    var scf as catalog.CgFunction is (c->catalog.functions at sci)
+                    if scf.is_method and scf.is_spec and scf.recv_type == ety and scf.name == ffx.name:
+                        set six is sci
+                        set sci is c->catalog.functions.len
+                    else:
+                        set sci is sci + 1
+                if six < 0:
+                    set six is calling ensure_instance_method_spec with c, fslot, ety, node
+                if six >= 0 and six != fslot:
+                    set fslot is six
+                    var sfx as catalog.CgFunction is (c->catalog.functions at six)
+                    banish cname
+                    set cname is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), sfx.c_name)
     var tgtc as int is calling astutil.node_child with ast, node, 0
     if (calling astutil.child_count with ast, tgtc) > 2:
         var chain_call as string is calling chain_call_expr with c, node, ast, cname
@@ -4348,6 +4398,151 @@ weave cg_embed_path_to with c as ref to context.CgContext, ty as int, target as 
         set i is i + 1
     return out
 
+## Índice de la info nominal del template de un tipo, o `-1`.
+##
+## Una instancia genérica (`Box__int`) guarda en `template_info` el índice de la
+## info del template (`Box`); un nominal no genérico devuelve su propio índice.
+##
+## ## Memoria
+## No asigna.
+weave cg_template_of with c as ref to context.CgContext, ty as int into int:
+    var nom as int is calling cg_nominal_of with c, ty
+    if nom < 0:
+        return -1
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), nom
+    if t.a < 0 or t.a >= c->program->types.nominal_infos.len:
+        return -1
+    var info as types.SemaNominalInfo is (c->program->types.nominal_infos at t.a)
+    if info.template_info >= 0:
+        return info.template_info
+    return t.a
+
+## Como `cg_embed_path_to`, pero acepta una instancia genérica por su template.
+##
+## El sema resuelve un método promovido sobre el tipo **instanciado** del embed
+## (`Box__int`), mientras que el catálogo guarda el receptor del **template**
+## (`Box of T`). Comparar los índices de template reconoce ambos casos.
+##
+## ## Memoria
+## Devuelve una lista owned de índices de campo.
+weave cg_embed_path_soft with c as ref to context.CgContext, ty as int, target as int, depth as int into list of int:
+    var out as list of int is list of int
+    if depth > 32:
+        return out
+    var exact as list of int is calling cg_embed_path_to with c, ty, target, 0
+    if exact.len > 0:
+        banish out
+        return exact
+    banish exact
+    var nom as int is calling cg_nominal_of with c, ty
+    if nom < 0:
+        return out
+    var want as int is calling cg_template_of with c, target
+    var nt as tk.SemaType is calling types.at with (sigil of c->program->types), nom
+    var info as types.SemaNominalInfo is (c->program->types.nominal_infos at nt.a)
+    var i as int is 0
+    while i < info.fields_count:
+        var f as types.SemaField is (c->program->types.fields at (info.fields_first + i))
+        if (f.flags & types.FIELD_EMBED) != 0:
+            var fhom as int is calling cg_nominal_of with c, f.type
+            if fhom >= 0 and want >= 0 and (calling cg_template_of with c, f.type) == want:
+                banish out
+                var one as list of int is list of int
+                calling one.push with i
+                return one
+            var inner as list of int is calling cg_embed_path_soft with c, f.type, target, depth + 1
+            if inner.len > 0:
+                banish out
+                calling inner.push with i
+                return inner
+            banish inner
+        set i is i + 1
+    return out
+
+## Nominal del embed que declara el método `nid`, buscando en profundidad.
+##
+## Devuelve el tipo **instanciado** del campo embed (por ejemplo `Box__int`),
+## que es el receptor real de un método promovido.
+##
+## ## Memoria
+## No asigna.
+weave cg_promoted_embed_nominal with c as ref to context.CgContext, host as int, nid as int, depth as int into int:
+    if host <= 0 or nid < 0 or depth > 32:
+        return -1
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), host
+    if t.a < 0 or t.a >= c->program->types.nominal_infos.len:
+        return -1
+    var info as types.SemaNominalInfo is (c->program->types.nominal_infos at t.a)
+    var i as int is 0
+    while i < info.fields_count:
+        var f as types.SemaField is (c->program->types.fields at (info.fields_first + i))
+        if (f.flags & types.FIELD_EMBED) != 0:
+            var e as int is calling cg_nominal_of with c, f.type
+            if e > 0:
+                if (calling symbols.lookup_method with (sigil of c->program->symbols), e, nid) >= 0:
+                    return e
+                var deeper as int is calling cg_promoted_embed_nominal with c, e, nid, depth + 1
+                if deeper > 0:
+                    return deeper
+        set i is i + 1
+    return -1
+
+## Especializa un método cuyo receptor es una instancia genérica.
+##
+## `ensure_method_spec` infiere los argumentos del call site; cuando el
+## receptor ya es una instancia (`Box__int`), los argumentos del tipo son la
+## fuente correcta (`spec_args_for_call` no siempre los deduce).
+##
+## ## Memoria
+## Puede añadir una `CgFunction`; devuelve su índice.
+weave ensure_instance_method_spec with c as ref to context.CgContext, base_idx as int, recv_id as int, node as int into int:
+    if base_idx < 0:
+        return base_idx
+    var bf as catalog.CgFunction is (c->catalog.functions at base_idx)
+    if bf.is_method and bf.is_generic and not bf.is_spec and bf.tparams.len > 0:
+        var iargs as list of int is calling generics.type_args_of with c, recv_id
+        if iargs.len == bf.tparams.len:
+            var sii as int is calling generics.add_method_spec with c, base_idx, recv_id, iargs
+            banish iargs
+            if sii >= 0:
+                return sii
+            return base_idx
+        banish iargs
+    return calling generics.ensure_method_spec with c, base_idx, recv_id, node
+
+## Tipo del embed que declara el método `want`, visto desde el receptor.
+##
+## Devuelve el `TypeId` del campo embed al final del camino (una instancia
+## genérica, si el embed lo es), o `-1` si el método no se promueve.
+##
+## ## Memoria
+## Libera el `CgTarget` y la lista del camino.
+weave cg_promoted_embed_type with c as ref to context.CgContext, recv_node as int, ast as ref to psast.PsAst, want as int into int:
+    if recv_node < 0 or want <= 0:
+        return -1
+    var rt as CgTarget is calling resolve_target with c, recv_node, ast, true
+    defer banish rt.text
+    var host as int is calling cg_nominal_of with c, rt.type_id
+    if host <= 0:
+        return -1
+    var path as list of int is calling cg_embed_path_soft with c, host, want, 0
+    defer banish path
+    if path.len == 0:
+        return -1
+    var cur as int is host
+    var pi as int is 0
+    var last as int is -1
+    while pi < path.len:
+        var ct as tk.SemaType is calling types.at with (sigil of c->program->types), cur
+        var cinfo as types.SemaNominalInfo is (c->program->types.nominal_infos at ct.a)
+        var fld as types.SemaField is (c->program->types.fields at (cinfo.fields_first + (path at pi)))
+        set last is fld.type
+        var nxt as int is calling cg_nominal_of with c, fld.type
+        if nxt > 0:
+            set cur is nxt
+        set pi is pi + 1
+    return last
+
 ## `true` si el receptor `rt` es un puntero en C.
 ##
 ## ## Memoria
@@ -4377,7 +4572,7 @@ weave method_receiver with c as ref to context.CgContext, target as int, ast as 
     if rt.type_id > 0:
         var host as int is calling cg_nominal_of with c, rt.type_id
         if host > 0:
-            var path as list of int is calling cg_embed_path_to with c, host, recv_type, 0
+            var path as list of int is calling cg_embed_path_soft with c, host, recv_type, 0
             if path.len > 0:
                 var sb as StringBuilder is calling StringBuilder.new
                 defer banish sb
@@ -4446,7 +4641,7 @@ weave with_embed_path with c as ref to context.CgContext, base as string, base_t
     var wty as int is calling cg_nominal_of with c, want
     if host <= 0 or wty <= 0:
         return calling npool.copy_string with base
-    var path as list of int is calling cg_embed_path_to with c, host, wty, 0
+    var path as list of int is calling cg_embed_path_soft with c, host, wty, 0
     if path.len == 0:
         banish path
         return calling npool.copy_string with base
@@ -4545,18 +4740,23 @@ weave get_alias_call with c as ref to context.CgContext, node as int, ast as ref
             break
         set guard is guard + 1
     # El método base puede ser una plantilla genérica; usar su especialización
-    # para el receptor concreto (`int_min_with`, no `Forma_min_with`).
+    # para el receptor concreto (`int_min_with`, no `Forma_min_with`). Si el
+    # método se promueve por `fundere`, el receptor de la especialización es el
+    # tipo del embed, no el del host.
+    var eff_ty as int is recv_ty
+    var gnode0 as int is calling astutil.node_child with ast, node, 0
+    if gnode0 >= 0 and fm.recv_type > 0:
+        var gembed as int is calling cg_promoted_embed_type with c, gnode0, ast, fm.recv_type
+        if gembed > 0:
+            set eff_ty is gembed
     if fm.is_generic and fm.tparams.len > 0:
-        var gargs as list of int is list of int
-        calling gargs.push with recv_ty
-        var gspec as int is calling generics.add_spec with c, fi, gargs
+        var gspec as int is calling ensure_instance_method_spec with c, fi, eff_ty, node
         if gspec >= 0:
             set fm is (c->catalog.functions at gspec)
-        calling gargs.clear
     var gsi as int is 0
     while gsi < c->catalog.functions.len:
         var gsf as catalog.CgFunction is (c->catalog.functions at gsi)
-        if gsf.is_method and gsf.name == fm.name and gsf.recv_type == recv_ty:
+        if gsf.is_method and gsf.name == fm.name and gsf.recv_type == eff_ty:
             set fm is gsf
             set gsi is c->catalog.functions.len
         else:
@@ -4566,6 +4766,10 @@ weave get_alias_call with c as ref to context.CgContext, node as int, ast as ref
     var holder_ty as int is recv_ty
     if fm.recv_type > 0:
         set holder_ty is fm.recv_type
+    if fm.is_spec:
+        var hmat as int is calling generics.receiver_type_of with c, fm
+        if hmat > 0:
+            set holder_ty is hmat
     var ct as string is calling ctype.c_type with (sigil of c->names), holder_ty
     defer banish ct
     var cname as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), fm.c_name)
@@ -5734,7 +5938,10 @@ weave push_init_entry with c as ref to context.CgContext, ty as int, name_tok as
 ##
 ## ## Memoria
 ## Devuelve string owned; no consume las listas.
-weave grouped_init_body with c as ref to context.CgContext, ty as int, paths as list of list of int, values as list of int, tys as list of int, leafs as list of string into string:
+weave grouped_init_body with c as ref to context.CgContext, ty_in as int, paths as list of list of int, values as list of int, tys as list of int, leafs as list of string into string:
+    # Un cuerpo genérico (`Box_grown_inst2`) construye `Box of T`: el tipo hay
+    # que sustituirlo antes de nombrarlo en C.
+    var ty as int is calling generics.subst_codegen with c, ty_in
     var ct as string is calling ctype.c_type with (sigil of c->names), ty
     defer banish ct
     var sb as StringBuilder is calling StringBuilder.new

@@ -1,0 +1,68 @@
+# `fundere` con embeds genéricos: el campo del embed es una instancia y la
+# promoción tiene que resolver sobre esa instancia, no sobre el template.
+#
+# Devuelve 0 si todo pasa; cada bloque devuelve un código distinto si falla.
+
+rune Box shard T:
+    value as T
+
+enchanting Box shard T:
+    weave doubled into T:
+        return self->value + self->value
+
+    @mutates
+    weave grown with by as T into Box of T:
+        return with value is self->value + by
+
+rune Holder fundere Box of int:
+    tag as int
+
+rune Deep fundere Holder:
+    label as int
+
+rune Pair fundere Box of T shard T:
+    other as T
+
+weave main into int:
+    # 1. Host con un embed genérico instanciado: campo y método promovidos.
+    var h as Holder is with value is 5, tag is 1
+    if h.value != 5:
+        return 1
+    if (calling h.doubled) != 10:
+        return 2
+    set h.value is 6
+    if (calling h.doubled) != 12:
+        return 3
+
+    # 2. Promoción recursiva a través de dos niveles hasta el embed genérico.
+    var d as Deep is with value is 3, tag is 2, label is 9
+    if (calling d.doubled) != 6:
+        return 4
+    if d.label != 9:
+        return 5
+
+    # 3. `@mutates` promovido sobre un embed genérico: muta el campo, no el host.
+    calling h.grown with 4
+    if h.value != 10:
+        return 6
+    if h.tag != 1:
+        return 7
+
+    # 4. La forma pura `get_` no muta el receptor.
+    var copy as Box of int is calling h.get_grown with 1
+    if copy.value != 11:
+        return 8
+    if h.value != 10:
+        return 9
+
+    # 5. Host genérico con embed genérico (`fundere Box of T`).
+    var p as Pair of int is with value is 7, other is 2
+    if (calling p.doubled) != 14:
+        return 10
+    if p.other != 2:
+        return 11
+    set p.value is 1
+    if (calling p.doubled) != 2:
+        return 12
+
+    return 0

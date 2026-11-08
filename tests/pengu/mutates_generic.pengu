@@ -1,0 +1,40 @@
+# `@mutates` en un método de un tipo genérico que devuelve el propio tipo
+# genérico (`Box of T`). Antes fallaba en dos sitios: la validación comparaba
+# `Box of T` con la familia `Box` y el cuerpo emitía `Box__T` en vez de la
+# instancia.
+#
+# Devuelve 0 si todo pasa.
+
+rune Box shard T:
+    value as T
+
+enchanting Box shard T:
+    @mutates
+    weave grown with by as T into Box of T:
+        return with value is self->value + by
+
+    weave doubled into T:
+        return self->value + self->value
+
+weave main into int:
+    var b as Box of int is with value is 5
+    calling b.grown with 3
+    if b.value != 8:
+        return 1
+    if (calling b.doubled) != 16:
+        return 2
+
+    # La forma pura trabaja sobre una copia.
+    var copy as Box of int is calling b.get_grown with 2
+    if copy.value != 10:
+        return 3
+    if b.value != 8:
+        return 4
+
+    # El valor de retorno sustituido también funciona con strings.
+    var s as Box of string is with value is "a"
+    calling s.grown with "b"
+    if s.value != "ab":
+        return 5
+
+    return 0

@@ -1935,6 +1935,43 @@ weave find_attribute with s as ref to state.SemaState, attrs as int, name as str
         set i is i + 1
     return -1
 
+## `true` si `ret` es el tipo receptor de un `@mutates` (o `void`).
+##
+## El receptor de un `enchanting Box shard T` se convierte a la familia `Box`
+## (con o sin argumentos), así que se compara la base nominal y no el `TypeId`
+## exacto: `@mutates weave grown into Box of T` es válido.
+##
+## ## Memoria
+## No asigna.
+weave mutates_return_ok with s as ref to state.SemaState, ret as int, recv as int into bool:
+    if ret == recv:
+        return true
+    if ret <= 0 or recv <= 0:
+        return false
+    var ra as int is calling infer.underlying_type with s, ret
+    var rb as int is calling infer.underlying_type with s, recv
+    if ra == rb:
+        return true
+    var ta as tk.SemaType is calling types.at with s->types, ra
+    var tb as tk.SemaType is calling types.at with s->types, rb
+    if ta.kind != tb.kind:
+        return false
+    if ta.kind != tk.SemaTypeKind.TkRune and ta.kind != tk.SemaTypeKind.TkEcho:
+        return false
+    if ta.a == tb.a:
+        return true
+    if ta.a < 0 or tb.a < 0:
+        return false
+    if ta.a >= s->types->nominal_infos.len or tb.a >= s->types->nominal_infos.len:
+        return false
+    var ia as types.SemaNominalInfo is (s->types->nominal_infos at ta.a)
+    var ib as types.SemaNominalInfo is (s->types->nominal_infos at tb.a)
+    if ia.template_info >= 0 and ia.template_info == tb.a:
+        return true
+    if ib.template_info >= 0 and ib.template_info == ta.a:
+        return true
+    return false
+
 ## Valida `@mutates` en un método.
 ##
 ## Reglas stage0: sin argumentos; retorno `void` o el tipo receptor.
@@ -1955,7 +1992,7 @@ weave check_mutates_method with s as ref to state.SemaState, m as int, recv as i
     var fy as tk.SemaType is calling types.at with s->types, ft
     if fy.kind == tk.SemaTypeKind.TkFn:
         var info as types.SemaFnInfo is (s->types->fn_infos at fy.a)
-        if info.return_type != 3 and info.return_type != recv:
+        if info.return_type != 3 and not (calling mutates_return_ok with s, info.return_type, recv):
             calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MUTATES_ATTR, start, end, "@mutates must return void or the receiver type", "Return void or the mutated value.", ""
         # Una mutación en sitio ('set self/...') debe ser un procedimiento void.
         if info.return_type != 3:
