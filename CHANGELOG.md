@@ -22,7 +22,9 @@ All notable changes to PenguScript will be documented in this file.
 
 - C2 sigue parcial: las especializaciones que solo aparecen en bloques `test`
   todavía se emiten en builds normales (aumentan el tamaño, no rompen C). La
-  poda por origen queda para 0.55.2.
+  poda por origen queda para 0.55.2. El contrato funcional está cubierto por
+  `tests/regress_test_spec_build.sh`: el build normal compila y enlaza, y
+  `psc test` ejecuta la especialización.
 
 ## [0.55.0] — 2026-11-09 — Tipos de función genéricos y plantillas C
 
