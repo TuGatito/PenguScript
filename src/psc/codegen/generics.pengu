@@ -78,6 +78,11 @@ weave add_spec with c as ref to context.CgContext, base_idx as int, args as list
     var ex as int is calling find_spec with c, base.symbol, args
     if ex >= 0:
         return ex
+    # No crear especializaciones con type params sin resolver: producen firmas
+    # `X__T*` y `void**` que C no puede compilar. La instancia concreta la crea
+    # la pasada de especialización cuando el llamador ya está sustituido.
+    if not (calling all_concrete with c, args):
+        return -1
     var bname as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), base.c_name)
     var cname as string is "{bname}_inst{c->catalog.functions.len}"
     banish bname

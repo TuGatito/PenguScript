@@ -6429,6 +6429,53 @@ weave find_interp with m as ref to loader.SemaModule, node as int, pstart as int
         set i is i + 1
     return -1
 
+## Tipo de retorno de una llamada a método dentro de una interpolación.
+##
+## El sema de interpolaciones no anota el nodo raíz de `calling obj.method`,
+## así que `node_type` devuelve `-1`. La especialización ya existe cuando se
+## llama a esta función: se busca por nombre y tipo receptor y se lee el tipo
+## de retorno de su símbolo. Es el único caso en el que el codegen necesita
+## recuperar un tipo que el sema ya conocía.
+##
+## ## Memoria
+## CgTarget.text es owned; se libera aquí.
+weave interp_call_type with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst into int:
+    var tgt as int is calling astutil.node_child with ast, node, 0
+    if tgt < 0:
+        return -1
+    var rt as CgTarget is calling resolve_target with c, tgt, ast, true
+    defer banish rt.text
+    if rt.type_id <= 0:
+        return -1
+    var last as int is calling last_token_deep with ast, tgt
+    if last < 0:
+        return -1
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var mname as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), last
+    var mid as int is calling npool.intern with (sigil of c->program->names), mname
+    banish mname
+    var i as int is c->catalog.functions.len - 1
+    while i >= 0:
+        var f as catalog.CgFunction is (c->catalog.functions at i)
+        if f.is_method and f.name == mid and f.recv_type == rt.type_id:
+            var sy as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), f.symbol
+            var st as tk.SemaType is calling types.at with (sigil of c->program->types), sy.type
+            var guard as int is 0
+            while guard < 8 and (st.kind == tk.SemaTypeKind.TkRef or st.kind == tk.SemaTypeKind.TkFrozen):
+                set st is calling types.at with (sigil of c->program->types), st.a
+                set guard is guard + 1
+            if st.kind == tk.SemaTypeKind.TkFn:
+                var fi as types.SemaFnInfo is (c->program->types.fn_infos at st.a)
+                # No materializar tipos nominales durante el codegen de una
+                # interpolación: la lista de structs ya se ordenó antes. Si el
+                # retorno ya es concreto, se usa tal cual.
+                if not (calling ctype.type_has_param with (sigil of c->program->types), fi.return_type):
+                    return fi.return_type
+                return calling generics.subst_spec_type_of with c, f, fi.return_type
+            return -1
+        set i is i - 1
+    return -1
+
 ## Añade un texto literal al formato, escapando C y `%`.
 ##
 ## ## Memoria
@@ -6618,6 +6665,12 @@ weave interp_expr with c as ref to context.CgContext, node as int, content as st
                 set c->program->modules at midx is tmpmod
                 var expr_c as string is calling emit_expr with c, it.parse.root
                 var ty as int is calling node_type with c, it.parse.root
+                var is_tp as bool is false
+                if ty > 0:
+                    var ity as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+                    set is_tp is ity.kind == tk.SemaTypeKind.TkTypeParam
+                if ty < 0 or is_tp:
+                    set ty is calling interp_call_type with c, it.parse.root, (sigil of tmpmod.parse.ast)
                 set c->program->modules at midx is oldmod
                 if expr_c == "":
                     calling fmt.append with "%s"

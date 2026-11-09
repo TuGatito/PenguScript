@@ -2,6 +2,28 @@
 
 All notable changes to PenguScript will be documented in this file.
 
+## [0.55.1] — 2026-11-09 — Interpolación genérica, conceptos y plantillas válidas
+
+### Corregido
+
+- La interpolación de una llamada a un método genérico
+  (`"{calling p.get_a}"`) usa el tipo de retorno concreto de la
+  especialización. Antes caía en la plantilla `T` y emitía `%s` con `""`, sin
+  diagnóstico.
+- Los métodos de concepto implementados en un rune genérico se especializan
+  con el receptor concreto. Antes el codegen creaba una instancia con `T` sin
+  resolver (`PlainRow__T`, `void**`) y C la rechazaba.
+- Solo se omiten las `struct`s plantilla cuyos campos mencionan un parámetro de
+  tipo. Las plantillas con layout concreto (`Rc<T>`, `WeakRc<T>`,
+  `OrderedMap<T>`, que solo guardan un `ref to void`) vuelven a emitirse; su
+  ausencia dejaba typedefs incompletos en `std.consortium` y `std.ordinal`.
+
+### Limitaciones conocidas
+
+- C2 sigue parcial: las especializaciones que solo aparecen en bloques `test`
+  todavía se emiten en builds normales (aumentan el tamaño, no rompen C). La
+  poda por origen queda para 0.55.2.
+
 ## [0.55.0] — 2026-11-09 — Tipos de función genéricos y plantillas C
 
 ### Corregido
@@ -11,30 +33,25 @@ All notable changes to PenguScript will be documented in this file.
   `struct` por instancia. Antes se emitía una sola `struct` base con la última
   sustitución, lo que producía errores de punteros incompatibles en
   `std/functor` y en cualquier callback genérico.
-- El codegen ya no emite `struct`s plantilla sin instanciar ni sus clones,
-  limpiezas o copias profundas. Esas plantillas contenían campos ya sustituidos
-  por tipos de usuario y C las rechazaba por tipos incompletos.
+- El codegen omite las `struct`s plantilla cuyos campos aún contienen
+  parámetros de tipo, junto con sus clones, limpiezas y copias profundas. Esas
+  plantillas contenían campos sustituidos por tipos de usuario y C las
+  rechazaba por tipos incompletos.
 - Las especializaciones creadas tarde por el DCE se emiten mediante
   `late_specs`, de modo que un método genérico llamado desde otra
   especialización no queda como `implicit declaration`.
 - `void` ya no se acepta como argumento genérico: se emite
   `CODE_GENERIC_ARGS` con una ayuda explícita. `Fn1<A, void>` generaba C
   inválido (`void fallback`).
-- `std/functor` vuelve a compilar y sus pruebas dejan de contaminar builds
-  normales con especializaciones de test.
+- `std/functor` vuelve a compilar en builds normales. El DCE conserva las
+  especializaciones de métodos cuyo receptor usa el programa; las que solo
+  aparecen en bloques `test` siguen emitiéndose (limitación C2 documentada).
 - `std.web.event.kind` ya no devuelve basura: copia el `type` del evento con
   `js.to_string` antes de liberar el handle temporal. Los handlers delegados de
   `tela` dependen de este valor para resolver `data-tela-on-<evento>`.
 - `std.web.dom` incorpora `attribute_names` e `insert_before` (wasm y stubs
   nativos), necesarios para montar bindings declarativos y reordenar listas
   keyed sin tocar `js` a mano.
-
-### Limitaciones conocidas
-
-- Una llamada a un método genérico dentro de una interpolación
-  (`"{calling f.call}"`) sigue emitiendo un argumento vacío; asígnela a una
-  variable local antes de interpolarla. El caso está cubierto por C3 y se
-  corregirá en 0.55.1.
 
 ### Documentación
 

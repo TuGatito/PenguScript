@@ -187,7 +187,19 @@ weave is_generic_template with c as ref to context.CgContext, t as catalog.CgTyp
     if ty.a < 0 or ty.a >= c->program->types.nominal_infos.len:
         return false
     var info as types.SemaNominalInfo is (c->program->types.nominal_infos at ty.a)
-    return info.tparams_count > 0 and info.template_info < 0
+    if info.tparams_count == 0 or info.template_info >= 0:
+        return false
+    # Una plantilla con todos sus campos concretos (p. ej. `Rc<T>`, que solo
+    # guarda `ref to void`) tiene un layout C válido y debe emitirse: sus
+    # métodos usan el struct base y no dependen del parámetro. Solo se omite
+    # la plantilla cuando algún campo menciona un parámetro de tipo.
+    var fi as int is 0
+    while fi < info.fields_count:
+        var f as types.SemaField is (c->program->types.fields at (info.fields_first + fi))
+        if calling ctypes.type_has_param with (sigil of c->program->types), f.type:
+            return true
+        set fi is fi + 1
+    return false
 
 ## Emite el clon superficial de un tipo.
 ##
@@ -468,7 +480,7 @@ weave order_types with c as ref to context.CgContext into list of int:
         var ci as catalog.CgType is (c->catalog.types at (order at oi))
         var cty as tk.SemaType is calling types.at with (sigil of c->program->types), ci.type_id
         var cinfo as types.SemaNominalInfo is (c->program->types.nominal_infos at cty.a)
-        if cinfo.template_info >= 0 or cinfo.tparams_count == 0:
+        if cinfo.template_info >= 0 or cinfo.tparams_count == 0 or not (calling is_generic_template with c, ci):
             calling insts.push with (order at oi)
         else:
             calling tmpls.push with (order at oi)
