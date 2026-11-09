@@ -122,13 +122,18 @@ rune CgCatalog:
     ## `NameId` de tipos nominales cuyo nombre base aparece en más de un
     ## módulo; solo esos se prefijan en C (bug 17).
     ambiguous as map of int to int
+    ## Especializaciones creadas después del DCE (durante la emisión de
+    ## cuerpos); se emiten aunque no estuvieran en el reach.
+    late_specs as map of int to int
+    ## `true` una vez calculado el DCE.
+    reach_done as bool
 
 ## Crea un catálogo vacío.
 ##
 ## ## Memoria
 ## Asigna listas/mapas.
 weave new_catalog into CgCatalog:
-    return with functions is list of CgFunction, by_symbol is map of int to int, by_name is map of int to int, types is list of CgType, consts is list of CgConst, includes is list of CgInclude, by_type is map of int to int, errors is 0, ambiguous is map of int to int
+    return with functions is list of CgFunction, by_symbol is map of int to int, by_name is map of int to int, types is list of CgType, consts is list of CgConst, includes is list of CgInclude, by_type is map of int to int, errors is 0, ambiguous is map of int to int, late_specs is map of int to int, reach_done is false
 
 ## Libera el catálogo.
 ##
@@ -143,6 +148,7 @@ weave catalog_free with c as ref to CgCatalog into void:
     banish c->includes
     banish c->by_type
     banish c->ambiguous
+    banish c->late_specs
 
 ## Scope que contiene los símbolos de un módulo (compañero `.d.pengu` incluido).
 ##
@@ -418,6 +424,15 @@ weave has_type_param_depth with p as ref to program.SemaProgram, id as int, dept
         return calling has_type_param_depth with p, t.a, depth + 1
     if t.kind == tk.SemaTypeKind.TkMap or t.kind == tk.SemaTypeKind.TkResult:
         return (calling has_type_param_depth with p, t.a, depth + 1) or (calling has_type_param_depth with p, t.b, depth + 1)
+    if t.kind == tk.SemaTypeKind.TkFn:
+        var fi as types.SemaFnInfo is (p->types.fn_infos at t.a)
+        var pi as int is 0
+        while pi < fi.params_count:
+            var fp as types.SemaFnParam is (p->types.fn_params at (fi.params_first + pi))
+            if calling has_type_param_depth with p, fp.type, depth + 1:
+                return true
+            set pi is pi + 1
+        return calling has_type_param_depth with p, fi.return_type, depth + 1
     if t.kind == tk.SemaTypeKind.TkTuple:
         var i as int is 0
         while i < t.count:
@@ -513,6 +528,15 @@ weave collect_type_params with p as ref to program.SemaProgram, id as int, out a
     if t.kind == tk.SemaTypeKind.TkMap or t.kind == tk.SemaTypeKind.TkResult:
         calling collect_type_params with p, t.a, out
         calling collect_type_params with p, t.b, out
+        return
+    if t.kind == tk.SemaTypeKind.TkFn:
+        var fi as types.SemaFnInfo is (p->types.fn_infos at t.a)
+        var pi as int is 0
+        while pi < fi.params_count:
+            var fp as types.SemaFnParam is (p->types.fn_params at (fi.params_first + pi))
+            calling collect_type_params with p, fp.type, out
+            set pi is pi + 1
+        calling collect_type_params with p, fi.return_type, out
         return
     if t.kind == tk.SemaTypeKind.TkTuple:
         var j as int is 0

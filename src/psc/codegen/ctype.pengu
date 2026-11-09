@@ -34,6 +34,15 @@ weave type_has_param_depth with t as ref to types.SemaTypeTable, id as int, dept
         return calling type_has_param_depth with t, ty.a, depth + 1
     if ty.kind == tk.SemaTypeKind.TkMap or ty.kind == tk.SemaTypeKind.TkResult:
         return (calling type_has_param_depth with t, ty.a, depth + 1) or (calling type_has_param_depth with t, ty.b, depth + 1)
+    if ty.kind == tk.SemaTypeKind.TkFn:
+        var fi as types.SemaFnInfo is (t->fn_infos at ty.a)
+        var pi as int is 0
+        while pi < fi.params_count:
+            var fp as types.SemaFnParam is (t->fn_params at (fi.params_first + pi))
+            if calling type_has_param_depth with t, fp.type, depth + 1:
+                return true
+            set pi is pi + 1
+        return calling type_has_param_depth with t, fi.return_type, depth + 1
     if ty.kind == tk.SemaTypeKind.TkTuple:
         var i as int is 0
         while i < ty.count:

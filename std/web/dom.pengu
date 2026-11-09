@@ -422,6 +422,48 @@ when wasm:
     weave set_dataset with e as Element, name as string, value as string into result of bool to js.JsError:
         return calling set_attr with e, "data-{name}", value
 
+    ## `element.getAttributeNames()`. The list and every string are owned.
+    weave attribute_names with e as Element into result of list of string to js.JsError:
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        var r as result of js.JsValue to js.JsError is calling js.call_method with e._v, "getAttributeNames", args
+        if not r.is_ok:
+            return calling err_of with r.error
+        defer calling js.release with r.value
+        var total as result of int to js.JsError is calling js.length with r.value
+        if not total.is_ok:
+            return calling err_of with total.error
+        var out as list of string is list of string
+        var i as int is 0
+        while i < total.value:
+            var item as result of js.JsValue to js.JsError is calling js.get_index with r.value, i
+            if not item.is_ok:
+                banish out
+                return calling err_of with item.error
+            var s as result of string to js.JsError is calling js.from_string with item.value
+            calling js.release with item.value
+            if not s.is_ok:
+                banish out
+                return calling err_of with s.error
+            calling out.push with s.value
+            set i is i + 1
+        return calling ok_of with out
+
+    ## `parent.insertBefore(child, reference)`. `reference = none` appends.
+    weave insert_before with parent as Element, child as Element, reference as maybe Element into result of bool to js.JsError:
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        calling args.push with child._v
+        if reference is present:
+            calling args.push with reference.value._v
+        else:
+            calling args.push with js.NULL
+        var r as result of js.JsValue to js.JsError is calling js.call_method with parent._v, "insertBefore", args
+        if not r.is_ok:
+            return calling err_of with r.error
+        calling js.release with r.value
+        return calling ok_of with true
+
     ## `parent.appendChild(child)`.
     weave append with parent as Element, child as Element into result of bool to js.JsError:
         var args as list of js.JsValue is list of js.JsValue
@@ -857,6 +899,8 @@ when not wasm:
         return calling err_of with (calling js.last_error)
     weave get_attr with e as Element, name as string into result of maybe string to js.JsError:
         return calling err_of with (calling js.last_error)
+    weave attribute_names with e as Element into result of list of string to js.JsError:
+        return calling err_of with (calling js.last_error)
     weave set_attr with e as Element, name as string, value as string into result of bool to js.JsError:
         return calling err_of with (calling js.last_error)
     weave set_attr_unsafe with e as Element, name as string, value as string into result of bool to js.JsError:
@@ -880,6 +924,8 @@ when not wasm:
     weave dataset with e as Element, name as string into result of maybe string to js.JsError:
         return calling err_of with (calling js.last_error)
     weave set_dataset with e as Element, name as string, value as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave insert_before with parent as Element, child as Element, reference as maybe Element into result of bool to js.JsError:
         return calling err_of with (calling js.last_error)
     weave append with parent as Element, child as Element into result of bool to js.JsError:
         return calling err_of with (calling js.last_error)

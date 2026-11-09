@@ -246,6 +246,16 @@ weave convert_custom with ctx as ref to TypeCtx, node as int into int:
                 banish gmsg
                 banish args
                 return 0
+            var ai as int is 0
+            while ai < args.len:
+                var aty as tk.SemaType is calling types.at with ctx->types, (args at ai)
+                if aty.kind == tk.SemaTypeKind.TkVoid:
+                    var vmsg as string is "type argument for '{name}' cannot be 'void'"
+                    calling sdiag.node_error with ctx->bag, ctx->src, sdiag.CODE_GENERIC_ARGS, (calling astutil.start_of with ctx->ast, node), (calling astutil.end_of with ctx->ast, node), vmsg, "Use a concrete value type, e.g. 'bool' for side-effect callbacks.", "A function returning void has no value to store as a generic argument."
+                    banish vmsg
+                    banish args
+                    return 0
+                set ai is ai + 1
             var inst as int is calling ginst.instantiate_nominal with ctx->symbols, t, args
             banish args
             if inst > 0:

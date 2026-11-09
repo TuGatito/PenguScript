@@ -80,6 +80,24 @@ weave module_is_std with m as loader.SemaModule into bool:
 weave mark_symbol with c as ref to context.CgContext, r as ref to CgReach, sid as int into void:
     if sid < 0 or calling r->seen.has with sid:
         return
+    # Las anotaciones de una llamada pueden apuntar a una especialización
+    # (`make_fn1_inst113`), que comparte `symbol` con su plantilla pero no
+    # está en `by_symbol`. Sin este fallback DCE poda su cuerpo y el C falla
+    # con "implicit declaration".
+    if not (calling c->catalog.by_symbol.has with sid):
+        var si as int is 0
+        while si < c->catalog.functions.len:
+            var sf0 as catalog.CgFunction is (c->catalog.functions at si)
+            if sf0.symbol == sid:
+                if not (r->live at si):
+                    set r->live at (si) is true
+                    if not sf0.is_declare and not sf0.is_generated and sf0.node >= 0:
+                        var sm0 as loader.SemaModule is (c->program->modules at sf0.module)
+                        var sa0 as ref to psast.PsAst is (sigil of sm0.parse.ast)
+                        calling scan_node with c, r, sm0, sa0, sf0.node
+                return
+            set si is si + 1
+        return
     var sv as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), sid
     if (sv.flags & sym.SYM_GET_ALIAS) != 0 and sv.alias_of >= 0:
         calling mark_symbol with c, r, sv.alias_of
@@ -350,7 +368,7 @@ weave compute with c as ref to context.CgContext into CgReach:
         var f as catalog.CgFunction is (c->catalog.functions at i2)
         var m as loader.SemaModule is (c->program->modules at f.module)
         var is_std as bool is calling module_is_std with m
-        var root as bool is f.is_main or c->options.is_test or f.is_spec
+        var root as bool is f.is_main or c->options.is_test
         if c->options.is_library and not is_std:
             set root is true
         if not c->options.dce_scope_user and not is_std:

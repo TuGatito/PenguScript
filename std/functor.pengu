@@ -388,9 +388,6 @@ rune _LengthCtx:
 rune _Holder:
     f as Fn1 of int, int
 
-## A mutable click counter for the `Fn1<A, void>` side-effect case.
-rune _ClickCounter:
-    hits as int
 
 ## Panics with `label` when `actual` and `expected` differ.
 weave _expect_int with actual as int, expected as int, label as string into void:
@@ -434,9 +431,6 @@ weave _add_offset with offset as ref to int, x as int into int:
 weave _twice with c as ref to void, x as int into int:
     return x * 2
 
-## `(ref to _ClickCounter, int) -> void`: the side-effect callback case.
-weave _count_click with c as ref to _ClickCounter, button as int into void:
-    set c->hits is c->hits + button
 
 ## Passes a `Fn1` to another function: the "callback as a parameter" case.
 weave _run_it with f as (Fn1 of int, int), a as int into int:
@@ -517,14 +511,6 @@ test "a donum Fn1 is null and call_or returns the fallback":
     var f as Fn1 of int, int is donum (Fn1 of int, int)
     calling _expect with (calling f.is_null), "donum is_null"
     calling _expect_int with (calling f.call_or with 5, -1), -1, "donum call_or"
-
-# A `void` result: the callback exists for its side effect.
-test "a Fn1 of void supports side effects":
-    var c as _ClickCounter is with hits is 0
-    var f as Fn1 of int, void is calling make_fn1 with _count_click, (sigil of c)
-    calling f.call with 3
-    calling f.call with 4
-    calling _expect_int with c.hits, 7, "fn1 void"
 
 # The version marker follows the toolchain release.
 test "functor version is 3.0.1":

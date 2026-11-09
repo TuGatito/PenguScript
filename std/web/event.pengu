@@ -17,7 +17,11 @@ when wasm:
 
     ## The event type, e.g. `"click"` or `"keydown"`.
     weave kind with e as Event into result of string to js.JsError:
-        return calling _string_prop with e, "type"
+        var v as result of js.JsValue to js.JsError is calling js.get with e, "type"
+        if not v.is_ok:
+            return calling err_of with v.error
+        defer calling js.release with v.value
+        return calling js.to_string with v.value
 
     ## `event.target`, borrowed.
     weave target with e as Event into result of js.JsValue to js.JsError:

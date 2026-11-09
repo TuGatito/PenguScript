@@ -1,7 +1,7 @@
 # Building a PenguScript library
 
 This guide describes how to write a library that other projects install with
-`psc add` and import like any other module. It reflects `psc` 0.54.0.
+`psc add` and import like any other module. It reflects `psc` 0.55.0.
 
 A library is a git repository (or a local directory) with a `pengu.toml`, an
 importable source tree, and optional C headers and native archives. There is no
@@ -280,7 +280,7 @@ URL because the manifest and lock would store them.
 ```pengu-fragment
 test "adds two numbers":
     let got as int is calling my_lib_add with 2, 3
-    assert got == 5
+    calling ward.assert_eq_int with got, 5
 ```
 
 For the public API, add a consumer project under `tests/consumer/` that

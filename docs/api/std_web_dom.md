@@ -167,6 +167,12 @@ _Undocumented._
 
 _Undocumented._
 
+### `attribute_names`
+
+> **attribute_names**(e: Element) -> result of list of string to JsError
+
+_Undocumented._
+
 ### `set_attr`
 
 > **set_attr**(e: Element, name: string, value: string) -> result of bool to JsError
@@ -236,6 +242,12 @@ _Undocumented._
 ### `set_dataset`
 
 > **set_dataset**(e: Element, name: string, value: string) -> result of bool to JsError
+
+_Undocumented._
+
+### `insert_before`
+
+> **insert_before**(parent: Element, child: Element, reference: maybe Element) -> result of bool to JsError
 
 _Undocumented._
 

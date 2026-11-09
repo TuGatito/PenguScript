@@ -1,6 +1,47 @@
 # Changelog
- 
+
 All notable changes to PenguScript will be documented in this file.
+
+## [0.55.0] — 2026-11-09 — Tipos de función genéricos y plantillas C
+
+### Corregido
+
+- Los runes genéricos cuyos parámetros de tipo solo aparecen dentro de tipos de
+  función (`Fn1<A, R>`, `Fn0<R>`) ahora materializan una instancia concreta y una
+  `struct` por instancia. Antes se emitía una sola `struct` base con la última
+  sustitución, lo que producía errores de punteros incompatibles en
+  `std/functor` y en cualquier callback genérico.
+- El codegen ya no emite `struct`s plantilla sin instanciar ni sus clones,
+  limpiezas o copias profundas. Esas plantillas contenían campos ya sustituidos
+  por tipos de usuario y C las rechazaba por tipos incompletos.
+- Las especializaciones creadas tarde por el DCE se emiten mediante
+  `late_specs`, de modo que un método genérico llamado desde otra
+  especialización no queda como `implicit declaration`.
+- `void` ya no se acepta como argumento genérico: se emite
+  `CODE_GENERIC_ARGS` con una ayuda explícita. `Fn1<A, void>` generaba C
+  inválido (`void fallback`).
+- `std/functor` vuelve a compilar y sus pruebas dejan de contaminar builds
+  normales con especializaciones de test.
+- `std.web.event.kind` ya no devuelve basura: copia el `type` del evento con
+  `js.to_string` antes de liberar el handle temporal. Los handlers delegados de
+  `tela` dependen de este valor para resolver `data-tela-on-<evento>`.
+- `std.web.dom` incorpora `attribute_names` e `insert_before` (wasm y stubs
+  nativos), necesarios para montar bindings declarativos y reordenar listas
+  keyed sin tocar `js` a mano.
+
+### Limitaciones conocidas
+
+- Una llamada a un método genérico dentro de una interpolación
+  (`"{calling f.call}"`) sigue emitiendo un argumento vacío; asígnela a una
+  variable local antes de interpolarla. El caso está cubierto por C3 y se
+  corregirá en 0.55.1.
+
+### Documentación
+
+- `LANGUAGE`, `LIBRARIES`, `PENGUNIC`, `STDLIB` y `README` actualizados a
+  `psc` 0.55.0.
+- `LIBRARIES` usa `std.ward` en sus ejemplos de test (el `assert` desnudo no es
+  una palabra clave del lenguaje).
 
 ## [0.53.9] — 2026-11-08 — Los campos con `_` también son privados
 
@@ -32,6 +73,13 @@ All notable changes to PenguScript will be documented in this file.
   (`--lint=shadow` sigue aceptándose).
 
 ## [0.53.6] — 2026-11-08 — Documentar el orden de liberación con `fundere`
+
+### Limitaciones conocidas
+
+- Una llamada a un método genérico dentro de una interpolación
+  (`"{calling f.call}"`) sigue emitiendo un argumento vacío; asígnela a una
+  variable local antes de interpolarla. El caso está cubierto por C3 y se
+  corregirá en 0.55.1.
 
 ### Documentación
 
@@ -756,6 +804,13 @@ Windows para el reactor.
 - La regresión ASAN de corrutinas cubre varios tipos de argumento y ya no
   enlaza `pengu_coro.c` dos veces (B4/B5).
 
+### Limitaciones conocidas
+
+- Una llamada a un método genérico dentro de una interpolación
+  (`"{calling f.call}"`) sigue emitiendo un argumento vacío; asígnela a una
+  variable local antes de interpolarla. El caso está cubierto por C3 y se
+  corregirá en 0.55.1.
+
 ### Documentación
 
 - `docs/LANGUAGE.md`/`.es.md` §14.2: corrutinas, traducción a C (minicoro, pila
@@ -823,6 +878,13 @@ y compilan sin symlinks ni `-L` manual.
   con `name`/`output_name` inválidos.
 - `psc vendor`/`copy_local` descartaban las librerías nativas.
 - `parse_version` acepta basura final y `^0.0.x` permitía subir el patch.
+
+### Limitaciones conocidas
+
+- Una llamada a un método genérico dentro de una interpolación
+  (`"{calling f.call}"`) sigue emitiendo un argumento vacío; asígnela a una
+  variable local antes de interpolarla. El caso está cubierto por C3 y se
+  corregirá en 0.55.1.
 
 ### Documentación
 
@@ -1021,6 +1083,13 @@ ni closures con captura.
   solo `var`/`let` locales. Mensaje: "owning values must be local bindings".
 - Mensaje de worker genérico: "generic workers are not supported yet" (antes
   prometía 0.30.1).
+
+### Limitaciones conocidas
+
+- Una llamada a un método genérico dentro de una interpolación
+  (`"{calling f.call}"`) sigue emitiendo un argumento vacío; asígnela a una
+  variable local antes de interpolarla. El caso está cubierto por C3 y se
+  corregirá en 0.55.1.
 
 ### Documentación
 
@@ -1552,6 +1621,13 @@ también al compilar el archivo de forma nativa: el disparador no era
   `with ... is ...`, builder `with:`) y un roundtrip por puntero opaco. Se
   ejecuta en `tests/run.sh` (CI nativa).
 
+### Limitaciones conocidas
+
+- Una llamada a un método genérico dentro de una interpolación
+  (`"{calling f.call}"`) sigue emitiendo un argumento vacío; asígnela a una
+  variable local antes de interpolarla. El caso está cubierto por C3 y se
+  corregirá en 0.55.1.
+
 ### Documentación
 
 - `LANGUAGE.md` y `LANGUAGE_Spanish.md` documentan que el operando de
@@ -1880,6 +1956,13 @@ Soporte completo para las herramientas del lenguaje y cierre de deuda del LSP.
   `std/builder.pengu`/`std/json.pengu`); regresión en
   `tests/pengu/string_cast.pengu`.
 
+### Limitaciones conocidas
+
+- Una llamada a un método genérico dentro de una interpolación
+  (`"{calling f.call}"`) sigue emitiendo un argumento vacío; asígnela a una
+  variable local antes de interpolarla. El caso está cubierto por C3 y se
+  corregirá en 0.55.1.
+
 ### Documentación
 
 - `docs/LSP.md`, `LANGUAGE.md` (`align of`, `echo` union, `print` string),
@@ -1914,6 +1997,13 @@ Implementa las dos formas de composición del lenguaje: cadenas de métodos con
   llamadas a método; antes emitía `a.b` como acceso a campo y el C fallaba.
 - Los métodos de un solo enlace conservan su comportamiento; los campos
   usados como receptor de una llamada no se confunden con métodos homónimos.
+
+### Limitaciones conocidas
+
+- Una llamada a un método genérico dentro de una interpolación
+  (`"{calling f.call}"`) sigue emitiendo un argumento vacío; asígnela a una
+  variable local antes de interpolarla. El caso está cubierto por C3 y se
+  corregirá en 0.55.1.
 
 ### Documentación
 
@@ -2476,6 +2566,13 @@ target y la paridad sema/codegen.
   antes de `free_parse_result`; `psc test --no-cache` dejó de abortar.
 - **Paréntesis redundantes en condiciones**: se evita `if ((a == b))` y el
   warning `-Wparentheses-equality` de clang/emcc.
+
+### Limitaciones conocidas
+
+- Una llamada a un método genérico dentro de una interpolación
+  (`"{calling f.call}"`) sigue emitiendo un argumento vacío; asígnela a una
+  variable local antes de interpolarla. El caso está cubierto por C3 y se
+  corregirá en 0.55.1.
 
 ### Documentación
 
@@ -10130,6 +10227,13 @@ is documented rather than patched unsoundly.
   - Ignorado en formateador: `pengu fmt` y el servidor LSP detectan la cabecera `## @generated` en las primeras 5 líneas de archivos como `src/arca.pengu` y omiten su reformateo.
   - Pruebas automatizadas y humo: Suite completa de pruebas unitarias y de integración en `tests/test_assets.py` (incluyendo prevención de colisiones, sanitización de módulos y caché de disco), test de humo `[TEST 3b]` en `make_release.py` y caso de uso real de Raylib con carga de texturas y shaders desde memoria en `scratch/port/assets_raylib/`.
 
+### Limitaciones conocidas
+
+- Una llamada a un método genérico dentro de una interpolación
+  (`"{calling f.call}"`) sigue emitiendo un argumento vacío; asígnela a una
+  variable local antes de interpolarla. El caso está cubierto por C3 y se
+  corregirá en 0.55.1.
+
 ### Documentación
 
 - **Sincronización integral de `LANGUAGE.md` con PenguScript 0.14.x**:
@@ -10627,6 +10731,13 @@ is documented rather than patched unsoundly.
 - **m7**: Corregido el mojibake UTF-8 en `CHANGELOG.md`.
 - **m10**: Detección de colisión `const` ↔ `const` entre módulos importados
   con valores distintos (`E0046`).
+
+### Limitaciones conocidas
+
+- Una llamada a un método genérico dentro de una interpolación
+  (`"{calling f.call}"`) sigue emitiendo un argumento vacío; asígnela a una
+  variable local antes de interpolarla. El caso está cubierto por C3 y se
+  corregirá en 0.55.1.
 
 ### Documentación
 

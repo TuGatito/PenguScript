@@ -179,6 +179,16 @@ weave emit_forward with c as ref to context.CgContext, t as catalog.CgType into 
     defer banish target
     calling emit.line with (sigil of c->emitter), "typedef {target} {cname};"
 
+## ¿Es una plantilla genérica (no una instancia concreta)?
+weave is_generic_template with c as ref to context.CgContext, t as catalog.CgType into bool:
+    if t.type_id < 0 or t.type_id >= c->program->types.types.len:
+        return false
+    var ty as tk.SemaType is calling types.at with (sigil of c->program->types), t.type_id
+    if ty.a < 0 or ty.a >= c->program->types.nominal_infos.len:
+        return false
+    var info as types.SemaNominalInfo is (c->program->types.nominal_infos at ty.a)
+    return info.tparams_count > 0 and info.template_info < 0
+
 ## Emite el clon superficial de un tipo.
 ##
 ## Los helpers derivados (`Nexus`/`Imago`) llaman `_pengu_clone_T` desde
@@ -448,7 +458,31 @@ weave order_types with c as ref to context.CgContext into list of int:
         set i is i + 1
     banish idx
     banish state
-    return order
+    # Las instancias concretas deben emitirse antes que la plantilla genérica:
+    # la plantilla contiene campos ya sustituidos por tipos de instancia y C
+    # exige que esos structs estén completos. Conserva el orden relativo.
+    var insts as list of int is list of int
+    var tmpls as list of int is list of int
+    var oi as int is 0
+    while oi < order.len:
+        var ci as catalog.CgType is (c->catalog.types at (order at oi))
+        var cty as tk.SemaType is calling types.at with (sigil of c->program->types), ci.type_id
+        var cinfo as types.SemaNominalInfo is (c->program->types.nominal_infos at cty.a)
+        if cinfo.template_info >= 0 or cinfo.tparams_count == 0:
+            calling insts.push with (order at oi)
+        else:
+            calling tmpls.push with (order at oi)
+        set oi is oi + 1
+    var out as list of int is list of int
+    var ii as int is 0
+    while ii < insts.len:
+        calling out.push with (insts at ii)
+        set ii is ii + 1
+    var ti2 as int is 0
+    banish insts
+    banish tmpls
+    banish order
+    return out
 
 ## Emite la definición struct/enum de un tipo.
 ##

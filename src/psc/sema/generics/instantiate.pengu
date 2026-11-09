@@ -125,6 +125,15 @@ weave has_param with t as ref to types.SemaTypeTable, id as int into bool:
         return calling has_param with t, ty.a
     if ty.kind == tk.SemaTypeKind.TkMap or ty.kind == tk.SemaTypeKind.TkResult:
         return (calling has_param with t, ty.a) or (calling has_param with t, ty.b)
+    if ty.kind == tk.SemaTypeKind.TkFn:
+        var fi as types.SemaFnInfo is (t->fn_infos at ty.a)
+        var pi as int is 0
+        while pi < fi.params_count:
+            var fp as types.SemaFnParam is (t->fn_params at (fi.params_first + pi))
+            if calling has_param with t, fp.type:
+                return true
+            set pi is pi + 1
+        return calling has_param with t, fi.return_type
     if ty.kind == tk.SemaTypeKind.TkTuple:
         var i as int is 0
         while i < ty.count:
