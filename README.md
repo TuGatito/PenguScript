@@ -290,7 +290,15 @@ Breakpoints work on `.pengu` files and source lines:
 (gdb) bt
 ```
 
-See [docs/DEBUGGER.md](docs/DEBUGGER.md) for fibers, sanitizers and release
+For editor debugging, the same build also ships a DAP adapter:
+
+```console
+$ psc build . --profile=debug
+$ psc debug-adapter          # launched by VS Code / Neovim
+```
+
+See [docs/DEBUGGER.md](docs/DEBUGGER.md) for the DAP adapter, VS Code and
+Neovim launch configurations, pretty printers, fibers, sanitizers and release
 symbols.
 
 ## 📚 Documentation

@@ -16,6 +16,7 @@ import std.spark
 
 import psc.cli.args as cliargs
 import psc.driver.build as driver
+import psc.driver.target as targetmod
 import psc.os.proc as proc
 import psc.sema.names as npool
 
@@ -28,7 +29,7 @@ insignia psc_cmd_debug_
 weave print_help into void:
     calling spark.println with "Usage: psc debug [TARGET] [options] [-- program args]"
     calling spark.println with "  --profile=debug|release   (debug por defecto)"
-    calling spark.println with "  --target=TRIPLE|wasm"
+    calling spark.println with "  --target=TRIPLE        (solo host nativo)"
     calling spark.println with "  --cc=NAME"
     calling spark.println with "  --llvm                   usa lldb en vez de gdb"
     calling spark.println with "  --no-cache"
@@ -65,6 +66,27 @@ weave run_debug with args as list of string into int:
     var o as driver.BuildOptions is calling driver.default_options
     banish o.profile
     set o.profile is prof
+    var tval as string is calling cliargs.value with (sigil of pr.args), "--target"
+    if tval length > 0:
+        var nt as targetmod.Target is calling targetmod.parse with tval
+        if not nt.ok:
+            var terr as string is nt.error
+            var tmsg as string is "psc debug: {terr}"
+            calling spark.eprintln with tmsg
+            banish tmsg
+            calling targetmod.free with (sigil of nt)
+            calling driver.free_options with (sigil of o)
+            calling cliargs.free_parse_result with (sigil of pr)
+            return 2
+        if nt.is_wasm:
+            calling spark.eprintln with "psc debug: wasm no se puede depurar con gdb/lldb"
+            calling targetmod.free with (sigil of nt)
+            calling driver.free_options with (sigil of o)
+            calling cliargs.free_parse_result with (sigil of pr)
+            return 2
+        calling targetmod.free with (sigil of o.platform)
+        set o.platform is nt
+        set o.target_explicit is true
     banish o.target
     set o.target is calling npool.copy_string with path
     set o.force_exe is true
@@ -122,6 +144,10 @@ weave run_debug with args as list of string into int:
         var gdir as string is calling cp_dirname with art
         var gscript as string is "{gdir}/psc-gdbinit"
         var gtext as string is "set breakpoint pending on\ndefine pengu-fibers\n  call (void) pengu_c_coro_dump()\nend\ndocument pengu-fibers\n  Print live coroutines and their last yield stacks.\nend\n"
+        if calling archivum.exists with "tools/pengu_printers.py":
+            var gmore as string is "{gtext}source tools/pengu_printers.py\n"
+            banish gtext
+            set gtext is gmore
         var wrote as bool is calling archivum.write_text with gscript, gtext
         banish wrote
         banish gtext

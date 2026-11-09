@@ -45,14 +45,26 @@ void pengu_main(void);
 PenguString golden_c_g26_judge_describe(State s) {
     (void)s;
     #line 9 "tests/golden_c/g26_judge.pengu"
-    return __extension__(({ int64_t _ji0 = (int64_t)(s); PenguString _jx1 = {0}; switch (_ji0) {case State_Idle: _jx1 = pengu_string_from_cstr_len("idle", 4); break; case State_Busy: _jx1 = pengu_string_from_cstr_len("busy", 4); break; default: _jx1 = pengu_string_from_cstr_len("other", 5); break; } _jx1; }));
+    return __extension__(({ int64_t _ji0 = (int64_t)(s); PenguString _jx1 = {0}; switch (_ji0) {
+#line 10 "tests/golden_c/g26_judge.pengu"
+case State_Idle: _jx1 = pengu_string_from_cstr_len("idle", 4); break;
+#line 11 "tests/golden_c/g26_judge.pengu"
+case State_Busy: _jx1 = pengu_string_from_cstr_len("busy", 4); break;
+#line 12 "tests/golden_c/g26_judge.pengu"
+default: _jx1 = pengu_string_from_cstr_len("other", 5); break;} _jx1; }));
 }
 
 #line 14 "tests/golden_c/g26_judge.pengu"
 int32_t golden_c_g26_judge_rank(State s) {
     (void)s;
     #line 15 "tests/golden_c/g26_judge.pengu"
-    return __extension__(({ int64_t _ji2 = (int64_t)(s); int32_t _jx3 = {0}; switch (_ji2) {case State_Idle: _jx3 = 1; break; case State_Busy: _jx3 = 2; break; default: _jx3 = 3; break; } _jx3; }));
+    return __extension__(({ int64_t _ji2 = (int64_t)(s); int32_t _jx3 = {0}; switch (_ji2) {
+#line 16 "tests/golden_c/g26_judge.pengu"
+case State_Idle: _jx3 = 1; break;
+#line 17 "tests/golden_c/g26_judge.pengu"
+case State_Busy: _jx3 = 2; break;
+#line 18 "tests/golden_c/g26_judge.pengu"
+default: _jx3 = 3; break;} _jx3; }));
 }
 
 #line 20 "tests/golden_c/g26_judge.pengu"
@@ -72,12 +84,16 @@ void pengu_main(void) {
     int32_t _jd4 = 2;
     (void)_jd4;
     switch ((int64_t)(_jd4)) {
+        #line 26 "tests/golden_c/g26_judge.pengu"
         case 2: {
+            #line 26 "tests/golden_c/g26_judge.pengu"
             #line 27 "tests/golden_c/g26_judge.pengu"
             (void)(pengu_builtin_print(pengu_string_from_cstr_len("two\n", 4)));
             break;
         }
+        #line 28 "tests/golden_c/g26_judge.pengu"
         default: {
+            #line 28 "tests/golden_c/g26_judge.pengu"
             #line 29 "tests/golden_c/g26_judge.pengu"
             (void)(pengu_builtin_print(pengu_string_from_cstr_len("other\n", 6)));
             break;
@@ -85,6 +101,7 @@ void pengu_main(void) {
     }
 }
 
+#line 1 "<psc-runtime>"
 int main(int argc, char** argv) {
     pengu_init(argc, argv);
     pengu_install_crash_handler();

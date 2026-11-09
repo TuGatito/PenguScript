@@ -45,7 +45,15 @@ void pengu_main(void);
 PenguString golden_c_g28_judge_qualified_name_of(Color c) {
     (void)c;
     #line 11 "tests/golden_c/g28_judge_qualified.pengu"
-    return __extension__(({ int64_t _ji0 = (int64_t)(c); PenguString _jx1 = {0}; switch (_ji0) {case Color_Red: _jx1 = pengu_string_from_cstr_len("red", 3); break; case Color_Green: _jx1 = pengu_string_from_cstr_len("green", 5); break; case Color_Blue: _jx1 = pengu_string_from_cstr_len("blue", 4); break; default: _jx1 = pengu_string_from_cstr_len("unknown", 7); break; } _jx1; }));
+    return __extension__(({ int64_t _ji0 = (int64_t)(c); PenguString _jx1 = {0}; switch (_ji0) {
+#line 12 "tests/golden_c/g28_judge_qualified.pengu"
+case Color_Red: _jx1 = pengu_string_from_cstr_len("red", 3); break;
+#line 13 "tests/golden_c/g28_judge_qualified.pengu"
+case Color_Green: _jx1 = pengu_string_from_cstr_len("green", 5); break;
+#line 14 "tests/golden_c/g28_judge_qualified.pengu"
+case Color_Blue: _jx1 = pengu_string_from_cstr_len("blue", 4); break;
+#line 15 "tests/golden_c/g28_judge_qualified.pengu"
+default: _jx1 = pengu_string_from_cstr_len("unknown", 7); break;} _jx1; }));
 }
 
 #line 18 "tests/golden_c/g28_judge_qualified.pengu"
@@ -55,18 +63,24 @@ void golden_c_g28_judge_qualified_describe(Color c) {
     Color _jd2 = c;
     (void)_jd2;
     switch ((int64_t)(_jd2)) {
+        #line 20 "tests/golden_c/g28_judge_qualified.pengu"
         case Color_Red: {
+            #line 20 "tests/golden_c/g28_judge_qualified.pengu"
             #line 21 "tests/golden_c/g28_judge_qualified.pengu"
             (void)(pengu_builtin_print(pengu_string_from_cstr_len("warm\n", 5)));
             break;
         }
+        #line 22 "tests/golden_c/g28_judge_qualified.pengu"
         case Color_Green:
         case Color_Blue: {
+            #line 22 "tests/golden_c/g28_judge_qualified.pengu"
             #line 23 "tests/golden_c/g28_judge_qualified.pengu"
             (void)(pengu_builtin_print(pengu_string_from_cstr_len("cool\n", 5)));
             break;
         }
+        #line 24 "tests/golden_c/g28_judge_qualified.pengu"
         default: {
+            #line 24 "tests/golden_c/g28_judge_qualified.pengu"
             #line 25 "tests/golden_c/g28_judge_qualified.pengu"
             (void)(pengu_builtin_print(pengu_string_from_cstr_len("unknown\n", 8)));
             break;
@@ -95,6 +109,7 @@ void pengu_main(void) {
     (void)(golden_c_g28_judge_qualified_describe(b));
 }
 
+#line 1 "<psc-runtime>"
 int main(int argc, char** argv) {
     pengu_init(argc, argv);
     pengu_install_crash_handler();

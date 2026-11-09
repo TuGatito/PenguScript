@@ -1,0 +1,12 @@
+import std.spark
+
+weave main into int:
+    var total as int is do:
+        var base as int is 100
+        var tax as int is 21
+        base + tax
+    var label as string is judge total:
+        when 121 -> "ok"
+        else -> "bad"
+    calling spark.println with "{label} {total}"
+    return 0

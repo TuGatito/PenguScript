@@ -332,6 +332,7 @@ WeakArc Arc_downgrade_inst118(Arc* self) {
     return (WeakArc){.ptr = ((void*)((consortium_arc_weak_new(self->ptr))))};
 }
 
+#line 1 "<psc-runtime>"
 int main(int argc, char** argv) {
     pengu_init(argc, argv);
     pengu_install_crash_handler();

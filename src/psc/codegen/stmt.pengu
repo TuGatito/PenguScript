@@ -134,6 +134,10 @@ weave block_value with c as ref to context.CgContext, node as int, expected as i
         return calling vsb.finish
     var val as string is "0"
     if valix >= 0:
+        # La expresión final del bloque es una línea PenguScript propia; sin
+        # este marcador hereda la línea del último statement y los breakpoints
+        # sobre ella caen en la línea equivocada.
+        calling origin.marker with c, m, valix
         set val is calling expr.emit_expr_as with c, valix, rt
     defer banish val
     calling end_scope with c
@@ -1507,6 +1511,8 @@ weave judge_bind_payload with c as ref to context.CgContext, st as int, payload 
 ## ## Memoria
 ## Strings owned; el AST es del programa.
 weave emit_judge_arm_body with c as ref to context.CgContext, body as int, ast as ref to psast.PsAst, vty as int, vtmp as string into void:
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    calling origin.marker with c, m, body
     if vty > 0:
         var bk as pskind.NodeKind is calling astutil.kind_of with ast, body
         if bk == pskind.NodeKind.NdBlock or bk == pskind.NodeKind.NdDoExpr:
@@ -1621,6 +1627,7 @@ weave emit_judge_core with c as ref to context.CgContext, node as int, ast as re
                     if body < 0:
                         set body is calling astutil.node_child with ast, cl, 2
                     if pat >= 0 and body >= 0:
+                        calling origin.marker with c, m, cl
                         var cond as string is calling expr.judge_cond_c with c, st, pat, ast, stmp
                         calling emit.line with (sigil of c->emitter), "if ({cond}) {"
                         banish cond
@@ -1684,6 +1691,7 @@ weave emit_judge_core with c as ref to context.CgContext, node as int, ast as re
                     if body2 < 0:
                         set body2 is calling astutil.node_child with ast, cl2, 2
                     if pat2 >= 0 and body2 >= 0:
+                        calling origin.marker with c, m, cl2
                         var lab as list of int is list of int
                         defer banish lab
                         var scan as bool is true
@@ -1746,6 +1754,7 @@ weave emit_judge_core with c as ref to context.CgContext, node as int, ast as re
                     var eb2 as int is calling astutil.node_child with ast, cl2, 0
                     if eb2 < 0:
                         set eb2 is cl2
+                    calling origin.marker with c, m, cl2
                     calling emit.line with (sigil of c->emitter), "default: {"
                     calling emit.indent_more with (sigil of c->emitter)
                     calling emit_judge_arm_body with c, eb2, ast, vty, vtmp

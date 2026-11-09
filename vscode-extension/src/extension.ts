@@ -436,6 +436,21 @@ function registerConfigListener(context: vscode.ExtensionContext): void {
     );
 }
 
+function registerDebugger(context: vscode.ExtensionContext): void {
+    const factory: vscode.DebugAdapterDescriptorFactory = {
+        createDebugAdapterDescriptor(): vscode.ProviderResult<vscode.DebugAdapterDescriptor> {
+            return new vscode.DebugAdapterExecutable(
+                getPscCommand(),
+                ['debug-adapter'],
+                { cwd: workspaceRoot() }
+            );
+        }
+    };
+    context.subscriptions.push(
+        vscode.debug.registerDebugAdapterDescriptorFactory('pengu', factory)
+    );
+}
+
 export function activate(context: vscode.ExtensionContext): void {
     output = vscode.window.createOutputChannel('PenguScript');
     context.subscriptions.push(output);
@@ -445,6 +460,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
     registerCommands(context);
     registerConfigListener(context);
+    registerDebugger(context);
     registerAntiquusProviders(context);
     updateStatusBar();
     startClient();

@@ -74,6 +74,7 @@ int32_t pengu_main(void) {
     return ((p.a + p.b) - 3);
 }
 
+#line 1 "<psc-runtime>"
 int main(int argc, char** argv) {
     pengu_init(argc, argv);
     pengu_install_crash_handler();

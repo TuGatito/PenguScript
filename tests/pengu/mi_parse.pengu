@@ -1,0 +1,53 @@
+# Regression for the GDB/MI field parser used by `psc debug-adapter`.
+import std.scrolls
+
+import psc.dap.mi as mi
+
+weave main into int:
+    var fields as list of mi.MiField is calling mi.parse_fields with r"""^done,bkpt={number="1",file="a b.pengu",line="12"},reason="breakpoint-hit" """
+    var reason as string is calling mi.field with (sigil of fields), "reason"
+    var bkpt as string is calling mi.field with (sigil of fields), "bkpt"
+    banish fields
+    if reason != "breakpoint-hit":
+        banish reason
+        banish bkpt
+        return 1
+    banish reason
+    if bkpt length < 10:
+        banish bkpt
+        return 2
+    banish bkpt
+    var line as string is r"""*stopped,reason="breakpoint-hit",thread-id="1",frame={func="f",file="a.pengu",line="7"} """
+    var ev as list of mi.MiField is calling mi.parse_fields with line
+    banish line
+    var cls as string is calling mi.result_class with r"""*stopped,reason="breakpoint-hit" """
+    if cls != "stopped":
+        banish cls
+        banish ev
+        return 3
+    banish cls
+    var th as string is calling mi.field with (sigil of ev), "thread-id"
+    if th != "1":
+        banish th
+        banish ev
+        return 4
+    banish th
+    var frame as string is calling mi.field with (sigil of ev), "frame"
+    banish ev
+    if frame length < 5:
+        banish frame
+        return 5
+    var inner as string is calling scrolls.substring with frame, 1, (frame length - 1)
+    banish frame
+    var ff as list of mi.MiField is calling mi.parse_fields with inner
+    banish inner
+    var fn as string is calling mi.field with (sigil of ff), "func"
+    var fl as string is calling mi.field with (sigil of ff), "line"
+    banish ff
+    if fn != "f" or fl != "7":
+        banish fn
+        banish fl
+        return 6
+    banish fn
+    banish fl
+    return 0

@@ -1,0 +1,38 @@
+# Regression for `proc.spawn_piped`: bidirectional pipes to a child.
+import psc.os.proc as proc
+
+weave main into int:
+    var argv as list of string is list of string
+    calling argv.push with "cat"
+    var in_fd as int is -1
+    var out_fd as int is -1
+    var err_fd as int is -1
+    var pid as int is calling proc.spawn_piped with argv, (sigil of in_fd), (sigil of out_fd), (sigil of err_fd)
+    calling argv.clear
+    banish argv
+    if pid <= 0:
+        return 1
+    if in_fd < 0 or out_fd < 0 or err_fd < 0:
+        return 2
+    var msg as string is "hola\n"
+    var wrote as int is calling proc.fd_write with in_fd, msg
+    banish msg
+    if wrote != 5:
+        return 3
+    var line as string is calling proc.fd_read_line with out_fd
+    if line != "hola":
+        banish line
+        return 4
+    banish line
+    calling proc.fd_close with in_fd
+    var eof as string is calling proc.fd_read_line with out_fd
+    if eof length != 0:
+        banish eof
+        return 5
+    banish eof
+    calling proc.fd_close with out_fd
+    calling proc.fd_close with err_fd
+    var code as int is calling proc.wait_pid with pid
+    if code != 0:
+        return 6
+    return 0

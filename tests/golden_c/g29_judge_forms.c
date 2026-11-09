@@ -68,12 +68,15 @@ int32_t golden_c_g29_judge_forms_pick(PenguString s) {
     (void)_jd1;
     int32_t _jv0;
     memset(&_jv0, 0, sizeof(_jv0));
+    #line 15 "tests/golden_c/g29_judge_forms.pengu"
     if (pengu_string_equal((_jd1), pengu_string_from_cstr("a"))) {
+        #line 15 "tests/golden_c/g29_judge_forms.pengu"
         #line 16 "tests/golden_c/g29_judge_forms.pengu"
         (void)(spark_println(pengu_string_from_cstr_len("arm a", 5)));
         _jv0 = 5;
         goto _jend2;
     }
+    #line 18 "tests/golden_c/g29_judge_forms.pengu"
     _jv0 = 0;
     _jend2: ;
     x = _jv0;
@@ -87,11 +90,14 @@ void golden_c_g29_judge_forms_name_stmt(PenguString s) {
     #line 24 "tests/golden_c/g29_judge_forms.pengu"
     PenguString _jd3 = s;
     (void)_jd3;
+    #line 25 "tests/golden_c/g29_judge_forms.pengu"
     if (pengu_string_equal((_jd3), pengu_string_from_cstr("a")) || pengu_string_equal((_jd3), pengu_string_from_cstr("b"))) {
+        #line 25 "tests/golden_c/g29_judge_forms.pengu"
         #line 26 "tests/golden_c/g29_judge_forms.pengu"
         (void)(spark_println(pengu_string_from_cstr_len("ab", 2)));
         goto _jend4;
     }
+    #line 27 "tests/golden_c/g29_judge_forms.pengu"
     #line 28 "tests/golden_c/g29_judge_forms.pengu"
     (void)(spark_println(pengu_string_from_cstr_len("other", 5)));
     _jend4: ;
@@ -107,16 +113,21 @@ PenguString golden_c_g29_judge_forms_guarded(int32_t n) {
     (void)_jd6;
     PenguString _jv5;
     memset(&_jv5, 0, sizeof(_jv5));
+    #line 33 "tests/golden_c/g29_judge_forms.pengu"
     if ((_jd6) == 1) {
         if ((n > 0)) {
+            #line 33 "tests/golden_c/g29_judge_forms.pengu"
             _jv5 = pengu_string_from_cstr_len("one", 3);
             goto _jend7;
         }
     }
+    #line 35 "tests/golden_c/g29_judge_forms.pengu"
     if ((_jd6) == 1) {
+        #line 35 "tests/golden_c/g29_judge_forms.pengu"
         _jv5 = pengu_string_from_cstr_len("minus-one", 9);
         goto _jend7;
     }
+    #line 37 "tests/golden_c/g29_judge_forms.pengu"
     _jv5 = pengu_string_from_cstr_len("other", 5);
     _jend7: ;
     r = _jv5;
@@ -131,13 +142,17 @@ void golden_c_g29_judge_forms_color_stmt(Color c) {
     Color _jd8 = c;
     (void)_jd8;
     switch ((int64_t)(_jd8)) {
+        #line 44 "tests/golden_c/g29_judge_forms.pengu"
         case Color_Red:
         case Color_Blue: {
+            #line 44 "tests/golden_c/g29_judge_forms.pengu"
             #line 45 "tests/golden_c/g29_judge_forms.pengu"
             (void)(spark_println(pengu_string_from_cstr_len("rb", 2)));
             break;
         }
+        #line 46 "tests/golden_c/g29_judge_forms.pengu"
         default: {
+            #line 46 "tests/golden_c/g29_judge_forms.pengu"
             #line 47 "tests/golden_c/g29_judge_forms.pengu"
             (void)(spark_println(pengu_string_from_cstr_len("g", 1)));
             break;
@@ -165,6 +180,7 @@ void pengu_main(void) {
     (void)(golden_c_g29_judge_forms_color_stmt(Color_Blue));
 }
 
+#line 1 "<psc-runtime>"
 int main(int argc, char** argv) {
     pengu_init(argc, argv);
     pengu_install_crash_handler();

@@ -3040,10 +3040,29 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
                     defer banish et
                     var psb2 as StringBuilder is calling StringBuilder.new
                     defer banish psb2
+                    # Copia propia cuando se inserta un *lugar* cuyo elemento
+                    # posee memoria: el contenedor guarda su copia y el dueño
+                    # original sigue siendo de quien lo declaró.
+                    var pk as pskind.NodeKind is calling astutil.kind_of with ast, farg
+                    var isplace as bool is pk == pskind.NodeKind.NdVarRef or pk == pskind.NodeKind.NdFieldAccess or pk == pskind.NodeKind.NdArrowAccess or pk == pskind.NodeKind.NdAtAccess
+                    var wrap as string is ""
+                    if isplace:
+                        var ecwk as int is calling drop.cow_kind_of with c, lt_recv.a
+                        if ecwk == 1:
+                            set wrap is "pengu_string_share_value"
+                        else if ecwk == 2:
+                            set wrap is "pengu_list_clone_value"
+                    defer banish wrap
                     calling psb2.append with "__extension__(({ "
                     calling psb2.append with et
                     calling psb2.append with " _push_tmp = "
-                    calling psb2.append with av
+                    if wrap != "":
+                        calling psb2.append with wrap
+                        calling psb2.append with "("
+                        calling psb2.append with av
+                        calling psb2.append with ")"
+                    else:
+                        calling psb2.append with av
                     calling psb2.append with "; "
                     if (calling drop.cow_kind_of with c, tgt.type_id) == 2:
                         calling psb2.append with "pengu_cow_list_push("
@@ -3438,6 +3457,21 @@ weave omen_payload_field_type with c as ref to context.CgContext, oty as int, vn
         set i is i + 1
     return -1
 
+## Añade un `#line` al `StringBuilder` de un `judge` en modo valor.
+##
+## El `judge` en posición de expresión se construye como texto inline (no pasa
+## por `emit_judge_core`), así que los marcadores deben insertarse aquí.
+##
+## ## Memoria
+## Strings temporales liberados.
+weave judge_append_marker with sb as ref to StringBuilder, m as loader.SemaModule, node as int into void:
+    var line as int is calling origin.line_of with m, node
+    var path as string is calling emit.escape_c with m.source.path
+    defer banish path
+    var txt as string is "\n#line {line} \"{path}\"\n"
+    calling sb.append with txt
+    banish txt
+
 ## Emite un `judge` sobre un omen.
 ##
 ## ## Memoria
@@ -3631,6 +3665,7 @@ weave judge_expr_c with c as ref to context.CgContext, node as int, ast as ref t
                         if gp0 >= 0 and gb0 >= 0:
                             var gc0 as string is calling judge_cond_c with c, st, gp0, ast, sub0
                             var gv0 as string is calling emit_expr_as with c, gb0, rt
+                            calling judge_append_marker with (sigil of sbn), m0, gcl0
                             calling sbn.append with "if (!"
                             calling sbn.append with jm0
                             calling sbn.append with " && ("
@@ -3651,7 +3686,7 @@ weave judge_expr_c with c as ref to context.CgContext, node as int, ast as ref t
                             calling sbn.append with gv0
                             calling sbn.append with "; "
                             calling sbn.append with jm0
-                            calling sbn.append with " = true; } } "
+                            calling sbn.append with " = true; } }"
                             banish gc0
                             banish gv0
                     else if gk0 == pskind.NodeKind.NdElseClause:
@@ -3662,6 +3697,7 @@ weave judge_expr_c with c as ref to context.CgContext, node as int, ast as ref t
                 set gi0 is gi0 + 1
             if elseb >= 0:
                 var ev0 as string is calling emit_expr_as with c, elseb, rt
+                calling judge_append_marker with (sigil of sbn), m0, elseb
                 calling sbn.append with "if (!"
                 calling sbn.append with jm0
                 calling sbn.append with ") { "
@@ -3701,6 +3737,7 @@ weave judge_expr_c with c as ref to context.CgContext, node as int, ast as ref t
                         var ptok as int is calling last_token_deep with ast, pn0
                         if ptok >= 0:
                             # `when A | B` cae a varios `case` con el mismo cuerpo.
+                            calling judge_append_marker with (sigil of sbn), m0, cl0
                             var bv0 as string is calling emit_expr_as with c, bd0, rt
                             var ptn as int is pn0
                             var pcases as bool is false
@@ -3725,7 +3762,7 @@ weave judge_expr_c with c as ref to context.CgContext, node as int, ast as ref t
                                     banish ptx
                                     set pci is pci + 1
                             if pcases:
-                                calling sbn.append with "{jr0} = {bv0}; break; "
+                                calling sbn.append with "{jr0} = {bv0}; break;"
                             banish bv0
                         else:
                             # `true`/`false` no llevan token propio; el patrón es
@@ -3743,19 +3780,21 @@ weave judge_expr_c with c as ref to context.CgContext, node as int, ast as ref t
                                     set lit is "false"
                                 if lit length > 0:
                                     var bv1 as string is calling emit_expr_as with c, bd0, rt
-                                    calling sbn.append with "case {lit}: {jr0} = {bv1}; break; "
+                                    calling judge_append_marker with (sigil of sbn), m0, cl0
+                                    calling sbn.append with "case {lit}: {jr0} = {bv1}; break;"
                                     banish bv1
                 else if ck0 == pskind.NodeKind.NdElseClause:
                     var bd1 as int is calling astutil.node_child with ast, cl0, 0
                     if bd1 < 0:
                         set bd1 is cl0
                     var bv1 as string is calling emit_expr_as with c, bd1, rt
-                    calling sbn.append with "default: {jr0} = {bv1}; break; "
+                    calling judge_append_marker with (sigil of sbn), m0, cl0
+                    calling sbn.append with "default: {jr0} = {bv1}; break;"
                     set has_else0 is true
                     banish bv1
             set ii0 is ii0 + 1
         if not has_else0:
-            calling sbn.append with "default: break; "
+            calling sbn.append with "default: break;"
         calling sbn.append with r"}"
         calling sbn.append with " "
         calling sbn.append with jr0
@@ -3803,6 +3842,7 @@ weave judge_expr_c with c as ref to context.CgContext, node as int, ast as ref t
                     var pvt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), pv
                     var pvid2 as int is calling npool.intern with (sigil of c->program->names), pvt
                     var pcase2 as string is calling omen_variant_c_name with c, st, pvid2
+                    calling judge_append_marker with (sigil of sb), m, cl
                     calling sb.append with "case {pcase2}: {"
                     if payload >= 0:
                         var pn as int is calling astutil.child_count with ast, payload
@@ -3828,7 +3868,7 @@ weave judge_expr_c with c as ref to context.CgContext, node as int, ast as ref t
                     var bv as string is calling emit_expr_as with c, body, rt
                     calling sb.append with "{rtmp} = "
                     calling sb.append with bv
-                    calling sb.append with "; break; } "
+                    calling sb.append with "; break; }"
                     banish bv
                     banish pvt
                     banish pcase2

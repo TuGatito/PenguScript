@@ -236,3 +236,182 @@ while (waitpid(pid, &st, 0) < 0) return -1;
 return (((st) & 0x7f) == 0) ? (((st) & 0xff00) >> 8) : -1;
 #endif
 """
+
+## Lanza `argv` con stdin/stdout/stderr conectados a pipes.
+##
+## Devuelve el PID y escribe en `in_fd` el extremo de escritura hacia el hijo,
+## y en `out_fd`/`err_fd` los extremos de lectura. El llamador debe cerrar los
+## tres descriptores con `fd_close` y recolectar el hijo con `wait_pid`.
+##
+## ## Memoria
+## Los strings de `argv` son prestados.
+antiquus spawn_piped with argv as list of string, in_fd as ref to int, out_fd as ref to int, err_fd as ref to int into int:
+    r"""
+#if defined(_WIN32)
+(void)argv; (void)in_fd; (void)out_fd; (void)err_fd;
+return 0;
+#else
+extern int pipe(int[2]);
+extern int fork(void);
+extern int dup2(int, int);
+extern int close(int);
+extern int execvp(const char *, char *const[]);
+extern void _exit(int);
+
+if (argv.len <= 0)
+return 0;
+
+char **v = (char **)malloc(((size_t)argv.len + 1) * sizeof(char *));
+if (!v)
+return 0;
+for (int i = 0; i < argv.len; i++)
+{
+PenguString *s = (PenguString *)pengu_list_at(&argv, i);
+v[i] = (s && s->data) ? s->data : (char *)"";
+}
+v[argv.len] = NULL;
+
+int pin[2], pout[2], perr[2];
+if (pipe(pin) != 0)
+{
+free(v);
+return 0;
+}
+if (pipe(pout) != 0)
+{
+close(pin[0]); close(pin[1]);
+free(v);
+return 0;
+}
+if (pipe(perr) != 0)
+{
+close(pin[0]); close(pin[1]);
+close(pout[0]); close(pout[1]);
+free(v);
+return 0;
+}
+
+int pid = fork();
+if (pid < 0)
+{
+close(pin[0]); close(pin[1]);
+close(pout[0]); close(pout[1]);
+close(perr[0]); close(perr[1]);
+free(v);
+return 0;
+}
+if (pid == 0)
+{
+close(pin[1]);
+close(pout[0]);
+close(perr[0]);
+if (dup2(pin[0], 0) < 0 || dup2(pout[1], 1) < 0 || dup2(perr[1], 2) < 0)
+_exit(127);
+close(pin[0]); close(pout[1]); close(perr[1]);
+execvp(v[0], v);
+_exit(127);
+}
+
+close(pin[0]);
+close(pout[1]);
+close(perr[1]);
+free(v);
+
+*in_fd = pin[1];
+*out_fd = pout[0];
+*err_fd = perr[0];
+return pid;
+#endif
+"""
+
+## Escribe todos los bytes de `data` en `fd`.
+##
+## Devuelve los bytes escritos, o -1 si el descriptor falla.
+antiquus fd_write with fd as int, data as string into int:
+    r"""
+#if defined(_WIN32)
+(void)fd; (void)data;
+return -1;
+#else
+extern long write(int, const void *, unsigned long);
+extern int errno;
+int total = 0;
+while (total < data.len)
+{
+long n = write(fd, data.data + total, (unsigned long)(data.len - total));
+if (n < 0)
+{
+if (errno == 4)
+continue;
+return -1;
+}
+if (n == 0)
+return total;
+total += (int)n;
+}
+return total;
+#endif
+"""
+
+## Lee una línea completa de `fd` (sin el `\n` final).
+##
+## Devuelve `""` en EOF o error. Es bloqueante.
+antiquus fd_read_line with fd as int into string:
+    r"""
+#if defined(_WIN32)
+(void)fd;
+return pengu_string_from_cstr_len("", 0);
+#else
+extern long read(int, void *, unsigned long);
+extern int errno;
+int cap = 256;
+int len = 0;
+char *buf = (char *)malloc((size_t)cap);
+if (!buf)
+return pengu_string_from_cstr_len("", 0);
+for (;;)
+{
+char ch = 0;
+long n = read(fd, &ch, 1);
+if (n < 0)
+{
+if (errno == 4)
+continue;
+free(buf);
+return pengu_string_from_cstr_len("", 0);
+}
+if (n == 0)
+break;
+if (ch == '\n')
+break;
+if (len + 1 >= cap)
+{
+int next = cap * 2;
+char *grown = (char *)realloc(buf, (size_t)next);
+if (!grown)
+{
+free(buf);
+return pengu_string_from_cstr_len("", 0);
+}
+buf = grown;
+cap = next;
+}
+buf[len++] = ch;
+}
+PenguString out = pengu_string_owned(buf, len);
+free(buf);
+return out;
+#endif
+"""
+
+## Cierra un descriptor.
+antiquus fd_close with fd as int into void:
+    r"""
+#if defined(_WIN32)
+(void)fd;
+#else
+extern int close(int);
+if (fd >= 0)
+close(fd);
+#endif
+"""

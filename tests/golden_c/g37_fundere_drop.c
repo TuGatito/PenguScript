@@ -147,6 +147,7 @@ int32_t pengu_main(void) {
     _pengu_cleanup_Enemy(&(e));
 }
 
+#line 1 "<psc-runtime>"
 int main(int argc, char** argv) {
     pengu_init(argc, argv);
     pengu_install_crash_handler();

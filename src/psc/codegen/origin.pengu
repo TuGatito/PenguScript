@@ -35,3 +35,13 @@ weave marker with c as ref to context.CgContext, m as loader.SemaModule, node as
     var txt as string is "#line {line} \"{path}\""
     calling emit.line with (sigil of c->emitter), txt
     banish txt
+
+## Marca el código generado por el compilador (wrapper `main`, thunks) para que
+## gdb no lo atribuya a la última línea PenguScript del bundle.
+##
+## ## Memoria
+## No asigna.
+weave marker_runtime with c as ref to context.CgContext into void:
+    if not c->options.line_markers:
+        return
+    calling emit.line with (sigil of c->emitter), "#line 1 \"<psc-runtime>\""

@@ -125,6 +125,7 @@ int32_t golden_c_g21_named_first_of_inst5(int32_t a, int32_t b) {
     return a;
 }
 
+#line 1 "<psc-runtime>"
 int main(int argc, char** argv) {
     pengu_init(argc, argv);
     pengu_install_crash_handler();

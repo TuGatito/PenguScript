@@ -1,0 +1,1155 @@
+## psc/dap/adapter.pengu — servidor Debug Adapter Protocol sobre stdio.
+##
+## Habla DAP (JSON con framing `Content-Length`) por stdin/stdout y GDB/MI por
+## las tuberías de un proceso `gdb -i=mi2`. El estado del adapter vive en el
+## hilo principal; dos hilos lectores solo empujan líneas etiquetadas a un
+## `ChanString`, de modo que no hay carreras sobre el DOM ni sobre los fds.
+
+import std.archivum
+import std.builder
+import std.compass
+import std.filum
+import std.json
+import std.rites
+import std.scrolls
+import std.spark
+
+import psc.dap.mi as mi
+import psc.lsp.transport as lsp
+import psc.os.proc as proc
+import psc.sema.names as npool
+
+insignia psc_dap_adapter_
+
+weave starts_with with s as string, p as string into bool:
+    return calling scrolls.starts_with with s, p
+
+# ---------------------------------------------------------------------------
+# Estado
+# ---------------------------------------------------------------------------
+
+## Estado completo de una sesión de depuración.
+rune Adapter:
+    q as filum.ChanString
+    tr as lsp.Transport
+    seq as int
+    token as int
+    gdb_in as int
+    gdb_out as int
+    gdb_err as int
+    gdb_pid as int
+    mi_th as filum.Thread
+    err_th as filum.Thread
+    mi_started as bool
+    launched as bool
+    running as bool
+    terminated as bool
+    stop_on_entry as bool
+    entry_bp as int
+    program as string
+    cwd as string
+    source as string
+    gdb_path as string
+    printers as string
+    bp_ids as list of int
+    bp_sources as list of string
+    frame_levels as list of int
+    frame_files as list of string
+    frame_lines as list of int
+    frame_funcs as list of string
+    last_file as string
+    last_line as int
+    step_mode as bool
+    step_line as int
+    step_tries as int
+
+# ---------------------------------------------------------------------------
+# Hilos lectores
+# ---------------------------------------------------------------------------
+
+## Etiqueta una línea para el hilo principal.
+weave tagged with tag as string, line as string into string:
+    return "{tag}{line}"
+
+## Hilo que drena stderr de gdb para que el pipe no se llene.
+weave err_reader with q as ref to filum.ChanString, fd as int into void:
+    while true:
+        var line as string is calling proc.fd_read_line with fd
+        if line length == 0:
+            banish line
+            break
+        banish line
+
+## Hilo lector de DAP (stdin).
+weave dap_reader with q as ref to filum.ChanString into void:
+    var t as lsp.Transport is calling lsp.stdio
+    while true:
+        var body as maybe string is calling lsp.read_frame with (sigil of t)
+        if not body.is_present:
+            calling q.send with "DAP-EOF"
+            return
+        var msg as string is calling tagged with "DAP:", body.value
+        banish body
+        if not calling q.send with msg:
+            banish msg
+            return
+        banish msg
+
+## Hilo lector de MI (stdout de gdb).
+weave mi_reader with q as ref to filum.ChanString, fd as int into void:
+    while true:
+        var line as string is calling proc.fd_read_line with fd
+        if line length == 0:
+            calling q.send with "MI-EOF"
+            return
+        var msg as string is calling tagged with "MI:", line
+        banish line
+        if not calling q.send with msg:
+            banish msg
+            return
+        banish msg
+
+# ---------------------------------------------------------------------------
+# JSON de salida (construido a mano para controlar el orden y los tipos)
+# ---------------------------------------------------------------------------
+
+## Escapa un string como literal JSON.
+##
+## ## Memoria
+## Devuelve un string owned.
+weave jq with s as string into string:
+    var c as string is calling npool.copy_string with s
+    var v as json.JsonValue is calling json.JsonValue.string_val with c
+    defer banish v
+    return calling json.stringify with v
+
+## Añade `"clave":valor` a un objeto JSON.
+##
+## ## Memoria
+## `key` y `raw` son borrowed.
+weave add_field with sb as ref to StringBuilder, first as ref to bool, key as string, raw as string into void:
+    if not (essence of first):
+        calling sb.append with ","
+    set essence of first is false
+    var k as string is calling jq with key
+    calling sb.append with k
+    banish k
+    calling sb.append with ":"
+    calling sb.append with raw
+
+## Añade un campo string JSON.
+weave add_str with sb as ref to StringBuilder, first as ref to bool, key as string, val as string into void:
+    var v as string is calling jq with val
+    calling add_field with sb, first, key, v
+    banish v
+
+## Envía un frame DAP ya serializado.
+weave send_raw with a as ref to Adapter, body as string into void:
+    if a->terminated:
+        return
+    calling lsp.write_frame with (sigil of a->tr), body
+
+## Envía una respuesta DAP.
+weave send_response with a as ref to Adapter, req_seq as int, command as string, body as string into void:
+    set a->seq is a->seq + 1
+    var out as StringBuilder is calling StringBuilder.new
+    defer banish out
+    calling out.append with "{"
+    var f2 as bool is true
+    calling add_str with (sigil of out), (sigil of f2), "type", "response"
+    var seqs as string is a->seq to string
+    calling add_field with (sigil of out), (sigil of f2), "seq", seqs
+    banish seqs
+    var rseq as string is req_seq to string
+    calling add_field with (sigil of out), (sigil of f2), "request_seq", rseq
+    banish rseq
+    calling add_field with (sigil of out), (sigil of f2), "success", "true"
+    calling add_str with (sigil of out), (sigil of f2), "command", command
+    if body length > 0:
+        var bsb as StringBuilder is calling StringBuilder.new
+        defer banish bsb
+        calling bsb.append with "{"
+        calling bsb.append with body
+        calling bsb.append with "}"
+        var btxt as string is calling bsb.finish
+        calling add_field with (sigil of out), (sigil of f2), "body", btxt
+        banish btxt
+    calling out.append with "}"
+    var text as string is calling out.finish
+    calling send_raw with a, text
+    banish text
+
+## Envía una respuesta de error DAP.
+weave send_error with a as ref to Adapter, req_seq as int, command as string, message as string into void:
+    set a->seq is a->seq + 1
+    var out as StringBuilder is calling StringBuilder.new
+    defer banish out
+    calling out.append with "{"
+    var f as bool is true
+    calling add_str with (sigil of out), (sigil of f), "type", "response"
+    var seqs as string is a->seq to string
+    calling add_field with (sigil of out), (sigil of f), "seq", seqs
+    banish seqs
+    var rseq as string is req_seq to string
+    calling add_field with (sigil of out), (sigil of f), "request_seq", rseq
+    banish rseq
+    calling add_field with (sigil of out), (sigil of f), "success", "false"
+    calling add_str with (sigil of out), (sigil of f), "command", command
+    calling add_str with (sigil of out), (sigil of f), "message", message
+    calling out.append with "}"
+    var text as string is calling out.finish
+    calling send_raw with a, text
+    banish text
+
+## Envía un evento DAP.
+weave send_event with a as ref to Adapter, event as string, body as string into void:
+    set a->seq is a->seq + 1
+    var out as StringBuilder is calling StringBuilder.new
+    defer banish out
+    calling out.append with "{"
+    var f as bool is true
+    calling add_str with (sigil of out), (sigil of f), "type", "event"
+    var seqs as string is a->seq to string
+    calling add_field with (sigil of out), (sigil of f), "seq", seqs
+    banish seqs
+    calling add_str with (sigil of out), (sigil of f), "event", event
+    if body length > 0:
+        var bsb as StringBuilder is calling StringBuilder.new
+        defer banish bsb
+        calling bsb.append with "{"
+        calling bsb.append with body
+        calling bsb.append with "}"
+        var btxt as string is calling bsb.finish
+        calling add_field with (sigil of out), (sigil of f), "body", btxt
+        banish btxt
+    calling out.append with "}"
+    var text as string is calling out.finish
+    calling send_raw with a, text
+    banish text
+
+# ---------------------------------------------------------------------------
+# Helpers de requests
+# ---------------------------------------------------------------------------
+
+weave req_args with req as json.JsonValue into json.JsonValue:
+    var m as maybe json.JsonValue is calling req.get with "arguments"
+    if m.is_present:
+        return m.value
+    banish m
+    return calling json.JsonValue.empty_object
+
+weave req_str with obj as json.JsonValue, key as string into string:
+    var m as maybe json.JsonValue is calling obj.get with key
+    if not m.is_present:
+        banish m
+        return ""
+    var v as json.JsonValue is m.value
+    var s as maybe string is calling v.as_string
+    banish v
+    if s.is_present:
+        return s.value
+    banish s
+    return ""
+
+weave req_int with obj as json.JsonValue, key as string, fallback as int into int:
+    var m as maybe json.JsonValue is calling obj.get with key
+    if not m.is_present:
+        banish m
+        return fallback
+    var v as json.JsonValue is m.value
+    var n as maybe i64 is calling v.as_int
+    banish v
+    if n.is_present:
+        return n.value to int
+    banish n
+    return fallback
+
+weave req_bool with obj as json.JsonValue, key as string, fallback as bool into bool:
+    var m as maybe json.JsonValue is calling obj.get with key
+    if not m.is_present:
+        banish m
+        return fallback
+    var v as json.JsonValue is m.value
+    var b as maybe bool is calling v.as_bool
+    banish v
+    if b.is_present:
+        return b.value
+    banish b
+    return fallback
+
+# ---------------------------------------------------------------------------
+# MI: envío, espera y eventos asíncronos
+# ---------------------------------------------------------------------------
+
+## Envía un comando MI y devuelve su token (o -1 si falló el write).
+weave mi_send with a as ref to Adapter, cmd as string into int:
+    set a->token is a->token + 1
+    var tok as string is a->token to string
+    var line as string is "{tok}{cmd}\n"
+    var n as int is calling proc.fd_write with a->gdb_in, line
+    banish line
+    banish tok
+    if n <= 0:
+        return -1
+    return a->token
+
+## Extrae el texto de un registro `~"..."`, `@"..."` o `&"..."`.
+weave stream_text with line as string into string:
+    if line length < 3:
+        return ""
+    var inner as string is calling scrolls.substring with line, 2, (line length - 1)
+    var out as string is calling mi.unescape with inner
+    banish inner
+    return out
+
+## Emite los eventos DAP de un registro MI asíncrono.
+weave handle_mi_async with a as ref to Adapter, line as string into void:
+    var cls as string is calling mi.result_class with line
+    if cls == "stopped":
+        var fs as list of mi.MiField is calling mi.parse_fields with line
+        var reason as string is calling mi.field with (sigil of fs), "reason"
+        var bno as string is calling mi.field with (sigil of fs), "bkptno"
+        var frame as string is calling mi.field with (sigil of fs), "frame"
+        banish fs
+        set a->running is false
+        if reason == "exited" or reason == "exited-normally" or reason == "exited-signalled":
+            banish reason
+            banish bno
+            banish frame
+            calling send_event with a, "terminated", ""
+            return
+        var dap_reason as string is "pause"
+        if reason == "breakpoint-hit":
+            set dap_reason is "breakpoint"
+        else if reason == "end-stepping-range":
+            set dap_reason is "step"
+        else if reason == "signal-received":
+            set dap_reason is "exception"
+        if a->entry_bp > 0 and bno == (a->entry_bp to string):
+            set dap_reason is "entry"
+            var del as string is "-break-delete {a->entry_bp}"
+            var dt as int is calling mi_send with a, del
+            banish del
+            set a->entry_bp is 0
+        banish reason
+        banish bno
+        var body as StringBuilder is calling StringBuilder.new
+        defer banish body
+        var f as bool is true
+        calling add_field with (sigil of body), (sigil of f), "reason", (calling jq with dap_reason)
+        calling add_field with (sigil of body), (sigil of f), "threadId", "1"
+        calling add_field with (sigil of body), (sigil of f), "allThreadsStopped", "true"
+        if frame length > 0:
+            var ff as list of mi.MiField is calling mi.parse_fields with frame
+            var file as string is calling mi.field with (sigil of ff), "fullname"
+            if file length == 0:
+                banish file
+                set file is calling mi.field with (sigil of ff), "file"
+            var fl as string is calling mi.field with (sigil of ff), "line"
+            if file length > 0:
+                set a->last_file is calling npool.copy_string with file
+            var newline as int is -1
+            if fl length > 0:
+                var pm as maybe int is calling spark.parse_int with fl
+                if pm.is_present:
+                    set newline is pm.value
+                banish pm
+            banish fl
+            banish file
+            banish ff
+            var skip_step as bool is false
+            if a->step_mode and dap_reason == "step" and newline == a->step_line and a->step_tries < 50:
+                set skip_step is true
+                set a->step_tries is a->step_tries + 1
+            if newline >= 0:
+                set a->last_line is newline
+            banish frame
+            if skip_step:
+                var sc as string is "-exec-next"
+                var sr as string is calling mi_cmd with a, sc
+                banish sr
+                banish sc
+                return
+        else:
+            banish frame
+        var btxt as string is calling body.finish
+        calling send_event with a, "stopped", btxt
+        banish btxt
+    else if line length > 0 and (line at 0) == "~":
+        var text as string is calling stream_text with line
+        var body as StringBuilder is calling StringBuilder.new
+        defer banish body
+        var f as bool is true
+        calling add_str with (sigil of body), (sigil of f), "category", "console"
+        calling add_str with (sigil of body), (sigil of f), "output", text
+        banish text
+        var btxt as string is calling body.finish
+        calling send_event with a, "output", btxt
+        banish btxt
+    else if line length > 0 and (line at 0) == "@":
+        var text as string is calling stream_text with line
+        var body as StringBuilder is calling StringBuilder.new
+        defer banish body
+        var f as bool is true
+        calling add_str with (sigil of body), (sigil of f), "category", "stdout"
+        calling add_str with (sigil of body), (sigil of f), "output", text
+        banish text
+        var btxt as string is calling body.finish
+        calling send_event with a, "output", btxt
+        banish btxt
+    else if line length > 0 and (line at 0) == "&":
+        var text as string is calling stream_text with line
+        var body as StringBuilder is calling StringBuilder.new
+        defer banish body
+        var f as bool is true
+        calling add_str with (sigil of body), (sigil of f), "category", "stderr"
+        calling add_str with (sigil of body), (sigil of f), "output", text
+        banish text
+        var btxt as string is calling body.finish
+        calling send_event with a, "output", btxt
+        banish btxt
+    if cls length > 0:
+        banish cls
+
+## Espera la respuesta MI con `token`; procesa eventos mientras tanto.
+weave mi_wait with a as ref to Adapter, token as int into string:
+    while true:
+        var m as maybe string is calling a->q.recv
+        if not m.is_present:
+            banish m
+            return ""
+        var line as string is m.value
+        banish m
+        if calling starts_with with line, "DAP:":
+            var body as string is calling scrolls.substring with line, 4, (line length)
+            calling handle_dap with a, body
+            banish body
+            banish line
+        else if calling starts_with with line, "MI-EOF" or calling starts_with with line, "DAP-EOF":
+            banish line
+            return ""
+        else:
+            var raw as string is calling scrolls.substring with line, 3, (line length)
+            var tok as int is calling mi.token_of with raw
+            if tok == token:
+                banish line
+                return raw
+            banish raw
+            banish line
+    return ""
+
+## Ejecuta un comando MI y espera su respuesta.
+weave mi_cmd with a as ref to Adapter, cmd as string into string:
+    var tok as int is calling mi_send with a, cmd
+    if tok < 0:
+        return ""
+    return calling mi_wait with a, tok
+
+# ---------------------------------------------------------------------------
+# DAP: handlers
+# ---------------------------------------------------------------------------
+
+weave do_initialize with a as ref to Adapter, seq as int into void:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var f as bool is true
+    calling add_field with (sigil of sb), (sigil of f), "supportsConfigurationDoneRequest", "true"
+    calling add_field with (sigil of sb), (sigil of f), "supportsEvaluateForHovers", "true"
+    calling add_field with (sigil of sb), (sigil of f), "supportsConditionalBreakpoints", "true"
+    calling add_field with (sigil of sb), (sigil of f), "supportsHitConditionalBreakpoints", "true"
+    calling add_field with (sigil of sb), (sigil of f), "supportsTerminateRequest", "true"
+    calling add_field with (sigil of sb), (sigil of f), "supportsSetVariable", "false"
+    calling add_field with (sigil of sb), (sigil of f), "supportsLogPoints", "false"
+    calling add_field with (sigil of sb), (sigil of f), "supportsExceptionOptions", "false"
+    calling add_field with (sigil of sb), (sigil of f), "supportsStepBack", "false"
+    var body as string is calling sb.finish
+    calling send_response with a, seq, "initialize", body
+    banish body
+    calling send_event with a, "initialized", ""
+
+weave do_launch with a as ref to Adapter, seq as int, req as json.JsonValue into void:
+    if a->launched:
+        calling send_error with a, seq, "launch", "launch ya fue llamado"
+        return
+    var args as json.JsonValue is calling req_args with req
+    defer banish args
+    var prog as string is calling req_str with args, "program"
+    if prog length == 0:
+        banish prog
+        calling send_error with a, seq, "launch", "falta 'program' (ruta del ejecutable)"
+        return
+    if calling scrolls.ends_with with prog, ".pengu":
+        banish prog
+        calling send_error with a, seq, "launch", "'program' debe ser el ejecutable; compilá con 'psc build'"
+        return
+    var cwd as string is calling req_str with args, "cwd"
+    if cwd length == 0:
+        banish cwd
+        set cwd is calling compass.cp_cwd
+    var src as string is calling req_str with args, "source"
+    var gpath as string is calling req_str with args, "gdbPath"
+    if gpath length == 0:
+        banish gpath
+        set gpath is "gdb"
+    var printers as string is calling req_str with args, "printers"
+    if printers length == 0:
+        banish printers
+        set printers is ""
+    if not (calling compass.cp_is_abs with prog):
+        var parts as list of string is list of string
+        calling parts.push with (calling npool.copy_string with cwd)
+        calling parts.push with (calling npool.copy_string with prog)
+        var ap as string is calling compass.cp_join with parts
+        banish parts
+        banish prog
+        set prog is ap
+    set a->program is prog
+    set a->cwd is cwd
+    set a->source is src
+    set a->gdb_path is gpath
+    set a->printers is printers
+    set a->stop_on_entry is calling req_bool with args, "stopOnEntry", false
+    var argv as list of string is list of string
+    calling argv.push with gpath
+    calling argv.push with "-q"
+    calling argv.push with "-i=mi2"
+    calling argv.push with "--args"
+    calling argv.push with prog
+    var am as maybe json.JsonValue is calling args.get with "args"
+    if am.is_present:
+        var av as json.JsonValue is am.value
+        var aa as maybe list of json.JsonValue is calling av.as_array
+        banish av
+        if aa.is_present:
+            var items as list of json.JsonValue is aa.value
+            for it in items:
+                var s as maybe string is calling it.as_string
+                if s.is_present:
+                    calling argv.push with s.value
+            banish items
+        banish aa
+    banish am
+    var ifd as int is 0
+    var ofd as int is 0
+    var efd as int is 0
+    var pid as int is calling proc.spawn_piped with argv, (sigil of ifd), (sigil of ofd), (sigil of efd)
+    banish argv
+    if pid <= 0:
+        calling send_error with a, seq, "launch", "no se pudo lanzar gdb"
+        return
+    set a->gdb_in is ifd
+    set a->gdb_out is ofd
+    set a->gdb_err is efd
+    set a->gdb_pid is pid
+    set a->mi_th is calling filum.start2 with mi_reader, (sigil of a->q), a->gdb_out
+    set a->err_th is calling filum.start2 with err_reader, (sigil of a->q), a->gdb_err
+    set a->mi_started is true
+    set a->launched is true
+    var r as string is calling mi_cmd with a, "-gdb-set pagination off"
+    banish r
+    set r is calling mi_cmd with a, "-gdb-set confirm off"
+    banish r
+    set r is calling mi_cmd with a, "-gdb-set breakpoint pending on"
+    banish r
+    set r is calling mi_cmd with a, "-gdb-set print pretty on"
+    banish r
+    var cwdq as string is calling jq with cwd
+    var cdcmd as string is "-environment-cd {cwdq}"
+    banish cwdq
+    set r is calling mi_cmd with a, cdcmd
+    banish r
+    banish cdcmd
+    if a->printers length == 0:
+        var dparts as list of string is list of string
+        calling dparts.push with (calling npool.copy_string with a->cwd)
+        calling dparts.push with (calling npool.copy_string with "tools/pengu_printers.py")
+        var dp as string is calling compass.cp_join with dparts
+        banish dparts
+        if calling archivum.exists with dp:
+            set a->printers is dp
+        else:
+            banish dp
+    if a->printers length > 0 and (calling archivum.exists with a->printers):
+        var pq as string is calling jq with a->printers
+        var pcmd as string is "-interpreter-exec console \"source {pq}\""
+        banish pq
+        set r is calling mi_cmd with a, pcmd
+        banish r
+        banish pcmd
+    calling send_response with a, seq, "launch", ""
+
+weave do_configuration_done with a as ref to Adapter, seq as int into void:
+    if not a->launched:
+        calling send_error with a, seq, "configurationDone", "launch no fue llamado"
+        return
+    calling send_response with a, seq, "configurationDone", ""
+    if a->stop_on_entry:
+        var r as string is calling mi_cmd with a, "-break-insert -t pengu_main"
+        var fs as list of mi.MiField is calling mi.parse_fields with r
+        var bk as string is calling mi.field with (sigil of fs), "bkpt"
+        banish fs
+        if bk length > 0:
+            var bf as list of mi.MiField is calling mi.parse_fields with bk
+            var bn as string is calling mi.field with (sigil of bf), "number"
+            banish bf
+            if bn length > 0:
+                var pm as maybe int is calling spark.parse_int with bn
+                if pm.is_present:
+                    set a->entry_bp is pm.value
+                banish pm
+            banish bn
+        banish bk
+        banish r
+    var rr as string is calling mi_cmd with a, "-exec-run"
+    banish rr
+    set a->running is true
+
+weave do_set_breakpoints with a as ref to Adapter, seq as int, req as json.JsonValue into void:
+    var args as json.JsonValue is calling req_args with req
+    defer banish args
+    var sm as maybe json.JsonValue is calling args.get with "source"
+    if not sm.is_present:
+        banish sm
+        calling send_error with a, seq, "setBreakpoints", "falta 'source'"
+        return
+    var src as json.JsonValue is sm.value
+    var sp as string is calling req_str with src, "path"
+    banish src
+    banish sm
+    var abs as string is ""
+    if calling compass.cp_is_abs with sp:
+        set abs is calling npool.copy_string with sp
+    else:
+        var parts as list of string is list of string
+        calling parts.push with (calling npool.copy_string with a->cwd)
+        calling parts.push with (calling npool.copy_string with sp)
+        set abs is calling compass.cp_join with parts
+        banish parts
+    banish sp
+    var keep_ids as list of int is list of int
+    var keep_src as list of string is list of string
+    var i as int is 0
+    while i < a->bp_ids.len:
+        var id as int is a->bp_ids at i
+        var bsrc as string is a->bp_sources at i
+        if bsrc == abs:
+            var d as string is "-break-delete {id}"
+            var dr as string is calling mi_cmd with a, d
+            banish dr
+            banish d
+        else:
+            calling keep_ids.push with id
+            calling keep_src.push with (calling npool.copy_string with bsrc)
+        banish bsrc
+        set i is i + 1
+    calling a->bp_ids.clear
+    calling a->bp_sources.clear
+    var ki as int is 0
+    while ki < keep_ids.len:
+        calling a->bp_ids.push with (keep_ids at ki)
+        calling a->bp_sources.push with (keep_src at ki)
+        set ki is ki + 1
+    banish keep_ids
+    banish keep_src
+    var bps as maybe json.JsonValue is calling args.get with "breakpoints"
+    var out as StringBuilder is calling StringBuilder.new
+    defer banish out
+    calling out.append with "["
+    var first as bool is true
+    if bps.is_present:
+        var bv as json.JsonValue is bps.value
+        var ba as maybe list of json.JsonValue is calling bv.as_array
+        banish bv
+        if ba.is_present:
+            var items as list of json.JsonValue is ba.value
+            var idx as int is 0
+            while idx < items.len:
+                var item as json.JsonValue is items at idx
+                var line as int is calling req_int with item, "line", 0
+                var cond as string is calling req_str with item, "condition"
+                var hit as string is calling req_str with item, "hitCondition"
+                var hnum as int is 0
+                if hit length > 0:
+                    var hm as maybe int is calling spark.parse_int with hit
+                    if hm.is_present:
+                        set hnum is hm.value
+                    banish hm
+                if hnum > 0:
+                    set hnum is hnum - 1
+                if line > 0:
+                    var esc as string is calling mi_escape with abs
+                    var cmd as string is ""
+                    if cond length > 0 and hnum > 0:
+                        var ce as string is calling mi_escape with cond
+                        set cmd is "-break-insert -c \"{ce}\" -i {hnum} -f \"{esc}:{line}\""
+                        banish ce
+                    else if cond length > 0:
+                        var ce as string is calling mi_escape with cond
+                        set cmd is "-break-insert -c \"{ce}\" -f \"{esc}:{line}\""
+                        banish ce
+                    else if hnum > 0:
+                        set cmd is "-break-insert -i {hnum} -f \"{esc}:{line}\""
+                    else:
+                        set cmd is "-break-insert -f \"{esc}:{line}\""
+                    banish esc
+                    var resp as string is calling mi_cmd with a, cmd
+                    banish cmd
+                    var fs as list of mi.MiField is calling mi.parse_fields with resp
+                    var bk as string is calling mi.field with (sigil of fs), "bkpt"
+                    banish fs
+                    var bid as int is 0
+                    if bk length > 0:
+                        var bf as list of mi.MiField is calling mi.parse_fields with bk
+                        var bn as string is calling mi.field with (sigil of bf), "number"
+                        if bn length > 0:
+                            var pm as maybe int is calling spark.parse_int with bn
+                            if pm.is_present:
+                                set bid is pm.value
+                            banish pm
+                        banish bn
+                        banish bf
+                    banish bk
+                    banish resp
+                    if bid > 0:
+                        calling a->bp_ids.push with bid
+                        calling a->bp_sources.push with (calling npool.copy_string with abs)
+                    if not first:
+                        calling out.append with ","
+                    set first is false
+                    calling out.append with "{\"id\":"
+                    var ids as string is bid to string
+                    calling out.append with ids
+                    banish ids
+                    calling out.append with ",\"verified\":true,\"line\":"
+                    var ls as string is line to string
+                    calling out.append with ls
+                    banish ls
+                    calling out.append with "}"
+                banish cond
+                banish hit
+                set idx is idx + 1
+            banish items
+        banish ba
+    banish bps
+    calling out.append with "]"
+    var body as StringBuilder is calling StringBuilder.new
+    defer banish body
+    var f as bool is true
+    var txt as string is calling out.finish
+    calling add_field with (sigil of body), (sigil of f), "breakpoints", txt
+    banish txt
+    var btxt as string is calling body.finish
+    calling send_response with a, seq, "setBreakpoints", btxt
+    banish btxt
+    banish abs
+
+weave do_set_exception_breakpoints with a as ref to Adapter, seq as int, req as json.JsonValue into void:
+    var args as json.JsonValue is calling req_args with req
+    banish args
+    calling send_response with a, seq, "setExceptionBreakpoints", ""
+
+## Escapa un string para un comando MI entre comillas.
+weave mi_escape with s as string into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var i as int is 0
+    while i < (s length):
+        var c as string is s at i
+        if c == "\\" or c == "\"":
+            calling sb.append with "\\"
+        calling sb.append with c
+        banish c
+        set i is i + 1
+    return calling sb.finish
+
+weave do_continue with a as ref to Adapter, seq as int, cmd as string into void:
+    if not a->launched:
+        calling send_error with a, seq, cmd, "no hay proceso"
+        return
+    calling send_response with a, seq, cmd, ""
+    var micmd as string is "-exec-continue"
+    if cmd == "next":
+        set micmd is "-exec-next"
+    else if cmd == "stepIn":
+        set micmd is "-exec-step"
+    else if cmd == "stepOut":
+        set micmd is "-exec-finish"
+    set a->step_mode is cmd == "next"
+    set a->step_line is a->last_line
+    set a->step_tries is 0
+    var r as string is calling mi_cmd with a, micmd
+    banish r
+    set a->running is true
+
+weave do_pause with a as ref to Adapter, seq as int into void:
+    calling send_response with a, seq, "pause", ""
+    var r as string is calling mi_cmd with a, "-exec-interrupt"
+    banish r
+
+weave do_stack_trace with a as ref to Adapter, seq as int into void:
+    var r as string is calling mi_cmd with a, "-stack-list-frames"
+    var fs as list of mi.MiField is calling mi.parse_fields with r
+    var stack as string is calling mi.field with (sigil of fs), "stack"
+    banish fs
+    banish r
+    var objs as list of string is calling mi.split_objects with stack
+    banish stack
+    calling a->frame_levels.clear
+    calling a->frame_files.clear
+    calling a->frame_lines.clear
+    calling a->frame_funcs.clear
+    var out as StringBuilder is calling StringBuilder.new
+    defer banish out
+    calling out.append with "["
+    var first as bool is true
+    for obj in objs:
+        var inner as string is calling scrolls.substring with obj, 1, (obj length - 1)
+        var ff as list of mi.MiField is calling mi.parse_fields with inner
+        banish inner
+        var file as string is calling mi.field with (sigil of ff), "fullname"
+        if file length == 0:
+            banish file
+            set file is calling mi.field with (sigil of ff), "file"
+        var line as string is calling mi.field with (sigil of ff), "line"
+        var func as string is calling mi.field with (sigil of ff), "func"
+        var level as string is calling mi.field with (sigil of ff), "level"
+        banish ff
+        var fb as string is calling compass.cp_basename with file
+        var isrt as bool is fb == "<psc-runtime>"
+        banish fb
+        if isrt:
+            banish file
+            banish line
+            banish func
+            banish level
+        else:
+            if not (calling compass.cp_is_abs with file):
+                var parts as list of string is list of string
+                calling parts.push with (calling npool.copy_string with a->cwd)
+                calling parts.push with (calling npool.copy_string with file)
+                var jf as string is calling compass.cp_join with parts
+                banish parts
+                banish file
+                set file is jf
+            if not first:
+                calling out.append with ","
+            set first is false
+            var fid as int is a->frame_levels.len + 1
+            var pl as maybe int is calling spark.parse_int with level
+            var pn as maybe int is calling spark.parse_int with line
+            if pl.is_present:
+                calling a->frame_levels.push with pl.value
+            else:
+                calling a->frame_levels.push with 0
+            if pn.is_present:
+                calling a->frame_lines.push with pn.value
+            else:
+                calling a->frame_lines.push with 0
+            banish pl
+            banish pn
+            calling a->frame_files.push with (calling npool.copy_string with file)
+            calling a->frame_funcs.push with (calling npool.copy_string with func)
+            calling out.append with "{\"id\":"
+            var ids as string is fid to string
+            calling out.append with ids
+            banish ids
+            calling out.append with ",\"name\":"
+            var fn as string is calling jq with func
+            calling out.append with fn
+            banish fn
+            calling out.append with ",\"line\":"
+            calling out.append with line
+            calling out.append with ",\"column\":1,\"source\":{\"name\":"
+            var bn as string is calling compass.cp_basename with file
+            var bq as string is calling jq with bn
+            banish bn
+            calling out.append with bq
+            banish bq
+            calling out.append with ",\"path\":"
+            var fq as string is calling jq with file
+            calling out.append with fq
+            banish fq
+            calling out.append with "}"
+            calling out.append with "}"
+            banish file
+            banish line
+            banish func
+            banish level
+    calling out.append with "]"
+    banish objs
+    var body as StringBuilder is calling StringBuilder.new
+    defer banish body
+    var bf as bool is true
+    var txt as string is calling out.finish
+    calling add_field with (sigil of body), (sigil of bf), "stackFrames", txt
+    banish txt
+    var btxt as string is calling body.finish
+    calling send_response with a, seq, "stackTrace", btxt
+    banish btxt
+
+weave do_scopes with a as ref to Adapter, seq as int, req as json.JsonValue into void:
+    var args as json.JsonValue is calling req_args with req
+    defer banish args
+    var fid as int is calling req_int with args, "frameId", 0
+    if fid <= 0 or fid > a->frame_levels.len:
+        calling send_error with a, seq, "scopes", "frameId inválido"
+        return
+    var body as StringBuilder is calling StringBuilder.new
+    defer banish body
+    var f as bool is true
+    calling body.append with "\"scopes\":[{\"name\":\"Locals\",\"variablesReference\":"
+    var ids as string is fid to string
+    calling body.append with ids
+    banish ids
+    calling body.append with ",\"expensive\":false}]"
+    var btxt as string is calling body.finish
+    calling send_response with a, seq, "scopes", btxt
+    banish btxt
+
+weave is_temp_name with name as string into bool:
+    if name length < 3:
+        return false
+    var c0 as string is name at 0
+    var ok0 as bool is c0 == "_"
+    banish c0
+    if not ok0:
+        return false
+    var p as string is name at 1 to 3
+    var out as bool is p == "ji" or p == "jx" or p == "jd" or p == "pb" or p == "jv" or p == "re" or p == "kt"
+    banish p
+    return out
+
+weave do_variables with a as ref to Adapter, seq as int, req as json.JsonValue into void:
+    var args as json.JsonValue is calling req_args with req
+    defer banish args
+    var refid as int is calling req_int with args, "variablesReference", 0
+    if refid <= 0 or refid > a->frame_levels.len:
+        calling send_error with a, seq, "variables", "variablesReference inválido"
+        return
+    var level as int is a->frame_levels at (refid - 1)
+    var sel as string is "-stack-select-frame {level}"
+    var sres as string is calling mi_cmd with a, sel
+    banish sel
+    banish sres
+    var cmd as string is "-stack-list-variables --simple-values"
+    var r as string is calling mi_cmd with a, cmd
+    banish cmd
+    var fs as list of mi.MiField is calling mi.parse_fields with r
+    var vars as string is calling mi.field with (sigil of fs), "variables"
+    banish fs
+    banish r
+    var objs as list of string is calling mi.split_objects with vars
+    banish vars
+    var out as StringBuilder is calling StringBuilder.new
+    defer banish out
+    calling out.append with "["
+    var first as bool is true
+    for obj in objs:
+        var inner as string is calling scrolls.substring with obj, 1, (obj length - 1)
+        var ff as list of mi.MiField is calling mi.parse_fields with inner
+        banish inner
+        var name as string is calling mi.field with (sigil of ff), "name"
+        var value as string is calling mi.field with (sigil of ff), "value"
+        var typ as string is calling mi.field with (sigil of ff), "type"
+        banish ff
+        if value length == 0 and typ length > 0:
+            banish value
+            set value is "<{typ}>"
+        if calling is_temp_name with name or value == "<optimized out>":
+            banish name
+            banish value
+            banish typ
+        else:
+            if not first:
+                calling out.append with ","
+            set first is false
+            calling out.append with "{\"name\":"
+            var nq as string is calling jq with name
+            calling out.append with nq
+            banish nq
+            calling out.append with ",\"value\":"
+            var vq as string is calling jq with value
+            calling out.append with vq
+            banish vq
+            calling out.append with ",\"type\":"
+            var tq as string is calling jq with typ
+            calling out.append with tq
+            banish tq
+            calling out.append with ",\"variablesReference\":0}"
+            banish name
+            banish value
+            banish typ
+    banish objs
+    calling out.append with "]"
+    var back as string is "-stack-select-frame 0"
+    var bres as string is calling mi_cmd with a, back
+    banish back
+    banish bres
+    var body as StringBuilder is calling StringBuilder.new
+    defer banish body
+    var f as bool is true
+    var txt as string is calling out.finish
+    calling add_field with (sigil of body), (sigil of f), "variables", txt
+    banish txt
+    var btxt as string is calling body.finish
+    calling send_response with a, seq, "variables", btxt
+    banish btxt
+
+weave do_evaluate with a as ref to Adapter, seq as int, req as json.JsonValue into void:
+    var args as json.JsonValue is calling req_args with req
+    defer banish args
+    var expr as string is calling req_str with args, "expression"
+    if expr length == 0:
+        banish expr
+        calling send_error with a, seq, "evaluate", "falta 'expression'"
+        return
+    var fid as int is calling req_int with args, "frameId", 0
+    if fid > 0 and fid <= a->frame_levels.len:
+        var fl as int is a->frame_levels at (fid - 1)
+        var sel as string is "-stack-select-frame {fl}"
+        var sres as string is calling mi_cmd with a, sel
+        banish sel
+        banish sres
+    var esc as string is calling mi_escape with expr
+    banish expr
+    var cmd as string is "-data-evaluate-expression \"{esc}\""
+    banish esc
+    var r as string is calling mi_cmd with a, cmd
+    banish cmd
+    var fs as list of mi.MiField is calling mi.parse_fields with r
+    banish r
+    var value as string is calling mi.field with (sigil of fs), "value"
+    banish fs
+    if fid > 0 and fid <= a->frame_levels.len:
+        var back as string is "-stack-select-frame 0"
+        var bres as string is calling mi_cmd with a, back
+        banish back
+        banish bres
+    if value length == 0:
+        banish value
+        calling send_error with a, seq, "evaluate", "no se pudo evaluar"
+        return
+    var body as StringBuilder is calling StringBuilder.new
+    defer banish body
+    var f as bool is true
+    var vq as string is calling jq with value
+    calling add_field with (sigil of body), (sigil of f), "result", vq
+    banish vq
+    banish value
+    calling add_field with (sigil of body), (sigil of f), "variablesReference", "0"
+    var btxt as string is calling body.finish
+    calling send_response with a, seq, "evaluate", btxt
+    banish btxt
+
+weave do_threads with a as ref to Adapter, seq as int into void:
+    var body as StringBuilder is calling StringBuilder.new
+    defer banish body
+    var f as bool is true
+    calling add_field with (sigil of body), (sigil of f), "threads", "[{\"id\":1,\"name\":\"main\"}]"
+    var btxt as string is calling body.finish
+    calling send_response with a, seq, "threads", btxt
+    banish btxt
+
+weave do_disconnect with a as ref to Adapter, seq as int, cmd as string into void:
+    calling send_response with a, seq, cmd, ""
+    if a->launched:
+        var r as string is calling mi_cmd with a, "-gdb-exit"
+        banish r
+    calling send_event with a, "terminated", ""
+    set a->terminated is true
+
+## Despacha un request DAP.
+weave handle_dap with a as ref to Adapter, body as string into void:
+    var parsed as result of json.JsonValue to json.JsonError is calling json.parse with body
+    if not parsed.is_ok:
+        banish parsed
+        return
+    var req as json.JsonValue is parsed.value
+    defer banish req
+    var cmd as string is calling req_str with req, "command"
+    var seq as int is calling req_int with req, "seq", 0
+    if cmd == "initialize":
+        calling do_initialize with a, seq
+    else if cmd == "launch":
+        calling do_launch with a, seq, req
+    else if cmd == "configurationDone":
+        calling do_configuration_done with a, seq
+    else if cmd == "setBreakpoints":
+        calling do_set_breakpoints with a, seq, req
+    else if cmd == "setExceptionBreakpoints":
+        calling do_set_exception_breakpoints with a, seq, req
+    else if cmd == "continue" or cmd == "next" or cmd == "stepIn" or cmd == "stepOut":
+        calling do_continue with a, seq, cmd
+    else if cmd == "pause":
+        calling do_pause with a, seq
+    else if cmd == "stackTrace":
+        calling do_stack_trace with a, seq
+    else if cmd == "scopes":
+        calling do_scopes with a, seq, req
+    else if cmd == "variables":
+        calling do_variables with a, seq, req
+    else if cmd == "evaluate":
+        calling do_evaluate with a, seq, req
+    else if cmd == "threads":
+        calling do_threads with a, seq
+    else if cmd == "disconnect" or cmd == "terminate":
+        calling do_disconnect with a, seq, cmd
+    else:
+        calling send_error with a, seq, cmd, "request no soportado"
+    banish cmd
+
+## Bucle principal del adapter.
+weave run_debug_adapter with args as list of string into int:
+    var q as filum.ChanString is calling filum.chan_string with 1024
+    var a as Adapter is with q is q, tr is (calling lsp.stdio), seq is 0, gdb_in is -1, gdb_out is -1, gdb_err is -1, gdb_pid is 0, mi_started is false, launched is false, running is false, terminated is false, stop_on_entry is false, entry_bp is 0, program is "", cwd is "", source is "", gdb_path is "", printers is "", bp_ids is (list of int), bp_sources is (list of string), last_file is "", last_line is 0, step_mode is false, step_line is 0, step_tries is 0, frame_levels is (list of int), frame_files is (list of string), frame_lines is (list of int), frame_funcs is (list of string)
+    var dap_th as filum.Thread is calling filum.start with dap_reader, (sigil of a.q)
+    while not a.terminated:
+        var m as maybe string is calling a.q.recv
+        if not m.is_present:
+            banish m
+            break
+        var line as string is m.value
+        banish m
+        if calling starts_with with line, "DAP-EOF":
+            set a.terminated is true
+            banish line
+            break
+        if calling starts_with with line, "MI-EOF":
+            calling send_event with (sigil of a), "terminated", ""
+            set a.terminated is true
+            banish line
+            break
+        if calling starts_with with line, "DAP:":
+            var body as string is calling scrolls.substring with line, 4, (line length)
+            calling handle_dap with (sigil of a), body
+            banish body
+        else if calling starts_with with line, "MI:":
+            var raw as string is calling scrolls.substring with line, 3, (line length)
+            calling handle_mi_async with (sigil of a), raw
+            banish raw
+        banish line
+    if a.mi_started:
+        calling a.mi_th.free
+        calling a.err_th.free
+    if a.gdb_in >= 0:
+        calling proc.fd_close with a.gdb_in
+    if a.gdb_out >= 0:
+        calling proc.fd_close with a.gdb_out
+    if a.gdb_err >= 0:
+        calling proc.fd_close with a.gdb_err
+    if a.gdb_pid > 0:
+        var wr as int is calling proc.wait_pid with a.gdb_pid
+        banish wr
+    banish a.program
+    banish a.cwd
+    banish a.source
+    banish a.gdb_path
+    banish a.printers
+    banish a.last_file
+    banish a.bp_ids
+    banish a.frame_levels
+    banish a.frame_files
+    banish a.frame_lines
+    banish a.frame_funcs
+    calling dap_th.free
+    return 0

@@ -97,6 +97,7 @@ int32_t golden_c_g14_generic_first_inst4(PenguList xs) {
     return (*( int32_t*)pengu_list_at(&(xs), (int)((__extension__(({ int64_t _p_idx2 = (int64_t)(0); pengu_assert_bounds(_p_idx2, (int64_t)((xs).len), "tests/golden_c/g14_generic.pengu:10"); _p_idx2; }))))));
 }
 
+#line 1 "<psc-runtime>"
 int main(int argc, char** argv) {
     pengu_init(argc, argv);
     pengu_install_crash_handler();

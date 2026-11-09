@@ -13,6 +13,7 @@ import psc.sema.types.kind as tk
 
 import psc.codegen.context as context
 import psc.codegen.emit as emit
+import psc.codegen.origin as origin
 import psc.codegen.stmt as stmtgen
 
 insignia psc_codegen_testgen_
@@ -93,6 +94,7 @@ weave emit_one with c as ref to context.CgContext, module_id as int, node as int
 ## ## Memoria
 ## Strings temporales liberados.
 weave emit_main with c as ref to context.CgContext, count as int, as_json as bool into void:
+    calling origin.marker_runtime with c
     calling emit.line with (sigil of c->emitter), "int main(int argc, char** argv) {"
     calling emit.indent_more with (sigil of c->emitter)
     calling emit.line with (sigil of c->emitter), "pengu_init(argc, argv);"

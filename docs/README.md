@@ -40,7 +40,7 @@ regenerates them and fails if the committed tree is stale.
 | [BUILD_CACHE.md](BUILD_CACHE.md) | Incremental builds, cache key, `psc gc`, timings and reproducibility. |
 | [COVERAGE.md](COVERAGE.md) | `psc test --coverage` mapped to `.pengu` lines. |
 | [SANITIZERS.md](SANITIZERS.md) | ASan, UBSan and TSan profiles. |
-| [DEBUGGER.md](DEBUGGER.md) | `psc debug`, DWARF, breakpoints and fiber backtraces. |
+| [DEBUGGER.md](DEBUGGER.md) | `psc debug`, the DAP adapter, breakpoints, pretty printers and fiber backtraces. |
 | [psc/](psc/) | Compiler internals: AST, semantic analysis, codegen, modules. |
 | [psc/AUDITORIA_0.33.0.md](psc/AUDITORIA_0.33.0.md) | Audit and phased plan for 0.33 (Spanish). |
 | [psc/F7_MULTITU.md](psc/F7_MULTITU.md) | F7 implementation plan: per-module codegen units and parallel `cc`. |
@@ -62,7 +62,7 @@ compiled.
 
 ## Versioning
 
-The documents state the `psc` version they describe (currently **0.53.9**).
+The documents state the `psc` version they describe (currently **0.54.0**).
 When the language changes, the same pull request updates:
 
 1. the reference (`LANGUAGE.md` + `.es.md`),

@@ -33,9 +33,10 @@
     ],
     "main": "./out/extension.js",
     "activationEvents": [
+        "onDebugResolve:pengu",
         "onLanguage:pengus",
-        "workspaceContains:**/pengu.toml",
-        "workspaceContains:**/*.pengu"
+        "workspaceContains:**/*.pengu",
+        "workspaceContains:**/pengu.toml"
     ],
     "contributes": {
         "languages": [
@@ -293,7 +294,85 @@
                     "group": "navigation@1"
                 }
             ]
-        }
+        },
+        "debuggers": [
+            {
+                "type": "pengu",
+                "label": "PenguScript",
+                "languages": [
+                    "pengus"
+                ],
+                "configurationAttributes": {
+                    "launch": {
+                        "required": [
+                            "program"
+                        ],
+                        "properties": {
+                            "program": {
+                                "type": "string",
+                                "description": "Path to the compiled PenguScript executable (build it with `psc build`)."
+                            },
+                            "args": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                },
+                                "default": [],
+                                "description": "Arguments passed to the program."
+                            },
+                            "cwd": {
+                                "type": "string",
+                                "description": "Working directory for the debuggee and source lookup."
+                            },
+                            "stopOnEntry": {
+                                "type": "boolean",
+                                "default": false,
+                                "description": "Stop at the first PenguScript statement."
+                            },
+                            "source": {
+                                "type": "string",
+                                "description": "Optional main .pengu source for diagnostics."
+                            },
+                            "gdbPath": {
+                                "type": "string",
+                                "default": "gdb",
+                                "description": "GDB executable."
+                            },
+                            "printers": {
+                                "type": "string",
+                                "description": "Optional path to tools/pengu_printers.py."
+                            }
+                        }
+                    }
+                },
+                "initialConfigurations": [
+                    {
+                        "type": "pengu",
+                        "request": "launch",
+                        "name": "Debug PenguScript",
+                        "program": "${workspaceFolder}/build/app",
+                        "cwd": "${workspaceFolder}",
+                        "stopOnEntry": false,
+                        "args": []
+                    }
+                ],
+                "configurationSnippets": [
+                    {
+                        "label": "PenguScript: Launch",
+                        "description": "Debug a compiled PenguScript executable with GDB.",
+                        "body": {
+                            "type": "pengu",
+                            "request": "launch",
+                            "name": "Debug PenguScript",
+                            "program": "${workspaceFolder}/build/app",
+                            "cwd": "${workspaceFolder}",
+                            "stopOnEntry": false,
+                            "args": []
+                        }
+                    }
+                ]
+            }
+        ]
     },
     "scripts": {
         "vscode:prepublish": "npm run bundle",

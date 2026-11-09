@@ -1,0 +1,393 @@
+## psc/dap/mi.pengu — parser mínimo de GDB/MI.
+##
+## GDB/MI no es JSON: las respuestas son `^done,clave="valor",...`, los eventos
+## `*stopped,...` y las listas `[frame={...},frame={...}]`. Este módulo extrae
+## los campos de primer nivel y los objetos de una lista, sin intentar modelar
+## todo el protocolo. Es suficiente para el adapter y se puede probar aislado.
+
+import std.builder
+import std.scrolls
+
+import psc.sema.names as npool
+
+insignia psc_dap_mi_
+
+## Campo `clave=valor` de un registro MI.
+rune MiField derive Nexus:
+    key as string
+    value as string
+
+## Valor decimal de un dígito ASCII, o -1.
+##
+## ## Memoria
+## No asigna.
+weave digit_value with c as string into int:
+    if c == "0":
+        return 0
+    if c == "1":
+        return 1
+    if c == "2":
+        return 2
+    if c == "3":
+        return 3
+    if c == "4":
+        return 4
+    if c == "5":
+        return 5
+    if c == "6":
+        return 6
+    if c == "7":
+        return 7
+    if c == "8":
+        return 8
+    if c == "9":
+        return 9
+    return -1
+
+## `true` si `c` puede formar parte de una clave MI.
+##
+## ## Memoria
+## No asigna.
+weave is_key_char with c as string into bool:
+    if c length != 1:
+        return false
+    if c == "a" or c == "b" or c == "c" or c == "d" or c == "e" or c == "f" or c == "g" or c == "h" or c == "i" or c == "j" or c == "k" or c == "l" or c == "m" or c == "n" or c == "o" or c == "p" or c == "q" or c == "r" or c == "s" or c == "t" or c == "u" or c == "v" or c == "w" or c == "x" or c == "y" or c == "z":
+        return true
+    if c == "A" or c == "B" or c == "C" or c == "D" or c == "E" or c == "F" or c == "G" or c == "H" or c == "I" or c == "J" or c == "K" or c == "L" or c == "M" or c == "N" or c == "O" or c == "P" or c == "Q" or c == "R" or c == "S" or c == "T" or c == "U" or c == "V" or c == "W" or c == "X" or c == "Y" or c == "Z":
+        return true
+    if c == "0" or c == "1" or c == "2" or c == "3" or c == "4" or c == "5" or c == "6" or c == "7" or c == "8" or c == "9":
+        return true
+    if c == "_" or c == "-" or c == ".":
+        return true
+    return false
+
+## Deshace los escapes de un string C de MI.
+##
+## ## Memoria
+## Devuelve un string owned.
+weave unescape with s as string into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var i as int is 0
+    var n as int is s length
+    while i < n:
+        var c as string is s at i
+        if c == "\\" and i + 1 < n:
+            var e as string is s at (i + 1)
+            if e == "n":
+                calling sb.append with "\n"
+            else if e == "r":
+                calling sb.append with "\r"
+            else if e == "t":
+                calling sb.append with "\t"
+            else if e == "\\":
+                calling sb.append with "\\"
+            else if e == "\"":
+                calling sb.append with "\""
+            else:
+                calling sb.append with e
+            banish e
+            set i is i + 2
+        else:
+            calling sb.append with c
+            set i is i + 1
+        banish c
+    return calling sb.finish
+
+## Valor de un campo, ya desescapado si era un string C.
+##
+## ## Memoria
+## Devuelve un string owned.
+weave parse_value with s as string, start as int into string:
+    var n as int is s length
+    if start >= n:
+        return ""
+    var c as string is s at start
+    if c == "\"":
+        banish c
+        var i as int is start + 1
+        var sb as StringBuilder is calling StringBuilder.new
+        defer banish sb
+        while i < n:
+            var ch as string is s at i
+            if ch == "\\" and i + 1 < n:
+                var e as string is s at (i + 1)
+                if e == "n":
+                    calling sb.append with "\n"
+                else if e == "r":
+                    calling sb.append with "\r"
+                else if e == "t":
+                    calling sb.append with "\t"
+                else if e == "\\":
+                    calling sb.append with "\\"
+                else if e == "\"":
+                    calling sb.append with "\""
+                else:
+                    calling sb.append with e
+                banish e
+                set i is i + 2
+            else if ch == "\"":
+                banish ch
+                return calling sb.finish
+            else:
+                calling sb.append with ch
+                set i is i + 1
+            banish ch
+        return calling sb.finish
+    if c == "{" or c == "[":
+        banish c
+        var open as string is s at start
+        var close as string is "}"
+        if open == "[":
+            set close is "]"
+        banish open
+        var depth as int is 0
+        var i as int is start
+        while i < n:
+            var ch as string is s at i
+            if ch == "\"":
+                banish ch
+                var j as int is i + 1
+                while j < n:
+                    var q as string is s at j
+                    if q == "\\":
+                        set j is j + 1
+                    else if q == "\"":
+                        banish q
+                        set i is j
+                        break
+                    else:
+                        banish q
+                    set j is j + 1
+            else:
+                if ch == "{" or ch == "[":
+                    set depth is depth + 1
+                else if ch == "}" or ch == "]":
+                    set depth is depth - 1
+                    if depth == 0:
+                        banish ch
+                        return calling scrolls.substring with s, start, i + 1
+                banish ch
+            set i is i + 1
+        banish close
+        return calling scrolls.substring with s, start, n
+    banish c
+    var i as int is start
+    while i < n:
+        var ch as string is s at i
+        if ch == ",":
+            banish ch
+            break
+        banish ch
+        set i is i + 1
+    return calling scrolls.substring with s, start, i
+
+## Divide un registro MI (`^done,...`, `*stopped,...`) en campos.
+##
+## ## Memoria
+## Devuelve una lista owned; liberar con `banish`.
+weave parse_fields with line as string into list of MiField:
+    var out as list of MiField is list of MiField
+    var i as int is 0
+    var n as int is line length
+    while i < n:
+        var c as string is line at i
+        if c == " " or c == ",":
+            banish c
+            set i is i + 1
+        else if c == "^" or c == "*" or c == "=" or c == "~" or c == "&" or c == "@":
+            banish c
+            while i < n:
+                var t as string is line at i
+                if t == ",":
+                    banish t
+                    break
+                banish t
+                set i is i + 1
+        else:
+            banish c
+            var start as int is i
+            while i < n:
+                var k as string is line at i
+                var ok as bool is calling is_key_char with k
+                banish k
+                if not ok:
+                    break
+                set i is i + 1
+            var eq as bool is false
+            if i < n:
+                var ech as string is line at i
+                if ech == "=":
+                    set eq is true
+                banish ech
+            if not eq:
+                while i < n:
+                    var t as string is line at i
+                    if t == ",":
+                        banish t
+                        break
+                    banish t
+                    set i is i + 1
+            else:
+                var key as string is calling scrolls.substring with line, start, i
+                set i is i + 1
+                var val as string is calling parse_value with line, i
+                var f as MiField is with key is key, value is val
+                calling out.push with f
+                # Avanza hasta la coma que sigue al valor.
+                var depth as int is 0
+                while i < n:
+                    var ch as string is line at i
+                    if ch == "\"":
+                        banish ch
+                        set i is i + 1
+                        while i < n:
+                            var q as string is line at i
+                            if q == "\\":
+                                banish q
+                                set i is i + 1
+                            else if q == "\"":
+                                banish q
+                                break
+                            else:
+                                banish q
+                            set i is i + 1
+                    else:
+                        if ch == "{" or ch == "[":
+                            set depth is depth + 1
+                        else if ch == "}" or ch == "]":
+                            set depth is depth - 1
+                        else if ch == "," and depth == 0:
+                            banish ch
+                            break
+                        banish ch
+                    set i is i + 1
+    return out
+
+## Busca un campo de primer nivel y devuelve su valor.
+##
+## ## Memoria
+## Devuelve un string owned (`""` si no existe).
+weave field with fields as ref to list of MiField, key as string into string:
+    var i as int is 0
+    while i < fields->len:
+        var f as MiField is fields at i
+        if f.key == key:
+            return calling npool.copy_string with f.value
+        set i is i + 1
+    return ""
+
+## `true` si el registro es una respuesta (`^done`, `^error`, ...).
+weave is_response with line as string into bool:
+    if line length == 0:
+        return false
+    var i as int is 0
+    while i < (line length):
+        var c as string is line at i
+        var d as int is calling digit_value with c
+        banish c
+        if d < 0:
+            break
+        set i is i + 1
+    if i >= (line length):
+        return false
+    var marker as string is line at i
+    var is_resp as bool is marker == "^"
+    banish marker
+    return is_resp
+
+## Token numérico de una respuesta MI, o -1.
+weave token_of with line as string into int:
+    var i as int is 0
+    var n as int is line length
+    var tok as int is 0
+    var any as bool is false
+    while i < n:
+        var c as string is line at i
+        var d as int is calling digit_value with c
+        banish c
+        if d < 0:
+            break
+        set tok is tok * 10 + d
+        set any is true
+        set i is i + 1
+    if not any:
+        return -1
+    return tok
+
+## Clase de resultado: `done`, `running`, `error`, `stopped`, ...
+##
+## ## Memoria
+## Devuelve un string owned.
+weave result_class with line as string into string:
+    var i as int is 0
+    var n as int is line length
+    while i < n:
+        var c as string is line at i
+        var d as int is calling digit_value with c
+        banish c
+        if d < 0:
+            break
+        set i is i + 1
+    if i < n:
+        var marker as string is line at i
+        if marker == "^" or marker == "*" or marker == "=":
+            set i is i + 1
+        banish marker
+    var start as int is i
+    while i < n:
+        var c as string is line at i
+        if c == "," or c == " ":
+            banish c
+            break
+        banish c
+        set i is i + 1
+    return calling scrolls.substring with line, start, i
+
+## Extrae los objetos `{...}` de una lista MI.
+##
+## Ejemplo: `[frame={level="0"},frame={level="1"}]` devuelve dos strings.
+##
+## ## Memoria
+## Devuelve una lista owned; liberar con `banish`.
+weave split_objects with text as string into list of string:
+    var out as list of string is list of string
+    var i as int is 0
+    var n as int is text length
+    while i < n:
+        var c as string is text at i
+        if c == "{":
+            banish c
+            var start as int is i
+            var depth as int is 0
+            while i < n:
+                var ch as string is text at i
+                if ch == "\"":
+                    banish ch
+                    set i is i + 1
+                    while i < n:
+                        var q as string is text at i
+                        if q == "\\":
+                            banish q
+                            set i is i + 1
+                        else if q == "\"":
+                            banish q
+                            break
+                        else:
+                            banish q
+                        set i is i + 1
+                else:
+                    if ch == "{":
+                        set depth is depth + 1
+                    else if ch == "}":
+                        set depth is depth - 1
+                        if depth == 0:
+                            banish ch
+                            calling out.push with (calling scrolls.substring with text, start, i + 1)
+                            break
+                    banish ch
+                set i is i + 1
+        else:
+            banish c
+            set i is i + 1
+    return out

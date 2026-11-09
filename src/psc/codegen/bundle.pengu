@@ -11,6 +11,7 @@ import psc.codegen.context as context
 import psc.codegen.stmt as stmt
 import psc.codegen.catalog as catalog
 import psc.codegen.emit as emit
+import psc.codegen.origin as origin
 import psc.codegen.function as funcgen
 import psc.codegen.decl_types as ctypes
 import psc.sema.names as npool
@@ -379,6 +380,7 @@ weave generate_bundle_c with c as ref to context.CgContext, live_out as ref to l
             if f4.is_main and f4.ret_void:
                 set main_void is true
             set i is i + 1
+        calling origin.marker_runtime with c
         calling emit.line with (sigil of c->emitter), "int main(int argc, char** argv) {"
         calling emit.indent_more with (sigil of c->emitter)
         calling emit.line with (sigil of c->emitter), "pengu_init(argc, argv);"
@@ -752,6 +754,7 @@ weave generate_units_c with c as ref to context.CgContext, live_out as ref to li
                 set has_main is true
             set i is i + 1
         if has_main and not c->options.is_library:
+            calling origin.marker_runtime with c
             calling emit.line with (sigil of c->emitter), "int main(int argc, char** argv) {"
             calling emit.indent_more with (sigil of c->emitter)
             calling emit.line with (sigil of c->emitter), "pengu_init(argc, argv);"

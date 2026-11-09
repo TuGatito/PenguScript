@@ -393,6 +393,14 @@ function registerConfigListener(context) {
         }
     }));
 }
+function registerDebugger(context) {
+    const factory = {
+        createDebugAdapterDescriptor() {
+            return new vscode.DebugAdapterExecutable(getPscCommand(), ['debug-adapter'], { cwd: workspaceRoot() });
+        }
+    };
+    context.subscriptions.push(vscode.debug.registerDebugAdapterDescriptorFactory('pengu', factory));
+}
 function activate(context) {
     output = vscode.window.createOutputChannel('PenguScript');
     context.subscriptions.push(output);
@@ -401,6 +409,7 @@ function activate(context) {
     context.subscriptions.push(statusBar);
     registerCommands(context);
     registerConfigListener(context);
+    registerDebugger(context);
     (0, antiquus_1.registerAntiquusProviders)(context);
     updateStatusBar();
     startClient();
