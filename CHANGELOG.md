@@ -2,6 +2,25 @@
 
 All notable changes to PenguScript will be documented in this file.
 
+## [0.55.2] — 2026-11-09 — Poda de especializaciones de test y tipos de función
+
+### Corregido
+- **C2**: las especializaciones creadas solo por bloques `test` ya no se emiten
+  en builds normales. El DCE deja de marcar todas las specs de un genérico vivo;
+  las specs descubiertas durante la emisión se emiten con un worklist de cuerpos
+  y se marcan como tardías al resolverse por nombre C. Los prototipos cubren todo
+  el catálogo para que el worklist pueda enlazar.
+- **Tipos de función con tipos cualificados**: `weave with e as js.JsValue` emite
+  `JsValue`, no el alias del módulo (`js`). `c_type_ast` reconstruye el path
+  completo y cae al último componente si el path no resuelve.
+- **Método genérico sobre campo**: `calling a->cell.set with 5` resuelve la
+  instancia concreta del receptor; ya no pasa el valor como `void*`.
+
+### Añadido
+- Regresiones `tests/regress_fn_qualified_type.sh` y
+  `tests/regress_generic_field_method.sh`.
+- La suite completa sigue en `OK 168` ficheros de test.
+
 ## [0.55.1] — 2026-11-09 — Interpolación genérica, conceptos y plantillas válidas
 
 ### Corregido

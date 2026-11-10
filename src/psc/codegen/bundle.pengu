@@ -316,13 +316,27 @@ weave generate_bundle_c with c as ref to context.CgContext, live_out as ref to l
     # también las creadas tarde. Luego se concatenan los cuerpos ya emitidos.
     var saved_em as emit.CgEmitter is c->emitter
     set c->emitter is calling emit.new_emitter
+    var body_done as map of int to int is map of int to int
     set i is 0
     while i < c->catalog.functions.len:
         var pf as catalog.CgFunction is (c->catalog.functions at i)
         if (calling dce.live with (sigil of reach), i) or calling c->catalog.late_specs.has with i:
             if (not pf.is_generic or pf.is_spec) and not pf.is_declare and not pf.is_antiquus and not pf.is_generated:
                 calling funcgen.emit_function with c, pf
+                calling body_done.put with i, i
         set i is i + 1
+    var more_bodies as bool is true
+    while more_bodies:
+        set more_bodies is false
+        set i is 0
+        while i < c->catalog.functions.len:
+            if (not (calling body_done.has with i)) and ((calling dce.live with (sigil of reach), i) or calling c->catalog.late_specs.has with i):
+                var pb as catalog.CgFunction is (c->catalog.functions at i)
+                if (not pb.is_generic or pb.is_spec) and not pb.is_declare and not pb.is_antiquus and not pb.is_generated:
+                    calling funcgen.emit_function with c, pb
+                    calling body_done.put with i, i
+                    set more_bodies is true
+            set i is i + 1
     var nt as int is 0
     if c->options.is_test:
         set nt is calling testgen.emit_all with c
@@ -339,13 +353,12 @@ weave generate_bundle_c with c as ref to context.CgContext, live_out as ref to l
     set i is 0
     while i < c->catalog.functions.len:
         var f as catalog.CgFunction is (c->catalog.functions at i)
-        if (calling dce.live with (sigil of reach), i) or calling c->catalog.late_specs.has with i:
-            var fmod as loader.SemaModule is (c->program->modules at f.module)
-            var skip_decl_proto as bool is f.is_declare and (calling catalog.is_decl_path with fmod.canonical_path)
-            if (not f.is_generic or f.is_spec) and not f.is_antiquus and not f.is_generated and not skip_decl_proto and (not f.is_declare or not calling is_libc_name with c, f):
-                var sig as string is calling funcgen.signature with c, f
-                defer banish sig
-                calling emit.line with (sigil of c->emitter), "{sig};"
+        var fmod as loader.SemaModule is (c->program->modules at f.module)
+        var skip_decl_proto as bool is f.is_declare and (calling catalog.is_decl_path with fmod.canonical_path)
+        if (not f.is_generic or f.is_spec) and not f.is_antiquus and not f.is_generated and not skip_decl_proto and (not f.is_declare or not calling is_libc_name with c, f):
+            var sig as string is calling funcgen.signature with c, f
+            defer banish sig
+            calling emit.line with (sigil of c->emitter), "{sig};"
         set i is i + 1
     calling emit.blank with (sigil of c->emitter)
     # Cuerpos de lambdas.

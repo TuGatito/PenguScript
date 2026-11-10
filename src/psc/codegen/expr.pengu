@@ -2518,6 +2518,8 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
             var csn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), csf.c_name)
             if csn == cname:
                 set fslot is csi
+                if csf.is_spec and c->catalog.reach_done:
+                    calling c->catalog.late_specs.put with csi, csi
                 banish csn
                 set csi is c->catalog.functions.len
             else:
@@ -2580,6 +2582,12 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
                     var msf as catalog.CgFunction is (c->catalog.functions at mig)
                     banish cname
                     set cname is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), msf.c_name)
+    # Cualquier spec seleccionada durante la emisión debe entrar en la
+    # worklist de cuerpos, aunque el nombre C ya viniera anotado por sema.
+    if fslot >= 0 and c->catalog.reach_done:
+        var lsf as catalog.CgFunction is (c->catalog.functions at fslot)
+        if lsf.is_spec:
+            calling c->catalog.late_specs.put with fslot, fslot
     # Corrige llamadas `mod.fn` aunque F3 ya haya anotado un nombre poco preciso.
     # No pises una especialización genérica ya creada (`tally_sum_instN`).
     var qskip as bool is false

@@ -109,13 +109,6 @@ weave mark_symbol with c as ref to context.CgContext, r as ref to CgReach, sid a
         return
     set r->live at (idx) is true
     var f as catalog.CgFunction is (c->catalog.functions at idx)
-    if f.is_generic:
-        var sfi as int is 0
-        while sfi < c->catalog.functions.len:
-            var sf as catalog.CgFunction is (c->catalog.functions at sfi)
-            if sf.is_spec and sf.symbol == f.symbol and not (r->live at sfi):
-                set r->live at (sfi) is true
-            set sfi is sfi + 1
     if f.is_declare:
         return
     # Los codecs de `derive Json` no tienen cuerpo en el AST.

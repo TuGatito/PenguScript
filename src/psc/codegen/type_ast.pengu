@@ -206,14 +206,44 @@ weave c_type_ast with c as ref to context.CgContext, m as loader.SemaModule, nod
             return calling ctype.base_c_type with (sigil of c->names), bnid
         return "void"
     if k == pskind.NodeKind.NdCustomType or k == pskind.NodeKind.NdVarRef:
-        var tt as int is calling deep_token with ast, node
-        if tt >= 0:
-            var txt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), tt
+        var txt as string is ""
+        var pathn as int is calling astutil.node_child with ast, node, 0
+        if pathn >= 0 and (calling astutil.child_count with ast, pathn) > 0:
+            var pn as int is calling astutil.child_count with ast, pathn
+            var pi as int is 0
+            while pi < pn:
+                var seg as string is calling astutil.child_token_text with (sigil of m.source), (sigil of m.lex), ast, pathn, pi
+                if pi > 0:
+                    var dotted as string is "{txt}.{seg}"
+                    banish txt
+                    banish seg
+                    set txt is dotted
+                else:
+                    set txt is seg
+                set pi is pi + 1
+        else:
+            var tt as int is calling deep_token with ast, node
+            if tt >= 0:
+                set txt is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), tt
+        if txt != "":
             var nid as int is calling npool.intern with (sigil of c->program->names), txt
             defer banish txt
             if calling c->names.subst.has with nid:
                 return calling ctype.c_type with (sigil of c->names), (calling c->names.subst.get with nid)
             var tid as int is calling symbols.lookup_type_name with (sigil of c->program->symbols), txt
+            if tid < 0:
+                # `mod.Type` no resuelto por el nombre completo: probar el
+                # último componente antes de emitir el texto tal cual.
+                var dot as int is -1
+                var di as int is 0
+                while di < txt.len:
+                    if (txt at di) == ".":
+                        set dot is di
+                    set di is di + 1
+                if dot >= 0 and dot + 1 < txt.len:
+                    var last as string is txt at (dot + 1) to txt.len
+                    set tid is calling symbols.lookup_type_name with (sigil of c->program->symbols), last
+                    banish last
             if tid >= 0:
                 return calling ctype.c_type with (sigil of c->names), tid
             var ncopy as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), nid)

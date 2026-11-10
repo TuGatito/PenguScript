@@ -41,6 +41,8 @@ weave find_spec with c as ref to context.CgContext, sid as int, args as list of 
                     set same is false
                 set j is j + 1
             if same:
+                if c->catalog.reach_done:
+                    calling c->catalog.late_specs.put with i, i
                 return i
         set i is i + 1
     return -1
