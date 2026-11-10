@@ -27,3 +27,13 @@ completo se añadirá en F4l; este módulo centraliza el cálculo de línea.
  ## Memoria
  Strings temporales liberados.
 
+### `marker_runtime`
+
+> **marker_runtime**(c: ref to CgContext) -> void
+
+ Marca el código generado por el compilador (wrapper `main`, thunks) para que
+ gdb no lo atribuya a la última línea PenguScript del bundle.
+
+ ## Memoria
+ No asigna.
+

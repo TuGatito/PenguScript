@@ -283,6 +283,18 @@ _Undocumented._
 
  El campo lleva `@skip` en una runa `derive Json`.
 
+### `FIELD_EMBED`
+
+> **FIELD_EMBED** : int
+
+ El campo es un embed de `fundere` (va delante de los campos propios).
+
+### `FIELD_PUBLIC`
+
+> **FIELD_PUBLIC** : int
+
+ `@public`: el campo se puede leer desde otros modulos aunque empiece por `_`.
+
 ### `VAR_HAS_INT`
 
 > **VAR_HAS_INT** : int

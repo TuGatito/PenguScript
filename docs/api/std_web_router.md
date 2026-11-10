@@ -56,6 +56,24 @@ _Undocumented._
 
 _Undocumented._
 
+### `navigate_history`
+
+> **navigate_history**(path: string, replace: bool) -> result of bool to JsError
+
+_Undocumented._
+
+### `on_history_change`
+
+> **on_history_change**(cb: weave with ev: JsValue into void) -> result of Listener to JsError
+
+_Undocumented._
+
+### `off_history`
+
+> **off_history**(l: ref to Listener) -> void
+
+_Undocumented._
+
 ### `on_change`
 
 > **on_change**(cb: weave with ev: JsValue into void) -> result of Listener to JsError

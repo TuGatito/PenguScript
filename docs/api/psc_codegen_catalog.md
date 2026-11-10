@@ -90,6 +90,8 @@ No interpreta cuerpos: eso es trabajo de `emit`/`stmt`/`expr`.
     by_type as map of int to int
     errors as int
     ambiguous as map of int to int
+    late_specs as map of int to int
+    reach_done as bool
 ```
 
  Catálogo de funciones.

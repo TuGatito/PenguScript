@@ -1,0 +1,301 @@
+## std/web/capacitor.pengu — puente tipado sobre Capacitor.
+##
+## Requiere que el bundle NPM exponga:
+##
+## ```js
+## globalThis.PenguNpm = {
+##   capacitor: {
+##     platform: () => Capacitor.getPlatform(),
+##     native: () => Capacitor.isNativePlatform(),
+##     available: (name) => Capacitor.isPluginAvailable(name),
+##   },
+##   plugins: { Camera, LocalNotifications, Device, Network, Preferences, Share, Haptics },
+## };
+## ```
+##
+## ## Ejemplo
+## ```pengu
+## import std.web.capacitor as cap
+##
+## weave main into int:
+##     var p as result of string to js.JsError is calling cap.platform
+##     if p.is_ok:
+##         calling spark.println with p.value
+##     return 0
+## ```
+##
+## ## Memoria
+## Los handles devueltos por `plugin` y los strings son owned. Los callbacks
+## reciben handles borrowed y son one-shot.
+
+import std.web.js as js
+import std.web.npm as npm
+
+insignia psc_std_web_capacitor_
+
+## `true` si `s` está vacío.
+##
+## ## Memoria
+## O(1).
+weave empty with s as string into bool:
+    return (s length) == 0
+
+## Convierte un error JS en error de Capacitor, consumiendo el original.
+##
+## ## Memoria
+## Libera `e`.
+weave wrap_error with e as js.JsError into js.JsError:
+    var name as string is e.name
+    var message as string is e.message
+    var stack as string is e.stack
+    banish stack
+    var msg as string is "{name}: {message}"
+    banish name
+    banish message
+    return with name is "CapacitorError", message is msg, stack is ""
+
+## Obtiene el objeto `capacitor` de la fachada NPM.
+##
+## ## Retorno
+## Handle owned.
+##
+## ## Errores
+## El bundle no expuso `capacitor`.
+##
+## ## Memoria
+## El handle devuelto es owned.
+weave core into result of js.JsValue to js.JsError:
+    return calling npm.get_path with "capacitor"
+
+## Plataforma actual: `"web"`, `"ios"` o `"android"`.
+##
+## ## Errores
+## Bundle ausente, método ausente o valor no string.
+##
+## ## Memoria
+## El string devuelto es owned.
+weave platform into result of string to js.JsError:
+    var cr as result of js.JsValue to js.JsError is calling core
+    if not cr.is_ok:
+        return calling err_of with (calling wrap_error with cr.error)
+    var args as list of js.JsValue is list of js.JsValue
+    var vr as result of js.JsValue to js.JsError is calling js.call_method with cr.value, "platform", args
+    calling js.release with cr.value
+    if not vr.is_ok:
+        return calling err_of with (calling wrap_error with vr.error)
+    var sr as result of string to js.JsError is calling js.to_string with vr.value
+    calling js.release with vr.value
+    return sr
+
+## `true` si corre dentro de una app nativa de Capacitor.
+##
+## ## Memoria
+## No retiene handles.
+weave is_native into bool:
+    var cr as result of js.JsValue to js.JsError is calling core
+    if not cr.is_ok:
+        var e as js.JsError is cr.error
+        banish e.name
+        banish e.message
+        banish e.stack
+        return false
+    var args as list of js.JsValue is list of js.JsValue
+    var vr as result of js.JsValue to js.JsError is calling js.call_method with cr.value, "native", args
+    calling js.release with cr.value
+    if not vr.is_ok:
+        var e2 as js.JsError is vr.error
+        banish e2.name
+        banish e2.message
+        banish e2.stack
+        return false
+    var b as bool is calling js.to_bool with vr.value
+    calling js.release with vr.value
+    return b
+
+## `true` si el plugin `name` está disponible en la plataforma actual.
+##
+## ## Parámetros
+## - `name`: nombre del plugin (`"Camera"`, `"LocalNotifications"`, ...).
+##
+## ## Memoria
+## No retiene handles.
+weave is_available with name as string into bool:
+    var cr as result of js.JsValue to js.JsError is calling core
+    if not cr.is_ok:
+        var e as js.JsError is cr.error
+        banish e.name
+        banish e.message
+        banish e.stack
+        return false
+    var args as list of js.JsValue is list of js.JsValue
+    var nr as result of js.JsValue to js.JsError is calling js.string with name
+    if nr.is_ok:
+        calling args.push with nr.value
+    var vr as result of js.JsValue to js.JsError is calling js.call_method with cr.value, "available", args
+    calling js.release with cr.value
+    if not vr.is_ok:
+        var e2 as js.JsError is vr.error
+        banish e2.name
+        banish e2.message
+        banish e2.stack
+        return false
+    var b as bool is calling js.to_bool with vr.value
+    calling js.release with vr.value
+    return b
+
+## Obtiene un plugin por nombre (`PenguNpm.plugins.<name>`).
+##
+## ## Retorno
+## Handle owned.
+##
+## ## Errores
+## Plugin no expuesto por el bundle.
+##
+## ## Memoria
+## El handle devuelto es owned.
+weave plugin with name as string into result of js.JsValue to js.JsError:
+    if calling empty with name:
+        return calling err_of with (with name is "CapacitorError", message is "empty plugin name", stack is "")
+    var path as string is "plugins.{name}"
+    return calling npm.get_path with path
+
+## Llama `plugin.method(...)` con argumentos JSON y devuelve JSON.
+##
+## `args_json` debe ser un array JSON. Para un método de un solo objeto usa
+## `"[{...}]"`.
+##
+## ## Retorno
+## String JSON owned.
+##
+## ## Errores
+## Plugin/método ausente, JSON inválido o excepción JS.
+##
+## ## Memoria
+## El string devuelto es owned.
+weave call_json with plugin_name as string, method as string, args_json as string into result of string to js.JsError:
+    var pr as result of js.JsValue to js.JsError is calling plugin with plugin_name
+    if not pr.is_ok:
+        return calling err_of with (calling wrap_error with pr.error)
+    var r as result of string to js.JsError is calling npm.call_json_text with pr.value, method, args_json
+    calling js.release with pr.value
+    return r
+
+## Llama `plugin.method(...)` y conecta la promesa.
+##
+## ## Retorno
+## `true` si la promesa se conectó.
+##
+## ## Memoria
+## Los callbacks reciben handles borrowed; son one-shot.
+weave call_async with plugin_name as string, method as string, args_json as string, on_ok as weave with v as js.JsValue into void, on_err as weave with e as js.JsValue into void into result of bool to js.JsError:
+    var pr as result of js.JsValue to js.JsError is calling plugin with plugin_name
+    if not pr.is_ok:
+        return calling err_of with (calling wrap_error with pr.error)
+    var ar as result of js.JsValue to js.JsError is calling js.parse_json with args_json
+    if not ar.is_ok:
+        calling js.release with pr.value
+        return calling err_of with (calling wrap_error with ar.error)
+    var args as list of js.JsValue is list of js.JsValue
+    var lr as result of int to js.JsError is calling js.length with ar.value
+    if lr.is_ok:
+        var i as int is 0
+        while i < lr.value:
+            var ir as result of js.JsValue to js.JsError is calling js.get_index with ar.value, i
+            if ir.is_ok:
+                calling args.push with ir.value
+            set i is i + 1
+    calling js.release with ar.value
+    var rr as result of bool to js.JsError is calling npm.call_async with pr.value, method, args, on_ok, on_err
+    calling js.release with pr.value
+    return rr
+
+## `Camera.checkPermissions()`.
+##
+## ## Memoria
+## El callback recibe el objeto de permisos; no lo retiene.
+weave camera_check_permissions with on_ok as weave with v as js.JsValue into void, on_err as weave with e as js.JsValue into void into result of bool to js.JsError:
+    return calling call_async with "Camera", "checkPermissions", "[]", on_ok, on_err
+
+## `Camera.requestPermissions({ permissions: [...] })`.
+##
+## ## Memoria
+## El callback recibe el objeto de permisos; no lo retiene.
+weave camera_request_permissions with permissions_json as string, on_ok as weave with v as js.JsValue into void, on_err as weave with e as js.JsValue into void into result of bool to js.JsError:
+    return calling call_async with "Camera", "requestPermissions", "[{{\"permissions\":{permissions_json}}}]", on_ok, on_err
+
+## `Camera.takePhoto(options)`.
+##
+## ## Memoria
+## El callback recibe `{ webPath, ... }`; no lo retiene.
+weave camera_take_photo with options_json as string, on_ok as weave with v as js.JsValue into void, on_err as weave with e as js.JsValue into void into result of bool to js.JsError:
+    return calling call_async with "Camera", "takePhoto", "[{options_json}]", on_ok, on_err
+
+## `Device.getInfo()`.
+##
+## ## Memoria
+## El callback recibe el objeto de información; no lo retiene.
+weave device_info with on_ok as weave with v as js.JsValue into void, on_err as weave with e as js.JsValue into void into result of bool to js.JsError:
+    return calling call_async with "Device", "getInfo", "[]", on_ok, on_err
+
+## `Network.getStatus()`.
+##
+## ## Memoria
+## El callback recibe el estado; no lo retiene.
+weave network_status with on_ok as weave with v as js.JsValue into void, on_err as weave with e as js.JsValue into void into result of bool to js.JsError:
+    return calling call_async with "Network", "getStatus", "[]", on_ok, on_err
+
+## `Preferences.get({ key })`.
+##
+## ## Memoria
+## El callback recibe `{ value }`; no lo retiene.
+weave preferences_get with key as string, on_ok as weave with v as js.JsValue into void, on_err as weave with e as js.JsValue into void into result of bool to js.JsError:
+    return calling call_async with "Preferences", "get", "[{{\"key\":\"{key}\"}}]", on_ok, on_err
+
+## `Preferences.set({ key, value })`.
+##
+## ## Memoria
+## El callback no recibe valor útil; no lo retiene.
+weave preferences_set with key as string, value as string, on_ok as weave with v as js.JsValue into void, on_err as weave with e as js.JsValue into void into result of bool to js.JsError:
+    return calling call_async with "Preferences", "set", "[{{\"key\":\"{key}\",\"value\":\"{value}\"}}]", on_ok, on_err
+
+## `Preferences.remove({ key })`.
+##
+## ## Memoria
+## El callback no recibe valor útil; no lo retiene.
+weave preferences_remove with key as string, on_ok as weave with v as js.JsValue into void, on_err as weave with e as js.JsValue into void into result of bool to js.JsError:
+    return calling call_async with "Preferences", "remove", "[{{\"key\":\"{key}\"}}]", on_ok, on_err
+
+## `Share.share({ title, text, url, dialogTitle })`.
+##
+## ## Memoria
+## El callback no recibe valor útil; no lo retiene.
+weave share with options_json as string, on_ok as weave with v as js.JsValue into void, on_err as weave with e as js.JsValue into void into result of bool to js.JsError:
+    return calling call_async with "Share", "share", "[{options_json}]", on_ok, on_err
+
+## `Haptics.impact({ style })`.
+##
+## ## Memoria
+## El callback no recibe valor útil; no lo retiene.
+weave haptics_impact with style as string, on_ok as weave with v as js.JsValue into void, on_err as weave with e as js.JsValue into void into result of bool to js.JsError:
+    return calling call_async with "Haptics", "impact", "[{{\"style\":\"{style}\"}}]", on_ok, on_err
+
+## `LocalNotifications.checkPermissions()`.
+##
+## ## Memoria
+## El callback recibe el objeto de permisos; no lo retiene.
+weave notifications_check_permissions with on_ok as weave with v as js.JsValue into void, on_err as weave with e as js.JsValue into void into result of bool to js.JsError:
+    return calling call_async with "LocalNotifications", "checkPermissions", "[]", on_ok, on_err
+
+## `LocalNotifications.requestPermissions()`.
+##
+## ## Memoria
+## El callback recibe el objeto de permisos; no lo retiene.
+weave notifications_request_permissions with on_ok as weave with v as js.JsValue into void, on_err as weave with e as js.JsValue into void into result of bool to js.JsError:
+    return calling call_async with "LocalNotifications", "requestPermissions", "[]", on_ok, on_err
+
+## `LocalNotifications.schedule({ notifications: [...] })`.
+##
+## ## Memoria
+## El callback no recibe valor útil; no lo retiene.
+weave notifications_schedule with notifications_json as string, on_ok as weave with v as js.JsValue into void, on_err as weave with e as js.JsValue into void into result of bool to js.JsError:
+    return calling call_async with "LocalNotifications", "schedule", "[{{\"notifications\":{notifications_json}}}]", on_ok, on_err

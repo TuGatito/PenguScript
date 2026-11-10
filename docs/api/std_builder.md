@@ -114,6 +114,25 @@ alternative that preserves O(1) append.
  Returns one owned SDS allocation; the caller stores it in
  `StringBuilder._data`. The buffer is NUL-terminated at index 0.
 
+### `_builder_prepare`
+
+> **_builder_prepare**(buf: ref to string) -> int
+
+ Makes `buf` an owned SDS buffer and returns its usable capacity.
+
+ ## Motivo
+ Un `StringBuilder` puede acabar con un `_data` que **no** es un SDS propio:
+ si el builder se copia (struct copy), el campo `_data` se comparte y el
+ `share` COW lo convierte en un búfer COW (`is_owned == 3`) con capacidad
+ exacta. Escribir entonces como si fuera SDS desborda el búfer, porque
+ `_cap` describe la capacidad anterior. Este helper normaliza el campo:
+ copia el contenido a un SDS propio, libera el búfer anterior si era
+ nuestro (COW o `malloc`) y devuelve `alloc - 1`, que es la capacidad
+ usable sin contar el terminador.
+
+ ## Memoria
+ Puede reasignar `_data`. No hace nada si ya es un SDS propio.
+
 ### `_builder_resize`
 
 > **_builder_resize**(buf: ref to string, old_cap: int, new_cap: int) -> void

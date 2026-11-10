@@ -2,6 +2,16 @@
 
 All notable changes to PenguScript will be documented in this file.
 
+## [0.59.0] — 2026-11-10 — Adaptador Capacitor
+
+- Nuevo `std.web.capacitor`: `platform`, `is_native`, `is_available`, `plugin`,
+  `call_json`, `call_async` y adaptadores tipados para Camera, Device, Network,
+  Preferences, Share, Haptics y LocalNotifications (Capacitor 8).
+- Nueva documentación `docs/CAPACITOR.md` y `docs/CAPACITOR.es.md`.
+- Nuevo ejemplo `examples/capacitor-pwa` en el repositorio de tela.
+- `std.web.npm` corrige paths anidados copiando cada segmento antes de pasarlo
+  como nombre de propiedad JS (los views de `split` no llevan NUL).
+
 ## [0.58.0] — 2026-11-10 — Puente NPM y assets web
 
 - Nuevo `std.web.npm`: acceso tipado a una fachada global `PenguNpm` expuesta

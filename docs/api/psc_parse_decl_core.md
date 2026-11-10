@@ -132,6 +132,24 @@ Construye nodos en el AST; no asigna strings salvo diagnósticos.
  ## Memoria
  Crea el nodo de registro con sus campos.
 
+### `pdecl_parse_fundere`
+
+> **pdecl_parse_fundere**(p: ref to PsParser) -> int
+
+ Parsea `fundere type [as name] (,|and type [as name])*`.
+
+ ## Memoria
+ Crea un nodo `fundere_clause` con sus `embed`.
+
+### `pdecl_parse_embed`
+
+> **pdecl_parse_embed**(p: ref to PsParser) -> int
+
+ Parsea `type [as name]` de una cláusula `fundere`.
+
+ ## Memoria
+ Crea un nodo `embed` con el tipo y el nombre opcional.
+
 ### `pdecl_parse_field`
 
 > **pdecl_parse_field**(p: ref to PsParser) -> int

@@ -147,14 +147,23 @@ El resto de statements se añade por subfases manteniendo `emit_stmt`.
  ## Memoria
  Strings owned.
 
-### `target_text`
+### `simple_place_text`
 
-> **target_text**(c: ref to CgContext, node: int, ast: ref to PsAst) -> string
+> **simple_place_text**(txt: string) -> bool
 
  Texto C de un target de asignación simple.
 
  ## Memoria
  Devuelve string owned.
+ `true` si `txt` es un nombre simple de variable local (sin `.`, `->`, `[`,
+ `(` ni espacios). Se usa para decidir si un `set` puede liberar el valor
+ anterior: un campo o un elemento pueden ser memoria sin inicializar.
+
+### `target_text`
+
+> **target_text**(c: ref to CgContext, node: int, ast: ref to PsAst) -> string
+
+_Undocumented._
 
 ### `emit_pending_defers`
 

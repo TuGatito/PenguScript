@@ -4,6 +4,13 @@ PenguScript does not download or evaluate NPM packages at build time. You keep
 your JavaScript toolchain, bundle the packages with esbuild/Vite/Rollup, expose a
 small explicit facade, and call it from PenguScript through `std.web.npm`.
 
+<!-- toc -->
+- [1. Bundle the facade](#1-bundle-the-facade)
+- [2. Declare the web assets](#2-declare-the-web-assets)
+- [3. Call the facade](#3-call-the-facade)
+- [4. Safety rules](#4-safety-rules)
+<!-- /toc -->
+
 ## 1. Bundle the facade
 
 ```ts

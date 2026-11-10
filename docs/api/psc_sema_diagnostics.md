@@ -116,6 +116,30 @@ _Undocumented._
 
  Un `weave` con `@export` no puede devolver un `Drop` por valor.
 
+### `CODE_EMBED_NOT_RUNE`
+
+> **CODE_EMBED_NOT_RUNE** : string
+
+ `fundere` solo compone runes (no echo, omen, seal, opaque ni tipos base).
+
+### `CODE_EMBED_NAME`
+
+> **CODE_EMBED_NAME** : string
+
+ El tipo de un `fundere` no tiene nombre de campo implícito; hace falta `as`.
+
+### `CODE_EMBED_AMBIGUOUS_FIELD`
+
+> **CODE_EMBED_AMBIGUOUS_FIELD** : string
+
+ Campo promovido presente en más de un embed de `fundere`.
+
+### `CODE_EMBED_AMBIGUOUS_METHOD`
+
+> **CODE_EMBED_AMBIGUOUS_METHOD** : string
+
+ Método promovido presente en más de un embed de `fundere`.
+
 ### `CODE_BUILDER`
 
 > **CODE_BUILDER** : string
@@ -458,6 +482,13 @@ _Undocumented._
 
  Copia de contenedor seguida de mutación dentro de un bucle (sólo con
  `--lint=cow`).
+
+### `WARN_EMBED_SHADOW`
+
+> **WARN_EMBED_SHADOW** : string
+
+ Un campo propio del host oculta un campo promovido por `fundere`
+ (sólo con `--lint=shadow`).
 
 ### `sema_emit_error`
 

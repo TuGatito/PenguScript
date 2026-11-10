@@ -46,6 +46,8 @@ emisor y scopes C. No muta F3.
     defers as list of int
     errdefers as list of int
     param_names as list of int
+    borrowed_names as list of int
+    writing_target as bool
     drop_names as list of int
     drop_types as list of int
     drop_marks as list of int
@@ -221,6 +223,28 @@ emisor y scopes C. No muta F3.
 
  ## Memoria
  O(1) amortizado.
+
+### `mark_borrowed`
+
+> **mark_borrowed**(c: ref to CgContext, name: int) -> void
+
+ Marca un local como vista prestada de otro dueño.
+
+ Los elementos de `for` y los payloads de `judge` se copian del contenedor
+ con `memcpy`: el handle apunta a un buffer que liberará su dueño. Promover
+ o banishar ese local liberaría memoria ajena.
+
+ ## Memoria
+ O(1) amortizado.
+
+### `is_borrowed_name`
+
+> **is_borrowed_name**(c: ref to CgContext, name: int) -> bool
+
+ ¿El `NameId` es una vista prestada?
+
+ ## Memoria
+ O(n) sobre los préstamos del cuerpo.
 
 ### `is_param_name`
 

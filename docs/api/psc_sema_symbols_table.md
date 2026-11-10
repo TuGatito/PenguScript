@@ -422,6 +422,71 @@ todo. El `NamePool` y la tabla de tipos son prestados y viven más.
  ## Memoria
  O(1).
 
+### `METHOD_PROMOTED_NONE`
+
+> **METHOD_PROMOTED_NONE** : int
+
+ Resultado de `find_promoted_method` cuando el método no está en ningún
+ embed: -1. Un resultado `>= 0` es el símbolo del método.
+
+ ## Memoria
+ No asigna.
+
+### `embed_nominal_type`
+
+> **embed_nominal_type**(s: ref to SemaSymbols, ty: int) -> int
+
+ Resuelve el tipo de un embed hasta su nominal (sigue `ref`, `frozen`,
+ `alias` y `seal`), o -1 si no es un rune/echo.
+
+ ## Memoria
+ No asigna.
+
+### `method_promotable`
+
+> **method_promotable**(s: ref to SemaSymbols, sid: int) -> bool
+
+ ¿El símbolo `sid` es un método promovible desde un embed?
+
+ `ritual` no se promueve: construye el embed, no el host (§4.5 del diseño).
+
+ ## Memoria
+ No asigna.
+
+### `count_promoted_method`
+
+> **count_promoted_method**(s: ref to SemaSymbols, ty: int, mid: int, depth: int) -> int
+
+ Cuenta cuántos embeds (recursivamente) exponen el método `mid`.
+
+ Devuelve 0, 1 o 2 (saturado). El 2 es la ambigüedad E0088.
+
+ ## Memoria
+ No asigna.
+
+### `find_promoted_method`
+
+> **find_promoted_method**(s: ref to SemaSymbols, ty: int, mid: int, path: ref to list of int, depth: int) -> int
+
+ Busca el método `mid` en los embeds de `ty` y rellena `path` con los índices
+ de campo del camino (de dentro hacia fuera; el llamador lo invierte).
+
+ Devuelve el símbolo del método o -1.
+
+ ## Memoria
+ Añade índices a `path`.
+
+### `lookup_method_promoted`
+
+> **lookup_method_promoted**(s: ref to SemaSymbols, receiver: int, method: int) -> int
+
+ Método promovido por `fundere`: el del host gana (lo resuelve
+ `lookup_method_exact` antes); si es único en un embed, se promueve; si está
+ en más de uno, el llamador emite E0088.
+
+ ## Memoria
+ Asigna la lista temporal del camino; la libera.
+
 ### `lookup_method_exact`
 
 > **lookup_method_exact**(s: ref to SemaSymbols, receiver: int, method: int) -> int

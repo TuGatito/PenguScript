@@ -36,6 +36,8 @@ regenerates them and fails if the committed tree is stale.
 | [LIBRARIES.md](LIBRARIES.md) / [LIBRARIES.es.md](LIBRARIES.es.md) | How to build, test and publish a library that installs with `psc add`. |
 | [LSP.md](LSP.md) | The language server: hover, definition, references, rename, diagnostics. |
 | [WASM.md](WASM.md) | Building for WebAssembly. |
+| [NPM.md](NPM.md) / [NPM.es.md](NPM.es.md) | NPM packages through an explicit `PenguNpm` facade and `[web]` assets. |
+| [CAPACITOR.md](CAPACITOR.md) / [CAPACITOR.es.md](CAPACITOR.es.md) | Capacitor 8 adapter, plugins, permissions and degradation. |
 | [CROSS_COMPILE.md](CROSS_COMPILE.md) | Native cross builds: Linux ARM64, macOS ARM64, Windows (best effort). |
 | [BUILD_CACHE.md](BUILD_CACHE.md) | Incremental builds, cache key, `psc gc`, timings and reproducibility. |
 | [COVERAGE.md](COVERAGE.md) | `psc test --coverage` mapped to `.pengu` lines. |
@@ -62,7 +64,7 @@ compiled.
 
 ## Versioning
 
-The documents state the `psc` version they describe (currently **0.58.0**).
+The documents state the `psc` version they describe (currently **0.59.0**).
 When the language changes, the same pull request updates:
 
 1. the reference (`LANGUAGE.md` + `.es.md`),

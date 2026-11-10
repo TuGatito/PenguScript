@@ -65,6 +65,12 @@ _Undocumented._
 
  One request header. The caller owns the strings.
 
+### `RequestHandle`
+
+> alias RequestHandle
+
+ Handle de una petición abortable. Se invalida al terminar, fallar o abortar.
+
 ### `Response`
 
 > rune Response
@@ -84,6 +90,24 @@ _Undocumented._
 ### `request`
 
 > **request**(method: string, url: string, headers: list of Header, body: string, on_ok: weave with value: Value into void, on_err: weave with value: Value into void, timeout_ms: int) -> result of bool to JsError
+
+_Undocumented._
+
+### `request_abortable`
+
+> **request_abortable**(method: string, url: string, headers: list of Header, body: string, on_ok: weave with value: Value into void, on_err: weave with value: Value into void, timeout_ms: int) -> result of RequestHandle to JsError
+
+_Undocumented._
+
+### `get_abortable`
+
+> **get_abortable**(url: string, on_ok: weave with value: Value into void, on_err: weave with value: Value into void, timeout_ms: int) -> result of RequestHandle to JsError
+
+_Undocumented._
+
+### `abort`
+
+> **abort**(h: RequestHandle) -> result of bool to JsError
 
 _Undocumented._
 

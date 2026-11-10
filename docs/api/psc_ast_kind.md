@@ -38,6 +38,8 @@
     NdWhereClause
     NdWhereBound
     NdDeriveClause
+    NdFundereClause
+    NdEmbed
     NdOmenDecl
     NdOmenVariant
     NdOmenField

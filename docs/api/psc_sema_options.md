@@ -31,6 +31,7 @@ Las opciones son inmutables durante el chequeo. Los strings son owned por el
     stop_after_first as bool
     include_antiquus as bool
     lint_cow as bool
+    lint_shadow as bool
 ```
 
  Opciones de proyecto que necesita F3.

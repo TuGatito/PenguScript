@@ -57,6 +57,29 @@ Emite C; los strings C que construye son owned.
  ## Memoria
  O(1) si es unico; O(n) si esta compartido.
 
+### `emit_share_value`
+
+> **emit_share_value**(c: ref to CgContext, ty: int, target: string, depth: int) -> void
+
+ Emite los `share` de COW de un valor compuesto ya copiado.
+
+ Copiar una struct copia sus handles tal cual: el contador de COW del `string`
+ o de la `list` interior no sube, y los dos destructores liberarían el mismo
+ buffer. Aquí se retienen, campo a campo y recursivamente.
+
+ ## Memoria
+ O(campos alcanzables); no asigna estructuras propias.
+
+### `emit_clone_into`
+
+> **emit_clone_into**(c: ref to CgContext, ty: int, dst: string, src: string, depth: int, top: bool) -> void
+
+ Copia profunda de un valor para `_pengu_clone_T`: el destino queda con sus
+ propios búferes, sin compartir contadores ni punteros con el origen.
+
+ ## Memoria
+ O(campos alcanzables); cada `string` SDS se copia y cada contenedor retiene.
+
 ### `emit_drop_value`
 
 > **emit_drop_value**(c: ref to CgContext, ty: int, target: string) -> void
@@ -94,6 +117,10 @@ _Undocumented._
  Si el binding es un `NdVarRef` de tipo lista/mapa, emite la promoción en
  sitio (`pengu_cow_*_promote`): el origen pasa a tener cabecera COW con
  `rc = 1` y la copia siguiente solo incrementa el contador (O(1)).
+ Un parámetro o una vista prestada (elemento de `for`, payload de `judge`)
+ no es dueño del búfer: no se adopta. Los strings nunca se promocionan: un
+ binding legacy puede estar compartido sin contador con un campo o un
+ elemento de lista, así que el `share` copia.
 
 ### `clone_value`
 

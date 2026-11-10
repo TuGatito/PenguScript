@@ -39,6 +39,10 @@ F5 no implementa dependencias ni assets; los rechaza con un error claro.
     ldflags as list of string
     defines as list of string
     cc as string
+    web_dir as string
+    web_scripts as list of string
+    web_assets as list of string
+    web_base as string
     strict_c99 as bool
     legacy_copy as bool
 ```

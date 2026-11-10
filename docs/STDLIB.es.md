@@ -1,6 +1,6 @@
 # La biblioteca estándar de PenguScript
 
-Los 70 módulos de `std/` en `psc` 0.58.0: para qué sirve cada uno, cuándo
+Los 70 módulos de `std/` en `psc` 0.59.0: para qué sirve cada uno, cuándo
 usarlo, cuándo usar otro y dónde vive su API generada.
 
 Es el documento *catálogo* del conjunto de documentación:
@@ -93,6 +93,8 @@ comentarios `##` del propio módulo por `psc doc --include-std`.
   - [`std.web.history` — `window.history`](#stdwebhistory-windowhistory)
   - [`std.web.router` — rutas por hash](#stdwebrouter-rutas-por-hash)
   - [`std.web.http` — `fetch`](#stdwebhttp-fetch)
+  - [`std.web.npm` — fachada NPM](#stdwebnpm--fachada-npm)
+  - [`std.web.capacitor` — adaptador Capacitor](#stdwebcapacitor--adaptador-capacitor)
   - [`std.web.websocket` — cliente WebSocket tipado](#stdwebwebsocket-cliente-websocket-tipado)
   - [`std.web.storage` — localStorage y sessionStorage](#stdwebstorage-localstorage-y-sessionstorage)
   - [`std.web.file` — elegir, leer, descargar](#stdwebfile-elegir-leer-descargar)
@@ -109,7 +111,7 @@ comentarios `##` del propio módulo por `psc doc --include-std`.
 - [Apéndice C — Convenciones de nombres en la biblioteca estándar](#apéndice-c-convenciones-de-nombres-en-la-biblioteca-estándar)
 <!-- /toc -->
 
-Todos los módulos que vienen con `psc` 0.58.0: para qué sirven, cuándo usarlos y
+Todos los módulos que vienen con `psc` 0.59.0: para qué sirven, cuándo usarlos y
 dónde vive la API generada de cada uno.
 
 ## 0. Cómo usar este catálogo
@@ -135,7 +137,7 @@ Cada entrada tiene la misma forma:
 **API** [enlace a la página generada] · [fuente]
 ```
 
-**Versión.** Este catálogo describe `psc` 0.58.0 y el árbol `std/` del mismo
+**Versión.** Este catálogo describe `psc` 0.59.0 y el árbol `std/` del mismo
 commit. La constante de versión de un módulo (`TRIAL_VERSION`, `CARMEN_VERSION`,
 …) es la versión propia de su API, no la del compilador.
 
@@ -1246,6 +1248,32 @@ literales, capturas `:name` y un `*` final.
 **Destacados** `on_change`, `match`, `navigate`, `param`.
 
 **API** [`api/std_web_router.md`](api/std_web_router.md) · [fuente](../std/web/router.pengu)
+
+### `std.web.npm` — fachada NPM
+
+**Úsalo cuando** un paquete NPM empaquetado se exponga como `window.PenguNpm`:
+`root`, `get_path`, `call`, `call_json`, `call_json_text`, `call_async`,
+`has_path`, `has_method`. El bundle lo construye el usuario (esbuild/Vite) y se
+inyecta con `[web]`; PenguScript nunca evalúa JS ni resuelve módulos NPM.
+
+**Evítalo cuando** la API del navegador ya esté cubierta por `std.web.*`.
+
+**Destacados** `root`, `call_json_text`, `call_async`.
+
+**API** [`api/std_web_npm.md`](api/std_web_npm.md) · [fuente](../std/web/npm.pengu) · [guía](NPM.es.md)
+
+### `std.web.capacitor` — adaptador Capacitor
+
+**Úsalo cuando** el mismo build web corra dentro de Capacitor 8: `platform`,
+`is_native`, `is_available`, `plugin`, `call_json`, `call_async`, más adaptadores
+de Camera, Device, Network, Preferences, Share, Haptics y LocalNotifications.
+Los callbacks son one-shot y reciben handles prestados.
+
+**Evítalo cuando** el objetivo sea una PWA sin shell nativo.
+
+**Destacados** `platform`, `is_native`, `device_info`, `camera_take_photo`.
+
+**API** [`api/std_web_capacitor.md`](api/std_web_capacitor.md) · [fuente](../std/web/capacitor.pengu) · [guía](CAPACITOR.es.md)
 
 ### `std.web.http` — `fetch`
 

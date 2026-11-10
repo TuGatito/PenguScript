@@ -45,6 +45,7 @@ literales estáticos. `emit_parse_issue` copia lo que necesita el
     ParseInvalidAttribute
     ParseInvalidDeclareParams
     ParseInvalidWhenClause
+    ParseFundereOrder
     ParseInvalidType
     ParseUnexpectedEof
 ```

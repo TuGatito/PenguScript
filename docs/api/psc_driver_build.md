@@ -22,6 +22,7 @@ F5 no cachea, no resuelve dependencias y sólo soporta `pengu.toml` TOML.
     verbose as bool
     strict_c99 as bool
     lint_cow as bool
+    lint_shadow as bool
     legacy_copy as bool
     release_unsafe as bool
     is_library as bool

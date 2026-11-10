@@ -50,6 +50,12 @@ decide el orden y el texto C.
  ## Memoria
  Strings temporales liberados.
 
+### `is_generic_template`
+
+> **is_generic_template**(c: ref to CgContext, t: CgType) -> bool
+
+ ¿Es una plantilla genérica (no una instancia concreta)?
+
 ### `emit_clone`
 
 > **emit_clone**(c: ref to CgContext, t: CgType) -> void

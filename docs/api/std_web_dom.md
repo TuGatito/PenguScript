@@ -131,6 +131,60 @@ _Undocumented._
 
 _Undocumented._
 
+### `create_fragment`
+
+> **create_fragment**() -> result of Element to JsError
+
+_Undocumented._
+
+### `create_comment`
+
+> **create_comment**(text: string) -> result of Element to JsError
+
+_Undocumented._
+
+### `template_content`
+
+> **template_content**(e: Element) -> result of maybe Element to JsError
+
+_Undocumented._
+
+### `parent`
+
+> **parent**(e: Element) -> result of maybe Element to JsError
+
+_Undocumented._
+
+### `children`
+
+> **children**(e: Element) -> result of list of Element to JsError
+
+_Undocumented._
+
+### `closest`
+
+> **closest**(e: Element, selector: string) -> result of maybe Element to JsError
+
+_Undocumented._
+
+### `query_all_under`
+
+> **query_all_under**(root: Element, selector: string) -> result of list of Element to JsError
+
+_Undocumented._
+
+### `matches`
+
+> **matches**(e: Element, selector: string) -> result of bool to JsError
+
+_Undocumented._
+
+### `append_fragment`
+
+> **append_fragment**(parent: Element, frag: Element) -> result of bool to JsError
+
+_Undocumented._
+
 ### `clone`
 
 > **clone**(e: Element) -> result of Element to JsError

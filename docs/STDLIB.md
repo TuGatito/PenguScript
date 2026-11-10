@@ -1,6 +1,6 @@
 # The PenguScript Standard Library
 
-All 70 modules of `std/` in `psc` 0.58.0: what each one is for, when to reach for
+All 70 modules of `std/` in `psc` 0.59.0: what each one is for, when to reach for
 it, when to reach for something else, and where its generated API lives.
 
 It is the *catalogue* document of the documentation set:
@@ -93,6 +93,8 @@ own `##` comments by `psc doc --include-std`.
   - [`std.web.history` — `window.history`](#stdwebhistory-windowhistory)
   - [`std.web.router` — hash routing](#stdwebrouter-hash-routing)
   - [`std.web.http` — `fetch`](#stdwebhttp-fetch)
+  - [`std.web.npm` — NPM facade](#stdwebnpm--npm-facade)
+  - [`std.web.capacitor` — Capacitor adapter](#stdwebcapacitor--capacitor-adapter)
   - [`std.web.websocket` — typed WebSocket client](#stdwebwebsocket-typed-websocket-client)
   - [`std.web.storage` — localStorage and sessionStorage](#stdwebstorage-localstorage-and-sessionstorage)
   - [`std.web.file` — picking, reading, downloading](#stdwebfile-picking-reading-downloading)
@@ -109,7 +111,7 @@ own `##` comments by `psc doc --include-std`.
 - [Appendix C — Naming conventions in the standard library](#appendix-c-naming-conventions-in-the-standard-library)
 <!-- /toc -->
 
-Every module that ships with `psc` 0.58.0: what it is for, when to reach for
+Every module that ships with `psc` 0.59.0: what it is for, when to reach for
 it, and where its generated API lives.
 
 ## 0. How to use this catalogue
@@ -135,7 +137,7 @@ Every entry has the same shape:
 **API** [link to the generated page] · [source]
 ```
 
-**Version.** This catalogue describes `psc` 0.58.0 and the `std/` tree in the
+**Version.** This catalogue describes `psc` 0.59.0 and the `std/` tree in the
 same commit. A module version constant (`TRIAL_VERSION`, `CARMEN_VERSION`, …)
 is the module's own API version, not the compiler's.
 
@@ -1226,6 +1228,32 @@ literals, `:name` captures and a trailing `*`.
 **Highlights** `on_change`, `match`, `navigate`, `param`.
 
 **API** [`api/std_web_router.md`](api/std_web_router.md) · [source](../std/web/router.pengu)
+
+### `std.web.npm` — NPM facade
+
+**Use it when** a bundled NPM package is exposed as `window.PenguNpm`:
+`root`, `get_path`, `call`, `call_json`, `call_json_text`, `call_async`,
+`has_path`, `has_method`. The bundle is built by the user (esbuild/Vite) and
+injected with `[web]`; PenguScript never evaluates JS or resolves NPM modules.
+
+**Avoid it when** the browser API is already covered by `std.web.*`.
+
+**Highlights** `root`, `call_json_text`, `call_async`.
+
+**API** [`api/std_web_npm.md`](api/std_web_npm.md) · [source](../std/web/npm.pengu) · [guide](NPM.md)
+
+### `std.web.capacitor` — Capacitor adapter
+
+**Use it when** the same web build runs inside Capacitor 8: `platform`,
+`is_native`, `is_available`, `plugin`, `call_json`, `call_async`, plus adapters
+for Camera, Device, Network, Preferences, Share, Haptics and LocalNotifications.
+Callbacks are one-shot and receive borrowed handles.
+
+**Avoid it when** the target is a plain PWA with no native shell.
+
+**Highlights** `platform`, `is_native`, `device_info`, `camera_take_photo`.
+
+**API** [`api/std_web_capacitor.md`](api/std_web_capacitor.md) · [source](../std/web/capacitor.pengu) · [guide](CAPACITOR.md)
 
 ### `std.web.http` — `fetch`
 

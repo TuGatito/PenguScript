@@ -281,16 +281,6 @@
 
  A rune that stores a `Fn1`: the "callback as a field" case.
 
-### `_ClickCounter`
-
-> rune _ClickCounter
-
-```pengu
-    hits as int
-```
-
- A mutable click counter for the `Fn1<A, void>` side-effect case.
-
 ### `_expect_int`
 
 > **_expect_int**(actual: int, expected: int, label: string) -> void
@@ -350,12 +340,6 @@
 > **_twice**(c: ref to void, x: int) -> int
 
  `(ref to void, int) -> int`: ignores its context, for the null-context test.
-
-### `_count_click`
-
-> **_count_click**(c: ref to _ClickCounter, button: int) -> void
-
- `(ref to _ClickCounter, int) -> void`: the side-effect callback case.
 
 ### `_run_it`
 
@@ -434,12 +418,6 @@
 > test "a donum Fn1 is null and call_or returns the fallback"
 
  is_null and call_or on a null Fn built field by field.
-
-### `"a Fn1 of void supports side effects"`
-
-> test "a Fn1 of void supports side effects"
-
- A `void` result: the callback exists for its side effect.
 
 ### `"functor version is 3.0.1"`
 

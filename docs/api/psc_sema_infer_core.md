@@ -398,6 +398,18 @@ _Undocumented._
  ## Memoria
  O(campos).
 
+### `report_unknown_field`
+
+> **report_unknown_field**(s: ref to SemaState, node: int, ty: int, txt: string) -> void
+
+ Diagnostica un campo inexistente en un rune/echo concreto.
+
+ Antes el acceso se resolvía a "tipo 0" sin error y el fallo aparecía en el
+ compilador de C (`'A' no tiene un miembro llamado 'nope'`).
+
+ ## Memoria
+ No asigna aparte del nombre consultado.
+
 ### `infer_arrow`
 
 > **infer_arrow**(s: ref to SemaState, node: int) -> int
@@ -406,6 +418,90 @@ _Undocumented._
 
  ## Memoria
  O(campos).
+
+### `report_private_field`
+
+> **report_private_field**(s: ref to SemaState, node: int, ty: int, nid: int) -> bool
+
+ Nombres de los embeds de primer nivel que contienen el campo `nid`.
+
+ Para el mensaje de E0087: "promoted from 'gameObj', 'physics'". Se libera
+ con `banish`.
+
+ ## Memoria
+ Asigna un `StringBuilder` y los textos consultados.
+ Emite `E0043` si `nid` es un campo privado de otro modulo; `true` si lo hizo.
+
+ ## Memoria
+ Puede anadir un diagnostico.
+
+### `name_is_private`
+
+> **name_is_private**(s: ref to SemaState, nid: int) -> bool
+
+ `true` si el nombre empieza por `_` (y no es solo `_`): es privado del módulo.
+
+ ## Memoria
+ O(longitud); no asigna.
+
+### `embed_sources_text`
+
+> **embed_sources_text**(s: ref to SemaState, ty: int, nid: int) -> string
+
+_Undocumented._
+
+### `embed_method_sources_text`
+
+> **embed_method_sources_text**(s: ref to SemaState, ty: int, mid: int) -> string
+
+ Nombres de los embeds que exponen el método `mid` (para E0088).
+
+ ## Memoria
+ Devuelve string owned.
+
+### `report_ambiguous_method`
+
+> **report_ambiguous_method**(s: ref to SemaState, node: int, ty: int, mid: int, mtext: string) -> bool
+
+ Si `mid` está promovido desde más de un embed, emite E0088 y devuelve
+ `true`. El llamador no añade entonces un «método inexistente».
+
+ ## Memoria
+ Asigna el diagnóstico y strings temporales.
+
+### `find_embedded_ritual`
+
+> **find_embedded_ritual**(s: ref to SemaState, ty: int, mid: int, depth: int) -> int
+
+ Busca un método `ritual` con el nombre `mid` en los embeds de `ty`.
+
+ Los rituales no se promueven (construyen el embed, no el host); cuando el
+ usuario escribe `calling host.new()` conviene decírselo en vez de «undefined
+ function».
+
+ ## Memoria
+ No asigna.
+
+### `report_ritual_not_promoted`
+
+> **report_ritual_not_promoted**(s: ref to SemaState, node: int, ty: int, mid: int, mtext: string) -> bool
+
+ Si el nombre es un ritual de un embed, explica que no se promueve.
+
+ ## Memoria
+ Asigna el diagnóstico y strings temporales.
+
+### `promoted_field_type`
+
+> **promoted_field_type**(s: ref to SemaState, ty: int, nid: int, node: int) -> int
+
+ Tipo del campo `nid` con promoción, emitiendo E0087 si es ambiguo.
+
+ Devuelve `0` si el campo no existe (el llamador decide el diagnóstico) o si
+ es ambiguo (ya se emitió E0087).
+
+ ## Memoria
+ Asigna una ruta temporal y el mensaje del diagnóstico.
 
 ### `field_type`
 
@@ -507,9 +603,9 @@ _Undocumented._
  ## Memoria
  No asigna.
 
-### `infer_field_inits`
+### `embed_field_name`
 
-> **infer_field_inits**(s: ref to SemaState, node: int, ty: int) -> void
+> **embed_field_name**(s: ref to SemaState, ty: int, idx: int) -> int
 
  Infiere los valores de `with campo is expr, ...`.
 
@@ -518,8 +614,24 @@ _Undocumented._
  tipo del campo se pasa como tipo esperado para conservar el contexto de
  `maybe`/`result` (`with data is maybe none`).
 
+ Un nombre puede ser un campo propio o un campo promovido por `fundere`; el
+ segundo caso se acepta y el codegen lo agrupa bajo su embed. Si el nombre
+ aparece en dos embeds es `E0087`, y si el embed se inicializa a la vez por su
+ nombre y por campos promovidos también (serían dos designadores del mismo
+ miembro en C).
+
  ## Memoria
  O(campos); reutiliza el estado de inferencia.
+ `NameId` del campo si el índice `idx` es un embed; `-1` si no.
+
+ ## Memoria
+ No asigna.
+
+### `infer_field_inits`
+
+> **infer_field_inits**(s: ref to SemaState, node: int, ty: int) -> void
+
+_Undocumented._
 
 ### `infer_do`
 

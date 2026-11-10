@@ -4,6 +4,13 @@ PenguScript no descarga ni evalúa paquetes NPM durante el build. Conservas tu
 toolchain JavaScript, empaquetas con esbuild/Vite/Rollup, expones una fachada
 explícita y la llamas desde PenguScript con `std.web.npm`.
 
+<!-- toc -->
+- [1. Empaqueta la fachada](#1-empaqueta-la-fachada)
+- [2. Declara los assets web](#2-declara-los-assets-web)
+- [3. Llama a la fachada](#3-llama-a-la-fachada)
+- [4. Reglas de seguridad](#4-reglas-de-seguridad)
+<!-- /toc -->
+
 ## 1. Empaqueta la fachada
 
 ```ts

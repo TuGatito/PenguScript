@@ -126,6 +126,7 @@ dueña de su lista; las palabras son literales estáticos.
     KwFalse
     KwFor
     KwFrom
+    KwFundere
     KwIf
     KwImport
     KwIn

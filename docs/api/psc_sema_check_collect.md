@@ -45,6 +45,50 @@ Presta `SemaState`; los símbolos/tipos viven en las tablas del programa.
  ## Memoria
  Añade tipos al registro y `module->type_ids`.
 
+### `add_derived_at`
+
+> **add_derived_at**(s: ref to SemaState, info_idx: int, cid: int) -> void
+
+ Inserta el concepto derivado `cid` en el rango del nominal `info_idx`.
+
+ Los rangos `derived_first/count` son contiguos por nominal, así que insertar
+ en medio obliga a desplazar los siguientes. Solo se llama durante la
+ recolección, nunca en bucle caliente.
+
+ ## Memoria
+ Reemplaza `types->derived`; no deja la lista vieja viva.
+
+### `composed_drop`
+
+> **composed_drop**(s: ref to SemaState, ty: int, depth: int) -> bool
+
+ `true` si `ty` (o alguno de sus embeds) es `Drop`.
+
+ ## Memoria
+ Recursivo con tope de profundidad; no asigna.
+
+### `composed_nexus`
+
+> **composed_nexus**(s: ref to SemaState, ty: int, nexus: int, depth: int) -> bool
+
+ `true` si `ty` (o alguno de sus embeds) tiene el concepto `Nexus`.
+
+ ## Memoria
+ Recursivo con tope de profundidad; no asigna.
+
+### `propagate_composition`
+
+> **propagate_composition**(s: ref to SemaState) -> void
+
+ Propaga `Drop` (forzado, move-only) y `Nexus` (solo cleanup) por `fundere`.
+
+ Si un embed es `Drop`, el host **es** `Drop`: copiarlo copiaría el embed sin
+ retener nada y su destructor correría dos veces. Si el embed solo es
+ `Nexus`, el host puede `banish` pero no se destruye solo.
+
+ ## Memoria
+ Puede añadir conceptos a `derived` y símbolos `clone`/`drop`.
+
 ### `collect_top`
 
 > **collect_top**(s: ref to SemaState, node: int) -> void
@@ -271,14 +315,34 @@ Presta `SemaState`; los símbolos/tipos viven en las tablas del programa.
  ## Memoria
  Añade tipo, campos y símbolo.
 
-### `first_token_slot_after_attrs`
+### `lint_embed_shadows`
 
-> **first_token_slot_after_attrs**(s: ref to SemaState, node: int) -> int
+> **lint_embed_shadows**(s: ref to SemaState, info_idx: int) -> void
+
+ Avisa (W0009) de campos propios que ocultan un campo promovido por
+ `fundere`. Sólo con `--lint=shadow`; el shadowing es legal.
+
+ ## Memoria
+ No retiene nodos.
+
+### `attrs_named`
+
+> **attrs_named**(s: ref to SemaState, attrs: int, want: string) -> bool
 
  Primer token tras los atributos de un `field_decl`.
 
  ## Memoria
  O(n).
+ `true` si el nodo de atributos contiene uno con ese nombre.
+
+ ## Memoria
+ Consulta el pool; no asigna.
+
+### `first_token_slot_after_attrs`
+
+> **first_token_slot_after_attrs**(s: ref to SemaState, node: int) -> int
+
+_Undocumented._
 
 ### `collect_derives`
 
@@ -447,6 +511,19 @@ _Undocumented._
  ## Memoria
  O(attrs).
 
+### `mutates_return_ok`
+
+> **mutates_return_ok**(s: ref to SemaState, ret: int, recv: int) -> bool
+
+ `true` si `ret` es el tipo receptor de un `@mutates` (o `void`).
+
+ El receptor de un `enchanting Box shard T` se convierte a la familia `Box`
+ (con o sin argumentos), así que se compara la base nominal y no el `TypeId`
+ exacto: `@mutates weave grown into Box of T` es válido.
+
+ ## Memoria
+ No asigna.
+
 ### `check_mutates_method`
 
 > **check_mutates_method**(s: ref to SemaState, m: int, recv: int, ft: int) -> void
@@ -512,6 +589,17 @@ _Undocumented._
  ## Memoria
  O(1).
 
+### `mark_ritual`
+
+> **mark_ritual**(s: ref to SemaState, m: int, sid: int) -> void
+
+ Marca `SYM_RITUAL` si el `weave` lleva el modificador `ritual`.
+
+ Los rituales no se promueven por `fundere`: construyen el embed, no el host.
+
+ ## Memoria
+ O(modificadores).
+
 ### `tree_has_self`
 
 > **tree_has_self**(s: ref to SemaState, node: int) -> bool
@@ -576,4 +664,18 @@ _Undocumented._
 
  ## Memoria
  Añade un símbolo de test.
+
+### `embed_implicit_name`
+
+> **embed_implicit_name**(s: ref to SemaState, tn: int) -> string
+
+ Nombre de campo implícito de un embed de `fundere`.
+
+ Es el nombre base del tipo con la primera letra en minúscula (`GameObj` →
+ `gameObj`). Devuelve `""` si el tipo no es un `NdCustomType` simple o si
+ tiene más de un argumento genérico (`Map of K and V`): en esos casos el
+ usuario debe escribir `as nombre` (E0089).
+
+ ## Memoria
+ O(niveles del path + longitud del nombre).
 

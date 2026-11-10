@@ -270,6 +270,18 @@ _Undocumented._
  ## Memoria
  O(variantes/campos).
 
+### `judge_append_marker`
+
+> **judge_append_marker**(sb: ref to StringBuilder, m: SemaModule, node: int) -> void
+
+ Añade un `#line` al `StringBuilder` de un `judge` en modo valor.
+
+ El `judge` en posición de expresión se construye como texto inline (no pasa
+ por `emit_judge_core`), así que los marcadores deben insertarse aquí.
+
+ ## Memoria
+ Strings temporales liberados.
+
 ### `if_expr_expected`
 
 > **if_expr_expected**(c: ref to CgContext, node: int, ast: ref to PsAst, expected: int) -> string
@@ -368,6 +380,25 @@ _Undocumented._
  ## Memoria
  O(campos).
 
+### `cg_field_route`
+
+> **cg_field_route**(c: ref to CgContext, ty: int, fname: int) -> list of int
+
+ Ruta de embeds para `ty.fname`: lista owned de `NameId` (vacía si el campo
+ es propio o si no se promociona). El llamador la libera con `banish`.
+
+ ## Memoria
+ Asigna la lista; liberar con `banish`.
+
+### `append_embed_path`
+
+> **append_embed_path**(c: ref to CgContext, sb: ref to StringBuilder, ty: int, fname: int, sep: string) -> void
+
+ Añade a `sb` el camino `.embed`/`->embed` que promociona `fname` en `ty`.
+
+ ## Memoria
+ Asigna la ruta temporal; no retiene `sb`.
+
 ### `at_access_target`
 
 > **at_access_target**(c: ref to CgContext, ch: int, base: string, ty: int, ast: ref to PsAst) -> CgTarget
@@ -402,6 +433,97 @@ _Undocumented._
  ## Memoria
  Devuelve un `CgTarget` owned; liberar `text`.
 
+### `cg_nominal_of`
+
+> **cg_nominal_of**(c: ref to CgContext, ty: int) -> int
+
+ Tipo nominal (rune/echo) al que apunta `ty` tras quitar `ref`, `frozen`,
+ `alias` y `seal`. Devuelve -1 si no es un nominal.
+
+ ## Memoria
+ No asigna.
+
+### `cg_embed_path_to`
+
+> **cg_embed_path_to**(c: ref to CgContext, ty: int, target: int, depth: int) -> list of int
+
+ Camino de campos de embed desde `ty` hasta el embed de tipo nominal
+ `target`. La lista queda vacía si `target` no es un embed de `ty`.
+
+ ## Memoria
+ Devuelve una lista owned.
+
+### `cg_template_of`
+
+> **cg_template_of**(c: ref to CgContext, ty: int) -> int
+
+ Índice de la info nominal del template de un tipo, o `-1`.
+
+ Una instancia genérica (`Box__int`) guarda en `template_info` el índice de la
+ info del template (`Box`); un nominal no genérico devuelve su propio índice.
+
+ ## Memoria
+ No asigna.
+
+### `cg_embed_path_soft`
+
+> **cg_embed_path_soft**(c: ref to CgContext, ty: int, target: int, depth: int) -> list of int
+
+ Como `cg_embed_path_to`, pero acepta una instancia genérica por su template.
+
+ El sema resuelve un método promovido sobre el tipo **instanciado** del embed
+ (`Box__int`), mientras que el catálogo guarda el receptor del **template**
+ (`Box of T`). Comparar los índices de template reconoce ambos casos.
+
+ ## Memoria
+ Devuelve una lista owned de índices de campo.
+
+### `cg_promoted_embed_nominal`
+
+> **cg_promoted_embed_nominal**(c: ref to CgContext, host: int, nid: int, depth: int) -> int
+
+ Nominal del embed que declara el método `nid`, buscando en profundidad.
+
+ Devuelve el tipo **instanciado** del campo embed (por ejemplo `Box__int`),
+ que es el receptor real de un método promovido.
+
+ ## Memoria
+ No asigna.
+
+### `ensure_instance_method_spec`
+
+> **ensure_instance_method_spec**(c: ref to CgContext, base_idx: int, recv_id: int, node: int) -> int
+
+ Especializa un método cuyo receptor es una instancia genérica.
+
+ `ensure_method_spec` infiere los argumentos del call site; cuando el
+ receptor ya es una instancia (`Box__int`), los argumentos del tipo son la
+ fuente correcta (`spec_args_for_call` no siempre los deduce).
+
+ ## Memoria
+ Puede añadir una `CgFunction`; devuelve su índice.
+
+### `cg_promoted_embed_type`
+
+> **cg_promoted_embed_type**(c: ref to CgContext, recv_node: int, ast: ref to PsAst, want: int) -> int
+
+ Tipo del embed que declara el método `want`, visto desde el receptor.
+
+ Devuelve el `TypeId` del campo embed al final del camino (una instancia
+ genérica, si el embed lo es), o `-1` si el método no se promueve.
+
+ ## Memoria
+ Libera el `CgTarget` y la lista del camino.
+
+### `receiver_is_pointer`
+
+> **receiver_is_pointer**(c: ref to CgContext, rt: CgTarget, self_value: bool) -> bool
+
+ `true` si el receptor `rt` es un puntero en C.
+
+ ## Memoria
+ No asigna.
+
 ### `method_receiver`
 
 > **method_receiver**(c: ref to CgContext, target: int, ast: ref to PsAst, self_value: bool, recv_type: int) -> string
@@ -411,6 +533,20 @@ _Undocumented._
  El target de una llamada es un `normal_target` con un token base y una
  secuencia de accesos (`arrow_access`, `dot_access`). El último acceso es el
  nombre del método; el resto forma el receptor (`self->_blocks`).
+
+ ## Memoria
+ Devuelve string owned.
+
+### `with_embed_path`
+
+> **with_embed_path**(c: ref to CgContext, base: string, base_ty: int, want: int, isptr: bool) -> string
+
+ Añade al texto de un receptor el camino del embed que declara el método.
+
+ Devuelve `base` tal cual cuando el método es propio del receptor; cuando el
+ método viene de un embed promovido por `fundere`, devuelve
+ `base.embed...` (`base->embed...` si `base` es un puntero). Es el punto que
+ comparten el `get_<metodo>` de `@mutates` y la asignación de vuelta.
 
  ## Memoria
  Devuelve string owned.
@@ -626,11 +762,41 @@ _Undocumented._
  ## Memoria
  Strings owned.
 
+### `push_init_entry`
+
+> **push_init_entry**(c: ref to CgContext, ty: int, name_tok: int, val: int, paths: ref to list of list of int, values: ref to list of int, tys: ref to list of int, leafs: ref to list of string) -> void
+
+ Emite `Tipo with: set .campo is valor ...`.
+
+ ## Memoria
+ Strings owned.
+ Añade una entrada (`campo`, valor) al inicializador agrupado de un rune.
+
+ `path` son los índices de los campos `fundere` que hay que atravesar para
+ llegar al campo; vacío para un campo propio. La resolución la comparte con la
+ sema, así que el codegen no puede discrepar de la validación.
+
+ ## Memoria
+ `path`, `txt` y las listas pasan a ser owned por el llamador.
+
+### `grouped_init_body`
+
+> **grouped_init_body**(c: ref to CgContext, ty_in: int, paths: list of list of int, values: list of int, tys: list of int, leafs: list of string) -> string
+
+ Cuerpo de un inicializador de rune con los campos promovidos agrupados.
+
+ Emite `.embed = (Embed){ ... }` para cada embed que recibe algún campo
+ promovido y deja los campos propios al mismo nivel. C no admite dos
+ designadores del mismo miembro, así que un embed solo puede aparecer una vez.
+
+ ## Memoria
+ Devuelve string owned; no consume las listas.
+
 ### `with_init_expr`
 
 > **with_init_expr**(c: ref to CgContext, node: int, ast: ref to PsAst, ty: int) -> string
 
- Emite `Tipo with: set .campo is valor ...`.
+ Emite `Tipo with: set .campo is v` como inicializador agrupado.
 
  ## Memoria
  Strings owned.
@@ -725,6 +891,21 @@ _Undocumented._
 
  ## Memoria
  O(interpolaciones del módulo).
+
+### `interp_call_type`
+
+> **interp_call_type**(c: ref to CgContext, node: int, ast: ref to PsAst) -> int
+
+ Tipo de retorno de una llamada a método dentro de una interpolación.
+
+ El sema de interpolaciones no anota el nodo raíz de `calling obj.method`,
+ así que `node_type` devuelve `-1`. La especialización ya existe cuando se
+ llama a esta función: se busca por nombre y tipo receptor y se lee el tipo
+ de retorno de su símbolo. Es el único caso en el que el codegen necesita
+ recuperar un tipo que el sema ya conocía.
+
+ ## Memoria
+ CgTarget.text es owned; se libera aquí.
 
 ### `append_format_text`
 

@@ -9,6 +9,17 @@ tipos, tests, line markers y DCE se añaden por subfases.
 
 ---
 
+### `type_prunable`
+
+> **type_prunable**(c: ref to CgContext, r: ref to CgReach, ty: int) -> bool
+
+ ¿Es un tipo genérico instanciado que se puede podar? Los tipos no
+ genéricos se emiten siempre: `size of`/`align of` y las declaraciones `.d`
+ pueden referenciarlos sin anotar el AST.
+
+ ## Memoria
+ O(1).
+
 ### `is_libc_name`
 
 > **is_libc_name**(c: ref to CgContext, f: CgFunction) -> bool

@@ -211,11 +211,52 @@ una posición, tipo, documentación, exports, módulos y tamaño aproximado.
 
 _Undocumented._
 
+### `list_has`
+
+> **list_has**(xs: list of int, v: int) -> bool
+
+ `true` si `xs` contiene `v`.
+
+ ## Memoria
+ No asigna.
+
 ### `field_type_at`
 
 > **field_type_at**(p: ref to SemaProgram, type_id: int, name: string) -> int
 
  Tipo de un campo de `rune`/`echo` (`-1` si no existe).
+
+### `own_field_type_at`
+
+> **own_field_type_at**(p: ref to SemaProgram, type_id: int, name: string) -> int
+
+ Tipo del campo propio `name` (`-1` si no lo declara el tipo mismo).
+
+ Sirve para distinguir un campo propio de uno promovido por `fundere`.
+
+ ## Memoria
+ No asigna.
+
+### `field_decl_at`
+
+> **field_decl_at**(p: ref to SemaProgram, type_id: int, name: string, out_module: ref to int) -> int
+
+ Nodo `NdFieldDecl` que declara `name` visto desde `type_id`.
+
+ Sigue `fundere`: si el campo no es propio, entra en los embeds. `out_module`
+ recibe el módulo del rune que lo declara. Devuelve `-1` si no existe.
+
+ ## Memoria
+ No asigna.
+
+### `field_name_start`
+
+> **field_name_start**(p: ref to SemaProgram, mid: int, node: int, name: string) -> int
+
+ Offset del nombre `name` dentro del nodo `node` de un módulo.
+
+ ## Memoria
+ No asigna.
 
 ### `variant_payload_type`
 

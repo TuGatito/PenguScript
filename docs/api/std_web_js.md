@@ -74,6 +74,17 @@ _Undocumented._
  A registered callback. `_value` is the JavaScript function handle and
  `_slot` is its C slot id; both are invalidated by `free_callback`.
 
+### `FetchHandle`
+
+> rune FetchHandle
+
+```pengu
+    id as int
+```
+
+ Handle de una petición `fetch` abortable. El bridge lo invalida al terminar,
+ fallar, agotar el timeout o abortar.
+
 ### `Stats`
 
 > rune Stats
@@ -323,6 +334,18 @@ _Undocumented._
 ### `fetch`
 
 > **fetch**(method: string, url: string, headers: JsValue, body: JsValue, on_ok: weave with res: JsValue into void, on_err: weave with e: JsValue into void, timeout_ms: int) -> result of bool to JsError
+
+_Undocumented._
+
+### `fetch_request`
+
+> **fetch_request**(method: string, url: string, headers: JsValue, body: JsValue, on_ok: weave with res: JsValue into void, on_err: weave with e: JsValue into void, timeout_ms: int) -> result of FetchHandle to JsError
+
+_Undocumented._
+
+### `abort_request`
+
+> **abort_request**(h: FetchHandle) -> result of bool to JsError
 
 _Undocumented._
 
