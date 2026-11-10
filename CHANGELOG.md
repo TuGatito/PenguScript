@@ -2,6 +2,21 @@
 
 All notable changes to PenguScript will be documented in this file.
 
+## [0.57.0] — 2026-11-09 — Peticiones HTTP abortables
+
+### Añadido
+- `std.web.js`: `FetchHandle`, `fetch_request` y `abort_request`. El bridge
+  (`pengu_js.js`/`pengu_js_pre.js`) registra cada petición y expone
+  `pengu_js_abort`; abortar rechaza la promesa sin convertirla en timeout.
+- `std.web.http`: `RequestHandle`, `request_abortable`, `get_abortable` y
+  `abort`; los stubs nativos devuelven `NotSupported`/`false`.
+- Los callbacks de una petición abortada se liberan una sola vez y el handle
+  deja de ser válido al terminar, fallar, agotar el timeout o abortar.
+
+### Compatibilidad
+- `js.fetch` y `http.get`/`http.request` conservan su firma y descartan el
+  handle; para cancelar una petición hay que usar las variantes `*_abortable`.
+
 ## [0.56.0] — 2026-11-09 — DOM traversal, templates y router History
 
 ### Añadido

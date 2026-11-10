@@ -41,6 +41,11 @@ rune JsCallback:
     _value as JsValue
     _slot as int
 
+## Handle de una petición `fetch` abortable. El bridge lo invalida al terminar,
+## fallar, agotar el timeout o abortar.
+rune FetchHandle:
+    id as int
+
 ## Live bridge counters, useful in tests and leak checks.
 rune Stats:
     handles as int
@@ -99,6 +104,7 @@ when wasm:
     declare pengu_js_callback_count into i32
     declare pengu_js_callback_capacity into i32
     declare pengu_js_fetch with method as ref to frozen char, url as ref to frozen char, headers as i32, body as i32, ok_slot as i32, err_slot as i32, ok_handle as i32, err_handle as i32, timeout_ms as i32 into i32
+    declare pengu_js_abort with id as i32 into i32
     declare pengu_js_ws_open with url as ref to frozen char, open_slot as i32, msg_slot as i32, close_slot as i32, err_slot as i32, open_handle as i32, msg_handle as i32, close_handle as i32, err_handle as i32 into i32
     declare pengu_js_ws_send with id as i32, text as ref to frozen char into i32
     declare pengu_js_ws_close with id as i32, code as i32, reason as ref to frozen char into i32
@@ -368,12 +374,13 @@ when wasm:
             return calling _fail
         return calling ok_of with h
 
-    ## Performs an HTTP request with `fetch`. `headers` is a JavaScript object
-    ## of string values (`0` for none) and `body` is a JavaScript string (`1`
-    ## for no body). Both are borrowed and may be released after the call.
+    ## Performs an HTTP request with `fetch` and returns a handle that can be
+    ## aborted with `abort_request`. `headers` is a JavaScript object of string
+    ## values (`0` for none) and `body` is a JavaScript string (`1` for no
+    ## body). Both are borrowed and may be released after the call.
     ## `timeout_ms > 0` aborts the request after that many milliseconds and
     ## reports a `TimeoutError`; `0` disables the timeout.
-    weave fetch with method as string, url as string, headers as JsValue, body as JsValue, on_ok as weave with res as JsValue into void, on_err as weave with e as JsValue into void, timeout_ms as int is 0 into result of bool to JsError:
+    weave fetch_request with method as string, url as string, headers as JsValue, body as JsValue, on_ok as weave with res as JsValue into void, on_err as weave with e as JsValue into void, timeout_ms as int is 0 into result of FetchHandle to JsError:
         var okr as result of JsCallback to JsError is calling make_callback with on_ok
         if not okr.is_ok:
             return calling err_of with (calling _error)
@@ -385,8 +392,24 @@ when wasm:
         if rc < 0:
             calling free_callback with okr.value
             calling free_callback with errr.value
-            return calling _fail_bool
+            return calling err_of with (calling _error)
+        return calling ok_of with (with id is rc)
+
+    ## Performs an HTTP request with `fetch`. Compatibility wrapper around
+    ## `fetch_request`: the handle is discarded, so the request cannot be
+    ## aborted explicitly (only its timeout can).
+    weave fetch with method as string, url as string, headers as JsValue, body as JsValue, on_ok as weave with res as JsValue into void, on_err as weave with e as JsValue into void, timeout_ms as int is 0 into result of bool to JsError:
+        var r as result of FetchHandle to JsError is calling fetch_request with method, url, headers, body, on_ok, on_err, timeout_ms
+        if not r.is_ok:
+            return calling err_of with r.error
         return calling ok_of with true
+
+    ## Aborta una petición todavía viva. Devuelve `false` si ya terminó.
+    weave abort_request with h as FetchHandle into result of bool to JsError:
+        var rc as i32 is calling pengu_js_abort with (h.id to i32)
+        if rc < 0:
+            return calling _fail_bool
+        return calling ok_of with rc != 0
 
     ## SHA-256 of `text`, delivered as lowercase hex. One-shot.
     weave sha256_hex with text as string, on_ok as weave with value as JsValue into void, on_err as weave with value as JsValue into void into result of bool to JsError:
@@ -789,6 +812,12 @@ when not wasm:
 
     weave fetch with method as string, url as string, headers as JsValue, body as JsValue, on_ok as weave with res as JsValue into void, on_err as weave with e as JsValue into void, timeout_ms as int is 0 into result of bool to JsError:
         return calling err_of with (calling _native_error)
+
+    weave fetch_request with method as string, url as string, headers as JsValue, body as JsValue, on_ok as weave with res as JsValue into void, on_err as weave with e as JsValue into void, timeout_ms as int is 0 into result of FetchHandle to JsError:
+        return calling err_of with (calling _native_error)
+
+    weave abort_request with h as FetchHandle into result of bool to JsError:
+        return calling ok_of with false
 
     weave sha256_hex with text as string, on_ok as weave with value as JsValue into void, on_err as weave with value as JsValue into void into result of bool to JsError:
         return calling err_of with (calling _native_error)

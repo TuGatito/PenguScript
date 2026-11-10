@@ -14,6 +14,8 @@ var PENGU_JS = {
     lastError: null,
     ws: new Map(),
     nextWs: 1,
+    requests: new Map(),
+    nextRequest: 1,
     nextHandle: 2
 };
 

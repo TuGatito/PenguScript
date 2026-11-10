@@ -43,6 +43,9 @@ rune Header:
     name as string
     value as string
 
+## Handle de una petición abortable. Se invalida al terminar, fallar o abortar.
+alias RequestHandle as js.FetchHandle
+
 ## An HTTP response. `_headers` is owned; release it with `free`.
 rune Response:
     status as int
@@ -72,6 +75,27 @@ when wasm:
     weave get with url as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of bool to JsError:
         var none as list of Header is list of Header
         return calling request with "GET", url, none, "", on_ok, on_err, timeout_ms
+
+    ## Like `request`, but returns a handle that can be passed to `abort`.
+    weave request_abortable with method as string, url as string, headers as list of Header, body as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of RequestHandle to JsError:
+        var h as result of js.JsValue to JsError is calling _headers_object with headers
+        if not h.is_ok:
+            return calling err_of with h.error
+        defer calling js.release with h.value
+        var b as result of js.JsValue to JsError is calling _body_value with body
+        if not b.is_ok:
+            return calling err_of with b.error
+        defer calling js.release with b.value
+        return calling js.fetch_request with method, url, h.value, b.value, on_ok, on_err, timeout_ms
+
+    ## `GET url` abortable.
+    weave get_abortable with url as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of RequestHandle to JsError:
+        var none as list of Header is list of Header
+        return calling request_abortable with "GET", url, none, "", on_ok, on_err, timeout_ms
+
+    ## Aborta una petición viva. `false` si ya terminó.
+    weave abort with h as RequestHandle into result of bool to JsError:
+        return calling js.abort_request with h
 
     ## `POST url` with a text body.
     weave post with url as string, body as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of bool to JsError:
@@ -257,6 +281,12 @@ when not wasm:
 
     weave request with method as string, url as string, headers as list of Header, body as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of bool to JsError:
         return calling err_of with (calling js.last_error)
+    weave request_abortable with method as string, url as string, headers as list of Header, body as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of RequestHandle to JsError:
+        return calling err_of with (calling js.last_error)
+    weave get_abortable with url as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of RequestHandle to JsError:
+        return calling err_of with (calling js.last_error)
+    weave abort with h as RequestHandle into result of bool to JsError:
+        return calling ok_of with false
     weave get with url as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of bool to JsError:
         return calling err_of with (calling js.last_error)
     weave post with url as string, body as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of bool to JsError:

@@ -405,9 +405,25 @@ mergeInto(LibraryManager.library, {
 
     pengu_js_fetch: function (methodPtr, urlPtr, headers, body,
                             okSlot, errSlot, okHandle, errHandle, timeoutMs) {
-        var timer = 0;
+        var id = PENGU_JS.nextRequest++;
+        var record = {
+            id: id,
+            controller: null,
+            timer: 0,
+            done: false,
+            timedOut: false
+        };
+        PENGU_JS.requests.set(id, record);
+        function cleanup() {
+            if (record.timer) {
+                clearTimeout(record.timer);
+                record.timer = 0;
+            }
+            record.done = true;
+            PENGU_JS.requests.delete(id);
+        }
         function normalizeError(error) {
-            if (error && error.name === "AbortError" && timeoutMs > 0) {
+            if (record.timedOut) {
                 var timedOut = new Error("request timed out after " + timeoutMs + " ms");
                 timedOut.name = "TimeoutError";
                 return timedOut;
@@ -415,10 +431,10 @@ mergeInto(LibraryManager.library, {
             return error;
         }
         function finish(ok, value) {
-            if (timer) {
-                clearTimeout(timer);
-                timer = 0;
+            if (record.done) {
+                return;
             }
+            cleanup();
             var handle = pengu_js_wrap(ok ? value : normalizeError(value));
             if (handle < 0) {
                 handle = 1;
@@ -456,13 +472,15 @@ mergeInto(LibraryManager.library, {
             } else if (body === 1) {
                 init.body = null;
             }
+            if (typeof AbortController === "undefined") {
+                throw new Error("AbortController is not available in this environment");
+            }
+            var controller = new AbortController();
+            record.controller = controller;
+            init.signal = controller.signal;
             if (timeoutMs > 0) {
-                if (typeof AbortController === "undefined") {
-                    throw new Error("AbortController is not available in this environment");
-                }
-                var controller = new AbortController();
-                init.signal = controller.signal;
-                timer = setTimeout(function () {
+                record.timer = setTimeout(function () {
+                    record.timedOut = true;
                     controller.abort();
                 }, timeoutMs);
             }
@@ -487,13 +505,20 @@ mergeInto(LibraryManager.library, {
             }, function (error) {
                 finish(false, error);
             });
-            return 0;
+            return id;
         } catch (e) {
-            if (timer) {
-                clearTimeout(timer);
-            }
+            cleanup();
             return pengu_js_fail(e);
         }
+    },
+
+    pengu_js_abort: function (id) {
+        var record = PENGU_JS.requests.get(id | 0);
+        if (!record || record.done || !record.controller) {
+            return 0;
+        }
+        record.controller.abort();
+        return 1;
     },
 
     pengu_js_ws_open: function (urlPtr, openSlot, msgSlot, closeSlot, errSlot,
