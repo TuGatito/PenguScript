@@ -137,6 +137,7 @@ weave run_build with args as list of string into int:
     calling sf.push with "--json"
     calling sf.push with "--no-dce"
     calling sf.push with "--prune-types"
+    calling sf.push with "--no-prune-types"
     calling sf.push with "--no-line-markers"
     calling sf.push with "--prune-native"
     calling sf.push with "--tree-shake-user"
@@ -217,7 +218,7 @@ weave run_build with args as list of string into int:
     set o.is_test is calling cliargs.enabled with (sigil of pr.args), "--test"
     set o.force_exe is calling cliargs.enabled with (sigil of pr.args), "--exe"
     set o.no_dce is calling cliargs.enabled with (sigil of pr.args), "--no-dce"
-    set o.prune_types is calling cliargs.enabled with (sigil of pr.args), "--prune-types"
+    set o.prune_types is not (calling cliargs.enabled with (sigil of pr.args), "--no-prune-types")
     set o.no_line_markers is calling cliargs.enabled with (sigil of pr.args), "--no-line-markers"
     # D12: release prunes satellite links by default; `--prune-native` keeps
     # the explicit opt-in for debug builds.

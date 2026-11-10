@@ -26,6 +26,34 @@ import psc.codegen.testgen as testgen
 
 insignia psc_codegen_bundle_
 
+## ¿Es un tipo genérico instanciado que se puede podar? Los tipos no
+## genéricos se emiten siempre: `size of`/`align of` y las declaraciones `.d`
+## pueden referenciarlos sin anotar el AST.
+##
+## ## Memoria
+## O(1).
+weave type_prunable with c as ref to context.CgContext, r as ref to CgReach, ty as int into bool:
+    if not c->options.prune_types:
+        return false
+    if ty <= 0:
+        return false
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    if t.kind == tk.SemaTypeKind.TkRune or t.kind == tk.SemaTypeKind.TkEcho or t.kind == tk.SemaTypeKind.TkOmen:
+        var info as types.SemaNominalInfo is (c->program->types.nominal_infos at t.a)
+        if info.template_info < 0:
+            return false
+        var tmpl as types.SemaNominalInfo is (c->program->types.nominal_infos at info.template_info)
+        if tmpl.module < 0:
+            return false
+        var m as loader.SemaModule is (c->program->modules at tmpl.module)
+        # Los tipos de usuario/biblioteca pueden aparecer solo en cuerpos
+        # monomorfizados; conservarlos evita romperlos. La poda se concentra
+        # en las instancias de std (el caso de los bloques `test`).
+        if not calling dce.module_is_std with m:
+            return false
+        return true
+    return false
+
 ## ¿El `declare` corresponde a una función de la libc ya declarada por el runtime?
 ##
 ## ## Memoria
@@ -95,6 +123,15 @@ weave finish_checked with e as ref to CgEmitter into string:
 ## ## Memoria
 ## Devuelve string owned; el contexto conserva sus tablas.
 weave generate_bundle_c with c as ref to context.CgContext, live_out as ref to list of int into string:
+    # Los tests pueden instanciar tipos que no aparecen en el cuerpo de `main`;
+    # podarlos aquí dejaría prototipos/cuerpos de test con tipos incompletos.
+    if c->options.is_test:
+        set c->options.prune_types is false
+    # La poda de tipos solo se aplica a wasm: en nativo, `size of`, `align of`,
+    # `transmute` y las declaraciones `.d` pueden usar un tipo sin anotarlo en
+    # el AST, y el DCE no puede demostrar que está vivo.
+    if not c->options.wasm:
+        set c->options.prune_types is false
     # Hook para reducir bloques en posición de valor sin crear un ciclo
     # de imports entre `expr` y `stmt`.
     set c->block_value is stmt.block_value
@@ -176,7 +213,7 @@ weave generate_bundle_c with c as ref to context.CgContext, live_out as ref to l
     var i as int is 0
     while i < c->catalog.types.len:
         var t as catalog.CgType is (c->catalog.types at i)
-        if not c->options.prune_types or calling dce.type_live with (sigil of reach), t.type_id:
+        if not (calling type_prunable with c, (sigil of reach), t.type_id) or calling dce.type_live with (sigil of reach), t.type_id:
             calling ctypes.emit_forward with c, t
         set i is i + 1
     calling emit.blank with (sigil of c->emitter)
@@ -193,7 +230,7 @@ weave generate_bundle_c with c as ref to context.CgContext, live_out as ref to l
         if skip_decl:
             set ai is ai + 1
             continue
-        if (at0.kind == tk.SemaTypeKind.TkAlias or at0.kind == tk.SemaTypeKind.TkSeal) and (not c->options.prune_types or calling dce.type_live with (sigil of reach), ai):
+        if (at0.kind == tk.SemaTypeKind.TkAlias or at0.kind == tk.SemaTypeKind.TkSeal) and (not (calling type_prunable with c, (sigil of reach), ai) or calling dce.type_live with (sigil of reach), ai):
             var an0 as string is calling ctype.c_type with (sigil of c->names), ai
             var atgt as string is calling ctype.c_type with (sigil of c->names), at0.b
             var skip_alias as bool is (an0 length) >= 5 and (an0 at 0 to 5) == "utf8_"
@@ -220,7 +257,7 @@ weave generate_bundle_c with c as ref to context.CgContext, live_out as ref to l
     set i is 0
     while i < order.len:
         var t2 as catalog.CgType is (c->catalog.types at (order at i))
-        if (not c->options.prune_types or calling dce.type_live with (sigil of reach), t2.type_id) and not (calling ctypes.is_generic_template with c, t2):
+        if (not (calling type_prunable with c, (sigil of reach), t2.type_id) or calling dce.type_live with (sigil of reach), t2.type_id) and not (calling ctypes.is_generic_template with c, t2):
             calling ctypes.emit_definition with c, t2
         set i is i + 1
     banish order
@@ -231,7 +268,7 @@ weave generate_bundle_c with c as ref to context.CgContext, live_out as ref to l
     var ti as int is 0
     while ti < c->program->types.types.len:
         var tt0 as tk.SemaType is (c->program->types.types at ti)
-        if tt0.kind == tk.SemaTypeKind.TkTuple and (not c->options.prune_types or calling dce.type_live with (sigil of reach), ti):
+        if tt0.kind == tk.SemaTypeKind.TkTuple and (not (calling type_prunable with c, (sigil of reach), ti) or calling dce.type_live with (sigil of reach), ti):
             var tname as string is calling ctypes.tuple_c_name with (sigil of c->names), ti
             var dup as bool is false
             var sj as int is 0
@@ -263,7 +300,7 @@ weave generate_bundle_c with c as ref to context.CgContext, live_out as ref to l
     set i is 0
     while i < c->catalog.types.len:
         var tcl as catalog.CgType is (c->catalog.types at i)
-        if (not c->options.prune_types or calling dce.type_live with (sigil of reach), tcl.type_id) and not (calling ctypes.is_generic_template with c, tcl):
+        if (not (calling type_prunable with c, (sigil of reach), tcl.type_id) or calling dce.type_live with (sigil of reach), tcl.type_id) and not (calling ctypes.is_generic_template with c, tcl):
             calling ctypes.emit_clone with c, tcl
         set i is i + 1
     calling emit.blank with (sigil of c->emitter)
@@ -271,7 +308,7 @@ weave generate_bundle_c with c as ref to context.CgContext, live_out as ref to l
     set i is 0
     while i < c->catalog.types.len:
         var td as catalog.CgType is (c->catalog.types at i)
-        if (not c->options.prune_types or calling dce.type_live with (sigil of reach), td.type_id) and not (calling ctypes.is_generic_template with c, td):
+        if (not (calling type_prunable with c, (sigil of reach), td.type_id) or calling dce.type_live with (sigil of reach), td.type_id) and not (calling ctypes.is_generic_template with c, td):
             calling ctypes.emit_deepclone with c, td
         set i is i + 1
     # Prototipos de los cleanups: los tipos con ciclos (A dentro de B y
@@ -279,14 +316,14 @@ weave generate_bundle_c with c as ref to context.CgContext, live_out as ref to l
     set i is 0
     while i < c->catalog.types.len:
         var tf as catalog.CgType is (c->catalog.types at i)
-        if (not c->options.prune_types or calling dce.type_live with (sigil of reach), tf.type_id) and not (calling ctypes.is_generic_template with c, tf):
+        if (not (calling type_prunable with c, (sigil of reach), tf.type_id) or calling dce.type_live with (sigil of reach), tf.type_id) and not (calling ctypes.is_generic_template with c, tf):
             calling ctypes.emit_cleanup_forward with c, tf
         set i is i + 1
     # Cleanup derivado de runes/ecos (lo usa `banish`).
     set i is 0
     while i < c->catalog.types.len:
         var tc as catalog.CgType is (c->catalog.types at i)
-        if (not c->options.prune_types or calling dce.type_live with (sigil of reach), tc.type_id) and not (calling ctypes.is_generic_template with c, tc):
+        if (not (calling type_prunable with c, (sigil of reach), tc.type_id) or calling dce.type_live with (sigil of reach), tc.type_id) and not (calling ctypes.is_generic_template with c, tc):
             calling ctypes.emit_cleanup with c, tc
         set i is i + 1
     calling emit.blank with (sigil of c->emitter)
@@ -349,13 +386,16 @@ weave generate_bundle_c with c as ref to context.CgContext, live_out as ref to l
     calling emit.emit_free with (sigil of c->emitter)
     set c->emitter is saved_em
     calling emit.blank with (sigil of c->emitter)
-    # Prototipos.
+    # Prototipos: solo funciones vivas, especializaciones tardías y
+    # declaraciones C. Emitir todo el catálogo referenciaba tipos test-only
+    # aunque sus cuerpos no se emitieran.
     set i is 0
     while i < c->catalog.functions.len:
         var f as catalog.CgFunction is (c->catalog.functions at i)
         var fmod as loader.SemaModule is (c->program->modules at f.module)
         var skip_decl_proto as bool is f.is_declare and (calling catalog.is_decl_path with fmod.canonical_path)
-        if (not f.is_generic or f.is_spec) and not f.is_antiquus and not f.is_generated and not skip_decl_proto and (not f.is_declare or not calling is_libc_name with c, f):
+        var plive as bool is (calling dce.live with (sigil of reach), i) or calling c->catalog.late_specs.has with i
+        if (plive or f.is_declare) and (not f.is_generic or f.is_spec) and not f.is_antiquus and not f.is_generated and not skip_decl_proto and (not f.is_declare or not calling is_libc_name with c, f):
             var sig as string is calling funcgen.signature with c, f
             defer banish sig
             calling emit.line with (sigil of c->emitter), "{sig};"
@@ -578,7 +618,7 @@ weave generate_units_c with c as ref to context.CgContext, live_out as ref to li
     var i as int is 0
     while i < c->catalog.types.len:
         var t as catalog.CgType is (c->catalog.types at i)
-        if not c->options.prune_types or calling dce.type_live with (sigil of reach), t.type_id:
+        if not (calling type_prunable with c, (sigil of reach), t.type_id) or calling dce.type_live with (sigil of reach), t.type_id:
             calling ctypes.emit_forward with c, t
         set i is i + 1
     calling emit.blank with (sigil of c->emitter)
@@ -594,7 +634,7 @@ weave generate_units_c with c as ref to context.CgContext, live_out as ref to li
         if skip_decl:
             set ai is ai + 1
             continue
-        if (at0.kind == tk.SemaTypeKind.TkAlias or at0.kind == tk.SemaTypeKind.TkSeal) and (not c->options.prune_types or calling dce.type_live with (sigil of reach), ai):
+        if (at0.kind == tk.SemaTypeKind.TkAlias or at0.kind == tk.SemaTypeKind.TkSeal) and (not (calling type_prunable with c, (sigil of reach), ai) or calling dce.type_live with (sigil of reach), ai):
             var an0 as string is calling ctype.c_type with (sigil of c->names), ai
             var atgt as string is calling ctype.c_type with (sigil of c->names), at0.b
             var skip_alias as bool is (an0 length) >= 5 and (an0 at 0 to 5) == "utf8_"
@@ -621,7 +661,7 @@ weave generate_units_c with c as ref to context.CgContext, live_out as ref to li
     set i is 0
     while i < order.len:
         var t2 as catalog.CgType is (c->catalog.types at (order at i))
-        if (not c->options.prune_types or calling dce.type_live with (sigil of reach), t2.type_id) and not (calling ctypes.is_generic_template with c, t2):
+        if (not (calling type_prunable with c, (sigil of reach), t2.type_id) or calling dce.type_live with (sigil of reach), t2.type_id) and not (calling ctypes.is_generic_template with c, t2):
             calling ctypes.emit_definition with c, t2
         set i is i + 1
     banish order
@@ -629,7 +669,7 @@ weave generate_units_c with c as ref to context.CgContext, live_out as ref to li
     var ti as int is 0
     while ti < c->program->types.types.len:
         var tt0 as tk.SemaType is (c->program->types.types at ti)
-        if tt0.kind == tk.SemaTypeKind.TkTuple and (not c->options.prune_types or calling dce.type_live with (sigil of reach), ti):
+        if tt0.kind == tk.SemaTypeKind.TkTuple and (not (calling type_prunable with c, (sigil of reach), ti) or calling dce.type_live with (sigil of reach), ti):
             var tname as string is calling ctypes.tuple_c_name with (sigil of c->names), ti
             var dup as bool is false
             var sj as int is 0
@@ -659,14 +699,14 @@ weave generate_units_c with c as ref to context.CgContext, live_out as ref to li
     set i is 0
     while i < c->catalog.types.len:
         var tcl as catalog.CgType is (c->catalog.types at i)
-        if (not c->options.prune_types or calling dce.type_live with (sigil of reach), tcl.type_id) and not (calling ctypes.is_generic_template with c, tcl):
+        if (not (calling type_prunable with c, (sigil of reach), tcl.type_id) or calling dce.type_live with (sigil of reach), tcl.type_id) and not (calling ctypes.is_generic_template with c, tcl):
             calling ctypes.emit_clone with c, tcl
         set i is i + 1
     calling emit.blank with (sigil of c->emitter)
     set i is 0
     while i < c->catalog.types.len:
         var tc as catalog.CgType is (c->catalog.types at i)
-        if (not c->options.prune_types or calling dce.type_live with (sigil of reach), tc.type_id) and not (calling ctypes.is_generic_template with c, tc):
+        if (not (calling type_prunable with c, (sigil of reach), tc.type_id) or calling dce.type_live with (sigil of reach), tc.type_id) and not (calling ctypes.is_generic_template with c, tc):
             calling ctypes.emit_cleanup with c, tc
         set i is i + 1
     calling emit.blank with (sigil of c->emitter)

@@ -2,6 +2,22 @@
 
 All notable changes to PenguScript will be documented in this file.
 
+## [0.57.1] — 2026-11-09 — Poda de tipos genéricos en wasm
+
+### Corregido
+- Los prototipos C ya no se emiten para todo el catálogo: solo funciones vivas,
+  especializaciones tardías y `declare`. Los cuerpos de especializaciones
+  test-only dejan de emitirse en builds normales.
+- En builds wasm la poda de tipos está activa por defecto y es conservadora:
+  solo considera instancias genéricas cuyo template pertenece a `std`; los
+  tipos de usuario, los no genéricos y los que el DCE no puede probar muertos
+  se conservan para no romper `size of`, `align of`, `transmute` ni `.d`.
+  Limitación residual: algunos typedefs test-only de `std` pueden sobrevivir.
+- `--no-prune-types` desactiva la poda. En nativo la poda queda desactivada
+  porque el DCE no puede probar que un tipo usado por FFI/layout está vivo.
+- `psc test` conserva todos los tipos: los cuerpos de test pueden instanciar
+  tipos que `main` no menciona.
+
 ## [0.57.0] — 2026-11-09 — Peticiones HTTP abortables
 
 ### Añadido
