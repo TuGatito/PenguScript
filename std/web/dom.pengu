@@ -464,6 +464,142 @@ when wasm:
         calling js.release with r.value
         return calling ok_of with true
 
+    ## `document.createDocumentFragment()`.
+    weave create_fragment into result of Element to js.JsError:
+        var d as result of Element to js.JsError is calling document
+        if not d.is_ok:
+            return calling err_of with d.error
+        defer calling free with (sigil of d.value)
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        var r as result of js.JsValue to js.JsError is calling js.call_method with d.value._v, "createDocumentFragment", args
+        if not r.is_ok:
+            return calling err_of with r.error
+        return calling ok_of with (calling _from with r.value)
+
+    ## `document.createComment(text)`.
+    weave create_comment with text as string into result of Element to js.JsError:
+        var d as result of Element to js.JsError is calling document
+        if not d.is_ok:
+            return calling err_of with d.error
+        defer calling free with (sigil of d.value)
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        var s as result of js.JsValue to js.JsError is calling js.string with text
+        if not s.is_ok:
+            return calling err_of with s.error
+        calling args.push with s.value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with d.value._v, "createComment", args
+        calling js.release with s.value
+        if not r.is_ok:
+            return calling err_of with r.error
+        return calling ok_of with (calling _from with r.value)
+
+    ## `<template>.content` as an owned fragment, or `none` for non-template nodes.
+    weave template_content with e as Element into result of maybe Element to js.JsError:
+        var v as result of js.JsValue to js.JsError is calling js.get with e._v, "content"
+        if not v.is_ok:
+            return calling err_of with v.error
+        if calling js.is_null with v.value or calling js.is_undefined with v.value:
+            calling js.release with v.value
+            return calling ok_of with (maybe none)
+        return calling ok_of with (some (calling _from with v.value))
+
+    ## `element.parentElement`, or `none` for detached/root nodes.
+    weave parent with e as Element into result of maybe Element to js.JsError:
+        var v as result of js.JsValue to js.JsError is calling js.get with e._v, "parentElement"
+        if not v.is_ok:
+            return calling err_of with v.error
+        if calling js.is_null with v.value or calling js.is_undefined with v.value:
+            calling js.release with v.value
+            return calling ok_of with (maybe none)
+        return calling ok_of with (some (calling _from with v.value))
+
+    ## `element.children` as an owned list.
+    weave children with e as Element into result of list of Element to js.JsError:
+        var v as result of js.JsValue to js.JsError is calling js.get with e._v, "children"
+        if not v.is_ok:
+            return calling err_of with v.error
+        defer calling js.release with v.value
+        var total as result of int to js.JsError is calling js.length with v.value
+        if not total.is_ok:
+            return calling err_of with total.error
+        var out as list of Element is list of Element
+        var i as int is 0
+        while i < total.value:
+            var item as result of js.JsValue to js.JsError is calling js.get_index with v.value, i
+            if not item.is_ok:
+                calling _free_elements with out
+                banish out
+                return calling err_of with item.error
+            calling out.push with (calling _from with item.value)
+            set i is i + 1
+        return calling ok_of with out
+
+    ## `element.closest(selector)`, or `none`.
+    weave closest with e as Element, selector as string into result of maybe Element to js.JsError:
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        var s as result of js.JsValue to js.JsError is calling js.string with selector
+        if not s.is_ok:
+            return calling err_of with s.error
+        calling args.push with s.value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with e._v, "closest", args
+        calling js.release with s.value
+        if not r.is_ok:
+            return calling err_of with r.error
+        if calling js.is_null with r.value or calling js.is_undefined with r.value:
+            calling js.release with r.value
+            return calling ok_of with (maybe none)
+        return calling ok_of with (some (calling _from with r.value))
+
+    ## `root.querySelectorAll(selector)` scoped to a subtree.
+    weave query_all_under with root as Element, selector as string into result of list of Element to js.JsError:
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        var s as result of js.JsValue to js.JsError is calling js.string with selector
+        if not s.is_ok:
+            return calling err_of with s.error
+        calling args.push with s.value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with root._v, "querySelectorAll", args
+        calling js.release with s.value
+        if not r.is_ok:
+            return calling err_of with r.error
+        defer calling js.release with r.value
+        var total as result of int to js.JsError is calling js.length with r.value
+        if not total.is_ok:
+            return calling err_of with total.error
+        var out as list of Element is list of Element
+        var i as int is 0
+        while i < total.value:
+            var item as result of js.JsValue to js.JsError is calling js.get_index with r.value, i
+            if not item.is_ok:
+                calling _free_elements with out
+                banish out
+                return calling err_of with item.error
+            calling out.push with (calling _from with item.value)
+            set i is i + 1
+        return calling ok_of with out
+
+    ## `element.matches(selector)`.
+    weave matches with e as Element, selector as string into result of bool to js.JsError:
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        var s as result of js.JsValue to js.JsError is calling js.string with selector
+        if not s.is_ok:
+            return calling err_of with s.error
+        calling args.push with s.value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with e._v, "matches", args
+        calling js.release with s.value
+        if not r.is_ok:
+            return calling err_of with r.error
+        defer calling js.release with r.value
+        return calling ok_of with (calling js.is_truthy with r.value)
+
+    ## Appends every child of `frag` to `parent`; the fragment is left empty.
+    weave append_fragment with parent as Element, frag as Element into result of bool to js.JsError:
+        return calling append with parent, frag
+
     ## `parent.appendChild(child)`.
     weave append with parent as Element, child as Element into result of bool to js.JsError:
         var args as list of js.JsValue is list of js.JsValue
@@ -887,6 +1023,24 @@ when not wasm:
         return calling err_of with (calling js.last_error)
     weave free with e as ref to Element into void:
         return
+    weave create_fragment into result of Element to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave create_comment with text as string into result of Element to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave template_content with e as Element into result of maybe Element to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave parent with e as Element into result of maybe Element to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave children with e as Element into result of list of Element to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave closest with e as Element, selector as string into result of maybe Element to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave query_all_under with root as Element, selector as string into result of list of Element to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave matches with e as Element, selector as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave append_fragment with parent as Element, frag as Element into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
     weave clone with e as Element into result of Element to js.JsError:
         return calling err_of with (calling js.last_error)
     weave text with e as Element into result of string to js.JsError:

@@ -2,6 +2,21 @@
 
 All notable changes to PenguScript will be documented in this file.
 
+## [0.56.0] — 2026-11-09 — DOM traversal, templates y router History
+
+### Añadido
+- `std.web.dom`: `closest`, `query_all_under`, `create_fragment`,
+  `append_fragment`, `create_comment`, `template_content`, `parent`, `children`
+  y `matches` (wasm + stubs nativos). Permiten delegación real, listas
+  declarativas y condicionales estructurales sin `innerHTML`.
+- `std.web.router`: `navigate_history`, `on_history_change` y `off_history`
+  sobre `std.web.history` (pushState/replaceState/popstate).
+
+### Corregido
+- `std.web.event.kind` libera el handle de JS después de copiar el string; antes
+  devolvía basura (`data-tela-on-mscgT...`).
+- `insert_before`/`attribute_names` ya forman parte de la API pública.
+
 ## [0.55.2] — 2026-11-09 — Poda de especializaciones de test y tipos de función
 
 ### Corregido

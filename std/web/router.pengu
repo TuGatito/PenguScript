@@ -16,6 +16,7 @@
 
 import std.web.dom as dom
 import std.web.js as js
+import std.web.history as history
 import std.web.location as location
 import std.web.url as url
 
@@ -119,6 +120,21 @@ when wasm:
         banish target
         return result
 
+    ## Navigates with the History API. The caller re-renders after success;
+    ## `pushState`/`replaceState` do not emit `popstate`.
+    weave navigate_history with path as string, replace as bool into result of bool to js.JsError:
+        if replace:
+            return calling history.replace_state with js.NULL, "", path
+        return calling history.push_state with js.NULL, "", path
+
+    ## `window.addEventListener("popstate", cb)` for History API routing.
+    weave on_history_change with cb as weave with ev as js.JsValue into void into result of dom.Listener to js.JsError:
+        return calling history.on_pop with cb
+
+    ## Removes a listener created by `on_history_change`.
+    weave off_history with l as ref to dom.Listener into void:
+        calling history.off with l
+
     ## `window.addEventListener("hashchange", cb)`.
     weave on_change with cb as weave with ev as js.JsValue into void into result of dom.Listener to js.JsError:
         var w as result of dom.Element to js.JsError is calling dom.window
@@ -205,6 +221,12 @@ when not wasm:
         return calling err_of with (calling js.last_error)
     weave navigate with path as string into result of bool to js.JsError:
         return calling err_of with (calling js.last_error)
+    weave navigate_history with path as string, replace as bool into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave on_history_change with cb as weave with ev as js.JsValue into void into result of dom.Listener to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave off_history with l as ref to dom.Listener into void:
+        return
     weave on_change with cb as weave with ev as js.JsValue into void into result of dom.Listener to js.JsError:
         return calling err_of with (calling js.last_error)
     weave off with l as ref to dom.Listener into void:
