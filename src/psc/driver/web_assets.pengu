@@ -1,0 +1,150 @@
+## psc/driver/web_assets.pengu — copia e inyección de artefactos web.
+##
+## Lee `[web]` de `pengu.toml`, copia scripts y assets al directorio del
+## artefacto y añade `<script src="...">` antes de `</head>`.
+##
+## ## Memoria
+## Todas las funciones liberan lo que crean salvo el `result` devuelto, que el
+## llamador consume.
+
+import std.archivum
+import std.spark
+import std.compass
+import std.scrolls
+
+import psc.driver.manifest
+import psc.sema.names as npool
+
+insignia psc_driver_web_assets_
+
+## `true` si hay algo configurado en `[web]`.
+##
+## ## Memoria
+## O(1).
+weave configured with man as ref to Manifest into bool:
+    return (man->web_scripts.len > 0) or (man->web_assets.len > 0)
+
+## Convierte un nombre de archivo en un `src` seguro para atributo HTML.
+##
+## Solo se permiten letras, dígitos, `.`, `_`, `-` y `/`; el resto se rechaza
+## para no inyectar markup.
+##
+## ## Memoria
+## Devuelve string owned.
+weave safe_src with name as string into result of string to string:
+    var b as ref to frozen byte is bytes of name
+    var i as int is 0
+    while i < (name length):
+        var c as int is ((b at i) to int)
+        var ok as bool is (c >= 97 and c <= 122) or (c >= 65 and c <= 90) or (c >= 48 and c <= 57) or c == 46 or c == 95 or c == 45 or c == 47
+        if not ok:
+            return calling err_of with "invalid web path: {name}"
+        set i is i + 1
+    return calling ok_of with (calling npool.copy_string with name)
+
+## Copia un asset (archivo o directorio) al directorio de salida.
+##
+## ## Memoria
+## No retiene handles.
+weave copy_asset with src as string, outdir as string into result of bool to string:
+    if not (calling archivum.exists with src):
+        return calling err_of with "web asset not found: {src}"
+    var base as string is calling compass.basename with src
+    defer banish base
+    var dst as string is "{outdir}/{base}"
+    defer banish dst
+    if calling archivum.is_dir with src:
+        if not (calling archivum.copy_tree with src, dst):
+            return calling err_of with "cannot copy web asset directory: {src}"
+        return calling ok_of with true
+    if not (calling archivum.copy_file with src, dst, true):
+        return calling err_of with "cannot copy web asset: {src}"
+    return calling ok_of with true
+
+## Copia un script al directorio de salida y devuelve su nombre base.
+##
+## ## Memoria
+## El nombre devuelto es owned.
+weave copy_script with src as string, outdir as string into result of string to string:
+    if not (calling archivum.is_file with src):
+        return calling err_of with "web script not found: {src}"
+    var base as string is calling compass.basename with src
+    defer banish base
+    var dst as string is "{outdir}/{base}"
+    defer banish dst
+    if not (calling archivum.copy_file with src, dst, true):
+        return calling err_of with "cannot copy web script: {src}"
+    return calling ok_of with (calling npool.copy_string with base)
+
+## Inyecta los tags de scripts en el HTML.
+##
+## ## Memoria
+## Devuelve el HTML owned; libera el original.
+weave inject_scripts with html as string, tags as string into result of string to string:
+    var existing as int is calling scrolls.index_of with html, tags
+    if existing >= 0:
+        return calling ok_of with (calling npool.copy_string with html)
+    var idx as int is calling scrolls.index_of with html, "</head>"
+    if idx < 0:
+        return calling ok_of with "{tags}\n{html}"
+    var before as string is calling html.get_substring with 0, idx
+    var after as string is calling html.get_substring with idx, (html length)
+    defer banish before
+    defer banish after
+    return calling ok_of with "{before}{tags}\n{after}"
+
+## Aplica `[web]` al artefacto.
+##
+## ## Retorno
+## `ok=true` si no había configuración o si todo se copió e inyectó.
+##
+## ## Errores
+## Path inválido, script/asset ausente, fallo de copia o HTML sin `</head>`
+## (en ese caso se inyecta al principio, que también carga antes del loader).
+##
+## ## Memoria
+## Consume el resultado el llamador.
+weave apply_web with man as ref to Manifest, artifact as string into result of bool to string:
+    if not (calling configured with man):
+        return calling ok_of with true
+    var outdir as string is calling compass.dirname with artifact
+    defer banish outdir
+    var webdir as string is "{man->base_dir}/{man->web_dir}"
+    defer banish webdir
+    var tags as string is ""
+    defer banish tags
+    for name in man->web_scripts:
+        var src as string is "{webdir}/{name}"
+        defer banish src
+        var cr as result of string to string is calling copy_script with src, outdir
+        if not cr.is_ok:
+            var msg as string is cr.error
+            return calling err_of with "{msg} (src={src})"
+        var safe as result of string to string is calling safe_src with cr.value
+        banish cr.value
+        if not safe.is_ok:
+            var smsg as string is safe.error
+            return calling err_of with smsg
+        set tags is "{tags}<script src=\"{man->web_base}{safe.value}\"></script>\n"
+        banish safe.value
+    for name in man->web_assets:
+        var src as string is "{webdir}/{name}"
+        defer banish src
+        var ar as result of bool to string is calling copy_asset with src, outdir
+        if not ar.is_ok:
+            var amsg as string is ar.error
+            return calling err_of with amsg
+    var htmlm as maybe string is calling archivum.read_text with artifact
+    if not htmlm.is_present:
+        return calling err_of with "cannot read web artifact: {artifact}"
+    var html as string is htmlm.value
+    defer banish html
+    var inj as result of string to string is calling inject_scripts with html, tags
+    if not inj.is_ok:
+        var imsg as string is inj.error
+        return calling err_of with imsg
+    if not (calling archivum.write_text with artifact, inj.value):
+        banish inj.value
+        return calling err_of with "cannot write web artifact: {artifact}"
+    banish inj.value
+    return calling ok_of with true

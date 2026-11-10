@@ -1,0 +1,225 @@
+## std/web/npm.pengu — puente controlado hacia paquetes NPM.
+##
+## Un bundle JavaScript (esbuild/Vite/Rollup) importa los paquetes NPM y expone
+## una fachada explícita en `globalThis.PenguNpm`. Este módulo la consume sin
+## `eval`, sin resolución de bare specifiers y sin exponer `window`.
+##
+## ## Ejemplo
+## ```pengu
+## import std.web.npm as npm
+##
+## weave main into int:
+##     var r as result of js.JsValue to js.JsError is calling npm.root
+##     if r.is_ok:
+##         var args as list of js.JsValue is list of js.JsValue
+##         var out as result of js.JsValue to js.JsError is calling npm.call with r.value, "ping", args
+##     return 0
+## ```
+##
+## ## Memoria
+## `root`, `get_path`, `call` y `call_json` devuelven handles owned. Liberar con
+## `js.release` cuando ya no se usen. Los argumentos son borrowed.
+
+import std.scrolls
+import std.web.js as js
+
+insignia psc_std_web_npm_
+
+## Nombre global por defecto de la fachada.
+##
+## El bundle debe asignar `globalThis.PenguNpm = { ... }`.
+const DEFAULT_ROOT as string is "PenguNpm"
+
+## `true` si `s` está vacío.
+##
+## ## Memoria
+## O(1).
+weave empty with s as string into bool:
+    return (s length) == 0
+
+## Obtiene la fachada global `PenguNpm`.
+##
+## ## Retorno
+## Handle owned del objeto fachada.
+##
+## ## Errores
+## `result.error` describe que la fachada no existe o no es un objeto utilizable.
+##
+## ## Memoria
+## El handle devuelto es owned.
+weave root into result of js.JsValue to js.JsError:
+    var g as js.JsValue is calling js.global
+    return calling js.get with g, DEFAULT_ROOT
+
+## `true` si la fachada global existe.
+##
+## ## Memoria
+## No retiene handles.
+weave has_root into bool:
+    var r as result of js.JsValue to js.JsError is calling root
+    if not r.is_ok:
+        var e as js.JsError is r.error
+        banish e.name
+        banish e.message
+        banish e.stack
+        return false
+    calling js.release with r.value
+    return true
+
+## Obtiene una propiedad por path con puntos (`"camera.takePhoto"`).
+##
+## ## Parámetros
+## - `path`: path no vacío; cada segmento es una propiedad del objeto anterior.
+##
+## ## Retorno
+## Handle owned del valor final.
+##
+## ## Errores
+## Path vacío, propiedad inexistente o valor no accesible.
+##
+## ## Memoria
+## El handle devuelto es owned.
+weave get_path with path as string into result of js.JsValue to js.JsError:
+    if calling empty with path:
+        return calling err_of with (with name is "NpmError", message is "empty path", stack is "")
+    var parts as list of string is calling scrolls.split with path, "."
+    defer banish parts
+    var cur as result of js.JsValue to js.JsError is calling root
+    if not cur.is_ok:
+        return cur
+    for key in parts:
+        if calling empty with key:
+            calling js.release with cur.value
+            return calling err_of with (with name is "NpmError", message is "empty path segment", stack is "")
+        var owned as string is "{key}"
+        var nxt as result of js.JsValue to js.JsError is calling js.get with cur.value, owned
+        banish owned
+        calling js.release with cur.value
+        if not nxt.is_ok:
+            return nxt
+        set cur is nxt
+    return cur
+
+## `true` si el path existe.
+##
+## ## Memoria
+## No retiene handles.
+weave has_path with path as string into bool:
+    var r as result of js.JsValue to js.JsError is calling get_path with path
+    if not r.is_ok:
+        var e as js.JsError is r.error
+        banish e.name
+        banish e.message
+        banish e.stack
+        return false
+    calling js.release with r.value
+    return true
+
+## Llama `target.method(args...)`.
+##
+## ## Parámetros
+## - `target`: objeto owned o borrowed; el llamador conserva su ownership.
+## - `method`: nombre del método; no se evalúa.
+## - `args`: argumentos JS; se pasan tal cual.
+##
+## ## Retorno
+## Handle owned del valor devuelto.
+##
+## ## Errores
+## Método inexistente, excepción JS o handle inválido.
+##
+## ## Memoria
+## El handle devuelto es owned. `args` no se libera.
+weave call with target as js.JsValue, method as string, args as list of js.JsValue into result of js.JsValue to js.JsError:
+    if calling empty with method:
+        return calling err_of with (with name is "NpmError", message is "empty method name", stack is "")
+    return calling js.call_method with target, method, args
+
+## Llama un método con un array JSON de argumentos.
+##
+## `args_json` debe ser un array JSON (`"[\\"a\\",1]"`). Un objeto se rechaza
+## para evitar ambigüedad: usa un array de un elemento.
+##
+## ## Errores
+## JSON inválido, resultado no array, método inexistente o excepción JS.
+##
+## ## Memoria
+## El handle devuelto es owned.
+weave call_json with target as js.JsValue, method as string, args_json as string into result of js.JsValue to js.JsError:
+    var ar as result of js.JsValue to js.JsError is calling js.parse_json with args_json
+    if not ar.is_ok:
+        return ar
+    var args as list of js.JsValue is list of js.JsValue
+    var lenr as result of int to js.JsError is calling js.length with ar.value
+    if not lenr.is_ok:
+        calling js.release with ar.value
+        return calling err_of with (with name is "NpmError", message is "arguments JSON must be an array", stack is "")
+    var i as int is 0
+    while i < lenr.value:
+        var ir as result of js.JsValue to js.JsError is calling js.get_index with ar.value, i
+        if not ir.is_ok:
+            calling js.release with ar.value
+            return ir
+        calling args.push with ir.value
+        set i is i + 1
+    calling js.release with ar.value
+    return calling call with target, method, args
+
+## Llama un método con argumentos JSON y devuelve el resultado como JSON.
+##
+## ## Retorno
+## String JSON owned.
+##
+## ## Memoria
+## El string devuelto es owned.
+weave call_json_text with target as js.JsValue, method as string, args_json as string into result of string to js.JsError:
+    var r as result of js.JsValue to js.JsError is calling call_json with target, method, args_json
+    if not r.is_ok:
+        return calling err_of with (with name is "NpmError", message is (calling error_message with r.error), stack is "")
+    var s as result of string to js.JsError is calling js.stringify_json with r.value
+    calling js.release with r.value
+    return s
+
+## Llama `target.method(args...)` y conecta la promesa resultante.
+##
+## `on_ok` recibe el valor resuelto (borrowed); `on_err` recibe el error
+## (borrowed). Ambos son punteros C sin capturas y se ejecutan una sola vez.
+##
+## ## Retorno
+## `true` si la promesa se conectó.
+##
+## ## Memoria
+## El handle de la promesa se libera aquí; los callbacks son del bridge.
+weave call_async with target as js.JsValue, method as string, args as list of js.JsValue, on_ok as weave with v as js.JsValue into void, on_err as weave with e as js.JsValue into void into result of bool to js.JsError:
+    var pr as result of js.JsValue to js.JsError is calling call with target, method, args
+    if not pr.is_ok:
+        return calling err_of with (with name is "NpmError", message is (calling error_message with pr.error), stack is "")
+    var tr as result of bool to js.JsError is calling js.promise_then with pr.value, on_ok, on_err
+    calling js.release with pr.value
+    return tr
+
+## `true` si el método existe en `target`.
+##
+## ## Memoria
+## No retiene handles.
+weave has_method with target as js.JsValue, method as string into bool:
+    var f as result of js.JsValue to js.JsError is calling js.get with target, method
+    if not f.is_ok:
+        var e as js.JsError is f.error
+        banish e.name
+        banish e.message
+        banish e.stack
+        return false
+    calling js.release with f.value
+    return true
+
+## Mensaje legible de un `JsError`, consumiéndolo.
+##
+## ## Memoria
+## Libera `e`; devuelve string owned.
+weave error_message with e as js.JsError into string:
+    var name as string is e.name
+    var message as string is e.message
+    var stack as string is e.stack
+    banish stack
+    return "{name}: {message}"

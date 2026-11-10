@@ -2,6 +2,19 @@
 
 All notable changes to PenguScript will be documented in this file.
 
+## [0.58.0] — 2026-11-10 — Puente NPM y assets web
+
+- Nuevo `std.web.npm`: acceso tipado a una fachada global `PenguNpm` expuesta
+  por un bundle del usuario (`root`, `get_path`, `call`, `call_json`,
+  `call_json_text`, `call_async`, `has_path`, `has_method`).
+- Nuevo `[web]` en `pengu.toml`: `dir`, `scripts`, `assets`, `base`. `psc build
+  --target wasm` copia scripts/assets al directorio de salida e inyecta los
+  `<script>` antes de `</head>`.
+- `std.web.npm.get_path` copia cada segmento antes de pasarlo al puente JS:
+  los segmentos de `scrolls.split` son views sin terminador NUL y se leían
+  como propiedades incorrectas.
+- Nuevo `docs/NPM.md` y `docs/NPM.es.md`; ejemplo `examples/npm` del compilador.
+
 ## [0.57.1] — 2026-11-09 — Poda de tipos genéricos en wasm
 
 ### Corregido

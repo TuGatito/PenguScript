@@ -24,6 +24,7 @@ import psc.os.proc as proc
 import psc.driver.paths as paths
 import psc.driver.target as targetmod
 import psc.driver.toolchain as toolchain
+import psc.driver.web_assets as web_assets
 import psc.pkg.manifest as pman
 import psc.pkg.resolve as presolve
 import psc.pkg.lock as plock
@@ -1732,7 +1733,14 @@ weave build with o as BuildOptions into BuildResult:
             calling paths.free_paths with (sigil of p)
             calling toolchain.free_toolchain with (sigil of tc)
             return with ok is false, error is (calling copy with "archiver failed"), artifact is "", bundle_path is "", is_wasm is false
-    if ck length > 0:
+    var web_ok as bool is true
+    var web_err as string is ""
+    if eff.is_wasm and out_kind == "exe":
+        var wr as result of bool to string is calling web_assets.apply_web with (sigil of man), artifact
+        if not wr.is_ok:
+            set web_ok is false
+            set web_err is wr.error
+    if ck length > 0 and web_ok:
         var storedx as bool is calling cache.put with ck, artifact
     banish ck
     banish cwd
@@ -1749,4 +1757,6 @@ weave build with o as BuildOptions into BuildResult:
     calling manifest.free_manifest with (sigil of man)
     calling paths.free_paths with (sigil of p)
     calling toolchain.free_toolchain with (sigil of tc)
+    if not web_ok:
+        return with ok is false, error is web_err, artifact is artifact, bundle_path is bundle, is_wasm is eff.is_wasm
     return with ok is true, error is "", artifact is artifact, bundle_path is bundle, is_wasm is eff.is_wasm

@@ -1,7 +1,7 @@
 # The Pengunic Manual
 
 How to write PenguScript that is safe, idiomatic and fast: the engineering
-manual for the language implemented by `psc` 0.57.1.
+manual for the language implemented by `psc` 0.58.0.
 
 It is the *practice* document of the documentation set:
 
@@ -331,7 +331,7 @@ binary. From a checkout:
 $ bash tools/build_bootstrap.sh     # builds build/psc-stage0 from the C bundle
 $ ./build/psc-stage0 build .        # self-hosts build/psc
 $ ./build/psc --version
-psc 0.57.1 (F13)
+psc 0.58.0 (F13)
 ```
 
 `build/psc` is the compiler you use from then on. `psc doctor` reports what it

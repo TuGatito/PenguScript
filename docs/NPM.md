@@ -1,0 +1,73 @@
+# NPM packages in PenguScript
+
+PenguScript does not download or evaluate NPM packages at build time. You keep
+your JavaScript toolchain, bundle the packages with esbuild/Vite/Rollup, expose a
+small explicit facade, and call it from PenguScript through `std.web.npm`.
+
+## 1. Bundle the facade
+
+```ts
+// web/npm.ts
+import { Capacitor } from "@capacitor/core";
+import { Device } from "@capacitor/device";
+
+globalThis.PenguNpm = {
+  capacitor: {
+    platform: () => Capacitor.getPlatform(),
+    native: () => Capacitor.isNativePlatform(),
+    available: (name: string) => Capacitor.isPluginAvailable(name),
+  },
+  plugins: { Device },
+};
+```
+
+```sh
+npx esbuild web/npm.ts --bundle --format=iife --platform=browser --outfile=web/npm.js
+```
+
+The bundle must assign a single global object. PenguScript never imports ESM
+directly: WASM cannot resolve NPM modules, and an explicit facade keeps the
+boundary typed and auditable.
+
+## 2. Declare the web assets
+
+```toml
+[web]
+dir = "web"
+scripts = ["npm.js"]
+base = ""
+# assets = ["logo.png", "fonts"]
+```
+
+`scripts` are copied next to the generated HTML and injected before `</head>`
+in order. `assets` copy files or directories. `base` is prepended to script
+`src` values, for example `"/static/"`.
+
+## 3. Call the facade
+
+```pengu
+import std.web.npm as npm
+import std.web.js as js
+
+weave main into int:
+    var r as result of js.JsValue to js.JsError is calling npm.root
+    if not r.is_ok:
+        return 1
+    var out as result of string to js.JsError is calling npm.call_json_text with r.value, "add", "[2,3]"
+    if out.is_ok:
+        calling spark.println with out.value
+    return 0
+```
+
+- `call` / `call_json` are synchronous.
+- `call_async` connects a Promise; callbacks receive borrowed `JsValue` handles.
+- `call_json_text` returns JSON text and turns bridge errors into a diagnostic.
+- All returned handles are owned and must be released exactly once.
+
+## 4. Safety rules
+
+- No `eval`, no dynamic `import()` from PenguScript; the facade is the only
+  boundary.
+- Never expose raw NPM objects to untrusted HTML. Validate arguments and results.
+- A browser page is not a native app: PWA APIs degrade (camera, notifications,
+  push). See `docs/CAPACITOR.md`.
