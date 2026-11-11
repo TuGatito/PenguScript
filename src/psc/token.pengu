@@ -218,6 +218,10 @@ omen KeywordKind:
     KwIn
     ## `include`
     KwInclude
+    ## `extern` (F2.3)
+    KwExtern
+    ## `regnum` (F2.3)
+    KwRegnum
     ## `insignia`
     KwInsignia
     ## `into`
@@ -396,6 +400,8 @@ weave keyword_table_new into KeywordTable:
     calling add_keyword with sigil of t, "import", KwImport
     calling add_keyword with sigil of t, "in", KwIn
     calling add_keyword with sigil of t, "include", KwInclude
+    calling add_keyword with sigil of t, "extern", KwExtern
+    calling add_keyword with sigil of t, "regnum", KwRegnum
     calling add_keyword with sigil of t, "insignia", KwInsignia
     calling add_keyword with sigil of t, "into", KwInto
     calling add_keyword with sigil of t, "is", KwIs

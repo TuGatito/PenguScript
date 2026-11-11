@@ -62,6 +62,8 @@ rune CgFunction:
     is_main as bool
     ## `NameId` del nombre C resuelto.
     c_name as int
+    ## `true` si se declaró dentro de `extern cpp:` (sin linkage C).
+    extern_cpp as bool
 
 ## Tipo declarado en un módulo.
 rune CgType:
@@ -353,7 +355,7 @@ weave add_function with p as ref to program.SemaProgram, c as ref to CgCatalog, 
             var cfi as types.SemaFnInfo is (p->types.fn_infos at cft.a)
             if cfi.return_type == (calling types.base with (sigil of p->types), "void"):
                 set rvoid is true
-    var f as CgFunction is with name is name, symbol is sid, node is node, module is m.id, is_declare is is_declare, is_antiquus is is_antiquus, is_method is false, recv_type is -1, self_value is false, is_ritual is false, tparams is tps, spec_args is vector of int, is_generic is tps.len > 0, ret_void is rvoid, is_spec is false, is_main is is_main, is_generated is false, c_name is cname
+    var f as CgFunction is with name is name, symbol is sid, node is node, module is m.id, is_declare is is_declare, is_antiquus is is_antiquus, is_method is false, recv_type is -1, self_value is false, is_ritual is false, tparams is tps, spec_args is vector of int, is_generic is tps.len > 0, ret_void is rvoid, is_spec is false, is_main is is_main, is_generated is false, c_name is cname, extern_cpp is false
     calling c->functions.push with f
     calling c->by_symbol.put with sid, idx
     if not (calling c->by_name.has with name):
@@ -697,7 +699,7 @@ weave add_method with p as ref to program.SemaProgram, c as ref to CgCatalog, m 
     if mtps.len > 0:
         set is_gen is true
     var idx as int is c->functions.len
-    var f as CgFunction is with name is name, symbol is sid, node is node, module is m.id, is_declare is false, is_antiquus is false, is_method is true, recv_type is recv, self_value is is_self_value, is_ritual is is_rit, tparams is mtps, spec_args is vector of int, is_generic is is_gen, ret_void is false, is_spec is false, is_main is is_main, is_generated is false, c_name is cname
+    var f as CgFunction is with name is name, symbol is sid, node is node, module is m.id, is_declare is false, is_antiquus is false, is_method is true, recv_type is recv, self_value is is_self_value, is_ritual is is_rit, tparams is mtps, spec_args is vector of int, is_generic is is_gen, ret_void is false, is_spec is false, is_main is is_main, is_generated is false, c_name is cname, extern_cpp is false
     calling c->functions.push with f
     calling c->by_symbol.put with sid, idx
     if not (calling c->by_name.has with name):
@@ -1063,6 +1065,51 @@ weave collect_top_node with p as ref to program.SemaProgram, c as ref to CgCatal
             if e >= 0:
                 calling collect_top_node with p, c, m, o, e
             set j is j + 1
+        return
+    if k == pskind.NodeKind.NdExternBlock:
+        # `extern c:` / `extern cpp:`: el hijo 0 marca el linkage; los
+        # `declare` de dentro heredan el `regnum` del bloque (si lo hay) como
+        # prefijo de su nombre C, y los de `extern cpp` no llevan `extern "C"`.
+        var ec as int is calling astutil.child_count with ast, node
+        var is_cpp as bool is false
+        var kk as int is calling astutil.node_child with ast, node, 0
+        if kk >= 0:
+            var kt as int is calling astutil.token_child with ast, kk, 0
+            if kt >= 0:
+                var ktxt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), kt
+                if ktxt == "cpp":
+                    set is_cpp is true
+                banish ktxt
+        var regnum as string is ""
+        var ei as int is 1
+        while ei < ec:
+            var e2 as int is calling astutil.node_child with ast, node, ei
+            if e2 >= 0:
+                var ek as pskind.NodeKind is calling astutil.kind_of with ast, e2
+                if ek == pskind.NodeKind.NdRegnumStmt:
+                    var rt as int is calling astutil.token_child with ast, e2, 0
+                    if rt >= 0:
+                        banish regnum
+                        set regnum is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), rt
+                else if ek == pskind.NodeKind.NdDeclareStmt:
+                    var before as int is c->functions.len
+                    calling add_function with p, c, m, e2, true, false
+                    if c->functions.len > before and is_cpp:
+                        var ff as CgFunction is (c->functions at before)
+                        var base as string is calling npool.text with (sigil of p->names), ff.c_name
+                        var full as string is base
+                        if regnum != "":
+                            set full is "{regnum}::{base}"
+                        banish ff.c_name
+                        set ff.c_name is calling npool.intern with (sigil of p->names), full
+                        set ff.extern_cpp is true
+                        set c->functions at before is ff
+                        banish base
+                        banish full
+                else if ek == pskind.NodeKind.NdIncludeStmt or ek == pskind.NodeKind.NdLinkStmt or ek == pskind.NodeKind.NdLdflagStmt:
+                    calling collect_top_node with p, c, m, o, e2
+            set ei is ei + 1
+        banish regnum
         return
     if k == pskind.NodeKind.NdWeaveDecl:
         calling add_function with p, c, m, node, false, false

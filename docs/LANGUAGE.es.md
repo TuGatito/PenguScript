@@ -1049,6 +1049,39 @@ directas de C. Los tipos deben coincidir exactamente con la cabecera. Un `...`
 final son varargs crudos de C (válido solo en `declare`). Toda función externa
 necesita un `declare`, o la llamada es `E0004`.
 
+### 6.4.1 `extern c:` y `extern cpp:`
+
+El dialecto agrupa las declaraciones externas en bloques que dicen el linkage
+(F2.3). `extern c:` es C; `extern cpp:` es C++ sin `extern "C"`.
+
+```pengu
+extern c:
+    declare abs with x as int into int
+
+extern cpp:
+    include "mylib.hpp"
+    regnum mylib
+    declare open with path as ref to frozen char into int
+```
+
+* **Backend C**: las declaraciones de `extern c:` se emiten como hasta ahora.
+  Un bloque `extern cpp:` no tiene traducción y el bundle emite
+  `#error "extern cpp: this module requires --backend=cpp"`, así que el fallo
+  dice qué hacer en vez de producir C inválido.
+* **Backend C++**: las declaraciones de `extern c:` (y los `declare` sueltos,
+  que siguen aceptándose hasta F2.5 por compatibilidad) se emiten dentro de
+  `extern "C" { … }`; las de `extern cpp:` se emiten tal cual.
+* **`regnum ns`** va dentro de `extern cpp:` y cualifica los `declare`
+  siguientes de ese bloque: `declare open …` con `regnum mylib` emite
+  `mylib::open(…)`. No crea el namespace — solo escribe el nombre cualificado,
+  así que el `include` debe declararlo. Fuera de `extern cpp:` es un error de
+  parseo.
+* `include` dentro de `extern cpp:` se emite como `#include "…"`. La forma
+  `<…>` (cabeceras de sistema de C++) todavía no la acepta el lexer.
+
+Los 168 `declare` sueltos del árbol siguen compilando: la forma agrupada es la
+que se escribe a partir de ahora.
+
 ### 6.5 Lambdas
 
 ```pengu-fragment

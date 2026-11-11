@@ -81,6 +81,8 @@ weave pdecl_parse_top_stmt with p as ref to PsParser into int:
 ## ## Memoria
 ## Construye el nodo de la declaración.
 weave pdecl_parse_top_inner with p as ref to PsParser, attrs as int into int:
+    if calling ps_check_kw with p, KwExtern:
+        return calling pdecl_parse_extern with p
     if calling ps_check_kw with p, KwImport:
         return calling pdecl_parse_import with p
     if calling ps_check_kw with p, KwInclude:
@@ -745,6 +747,73 @@ weave pdecl_parse_declare with p as ref to PsParser, attrs as int into int:
         calling ps_add_absent with p
     calling ps_finish_statement with p
     return calling ps_finish_node with p, NodeKind.NdDeclareStmt, start, (calling ps_previous_end with p), 0
+
+
+## Parsea un bloque `extern c:` / `extern cpp:`.
+##
+## ## Memoria
+## Crea un nodo `extern_block` con un hijo `extern_kind` y un hijo por
+## declaración de dentro.
+weave pdecl_parse_extern with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwExtern, "'extern'"
+    calling ps_begin_children with p
+    if calling ps_check_word with p, "cpp":
+        var icpp as int is p->pos
+        var tcpp as Token is calling ps_advance with p
+        calling ps_add_child with p, (calling ps_leaf_token with p, NodeKind.NdExternKind, icpp, tcpp.start, tcpp.end)
+    else if calling ps_check_word with p, "c":
+        var ic as int is p->pos
+        var tc as Token is calling ps_advance with p
+        calling ps_add_child with p, (calling ps_leaf_token with p, NodeKind.NdExternKind, ic, tc.start, tc.end)
+    else:
+        calling ps_emit_here with p, pdiag.ParseIssue.ParseUnexpectedToken, (calling pdecl_token_text with p)
+    var ignored2 as Token is calling ps_expect with p, TokColon, "':'"
+    var ignored3 as Token is calling ps_expect with p, TokNewline, "newline"
+    var ignored4 as Token is calling ps_expect with p, TokIndent, "indent"
+    var more as bool is true
+    while more:
+        calling ps_skip_newlines with p
+        if (calling ps_check with p, TokDedent) or (calling ps_check with p, TokEof):
+            set more is false
+        else:
+            var before as int is p->pos
+            var mattrs as int is calling pdecl_parse_attributes with p
+            if calling ps_check_kw with p, KwDeclare:
+                calling ps_add_child with p, (calling pdecl_parse_declare with p, mattrs)
+            else if calling ps_check_kw with p, KwInclude:
+                calling ps_add_child with p, (calling pdecl_parse_string_top with p, NodeKind.NdIncludeStmt)
+            else if calling ps_check_kw with p, KwLink:
+                calling ps_add_child with p, (calling pdecl_parse_string_top with p, NodeKind.NdLinkStmt)
+            else if calling ps_check_kw with p, KwLdflag:
+                calling ps_add_child with p, (calling pdecl_parse_string_top with p, NodeKind.NdLdflagStmt)
+            else if calling ps_check_kw with p, KwRegnum:
+                calling ps_add_child with p, (calling pdecl_parse_regnum with p)
+            else:
+                calling ps_emit_here with p, pdiag.ParseIssue.ParseUnexpectedToken, (calling pdecl_token_text with p)
+            if p->pos == before:
+                var forced as Token is calling ps_advance with p
+    if calling ps_check with p, TokDedent:
+        var ignored5 as Token is calling ps_advance with p
+    else:
+        calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedDedent, ""
+    return calling ps_finish_node with p, NodeKind.NdExternBlock, start, (calling ps_previous_end with p), 0
+
+## Parsea `regnum NAME` dentro de `extern cpp:`.
+##
+## ## Memoria
+## Crea un nodo `regnum_stmt`.
+weave pdecl_parse_regnum with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwRegnum, "'regnum'"
+    calling ps_begin_children with p
+    if calling ps_check with p, TokIdentifier:
+        calling ps_add_token with p, p->pos
+        var ignored2 as Token is calling ps_advance with p
+    else:
+        calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedName, ""
+    calling ps_finish_statement with p
+    return calling ps_finish_node with p, NodeKind.NdRegnumStmt, start, (calling ps_previous_end with p), 0
 
 ## Parsea `antiquus ...:` + cuerpo C.
 ##

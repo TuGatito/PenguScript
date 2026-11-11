@@ -419,7 +419,17 @@ weave generate_bundle_c with c as ref to context.CgContext, live_out as ref to v
         if (plive or f.is_declare) and (not f.is_generic or f.is_spec) and not f.is_antiquus and not f.is_generated and not skip_decl_proto and (not f.is_declare or not calling is_libc_name with c, f):
             var sig as string is calling funcgen.signature with c, f
             defer banish sig
-            calling emit.line with (sigil of c->emitter), "{sig};"
+            if f.is_declare and c->options.family != "cpp" and f.extern_cpp:
+                # `extern cpp` no tiene traducción a C: fallar al compilar con
+                # un mensaje que diga qué hacer, en vez de emitir C inválido.
+                calling emit.line with (sigil of c->emitter), "#error \"extern cpp: this module requires --backend=cpp\""
+            else if f.is_declare and c->options.family == "cpp" and not f.extern_cpp:
+                # Las funciones C conservan su linkage en C++.
+                calling emit.line with (sigil of c->emitter), "extern \"C\" {{"
+                calling emit.line with (sigil of c->emitter), "    {sig};"
+                calling emit.line with (sigil of c->emitter), "}}"
+            else:
+                calling emit.line with (sigil of c->emitter), "{sig};"
         set i is i + 1
     calling emit.blank with (sigil of c->emitter)
     # Cuerpos de lambdas.

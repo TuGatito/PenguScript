@@ -65,6 +65,12 @@ omen NodeKind:
     NdWhenTopDecl
     NdWhenTopElsePlain
     NdWhenTopElseWhen
+    ## Bloque `extern c:` / `extern cpp:` (F2.3).
+    NdExternBlock
+    ## Marca `c` / `cpp` dentro de `extern` (texto en el token).
+    NdExternKind
+    ## `regnum ns` dentro de `extern cpp:`.
+    NdRegnumStmt
 
     # --- Statements ---
     NdSetStmt
@@ -281,6 +287,9 @@ weave ps_node_kind_name with kind as NodeKind into string:
         when NdCyclusKw -> "cyclus_kw"
         when NdDeclareParams -> "declare_params"
         when NdDeclareStmt -> "declare_stmt"
+        when NdExternBlock -> "extern_block"
+        when NdExternKind -> "extern_kind"
+        when NdRegnumStmt -> "regnum_stmt"
         when NdDeferStmt -> "defer_stmt"
         when NdDefinedExpr -> "defined_expr"
         when NdDeriveClause -> "derive_clause"
