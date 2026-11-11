@@ -15,6 +15,7 @@ import psc.ast.kind as pskind
 import psc.sema.ast as astutil
 
 import psc.codegen.options as opts
+import psc.codegen.keywords as keywords
 import psc.codegen.names as names
 import psc.codegen.catalog as catalog
 import psc.codegen.emit as emit
@@ -425,48 +426,31 @@ weave clear_locals with c as ref to CgContext into void:
 ##
 ## PenguScript permite parámetros como `default` o `case`; emitirlos tal cual
 ## produce C inválido. La capa C les añade un sufijo `_` de forma consistente.
+## La tabla vive en `keywords.pengu` (sin dependencias) para poder testearla
+## sola.
 ##
 ## ## Memoria
 ## No asigna.
 weave is_c_keyword with s as string into bool:
-    if s == "auto" or s == "break" or s == "case" or s == "char" or s == "const" or s == "continue" or s == "default" or s == "do" or s == "double" or s == "else" or s == "enum" or s == "extern" or s == "float" or s == "for" or s == "goto" or s == "if" or s == "inline" or s == "int" or s == "long" or s == "register" or s == "restrict" or s == "return" or s == "short" or s == "signed" or s == "sizeof" or s == "static" or s == "struct" or s == "switch" or s == "typedef" or s == "union" or s == "unsigned" or s == "void" or s == "volatile" or s == "while" or s == "_Alignas" or s == "_Alignof" or s == "_Atomic" or s == "_Bool" or s == "_Complex" or s == "_Generic" or s == "_Imaginary" or s == "_Noreturn" or s == "_Static_assert" or s == "_Thread_local" or s == "bool" or s == "true" or s == "false":
-        return true
-    return false
+    return calling keywords.is_c_keyword with s
+
+## Nombre seguro para un identificador de PenguScript en la familia `family`
+## (`"c"` o `"cpp"`).
+##
+## Ver `keywords.mangle_ident`: sanea bytes no identificables y resuelve la
+## colisión con palabras reservadas (`_` en C, `_p` en C++).
+##
+## ## Memoria
+## Devuelve string owned.
+weave safe_name with s as string, family as string into string:
+    return calling keywords.mangle_ident with s, family
 
 ## Nombre C seguro para un identificador de PenguScript.
-##
-## Sustituye cualquier byte que no sea `[A-Za-z0-9_]` por `_` (los módulos
-## `.d.pengu` producen prefijos como `raylib.d_`) y añade `_` a las palabras
-## reservadas de C.
 ##
 ## ## Memoria
 ## Devuelve string owned.
 weave safe_c_name with s as string into string:
-    var needs as bool is calling is_c_keyword with s
-    var b as ref to frozen byte is bytes of s
-    var i as int is 0
-    while i < s length:
-        var c as int is ((b at i) to int)
-        if not ((c >= 48 and c <= 57) or (c >= 65 and c <= 90) or (c >= 97 and c <= 122) or c == 95):
-                set needs is true
-        set i is i + 1
-    if not needs:
-        return calling npool.copy_string with s
-    var sb as StringBuilder is calling StringBuilder.new
-    defer banish sb
-    set i is 0
-    while i < s length:
-        var c2 as int is ((b at i) to int)
-        if (c2 >= 48 and c2 <= 57) or (c2 >= 65 and c2 <= 90) or (c2 >= 97 and c2 <= 122) or c2 == 95:
-                var ch as string is s at i to (i + 1)
-                calling sb.append with ch
-                banish ch
-        else:
-                calling sb.append with "_"
-        set i is i + 1
-    if calling is_c_keyword with s:
-        calling sb.append with "_"
-    return calling sb.finish
+    return calling safe_name with s, "c"
 
 ## Abre un nivel de loop con su etiqueta ("" si no tiene).
 ##

@@ -1,0 +1,98 @@
+## psc/codegen/keywords.pengu — palabras reservadas del target y mangling.
+##
+## El emisor puede tener que publicar un identificador de PenguScript con un
+## nombre que el target acepta. Hoy conviven dos familias:
+##
+##   - `"c"`   → C11: una colisión con keyword de C toma el sufijo `_`;
+##   - `"cpp"` → C++20: la colisión toma el sufijo `_p` (docs/LANGUAGECPP.es.md
+##     §1.3) y además cuentan las keywords que C++ añade a las de C.
+##
+## Este módulo no importa nada del compilador: es la tabla pura, para que el
+## test unitario la cargue sin arrastrar sema/codegen.
+##
+## ## Memoria
+## Las funciones devuelven strings owned; liberar con `banish`.
+
+import std.builder
+
+insignia psc_codegen_keywords_
+
+## Copia un string.
+##
+## ## Memoria
+## Devuelve string owned.
+weave copy_text with s as string into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with s
+    return calling sb.finish
+
+## `true` si `s` es una palabra reservada de C11.
+##
+## PenguScript permite parámetros como `default` o `case`; emitirlos tal cual
+## produce C inválido. La capa C les añade un sufijo `_` de forma consistente.
+##
+## ## Memoria
+## No asigna.
+weave is_c_keyword with s as string into bool:
+    if s == "auto" or s == "break" or s == "case" or s == "char" or s == "const" or s == "continue" or s == "default" or s == "do" or s == "double" or s == "else" or s == "enum" or s == "extern" or s == "float" or s == "for" or s == "goto" or s == "if" or s == "inline" or s == "int" or s == "long" or s == "register" or s == "restrict" or s == "return" or s == "short" or s == "signed" or s == "sizeof" or s == "static" or s == "struct" or s == "switch" or s == "typedef" or s == "union" or s == "unsigned" or s == "void" or s == "volatile" or s == "while" or s == "_Alignas" or s == "_Alignof" or s == "_Atomic" or s == "_Bool" or s == "_Complex" or s == "_Generic" or s == "_Imaginary" or s == "_Noreturn" or s == "_Static_assert" or s == "_Thread_local" or s == "bool" or s == "true" or s == "false":
+        return true
+    return false
+
+## `true` si `s` es una palabra reservada de C++20.
+##
+## Incluye las de C (C++20 las hereda), las propias de C++20 (`concept`,
+## `consteval`, `co_await`, `requires`, `module`, `import`…) y los alias de
+## operador (`and`, `or`, `not`, `xor`…), que también son keywords.
+##
+## ## Memoria
+## No asigna.
+weave is_cpp_keyword with s as string into bool:
+    if calling is_c_keyword with s:
+        return true
+    if s == "alignas" or s == "alignof" or s == "and" or s == "and_eq" or s == "asm" or s == "bitand" or s == "bitor" or s == "catch" or s == "char8_t" or s == "char16_t" or s == "char32_t" or s == "class" or s == "co_await" or s == "co_return" or s == "co_yield" or s == "compl" or s == "concept" or s == "consteval" or s == "constexpr" or s == "constinit" or s == "const_cast" or s == "decltype" or s == "delete" or s == "dynamic_cast" or s == "explicit" or s == "export" or s == "friend" or s == "import" or s == "module" or s == "mutable" or s == "namespace" or s == "new" or s == "noexcept" or s == "not" or s == "not_eq" or s == "nullptr" or s == "operator" or s == "or" or s == "or_eq" or s == "private" or s == "protected" or s == "public" or s == "reinterpret_cast" or s == "requires" or s == "static_assert" or s == "static_cast" or s == "template" or s == "this" or s == "thread_local" or s == "throw" or s == "try" or s == "typeid" or s == "typename" or s == "using" or s == "virtual" or s == "wchar_t" or s == "xor" or s == "xor_eq":
+        return true
+    return false
+
+## Nombre seguro para el target indicado.
+##
+## Sustituye cualquier byte que no sea `[A-Za-z0-9_]` por `_` (los módulos
+## `.d.pengu` producen prefijos como `raylib.d_`) y, si el nombre choca con una
+## palabra reservada de la familia, añade `_` (C) o `_p` (C++).
+##
+## ## Memoria
+## Devuelve string owned; liberar con `banish`.
+weave mangle_ident with s as string, family as string into string:
+    var reserved as bool is false
+    if family == "cpp":
+        set reserved is calling is_cpp_keyword with s
+    else:
+        set reserved is calling is_c_keyword with s
+    var b as ref to frozen byte is bytes of s
+    var i as int is 0
+    var needs as bool is reserved
+    while i < s length:
+        var c as int is ((b at i) to int)
+        if not ((c >= 48 and c <= 57) or (c >= 65 and c <= 90) or (c >= 97 and c <= 122) or c == 95):
+            set needs is true
+        set i is i + 1
+    if not needs:
+        return calling copy_text with s
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    set i is 0
+    while i < s length:
+        var c2 as int is ((b at i) to int)
+        if (c2 >= 48 and c2 <= 57) or (c2 >= 65 and c2 <= 90) or (c2 >= 97 and c2 <= 122) or c2 == 95:
+            var ch as string is s at i to (i + 1)
+            calling sb.append with ch
+            banish ch
+        else:
+            calling sb.append with "_"
+        set i is i + 1
+    if reserved:
+        if family == "cpp":
+            calling sb.append with "_p"
+        else:
+            calling sb.append with "_"
+    return calling sb.finish

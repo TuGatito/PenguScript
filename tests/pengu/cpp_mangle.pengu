@@ -1,0 +1,85 @@
+## Test unitario de `psc.codegen.keywords`: mangling de palabras reservadas.
+##
+## Cubre la tabla C++20 que usa el backend `--backend=cpp` (F0.2 de la
+## migración): colisión → sufijo `_p`, y las keywords de C siguen colisionando.
+import std.spark
+import psc.codegen.keywords as kw
+
+## Compara y reporta.
+##
+## ## Memoria
+## Libera `got`.
+weave check with got as string, want as string, what as string into int:
+    var bad as bool is got != want
+    if bad:
+        calling spark.println with "FAIL cpp_mangle: {what}: got '{got}' want '{want}'"
+    banish got
+    if bad:
+        return 1
+    return 0
+
+## Casos del dialecto C++.
+##
+## ## Memoria
+## Libera los strings de `mangle_ident`.
+weave check_cpp into int:
+    if (calling check with (calling kw.mangle_ident with "class", "cpp"), "class_p", "class") != 0:
+        return 1
+    if (calling check with (calling kw.mangle_ident with "new", "cpp"), "new_p", "new") != 0:
+        return 1
+    if (calling check with (calling kw.mangle_ident with "module", "cpp"), "module_p", "module") != 0:
+        return 1
+    if (calling check with (calling kw.mangle_ident with "concept", "cpp"), "concept_p", "concept") != 0:
+        return 1
+    if (calling check with (calling kw.mangle_ident with "template", "cpp"), "template_p", "template") != 0:
+        return 1
+    if (calling check with (calling kw.mangle_ident with "public", "cpp"), "public_p", "public") != 0:
+        return 1
+    if (calling check with (calling kw.mangle_ident with "explicit", "cpp"), "explicit_p", "explicit") != 0:
+        return 1
+    if (calling check with (calling kw.mangle_ident with "operator", "cpp"), "operator_p", "operator") != 0:
+        return 1
+    if (calling check with (calling kw.mangle_ident with "requires", "cpp"), "requires_p", "requires") != 0:
+        return 1
+    if (calling check with (calling kw.mangle_ident with "co_await", "cpp"), "co_await_p", "co_await") != 0:
+        return 1
+    # Las keywords de C también son keywords de C++.
+    if (calling check with (calling kw.mangle_ident with "double", "cpp"), "double_p", "double") != 0:
+        return 1
+    if (calling check with (calling kw.mangle_ident with "case", "cpp"), "case_p", "case") != 0:
+        return 1
+    # Nombres que hoy usa el compilador y NO son keywords de C++: no se tocan.
+    if (calling check with (calling kw.mangle_ident with "span", "cpp"), "span", "span") != 0:
+        return 1
+    if (calling check with (calling kw.mangle_ident with "born", "cpp"), "born", "born") != 0:
+        return 1
+    if (calling check with (calling kw.mangle_ident with "vec", "cpp"), "vec", "vec") != 0:
+        return 1
+    return 0
+
+## Casos del dialecto C: el comportamiento actual no cambia.
+##
+## ## Memoria
+## Libera los strings de `mangle_ident`.
+weave check_c into int:
+    if (calling check with (calling kw.mangle_ident with "double", "c"), "double_", "c double") != 0:
+        return 1
+    if (calling check with (calling kw.mangle_ident with "case", "c"), "case_", "c case") != 0:
+        return 1
+    if (calling check with (calling kw.mangle_ident with "ok", "c"), "ok", "c ok") != 0:
+        return 1
+    if (calling check with (calling kw.mangle_ident with "class", "c"), "class", "c class") != 0:
+        return 1
+    if (calling check with (calling kw.mangle_ident with "raylib.d_x", "c"), "raylib_d_x", "c dotted") != 0:
+        return 1
+    if (calling check with (calling kw.mangle_ident with "raylib.d_x", "cpp"), "raylib_d_x", "cpp dotted") != 0:
+        return 1
+    return 0
+
+weave main into int:
+    if calling check_cpp != 0:
+        return 1
+    if calling check_c != 0:
+        return 1
+    calling spark.println with "OK cpp_mangle"
+    return 0

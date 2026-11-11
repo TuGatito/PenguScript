@@ -58,6 +58,7 @@ import psc.cmd.fmt as cmd_fmt
 import psc.cmd.doc as cmd_doc
 import psc.cmd.assets as cmd_assets
 import psc.cmd.dev as cmd_dev
+import psc.cmd.web as cmd_web
 
 
 ## Copia owned de un string.
@@ -106,7 +107,7 @@ weave dispatch with args as list of string into int:
         return gc
     var cmd as string is args at 1
     if cmd == "version" or cmd == "--version" or cmd == "-V":
-        calling spark.println with "psc 0.59.0 (F13)"
+        calling spark.println with "psc 0.60.0 (F13)"
         return 0
     if cmd == "help" or cmd == "--help" or cmd == "-h":
         if cmd == "help" and args.len >= 3:
@@ -182,6 +183,8 @@ weave dispatch with args as list of string into int:
         return calling cmd_doc.run_doc with args
     if cmd == "assets":
         return calling cmd_assets.run_assets with args
+    if cmd == "web":
+        return calling cmd_web.run with args
     if cmd == "benchmark":
         return calling cmd_dev.run_benchmark with args
     if cmd == "selftest":
@@ -620,6 +623,39 @@ weave run_emit_c with args as list of string into int:
             set cgp.line_markers is false
         else if a == "--strict-c99":
             set cgp.strict_c99 is true
+        else if a == "--backend":
+            if i + 1 >= args.len:
+                calling spark.eprintln with "psc emit-c: missing value for '--backend'"
+                calling sopts.free_options with (sigil of opts)
+                return 2
+            var bval as string is args at (i + 1)
+            var bfam as string is calling backend_family with bval
+            if bfam length == 0:
+                var bmsg as string is calling backend_error with "psc emit-c", bval
+                calling spark.eprintln with bmsg
+                banish bmsg
+                calling sopts.free_options with (sigil of opts)
+                return 2
+            if bfam == "cpp":
+                calling spark.eprintln with "psc emit-c: --backend=cpp is not implemented yet (phase F1 of the C++ migration); use --backend=c"
+                calling sopts.free_options with (sigil of opts)
+                return 2
+            set cgp.family is "c"
+            set i is i + 1
+        else if calling starts_with with a, "--backend=":
+            var bval2 as string is a at 10 to (a length)
+            var bfam2 as string is calling backend_family with bval2
+            if bfam2 length == 0:
+                var bmsg2 as string is calling backend_error with "psc emit-c", bval2
+                calling spark.eprintln with bmsg2
+                banish bmsg2
+                calling sopts.free_options with (sigil of opts)
+                return 2
+            if bfam2 == "cpp":
+                calling spark.eprintln with "psc emit-c: --backend=cpp is not implemented yet (phase F1 of the C++ migration); use --backend=c"
+                calling sopts.free_options with (sigil of opts)
+                return 2
+            set cgp.family is "c"
         else if a == "--release-unsafe":
             set cgp.release_unsafe is true
         else if a == "--debug":
@@ -894,7 +930,7 @@ weave starts_dash with s as string into bool:
 ## ## Memoria
 ## No asigna.
 weave print_help into void:
-    calling spark.println with "psc 0.59.0 — PenguScript compiler"
+    calling spark.println with "psc 0.60.0 — PenguScript compiler"
     calling spark.println with ""
     calling spark.println with "Usage:"
     calling spark.println with "  psc lex <file> [options]"
@@ -921,6 +957,7 @@ weave print_help into void:
     calling spark.println with "  psc fmt [PATHS] [options]"
     calling spark.println with "  psc doc [--output=DIR]"
     calling spark.println with "  psc assets [--list]"
+    calling spark.println with "  psc web bundle [TARGET] [--pwa]"
     calling spark.println with "  psc benchmark [options]"
     calling spark.println with "  psc selftest [args]"
     calling spark.println with "  psc tree [--json]"
@@ -957,6 +994,26 @@ weave print_check_help into void:
     calling spark.println with "  --deny-deprecated       treat W0006 as a failure"
     calling spark.println with "  --help"
 
+## Familia de backend a partir del texto de `--backend`.
+##
+## Acepta `c`, `cc` (alias) y `cpp`; `""` si el texto no es válido.
+##
+## ## Memoria
+## No asigna.
+weave backend_family with name as string into string:
+    if name == "c" or name == "cc":
+        return "c"
+    if name == "cpp":
+        return "cpp"
+    return ""
+
+## Mensaje de error para un `--backend` no válido.
+##
+## ## Memoria
+## Devuelve string owned.
+weave backend_error with tool as string, name as string into string:
+    return "{tool}: --backend must be 'c' or 'cpp' (got '{name}')"
+
 ## Ayuda de `emit-c`.
 ##
 ## ## Memoria
@@ -973,6 +1030,7 @@ weave print_emit_c_help into void:
     calling spark.println with "  --prune-native          prune unused includes/links"
     calling spark.println with "  --no-line-markers       omit #line directives"
     calling spark.println with "  --strict-c99            portable C99 (no GNU extensions)"
+    calling spark.println with "  --backend=c|cpp         target language family (default: c; cpp arrives in F1)"
     calling spark.println with "  --target-compiler=NAME  gcc|clang|tcc|msvc"
     calling spark.println with "  --target=TRIPLE|wasm    host or wasm32-unknown-emscripten"
     calling spark.println with "  -D NAME[=VALUE]         define for `when`"

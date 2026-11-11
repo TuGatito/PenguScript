@@ -45,6 +45,11 @@ rune BuildOptions:
     target_explicit as bool
     profile as string
     cc as string
+    ## Familia del backend de emisión: `"c"` (C11) o `"cpp"` (C++20).
+    ##
+    ## `--backend=c` es el defecto y el único que emite código hasta F1; el
+    ## valor se propaga a `CgOptions.family` y a la clave de caché.
+    family as string
     out_path as string
     verbose as bool
     strict_c99 as bool
@@ -358,6 +363,7 @@ weave compute_cache_key with o as ref to BuildOptions, man as ref to Manifest, p
     calling parts.push with (calling copy with tc->cc)
     calling parts.push with (calling copy with o->profile)
     calling parts.push with (calling copy with o->cc)
+    calling parts.push with (calling copy with o->family)
     calling parts.push with (calling copy with eff_output)
     calling parts.push with (calling copy with out_name)
     calling parts.push with (calling copy with man->output)
@@ -612,12 +618,37 @@ weave find_manifest_root with start as string into string:
         set i is i + 1
     return ""
 
+## Familia de backend a partir del texto de `--backend`.
+##
+## Acepta `c`, `cc` (alias) y `cpp`; devuelve `""` si el texto no es válido.
+## No asigna: devuelve una vista de un literal.
+weave backend_family with name as string into string:
+    if name == "c" or name == "cc":
+        return "c"
+    if name == "cpp":
+        return "cpp"
+    return ""
+
+## Mensaje de error para un backend no válido (owned).
+##
+## ## Memoria
+## Devuelve string owned.
+weave backend_error with tool as string, name as string into string:
+    return "{tool}: --backend must be 'c' or 'cpp' (got '{name}')"
+
+## Mensaje de error para un backend todavía no implementado (owned).
+##
+## ## Memoria
+## Devuelve string owned.
+weave backend_unavailable with tool as string into string:
+    return "{tool}: --backend=cpp is not implemented yet (phase F1 of the C++ migration); use --backend=c"
+
 ## Opciones por defecto.
 ##
 ## ## Memoria
 ## Strings owned; liberar con `free_options`.
 weave default_options into BuildOptions:
-    return with target is "", platform is (calling targetmod.host), target_explicit is false, profile is (calling copy with "debug"), cc is "", out_path is "", verbose is false, strict_c99 is false, lint_cow is false, lint_shadow is true, legacy_copy is false, release_unsafe is false, is_library is false, is_test is false, test_json is false, bundle_only is false, check_only is false, no_dce is false, prune_types is true, no_line_markers is false, prune_native is false, dce_scope_user is false, pch is false, compiler_path is "", no_cache is false, clear_cache is false, ephemeral is false, locked is false, frozen is false, force_exe is false, coverage is false, sanitize_kind is 0, split is false, jobs is 0, defines is list of string
+    return with target is "", platform is (calling targetmod.host), target_explicit is false, profile is (calling copy with "debug"), cc is "", family is (calling copy with "c"), out_path is "", verbose is false, strict_c99 is false, lint_cow is false, lint_shadow is true, legacy_copy is false, release_unsafe is false, is_library is false, is_test is false, test_json is false, bundle_only is false, check_only is false, no_dce is false, prune_types is true, no_line_markers is false, prune_native is false, dce_scope_user is false, pch is false, compiler_path is "", no_cache is false, clear_cache is false, ephemeral is false, locked is false, frozen is false, force_exe is false, coverage is false, sanitize_kind is 0, split is false, jobs is 0, defines is list of string
 
 ## Libera opciones.
 ##
@@ -627,6 +658,7 @@ weave free_options with o as ref to BuildOptions into void:
     banish o->target
     banish o->profile
     banish o->cc
+    banish o->family
     banish o->out_path
     banish o->compiler_path
     calling targetmod.free with (sigil of o->platform)
@@ -1303,6 +1335,7 @@ weave build with o as BuildOptions into BuildResult:
     set cgo.prune_native is o.prune_native
     set cgo.dce_scope_user is o.dce_scope_user
     set cgo.strict_c99 is o.strict_c99
+    set cgo.family is o.family
     set cgo.legacy_copy is o.legacy_copy
     set cgo.release_unsafe is o.release_unsafe
     set cgo.os_name is so.os_name
