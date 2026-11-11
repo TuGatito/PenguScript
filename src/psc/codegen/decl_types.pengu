@@ -211,6 +211,21 @@ weave is_generic_template with c as ref to context.CgContext, t as catalog.CgTyp
 weave emit_clone with c as ref to context.CgContext, t as catalog.CgType into void:
     var cname as string is calling type_name with c, t
     defer banish cname
+    var tyc as tk.SemaType is calling types.at with (sigil of c->program->types), t.type_id
+    var infoc as types.SemaNominalInfo is (c->program->types.nominal_infos at tyc.a)
+    if (infoc.flags & types.NIF_MIRROR) != 0:
+        # `born mirror` define la copia propia: el clon delega en `T.mirror`.
+        calling emit.line with (sigil of c->emitter), "{cname} {cname}_mirror(const {cname}* other);"
+    if (infoc.flags & types.NIF_DIE) != 0:
+        calling emit.line with (sigil of c->emitter), "void {cname}_die({cname}* self);"
+    if (infoc.flags & types.NIF_MIRROR) != 0:
+        calling emit.line with (sigil of c->emitter), "static inline void _pengu_clone_{cname}({cname}* out, const {cname}* v) {{"
+        calling emit.indent_more with (sigil of c->emitter)
+        calling emit.line with (sigil of c->emitter), "memset(out, 0, sizeof(*out));"
+        calling emit.line with (sigil of c->emitter), "*out = {cname}_mirror(v);"
+        calling emit.indent_less with (sigil of c->emitter)
+        calling emit.line with (sigil of c->emitter), "}"
+        return
     calling emit.line with (sigil of c->emitter), "static inline void _pengu_clone_{cname}({cname}* out, const {cname}* v) {"
     calling emit.indent_more with (sigil of c->emitter)
     calling drop.emit_clone_into with c, t.type_id, "(*out)", "(*v)", 0, true
@@ -273,8 +288,8 @@ weave emit_cleanup_forward with c as ref to context.CgContext, t as catalog.CgTy
     if not t.is_struct and not t.is_omen:
         return
     var ty as tk.SemaType is calling types.at with (sigil of c->program->types), t.type_id
+    var info2 as types.SemaNominalInfo is (c->program->types.nominal_infos at ty.a)
     if t.is_omen:
-        var info2 as types.SemaNominalInfo is (c->program->types.nominal_infos at ty.a)
         var hp as bool is false
         var pi as int is 0
         while pi < info2.variants_count:
@@ -340,6 +355,10 @@ weave emit_cleanup with c as ref to context.CgContext, t as catalog.CgType into 
     calling emit.line with (sigil of c->emitter), "static inline void _pengu_cleanup_{cname}({cname}* p) {"
     calling emit.indent_more with (sigil of c->emitter)
     calling emit.line with (sigil of c->emitter), "(void)p;"
+    if (info.flags & types.NIF_DIE) != 0:
+        # `weave die` corre antes de soltar los campos (el cuerpo ve los valores
+        # todavía válidos).
+        calling emit.line with (sigil of c->emitter), "{cname}_die(p);"
     # Orden inverso de declaración: los campos propios van tras los embeds, así
     # que esto libera primero lo último declarado y después los embeds en orden
     # inverso de `fundere` (como `defer` y como C++).

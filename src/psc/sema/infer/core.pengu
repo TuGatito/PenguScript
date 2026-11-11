@@ -1156,11 +1156,33 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
                     if alt != "":
                         var altid as int is calling types.base with s->types, alt
                         set sid is calling symbols.lookup_method with s->symbols, altid, mid
+            if sid < 0 and mname == "new":
+                # El dialecto llama `T.new` al constructor declarado con
+                # `weave born`; el símbolo conserva el nombre del fuente.
+                var bornid as int is calling npool.intern with s->names, "born"
+                set sid is calling symbols.lookup_method with s->symbols, recv_lookup, bornid
             if sid < 0:
                 var bm as int is calling builtin_method with s, rcp, mname, expected
                 if bm > 0:
                     calling infer_args_only with s, args
                     return bm
+        if sid < 0 and mname == "new":
+            # `mod.T.new` con `T` un constructor `weave born`: si la cadena no
+            # dejó resuelto el receptor (p. ej. el tipo no está en el scope del
+            # módulo), se resuelve por el nombre del tipo anterior al método.
+            # El símbolo conserva el nombre del fuente (`born`), así que el
+            # nombre de llamada `new` se traduce aquí.
+            var pnode as int is calling astutil.node_child with s->ast, target, n - 2
+            if pnode >= 0:
+                var ptok as int is calling astutil.token_child with s->ast, pnode, 0
+                if ptok >= 0:
+                    var ptxt as string is calling astutil.token_text with s->src, s->lex, ptok
+                    var ptid as int is calling symbols.lookup_type_name with s->symbols, ptxt
+                    if ptid > 0:
+                        var punder as int is calling underlying_type with s, ptid
+                        var bornid2 as int is calling npool.intern with s->names, "born"
+                        set sid is calling symbols.lookup_method with s->symbols, punder, bornid2
+                    banish ptxt
         if sid < 0:
             var ambty as int is calling underlying_type with s, rcp
             var ambty_t as tk.SemaType is calling types.at with s->types, ambty

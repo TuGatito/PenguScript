@@ -198,10 +198,15 @@ enchanting Arena:
     ## var a as Arena is calling Arena.new
     ## defer calling a.free
     ## ```
-    weave ritual new into Arena:
+    weave born:
         var blocks as vector of string is vector of string
         var sizes as vector of usize is vector of usize
-        return with _blocks is blocks, _block_sizes is sizes, _current_block is 0, _current_offset is 0, _block_size is ARENA_DEFAULT_BLOCK_SIZE, _total_allocated is 0
+        set self->_blocks is blocks
+        set self->_block_sizes is sizes
+        set self->_current_block is 0
+        set self->_current_offset is 0
+        set self->_block_size is ARENA_DEFAULT_BLOCK_SIZE
+        set self->_total_allocated is 0
 
     ## Creates an arena whose normal blocks are `bs` bytes.
     ##

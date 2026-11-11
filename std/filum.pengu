@@ -576,9 +576,11 @@ weave free_chan_int with c as ref to ChanInt into void:
 
 enchanting ChanInt:
     ## Creates an unbuffered channel of `int` values.
-    weave ritual new into ChanInt:
+    weave born:
         var p as opaque is calling pengu_c_filum_chan_new with (size of int) , 0
-        return with _ptr is p, buffered is false, cap is 0
+        set self->_ptr is p
+        set self->buffered is false
+        set self->cap is 0
 
     ## Creates a buffered channel of `int` values with capacity `cap`.
     weave ritual with_capacity with cap as int into ChanInt:
@@ -636,9 +638,11 @@ weave free_chan_string with c as ref to ChanString into void:
 
 enchanting ChanString:
     ## Creates an unbuffered channel of `string` values.
-    weave ritual new into ChanString:
+    weave born:
         var p as opaque is calling pengu_c_filum_chan_new with (size of string) , 0
-        return with _ptr is p, buffered is false, cap is 0
+        set self->_ptr is p
+        set self->buffered is false
+        set self->cap is 0
 
     ## Creates a buffered channel of `string` values with capacity `cap`.
     weave ritual with_capacity with cap as int into ChanString:
@@ -709,9 +713,11 @@ weave free_chan_float with c as ref to ChanFloat into void:
 
 enchanting ChanFloat:
     ## Creates an unbuffered channel of `float` values.
-    weave ritual new into ChanFloat:
+    weave born:
         var p as opaque is calling pengu_c_filum_chan_new with (size of float) , 0
-        return with _ptr is p, buffered is false, cap is 0
+        set self->_ptr is p
+        set self->buffered is false
+        set self->cap is 0
 
     ## Creates a buffered channel of `float` values with capacity `cap`.
     weave ritual with_capacity with cap as int into ChanFloat:
@@ -769,9 +775,11 @@ weave free_chan_bool with c as ref to ChanBool into void:
 
 enchanting ChanBool:
     ## Creates an unbuffered channel of `bool` values.
-    weave ritual new into ChanBool:
+    weave born:
         var p as opaque is calling pengu_c_filum_chan_new with (size of bool) , 0
-        return with _ptr is p, buffered is false, cap is 0
+        set self->_ptr is p
+        set self->buffered is false
+        set self->cap is 0
 
     ## Creates a buffered channel of `bool` values with capacity `cap`.
     weave ritual with_capacity with cap as int into ChanBool:

@@ -514,9 +514,11 @@ enchanting StringBuilder:
     ## var sb as StringBuilder is calling StringBuilder.new
     ## defer banish sb
     ## ```
-    weave ritual new into StringBuilder:
+    weave born:
         var b as string is calling _builder_alloc with BUILDER_DEFAULT_CAPACITY
-        return with _data is b, _len is 0, _cap is BUILDER_DEFAULT_CAPACITY
+        set self->_data is b
+        set self->_len is 0
+        set self->_cap is BUILDER_DEFAULT_CAPACITY
 
     ## Creates an empty builder with at least `cap` bytes reserved.
     ##

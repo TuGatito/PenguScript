@@ -141,8 +141,8 @@ enchanting Rc shard T:
     ##
     ## The compiler lowers this call to `pengu_rc_new` with the destructor and
     ## the deep copy of `T`, so the body below is only a type-check placeholder.
-    weave ritual new with value as T into Rc of T:
-        return with ptr is (transmute 0 to ref to void)
+    weave born with value as T into Rc of T:
+        set self->ptr is (transmute 0 to ref to void)
 
     ## The value, without handing out ownership.
     weave get into ref to frozen T:
@@ -180,8 +180,8 @@ enchanting Arc shard T:
     ##
     ## The compiler lowers this call to `pengu_arc_new` with the destructor and
     ## the deep copy of `T`; the body is a type-check placeholder.
-    weave ritual new with value as T into Arc of T:
-        return with ptr is (transmute 0 to ref to void)
+    weave born with value as T into Arc of T:
+        set self->ptr is (transmute 0 to ref to void)
 
     ## One more strong owner. This is the **only** way to copy an `Arc`.
     weave clone into Arc of T:

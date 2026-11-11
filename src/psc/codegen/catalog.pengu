@@ -589,6 +589,15 @@ weave add_method with p as ref to program.SemaProgram, c as ref to CgCatalog, m 
     else:
         set rname is "Type"
     var mname as string is calling npool.text with (sigil of p->names), name
+    # Miembros especiales del dialecto: `born` se llama `T.new` y `born mirror`
+    # se llama `T.mirror`; el nombre del fuente se conserva en el AST/símbolo
+    # para que la búsqueda de métodos siga funcionando, y el nombre C se
+    # normaliza aquí.
+    var is_born_name as bool is mname == "born"
+    var is_mirror_name as bool is mname == "mirror"
+    if is_born_name:
+        banish mname
+        set mname is calling npool.copy_string with "new"
     var full as string is "{rname}_{mname}"
     # Los métodos de contenedores concretos necesitan los argumentos de tipo en
     # el nombre C: `map of string to int` y `map of string to float` comparten
@@ -636,6 +645,10 @@ weave add_method with p as ref to program.SemaProgram, c as ref to CgCatalog, m 
                     set is_rit is true
                 banish atxt
         set ai is ai + 1
+    if is_born_name or is_mirror_name:
+        # `born`/`born mirror` son constructores: sin `self` de entrada, lo
+        # reciben del almacenamiento que emite `function.pengu`.
+        set is_rit is true
     var tps as vector of int is vector of int
     var ai2 as int is 0
     var an2 as int is calling astutil.child_count with ast, node

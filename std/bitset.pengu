@@ -169,12 +169,14 @@ enchanting BitSet:
     ## var bs as BitSet is calling BitSet.new with 64
     ## defer banish bs
     ## ```
-    weave ritual new with bit_len as int into BitSet:
+    weave born with bit_len as int:
         if bit_len < 0:
             calling spark.panic with "BitSet.new: negative bit length"
         var nbytes as int is (bit_len + 7) / 8
         var data as string is calling _bitset_alloc with nbytes
-        return with _data is data, _bit_len is bit_len, _byte_len is nbytes
+        set self->_data is data
+        set self->_bit_len is bit_len
+        set self->_byte_len is nbytes
 
     ## Creates a bitset of `bit_len` bits with every useful bit set to one.
     ##

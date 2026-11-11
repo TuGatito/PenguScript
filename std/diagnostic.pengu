@@ -544,8 +544,13 @@ enchanting DiagnosticBag:
     ##
     ## ## Memoria
     ## O(1); release it with `banish`.
-    weave ritual new into DiagnosticBag:
-        return with items is vector of Diagnostic, error_count is 0, warning_count is 0, info_count is 0, hint_count is 0, _sources is map of string, string
+    weave born:
+        set self->items is vector of Diagnostic
+        set self->error_count is 0
+        set self->warning_count is 0
+        set self->info_count is 0
+        set self->hint_count is 0
+        set self->_sources is map of string, string
 
     ## Adds a diagnostic, taking ownership of it.
     ##

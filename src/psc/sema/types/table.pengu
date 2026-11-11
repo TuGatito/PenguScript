@@ -185,6 +185,12 @@ const NIF_SHARED as int is 1 << 8
 const NIF_JSON as int is 1 << 9
 ## La runa declaró `derive Drop`: se destruye al salir del scope y no se copia.
 const NIF_DROP as int is 1 << 10
+## El tipo declaró `weave born` (constructor con `self`).
+const NIF_BORN as int is 1 << 11
+## El tipo declaró `weave born mirror` (copia propia: `_pengu_clone_T`).
+const NIF_MIRROR as int is 1 << 12
+## El tipo declaró `weave die` (destructor propio: corre antes de soltar campos).
+const NIF_DIE as int is 1 << 13
 
 const FIELD_READONLY as int is 1 << 0
 const FIELD_PRIVATE as int is 1 << 1

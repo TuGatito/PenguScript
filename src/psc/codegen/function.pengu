@@ -408,6 +408,27 @@ weave emit_function with c as ref to context.CgContext, f as catalog.CgFunction 
     set c->current_fn is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), f.c_name)
     calling context.clear_locals with c
     calling context.clear_scopes with c
+    # `born`/`ritual`: el constructor no recibe `self`; lo recibe como
+    # almacenamiento local que se devuelve al final. Sin esto, `set self->campo`
+    # dentro de un ritual emitía `self->campo` sin declarar `self`.
+    var self_ritual as bool is false
+    # Sólo los constructores (retorno = receptor) reciben `self` por
+    # almacenamiento: un `ritual` que devuelve otra cosa (p. ej. un
+    # `result of T to E`) construye el valor y lo devuelve explícitamente.
+    var rct0 as int is f.recv_type
+    var is_ctor as bool is f.is_ritual and f.is_method and (f.is_spec or info.return_type == f.recv_type)
+    if f.is_spec and is_ctor:
+        set rct0 is calling generics.receiver_type_of with c, f
+    if is_ctor:
+        var rctn as string is calling ctype.c_type with (sigil of c->names), rct0
+        defer banish rctn
+        if c->options.family == "cpp":
+            calling emit.line with (sigil of c->emitter), "{rctn} _pengu_self{{}};"
+        else:
+            calling emit.line with (sigil of c->emitter), "{rctn} _pengu_self = {{0}};"
+        calling emit.line with (sigil of c->emitter), "{rctn}* self = &_pengu_self;"
+        calling emit.line with (sigil of c->emitter), "(void)self;"
+        set self_ritual is true
     # Parámetros locales.
     var fixed as int is info.params_count
     if fixed > 0:
@@ -466,6 +487,8 @@ weave emit_function with c as ref to context.CgContext, f as catalog.CgFunction 
             calling stmtgen.emit_stmt with c, b
         set bi is bi + 1
     calling stmtgen.end_scope with c
+    if self_ritual:
+        calling emit.line with (sigil of c->emitter), "return _pengu_self;"
     calling emit.indent_less with (sigil of c->emitter)
     calling emit.line with (sigil of c->emitter), "}"
     calling emit.blank with (sigil of c->emitter)

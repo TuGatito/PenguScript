@@ -1866,9 +1866,9 @@ enchanting Stopwatch:
     ## ```pengu
     ## var sw as chronicle.Stopwatch is calling chronicle.Stopwatch.new
     ## ```
-    weave ritual new into Stopwatch:
+    weave born:
         let t as float is calling monotonic
-        return with started_at is t
+        set self->started_at is t
 
     ## Returns elapsed seconds since stopwatch was created or reset.
     ##

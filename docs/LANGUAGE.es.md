@@ -76,6 +76,7 @@ English: [LANGUAGE.md](LANGUAGE.md).
   - [9.7 `derive`](#97-derive)
   - [9.7.1 `derive Json`](#971-derive-json)
   - [9.8 Constructores `with:`](#98-constructores-with)
+  - [9.8.1 Miembros especiales: `born`, `born mirror` y `die`](#981-miembros-especiales-born-born-mirror-y-die)
 - [10. Métodos y conceptos](#10-métodos-y-conceptos)
   - [10.1 `enchanting` — métodos sobre un tipo](#101-enchanting-métodos-sobre-un-tipo)
   - [10.2 `@mutates`](#102-mutates)
@@ -1429,9 +1430,11 @@ mutable fluye hacia `frozen`; lo contrario no compila.
 > **Estado (F2):** `derive` está en retirada. `Par`, `Ordo`, `Nexus`, `Imago`,
 > `Vinculum` y `Donum` **ya no se derivan**: sus efectos son implícitos, y
 > escribir el concepto da `E0005` con el sustituto exacto. `Json` sigue
-> aceptándose hasta F5 (es el único códec hasta entonces) y `Drop` hasta F2.3
-> (lo sustituyen `born mirror`/`die`). `psc migrate --drop-derive` reescribe
-> las cláusulas del árbol.
+> aceptándose hasta F5 (es el único códec hasta entonces) y `Drop` hasta F5
+> en las cuatro runas de `std.consortium` (`Rc`/`Arc`/`WeakRc`/`WeakArc`, que
+> esperan a `shared`/`weak` en F3); el resto de `derive Drop` ya se escribe
+> `weave born mirror`/`weave die` (§9.8.1). `psc migrate --drop-derive`
+> reescribe las cláusulas del árbol.
 
 ```pengu
 rune Point:              # antes: rune Point derive Par, Ordo, Vinculum, Imago:
@@ -1616,6 +1619,45 @@ destino (`E0014`); `if`, `var`, `defer` y `banish` se rechazan. La mutabilidad
 sigue al binding: `let p with:` construye una vez y congela el nombre; `with
 let_ptr:` donde `let_ptr as ref to T` sigue siendo mutable porque lo apuntado lo
 es.
+
+### 9.8.1 Miembros especiales: `born`, `born mirror` y `die`
+
+Dentro de `enchanting` se declaran tres miembros especiales. Los tres se
+escriben como `weave` y no llevan nombre de método propio: su nombre es fijo.
+
+```pengu
+rune Buffer:
+    data as string
+    size as int
+
+enchanting Buffer:
+    weave born with cap as int:              # constructor: escribe en `self`
+        set self->data is ""
+        set self->size is cap
+
+    weave born mirror with other as ref to frozen Buffer:   # copia propia
+        set self->data is other->data
+        set self->size is other->size
+
+    weave die:                               # destructor
+        set self->size is 0
+```
+
+- **`weave born`** es el constructor: el emisor reserva el valor, declara
+  `self` como puntero a él y la función devuelve el valor construido. Se llama
+  con `calling Buffer.new with 10` — `new` es el nombre de llamada, aunque el
+  fuente diga `born`. Un `born` que no inicializa algún campo lo deja a cero.
+- **`weave born mirror`** es la copia propia: la usa `_pengu_clone_<T>` en vez
+  de copiar campo a campo. Se llama con `calling Buffer.mirror with b`.
+- **`weave die`** es el destructor: `_pengu_cleanup_<T>` lo ejecuta **antes** de
+  soltar los campos, así que dentro de `die` los campos aún son válidos. Un
+  tipo con `die` es *move-only* (no se copia, se mueve), como el antiguo
+  `derive Drop`; se libera con `banish`.
+
+`weave born mirror` se parsea como el modificador `born` seguido del nombre
+`mirror`, de modo que `mirror` conserva su propio símbolo y sus parámetros se
+resuelven igual que en cualquier método. Un `weave mirror` **sin** `born` es un
+método normal llamado `mirror`: no lo usa el clon.
 
 ### 9.9 `fundere` — composición
 
@@ -2147,8 +2189,8 @@ búfer.
 Sin GC, sin borrow checker. Desde 0.52 hay tres capas sobre el modelo manual, y
 cada una es opt-in o se ve en el tipo:
 
-* **Capa 1 — `derive Drop`**: la runa se destruye al salir del scope, en todos
-  los caminos, y es move-only (§13.9).
+* **Capa 1 — `weave die`** (antes `derive Drop`): la runa se destruye al salir
+  del scope, en todos los caminos, y es move-only (§9.8.1, §13.9).
 * **Capa 2 — `std.consortium`**: `Rc`/`Arc`/`Weak` añaden conteo de referencias
   cuando varios dueños deben sobrevivirse (§13.11).
 * **Capa 3 — contenedores copy-on-write**: copiar un `string`/`list`/`map` es

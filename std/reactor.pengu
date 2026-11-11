@@ -107,11 +107,20 @@ enchanting EventLoop:
 
     ## Creates a loop. `workers` is the size of the offload pool (0 = CPU count).
     ## The loop belongs to the thread that creates it.
-    weave ritual new with workers as int is 0 into EventLoop:
+    weave born with workers as int is 0:
         var h as ref to void is calling pengu_c_reactor_new with workers
         if h == null:
             calling spark.panic with "reactor: could not create the event loop"
-        return with _handle is h, tasks is vector of Task, timers is vector of Timer, jobs is vector of Job, aux is null, aux_free is null, next_token is 1, stopped is false, running is false, closed is false
+        set self->_handle is h
+        set self->tasks is vector of Task
+        set self->timers is vector of Timer
+        set self->jobs is vector of Job
+        set self->aux is null
+        set self->aux_free is null
+        set self->next_token is 1
+        set self->stopped is false
+        set self->running is false
+        set self->closed is false
 
     ## Stops the loop after the current resume. Cooperative: call it from a task.
     weave stop into void:

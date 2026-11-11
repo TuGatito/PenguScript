@@ -261,9 +261,13 @@ int32_t pengu_main(void) {
 
 #line 144 "std/consortium.pengu"
 Rc Rc_new_inst104(Node value) {
+    Rc _pengu_self = {0};
+    Rc* self = &_pengu_self;
+    (void)self;
     (void)value;
     #line 145 "std/consortium.pengu"
-    return (Rc){.ptr = __extension__(({ int32_t _tm = 0; void* _td; pengu_transmute_copy(&_td, &_tm, sizeof(_td), sizeof(_tm)); _td; }))};
+    self->ptr = __extension__(({ int32_t _tm = 0; void* _td; pengu_transmute_copy(&_td, &_tm, sizeof(_td), sizeof(_tm)); _td; }));
+    return _pengu_self;
 }
 
 #line 163 "std/consortium.pengu"
@@ -274,9 +278,13 @@ int32_t Rc_strong_count_inst108(Rc* self) {
 
 #line 183 "std/consortium.pengu"
 Arc Arc_new_inst112(Node value) {
+    Arc _pengu_self = {0};
+    Arc* self = &_pengu_self;
+    (void)self;
     (void)value;
     #line 184 "std/consortium.pengu"
-    return (Arc){.ptr = __extension__(({ int32_t _tm = 0; void* _td; pengu_transmute_copy(&_td, &_tm, sizeof(_td), sizeof(_tm)); _td; }))};
+    self->ptr = __extension__(({ int32_t _tm = 0; void* _td; pengu_transmute_copy(&_td, &_tm, sizeof(_td), sizeof(_tm)); _td; }));
+    return _pengu_self;
 }
 
 #line 187 "std/consortium.pengu"

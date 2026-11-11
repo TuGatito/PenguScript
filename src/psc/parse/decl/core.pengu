@@ -647,6 +647,17 @@ weave pdecl_parse_weave with p as ref to PsParser, attrs as int into int:
     calling pdecl_parse_modifiers_into with p
     var ignored as Token is calling ps_expect_kw with p, KwWeave, "'weave'"
     calling pdecl_parse_modifiers_into with p
+    # `weave born mirror with ...`: `born` pasa a modificador (el nombre es
+    # `mirror`) para que el layout del nodo —y por tanto la búsqueda de los
+    # parámetros en el sema— sea el mismo que con `ritual`.
+    if calling ps_check_word with p, "born":
+        var after as Token is calling ps_peek_at with p, 1
+        if after.kind == TokIdentifier:
+            var startb as int is calling ps_current_start with p
+            var tib as int is p->pos
+            var ignoredb as Token is calling ps_advance with p
+            var modb as int is calling ps_leaf_token with p, NodeKind.NdWeaveModifier, tib, startb, (calling ps_previous_end with p)
+            calling ps_add_child with p, modb
     calling pdecl_add_name_token with p
     if calling ps_check_kw with p, KwShard:
         calling ps_add_child with p, (calling ptypes.ptype_parse_shard_params with p)

@@ -71,10 +71,14 @@ int32_t pengu_main(void);
 
 #line 7 "tests/golden_c/g06_rune.pengu"
 Point Point_make(int32_t x, int32_t y) {
+    Point _pengu_self = {0};
+    Point* self = &_pengu_self;
+    (void)self;
     (void)x;
     (void)y;
     #line 8 "tests/golden_c/g06_rune.pengu"
     return (Point){.x = x, .y = y};
+    return _pengu_self;
 }
 
 #line 10 "tests/golden_c/g06_rune.pengu"
