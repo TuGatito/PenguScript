@@ -70,6 +70,14 @@ jobs:
         run: |
           CXX="$(command -v g++ || command -v clang++)" bash ./tests/cpp_backend/run.sh
 
+      - name: C++ stage0 bundles reproducible
+        shell: bash
+        # F1: los tres bundles C++ (linux/macos/windows) se generan igual y son
+        # ISO C++20 en los targets que no necesitan SDK de Windows.  No se
+        # commitean todavía (repo size); el bootstrap canónico sigue siendo C.
+        run: |
+          CXX="$(command -v g++ || command -v clang++)" bash ./tests/cpp_backend/run.sh --stage0
+
       - name: C++ backend link + self-host suite
         shell: bash
         # F1: the C++ bundle must not only compile: it must link against the C
