@@ -38,6 +38,15 @@ import psc.codegen.generics as generics
 import psc.codegen.drop as drop
 import psc.codegen.eq as eqgen
 
+## `true` si el nodo es un l-valor (variable, `self`, acceso o campo).
+##
+## Un l-valor se puede pasar por `&(...)`; un literal o una llamada no.
+weave is_lvalue_node with ast as ref to PsAst, nid as int into bool:
+    if nid < 0:
+        return false
+    var n as PsNode is ast->nodes at nid
+    return n.kind == NodeKind.NdVarRef or n.kind == NodeKind.NdSelfRef or n.kind == NodeKind.NdAtAccess or n.kind == NodeKind.NdDotAccess or n.kind == NodeKind.NdFieldAccess
+
 insignia psc_codegen_expr_
 
 ## Tipo anotado de un nodo.
@@ -323,6 +332,21 @@ weave emit_expr with c as ref to context.CgContext, node as int into string:
         var rg as int is calling astutil.node_child with ast, node, 1
         var bs0 as string is calling emit_expr with c, sb0
         defer banish bs0
+        # Un receptor que no es un l-valor (`[1, 2, 3] at 0 to 2`) no puede
+        # pasarse por `&(...)`: se materializa en un temporal.
+        var slv as bool is calling is_lvalue_node with ast, sb0
+        var srt as string is calling copy_text with bs0
+        var sdecl as string is ""
+        if not slv:
+            var slty as int is calling node_type with c, sb0
+            if slty >= 0:
+                var slct as string is calling ctype.c_type with (sigil of c->names), slty
+                var sltmp as string is calling emit.temp with (sigil of c->emitter), "_pr"
+                banish srt
+                set srt is sltmp
+                set sdecl is "{slct} {sltmp} = {bs0}; "
+                banish slct
+        var r as string is ""
         if rg >= 0:
             var lo0 as int is calling astutil.node_child with ast, rg, 0
             var hi0 as int is calling astutil.node_child with ast, rg, 1
@@ -340,34 +364,42 @@ weave emit_expr with c as ref to context.CgContext, node as int into string:
                         # C++ exige los designadores en orden de declaracion:
                         # PenguSlice es { data, len, elem_size }.
                         calling asb0.append with "PenguSlice{.data = (void*)(&("
-                        calling asb0.append with bs0
+                        calling asb0.append with srt
                         calling asb0.append with ")[0]), .len = (int)(("
                         calling asb0.append with hit
                         calling asb0.append with ") - ("
                         calling asb0.append with lot
                         calling asb0.append with ")), .elem_size = sizeof("
-                        calling asb0.append with bs0
+                        calling asb0.append with srt
                         calling asb0.append with "[0])}"
-                        return calling asb0.finish
-                    calling asb0.append with "(PenguSlice){.data = (void*)(&("
-                    calling asb0.append with bs0
-                    calling asb0.append with ")[0]), .elem_size = sizeof("
-                    calling asb0.append with bs0
-                    calling asb0.append with "[0]), .len = (int)(("
-                    calling asb0.append with hit
-                    calling asb0.append with ") - ("
-                    calling asb0.append with lot
-                    calling asb0.append with "))}"
-                    return calling asb0.finish
-                if btx.kind == tk.SemaTypeKind.TkSlice:
-                    return "pengu_slice_sub(&({bs0}), (int)({lot}), (int)({hit}))"
-                if btx.kind == tk.SemaTypeKind.TkList:
+                        set r is calling asb0.finish
+                    else:
+                        calling asb0.append with "(PenguSlice){.data = (void*)(&("
+                        calling asb0.append with srt
+                        calling asb0.append with ")[0]), .elem_size = sizeof("
+                        calling asb0.append with srt
+                        calling asb0.append with "[0]), .len = (int)(("
+                        calling asb0.append with hit
+                        calling asb0.append with ") - ("
+                        calling asb0.append with lot
+                        calling asb0.append with "))}"
+                        set r is calling asb0.finish
+                else if btx.kind == tk.SemaTypeKind.TkSlice:
+                    set r is "pengu_slice_sub(&({srt}), (int)({lot}), (int)({hit}))"
+                else if btx.kind == tk.SemaTypeKind.TkList:
                     var let0 as string is calling ctype.c_type with (sigil of c->names), btx.a
-                    var lret as string is "pengu_slice_new(pengu_list_at(&({bs0}), (int)({lot})), sizeof({let0}), (int)(({hit}) - ({lot})))"
+                    set r is "pengu_slice_new(pengu_list_at(&({srt}), (int)({lot})), sizeof({let0}), (int)(({hit}) - ({lot})))"
                     banish let0
-                    return lret
-            return "pengu_string_substring({bs0}, (int)({lot}), (int)({hit}))"
-        return bs0
+                else:
+                    set r is "pengu_string_substring({bs0}, (int)({lot}), (int)({hit}))"
+        if r.len == 0:
+            set r is calling copy_text with bs0
+        if sdecl.len > 0:
+            var w as string is "__extension__(({{ {sdecl}{r}; }}))"
+            banish r
+            set r is w
+        banish srt
+        return r
     if k == pskind.NodeKind.NdLambdaExpr or k == pskind.NodeKind.NdLambdaNoParams:
         return "_pengu_lambda_{c->current_module}_{node}"
     if k == pskind.NodeKind.NdIsPresent or k == pskind.NodeKind.NdIsNotPresent:
@@ -1597,10 +1629,19 @@ weave binary_expr with c as ref to context.CgContext, node as int, ast as ref to
             return "(!pengu_string_equal({l}, {r}))"
         if lt0 >= 0:
             var lt1x as tk.SemaType is calling types.at with (sigil of c->program->types), lt0
-            if lt1x.kind == tk.SemaTypeKind.TkRune or lt1x.kind == tk.SemaTypeKind.TkEcho or (lt1x.kind == tk.SemaTypeKind.TkOmen and calling omen_has_layout with c, lt0):
+            var eqk as tk.SemaTypeKind is lt1x.kind
+            var eqid as int is lt0
+            while eqk == tk.SemaTypeKind.TkAlias or eqk == tk.SemaTypeKind.TkSeal:
+                set eqid is lt1x.b
+                if eqid < 0:
+                    break
+                set lt1x is calling types.at with (sigil of c->program->types), eqid
+                set eqk is lt1x.kind
+            var wants_eq as bool is eqk == tk.SemaTypeKind.TkList or eqk == tk.SemaTypeKind.TkSlice or eqk == tk.SemaTypeKind.TkMap or eqk == tk.SemaTypeKind.TkMaybe or eqk == tk.SemaTypeKind.TkResult or eqk == tk.SemaTypeKind.TkArray
+            if wants_eq or lt1x.kind == tk.SemaTypeKind.TkRune or lt1x.kind == tk.SemaTypeKind.TkEcho or (lt1x.kind == tk.SemaTypeKind.TkOmen and calling omen_has_layout with c, lt0):
                 # Igualdad estructural campo a campo (`_pengu_eq_T`): comparar
                 # bytes compararía las direcciones de los campos string/lista.
-                var eqe as string is calling eqgen.eq_expr with c, lt0, "({l})", "({r})"
+                var eqe as string is calling eqgen.eq_expr with c, eqid, "({l})", "({r})"
                 if op == "==":
                     return eqe
                 var nege as string is "(!{eqe})"

@@ -59,7 +59,9 @@ weave eq_expr with c as ref to context.CgContext, ty as int, a as string, b as s
         var an as int is t.b
         if an < 0:
             set an is 0
-        return "pengu_array_equal(&({a}), &({b}), {an}, sizeof({ect}), _pengu_eqv_{t.a})"
+        # El tipo C de `array of T with size N` decae a `T*`, así que se pasa
+        # el valor (no su dirección): `&(a)` sería `T**`.
+        return "pengu_array_equal(({a}), ({b}), {an}, sizeof({ect}), _pengu_eqv_{t.a})"
     if t.kind == tk.SemaTypeKind.TkList:
         return "pengu_list_equal(&({a}), &({b}), _pengu_eqv_{t.a})"
     if t.kind == tk.SemaTypeKind.TkSlice:
@@ -170,6 +172,11 @@ weave emit_elem_bodies with c as ref to context.CgContext into void:
         var body as string is calling eq_expr with c, ty, "(*((const {ct}*)a))", "(*((const {ct}*)b))"
         defer banish body
         var tv as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+        if tv.kind == tk.SemaTypeKind.TkNull or ct == "void":
+            # `result of void to E` usa `void` como tipo de un lado: en C++
+            # `sizeof(void)` no existe y `const void*` no es puntero a objeto.
+            banish body
+            set body is "true"
         if tv.kind == tk.SemaTypeKind.TkFn or calling scrolls.contains with ct, "(*)":
             # Un puntero a función no admite `const T*` (el `*` se come el
             # paréntesis): se compara la representación, que es su identidad.

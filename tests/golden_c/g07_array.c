@@ -28,6 +28,17 @@ static int (*const _pengu_abi_pin)(void) = pengu_abi_version;
 
 
 
+static inline bool _pengu_eqv_37(const void* a, const void* b);
+static inline bool _pengu_eqv_6(const void* a, const void* b);
+static inline bool _pengu_eqv_37(const void* a, const void* b) {
+    (void)a; (void)b;
+    return pengu_array_equal(((*((const int32_t**)a))), ((*((const int32_t**)b))), 4, sizeof(int32_t), _pengu_eqv_6);
+}
+static inline bool _pengu_eqv_6(const void* a, const void* b) {
+    (void)a; (void)b;
+    return (((*((const int32_t*)a))) == ((*((const int32_t*)b))));
+}
+
 
 
 

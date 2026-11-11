@@ -515,9 +515,12 @@ weave classify with a as int, b as int, value as maybe int into string:
 (substring) y rangos (`i in 0 to 10`). `is present` / `is not present` prueban un
 `maybe`; `is` también prueba una variante de omen (`state is Ready`).
 
-Los strings se comparan por contenido (`pengu_string_eq`); `==` entre dos
-`list` compara elemento a elemento solo si el tipo de elemento tiene `Par`
-(§12).
+Los strings se comparan por contenido (`pengu_string_equal`). `==` y `!=` son
+**estructurales** en todos los contenedores de la biblioteca —`list`/`vector`,
+`slice`/`span`, `map`, `maybe`, `result` y `array`— sin necesidad de `derive`
+(`Par` se retiró en F2): comparan elemento a elemento, los mapas por clave y
+valor (el orden de inserción no importa) y los `maybe`/`result` por variante y
+payload. Para runas, ecos y omens la comparación es campo a campo.
 
 ### 4.4 Dirección, desreferencia, tamaño
 
@@ -529,6 +532,12 @@ Los strings se comparan por contenido (`pengu_string_eq`); `==` entre dos
 | `size of T` | tamaño en tiempo de compilación | `sizeof(T)` |
 | `align of T` | alineación en tiempo de compilación | `_Alignof(T)` |
 | `bytes of s` | vista de bytes de un string/array | `(uint8_t*)s.data` |
+
+`x at a to b` produce un `span`/`slice` de la misma memoria (o un `string`
+nuevo si `x` es un `string`). El receptor no necesita ser una variable: en
+`[1, 2, 3] at 0 to 2` el emisor materializa el literal en un temporal para
+poder tomar su dirección, así que la rebanada es válida mientras el temporal
+esté vivo (la misma sentencia).
 
 ```pengu-fragment
 var n as int is 5

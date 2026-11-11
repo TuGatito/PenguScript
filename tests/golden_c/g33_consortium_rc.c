@@ -123,25 +123,91 @@ static inline void _pengu_cleanup_Node(Node* p) {
     (void)p;
 }
 
-static inline bool _pengu_eqv_36(const void* a, const void* b);
+static inline bool _pengu_eqv_68(const void* a, const void* b);
+static inline bool _pengu_eqv_67(const void* a, const void* b);
+static inline bool _pengu_eqv_85(const void* a, const void* b);
+static inline bool _pengu_eqv_62(const void* a, const void* b);
 static inline bool _pengu_eqv_40(const void* a, const void* b);
+static inline bool _pengu_eqv_90(const void* a, const void* b);
+static inline bool _pengu_eqv_76(const void* a, const void* b);
+static inline bool _pengu_eqv_102(const void* a, const void* b);
+static inline bool _pengu_eqv_6(const void* a, const void* b);
+static inline bool _pengu_eqv_105(const void* a, const void* b);
+static inline bool _pengu_eqv_16(const void* a, const void* b);
+static inline bool _pengu_eqv_143(const void* a, const void* b);
+static inline bool _pengu_eqv_18(const void* a, const void* b);
+static inline bool _pengu_eqv_152(const void* a, const void* b);
+static inline bool _pengu_eqv_36(const void* a, const void* b);
 static inline bool _pengu_eqv_37(const void* a, const void* b);
 static inline bool _pengu_eqv_38(const void* a, const void* b);
 static inline bool _pengu_eqv_39(const void* a, const void* b);
 static inline bool _pengu_eqv_165(const void* a, const void* b);
-static inline bool _pengu_eqv_6(const void* a, const void* b);
+static inline bool _pengu_eq_Rc(const Rc* a, const Rc* b);
+static inline bool _pengu_eq_Arc(const Arc* a, const Arc* b);
 static inline bool _pengu_eq_Rc(const Rc* a, const Rc* b);
 static inline bool _pengu_eq_WeakRc(const WeakRc* a, const WeakRc* b);
 static inline bool _pengu_eq_Arc(const Arc* a, const Arc* b);
 static inline bool _pengu_eq_WeakArc(const WeakArc* a, const WeakArc* b);
 static inline bool _pengu_eq_Node(const Node* a, const Node* b);
-static inline bool _pengu_eqv_36(const void* a, const void* b) {
+static inline bool _pengu_eqv_68(const void* a, const void* b) {
+    (void)a; (void)b;
+    return pengu_maybe_equal(&((*((const PenguMaybe*)a))), &((*((const PenguMaybe*)b))), _pengu_eqv_67);
+}
+static inline bool _pengu_eqv_67(const void* a, const void* b) {
+    (void)a; (void)b;
+    return (((*((const void***)a))) == ((*((const void***)b))));
+}
+static inline bool _pengu_eqv_85(const void* a, const void* b) {
+    (void)a; (void)b;
+    return pengu_maybe_equal(&((*((const PenguMaybe*)a))), &((*((const PenguMaybe*)b))), _pengu_eqv_62);
+}
+static inline bool _pengu_eqv_62(const void* a, const void* b) {
     (void)a; (void)b;
     return _pengu_eq_Rc(&((*((const Rc*)a))), &((*((const Rc*)b))));
 }
 static inline bool _pengu_eqv_40(const void* a, const void* b) {
     (void)a; (void)b;
     return (((*((const void**)a))) == ((*((const void**)b))));
+}
+static inline bool _pengu_eqv_90(const void* a, const void* b) {
+    (void)a; (void)b;
+    return pengu_maybe_equal(&((*((const PenguMaybe*)a))), &((*((const PenguMaybe*)b))), _pengu_eqv_76);
+}
+static inline bool _pengu_eqv_76(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Arc(&((*((const Arc*)a))), &((*((const Arc*)b))));
+}
+static inline bool _pengu_eqv_102(const void* a, const void* b) {
+    (void)a; (void)b;
+    return pengu_maybe_equal(&((*((const PenguMaybe*)a))), &((*((const PenguMaybe*)b))), _pengu_eqv_6);
+}
+static inline bool _pengu_eqv_6(const void* a, const void* b) {
+    (void)a; (void)b;
+    return (((*((const int32_t*)a))) == ((*((const int32_t*)b))));
+}
+static inline bool _pengu_eqv_105(const void* a, const void* b) {
+    (void)a; (void)b;
+    return pengu_maybe_equal(&((*((const PenguMaybe*)a))), &((*((const PenguMaybe*)b))), _pengu_eqv_16);
+}
+static inline bool _pengu_eqv_16(const void* a, const void* b) {
+    (void)a; (void)b;
+    return (((*((const float*)a))) == ((*((const float*)b))));
+}
+static inline bool _pengu_eqv_143(const void* a, const void* b) {
+    (void)a; (void)b;
+    return pengu_maybe_equal(&((*((const PenguMaybe*)a))), &((*((const PenguMaybe*)b))), _pengu_eqv_18);
+}
+static inline bool _pengu_eqv_18(const void* a, const void* b) {
+    (void)a; (void)b;
+    return (((*((const bool*)a))) == ((*((const bool*)b))));
+}
+static inline bool _pengu_eqv_152(const void* a, const void* b) {
+    (void)a; (void)b;
+    return pengu_list_equal(&((*((const PenguList*)a))), &((*((const PenguList*)b))), _pengu_eqv_6);
+}
+static inline bool _pengu_eqv_36(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Rc(&((*((const Rc*)a))), &((*((const Rc*)b))));
 }
 static inline bool _pengu_eqv_37(const void* a, const void* b) {
     (void)a; (void)b;
@@ -159,21 +225,17 @@ static inline bool _pengu_eqv_165(const void* a, const void* b) {
     (void)a; (void)b;
     return _pengu_eq_Node(&((*((const Node*)a))), &((*((const Node*)b))));
 }
-static inline bool _pengu_eqv_6(const void* a, const void* b) {
-    (void)a; (void)b;
-    return (((*((const int32_t*)a))) == ((*((const int32_t*)b))));
-}
 static inline bool _pengu_eq_Rc(const Rc* a, const Rc* b) {
     if (a == b) return true;
     (void)a; (void)b;
     return ((a->ptr) == (b->ptr));
 }
-static inline bool _pengu_eq_WeakRc(const WeakRc* a, const WeakRc* b) {
+static inline bool _pengu_eq_Arc(const Arc* a, const Arc* b) {
     if (a == b) return true;
     (void)a; (void)b;
     return ((a->ptr) == (b->ptr));
 }
-static inline bool _pengu_eq_Arc(const Arc* a, const Arc* b) {
+static inline bool _pengu_eq_WeakRc(const WeakRc* a, const WeakRc* b) {
     if (a == b) return true;
     (void)a; (void)b;
     return ((a->ptr) == (b->ptr));

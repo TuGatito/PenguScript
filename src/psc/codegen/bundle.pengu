@@ -334,6 +334,17 @@ weave generate_bundle_c with c as ref to context.CgContext, live_out as ref to v
     # Igualdad estructural (`==` campo a campo). Se recolectan primero los tipos
     # alcanzables (un `vector of B` dentro de `A` necesita el comparador de `B`
     # aunque `B` se declare después) y luego se emiten prototipos y cuerpos.
+    # Comparadores de los contenedores que el programa haya construido. Se
+    # recolectan antes de emitir las funciones porque `_pengu_eq_<T>` los
+    # necesita ya declarados; `collect_eq` baja a los tipos base de cada
+    # contenedor (`maybe int` arrastra `_pengu_eqv_<int>`), así que un programa
+    # sin contenedores no emite ninguno.
+    var cid as int is 0
+    while cid < c->program->types.types.len:
+        var ctq as tk.SemaType is (c->program->types.types at cid)
+        if ctq.kind == tk.SemaTypeKind.TkList or ctq.kind == tk.SemaTypeKind.TkSlice or ctq.kind == tk.SemaTypeKind.TkMap or ctq.kind == tk.SemaTypeKind.TkMaybe or ctq.kind == tk.SemaTypeKind.TkResult or ctq.kind == tk.SemaTypeKind.TkArray:
+            calling eqgen.collect_eq with c, cid
+        set cid is cid + 1
     set i is 0
     while i < c->catalog.types.len:
         var tq as catalog.CgType is (c->catalog.types at i)

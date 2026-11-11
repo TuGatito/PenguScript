@@ -30,6 +30,42 @@ static int (*const _pengu_abi_pin)(void) = pengu_abi_version;
 
 
 
+static inline bool _pengu_eqv_43(const void* a, const void* b);
+static inline bool _pengu_eqv_6(const void* a, const void* b);
+static inline bool _pengu_eqv_46(const void* a, const void* b);
+static inline bool _pengu_eqv_16(const void* a, const void* b);
+static inline bool _pengu_eqv_84(const void* a, const void* b);
+static inline bool _pengu_eqv_18(const void* a, const void* b);
+static inline bool _pengu_eqv_93(const void* a, const void* b);
+static inline bool _pengu_eqv_43(const void* a, const void* b) {
+    (void)a; (void)b;
+    return pengu_maybe_equal(&((*((const PenguMaybe*)a))), &((*((const PenguMaybe*)b))), _pengu_eqv_6);
+}
+static inline bool _pengu_eqv_6(const void* a, const void* b) {
+    (void)a; (void)b;
+    return (((*((const int32_t*)a))) == ((*((const int32_t*)b))));
+}
+static inline bool _pengu_eqv_46(const void* a, const void* b) {
+    (void)a; (void)b;
+    return pengu_maybe_equal(&((*((const PenguMaybe*)a))), &((*((const PenguMaybe*)b))), _pengu_eqv_16);
+}
+static inline bool _pengu_eqv_16(const void* a, const void* b) {
+    (void)a; (void)b;
+    return (((*((const float*)a))) == ((*((const float*)b))));
+}
+static inline bool _pengu_eqv_84(const void* a, const void* b) {
+    (void)a; (void)b;
+    return pengu_maybe_equal(&((*((const PenguMaybe*)a))), &((*((const PenguMaybe*)b))), _pengu_eqv_18);
+}
+static inline bool _pengu_eqv_18(const void* a, const void* b) {
+    (void)a; (void)b;
+    return (((*((const bool*)a))) == ((*((const bool*)b))));
+}
+static inline bool _pengu_eqv_93(const void* a, const void* b) {
+    (void)a; (void)b;
+    return pengu_list_equal(&((*((const PenguList*)a))), &((*((const PenguList*)b))), _pengu_eqv_6);
+}
+
 
 void spark_pengu_println(PenguString s) {
 

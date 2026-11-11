@@ -44,9 +44,29 @@ static inline void _pengu_cleanup_Box__string(Box__string* p) {
     pengu_banish_string(&(p->value));
 }
 
+static inline bool _pengu_eqv_39(const void* a, const void* b);
+static inline bool _pengu_eqv_37(const void* a, const void* b);
+static inline bool _pengu_eqv_43(const void* a, const void* b);
+static inline bool _pengu_eqv_6(const void* a, const void* b);
 static inline bool _pengu_eqv_44(const void* a, const void* b);
 static inline bool _pengu_eqv_19(const void* a, const void* b);
 static inline bool _pengu_eq_Box__string(const Box__string* a, const Box__string* b);
+static inline bool _pengu_eqv_39(const void* a, const void* b) {
+    (void)a; (void)b;
+    return pengu_list_equal(&((*((const PenguList*)a))), &((*((const PenguList*)b))), _pengu_eqv_37);
+}
+static inline bool _pengu_eqv_37(const void* a, const void* b) {
+    (void)a; (void)b;
+    return (memcmp(&((*((const void**)a))), &((*((const void**)b))), sizeof((*((const void**)a)))) == 0);
+}
+static inline bool _pengu_eqv_43(const void* a, const void* b) {
+    (void)a; (void)b;
+    return pengu_list_equal(&((*((const PenguList*)a))), &((*((const PenguList*)b))), _pengu_eqv_6);
+}
+static inline bool _pengu_eqv_6(const void* a, const void* b) {
+    (void)a; (void)b;
+    return (((*((const int32_t*)a))) == ((*((const int32_t*)b))));
+}
 static inline bool _pengu_eqv_44(const void* a, const void* b) {
     (void)a; (void)b;
     return _pengu_eq_Box__string(&((*((const Box__string*)a))), &((*((const Box__string*)b))));
