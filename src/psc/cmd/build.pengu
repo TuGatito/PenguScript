@@ -59,7 +59,7 @@ weave print_build_help into void:
     calling spark.println with "  --out=PATH              artifact path"
     calling spark.println with "  --exe                   link an executable even if the manifest says output=\"c\""
     calling spark.println with "  --strict-c99            portable C99"
-    calling spark.println with "  --backend=c|cpp         target language family (default: c; cpp arrives in F1)"
+    calling spark.println with "  --backend=c|cpp         target language family (default: c)"
     calling spark.println with "  --release-unsafe        disable bounds/overflow checks"
     calling spark.println with "  --verbose               print the cc command"
     calling spark.println with "  --help"
@@ -74,7 +74,7 @@ weave print_run_help into void:
     calling spark.println with "  --target=TRIPLE|wasm  host or wasm32-unknown-emscripten"
     calling spark.println with "  --profile=debug|release"
     calling spark.println with "  --cc=NAME"
-    calling spark.println with "  --backend=c|cpp         target language family (default: c; cpp arrives in F1)"
+    calling spark.println with "  --backend=c|cpp         target language family (default: c)"
     calling spark.println with "  --verbose"
     calling spark.println with "  --browser             run wasm in headless Chromium instead of Node"
     calling spark.println with "  --help"
@@ -246,13 +246,6 @@ weave run_build with args as list of string into int:
             return 2
         banish o.family
         set o.family is calling copy_path with fam
-        if fam == "cpp":
-            var umsg as string is calling driver.backend_unavailable with "psc build"
-            calling spark.eprintln with umsg
-            banish umsg
-            calling driver.free_options with (sigil of o)
-            calling cliargs.free_parse_result with (sigil of pr)
-            return 2
     var dscope as string is calling cliargs.value with (sigil of pr.args), "--dce-scope"
     if dscope == "user":
         set o.dce_scope_user is true
@@ -389,12 +382,6 @@ weave run_run with args as list of string into int:
                 return 2
             banish o.family
             set o.family is calling copy_path with bfam
-            if bfam == "cpp":
-                var umsg as string is calling driver.backend_unavailable with "psc run"
-                calling spark.eprintln with umsg
-                banish umsg
-                calling driver.free_options with (sigil of o)
-                return 2
             set i is i + 1
         else if calling starts_with with a, "--backend=":
             var bval2 as string is a at 10 to (a length)
@@ -407,12 +394,6 @@ weave run_run with args as list of string into int:
                 return 2
             banish o.family
             set o.family is calling copy_path with bfam2
-            if bfam2 == "cpp":
-                var umsg2 as string is calling driver.backend_unavailable with "psc run"
-                calling spark.eprintln with umsg2
-                banish umsg2
-                calling driver.free_options with (sigil of o)
-                return 2
         else if a == "--legacy-copy":
             set o.legacy_copy is true
         else if a == "--release-unsafe":

@@ -4,9 +4,8 @@
 # F0.1 añade la familia de backend al driver sin cambiar la salida:
 #   - `--backend=c` (o `--backend c`) se acepta y emite exactamente lo mismo
 #     que sin bandera (byte a byte);
-#   - `emit-c --backend=cpp` es el preview del dialecto C++ (F0.3): emite;
-#     `build`/`run` todavía rechazan `cpp` con exit 2 porque el enlazado C++
-#     no existe hasta F1;
+#   - `emit-c --backend=cpp`/`build --backend=cpp`/`run --backend=cpp` emiten,
+#     compilan con g++/clang++ y enlazan contra el runtime C (F1);
 #   - un valor desconocido se rechaza con exit 2;
 #   - `--help` documenta la bandera.
 set -euo pipefail
@@ -60,10 +59,16 @@ expect_reject "emit-c --backend=bogus" "must be 'c' or 'cpp'" \
   "$PSC" emit-c "$WORK/main.pengu" --backend=bogus
 expect_reject "build --backend=bogus" "must be 'c' or 'cpp'" \
   "$PSC" build "$WORK/main.pengu" --backend=bogus
-expect_reject "run --backend=cpp" "not implemented yet" \
-  "$PSC" run "$WORK/main.pengu" --backend=cpp
+# F1: el driver compila con el compilador de C++ y enlaza con el runtime C.
+"$PSC" build "$WORK/main.pengu" --backend=cpp --out="$WORK/app_cpp" >/dev/null
+[ -x "$WORK/app_cpp" ] || fail "build --backend=cpp did not produce an executable"
+"$WORK/app_cpp" || fail "the C++-built executable failed"
+"$PSC" run "$WORK/main.pengu" --backend=cpp --no-cache >/dev/null \
+  || fail "run --backend=cpp failed"
+"$PSC" run "$WORK/main.pengu" --backend cpp --no-cache >/dev/null \
+  || fail "run --backend cpp (space form) failed"
 
 "$PSC" emit-c --help | grep -q -- "--backend=c|cpp" || fail "emit-c --help does not document --backend"
 "$PSC" build --help | grep -q -- "--backend=c|cpp" || fail "build --help does not document --backend"
 
-echo "OK --backend flag (F0.1)"
+echo "OK --backend flag (F0.1+F1)"

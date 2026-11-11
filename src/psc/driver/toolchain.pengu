@@ -42,6 +42,57 @@ weave free_strings with xs as list of string into void:
         set i is i + 1
     banish xs
 
+## Compilador de C++ equivalente a uno de C.
+##
+## ## Memoria
+## Devuelve string owned o `""` si no hay equivalente razonable.
+weave cxx_for with cc as string into string:
+    if cc length == 0:
+        return ""
+    var base as string is cc
+    var slash as int is base length - 1
+    while slash >= 0:
+        if (base at slash) == "/":
+            set base is base at (slash + 1) to (base length)
+            set slash is -1
+        else:
+            set slash is slash - 1
+    if base == "gcc" or base == "cc":
+        var g as maybe string is calling rites.which with "g++"
+        if g.is_present:
+            return g.value
+        banish g
+        return calling copy with "g++"
+    if base == "clang":
+        var c as maybe string is calling rites.which with "clang++"
+        if c.is_present:
+            return c.value
+        banish c
+        return calling copy with "clang++"
+    if base == "tcc":
+        # tcc no tiene frontend de C++: se cae al g++/clang++ del sistema.
+        var g2 as maybe string is calling rites.which with "g++"
+        if g2.is_present:
+            return g2.value
+        banish g2
+        var c2 as maybe string is calling rites.which with "clang++"
+        if c2.is_present:
+            return c2.value
+        banish c2
+        return ""
+    # Cross/prefijados: `aarch64-linux-gnu-gcc` -> `aarch64-linux-gnu-g++`.
+    if (base length) > 3 and (base at ((base length) - 3) to (base length)) == "gcc":
+        var cand as string is "{base at 0 to ((base length) - 3)}++"
+        var g3 as maybe string is calling rites.which with cand
+        if g3.is_present:
+            banish cand
+            return g3.value
+        banish g3
+        banish cand
+        return ""
+    var plus as string is "{cc}++"
+    return plus
+
 ## Elige un compilador.
 ##
 ## ## Memoria
@@ -152,14 +203,25 @@ weave add_lib with xs as ref to list of string, dir as string into void:
 ##
 ## ## Memoria
 ## Resultado owned; liberar con `free_toolchain`.
-weave resolve with m as ref to manifest.Manifest, p as ref to paths.Paths, t as target.Target, cc_override as string, profile as string, strict as bool, release_unsafe as bool into Toolchain:
+weave resolve with m as ref to manifest.Manifest, p as ref to paths.Paths, t as target.Target, cc_override as string, profile as string, strict as bool, release_unsafe as bool, family as string into Toolchain:
+    var is_cpp as bool is family == "cpp"
     var cc as string is calling choose_cc with cc_override, m->cc, t
+    if is_cpp and cc length > 0:
+        var cxx as string is calling cxx_for with cc
+        if cxx length == 0:
+            banish cc
+            return with ok is false, error is "no C++ compiler found for --backend=cpp (install g++/clang++)", cc is "", cflags is list of string, include_dirs is list of string, lib_dirs is list of string, links is list of string
+        banish cc
+        set cc is cxx
     if cc length == 0:
         if t.is_wasm:
             return with ok is false, error is "emcc not found in PATH; install/activate the Emscripten SDK and re-run (or pass --cc /path/to/emcc)", cc is "", cflags is list of string, include_dirs is list of string, lib_dirs is list of string, links is list of string
         return with ok is false, error is "no C compiler found (use --cc or PSC_CC)", cc is "", cflags is list of string, include_dirs is list of string, lib_dirs is list of string, links is list of string
     var cflags as list of string is list of string
-    calling cflags.push with "-std=c11"
+    if is_cpp:
+        calling cflags.push with "-std=c++20"
+    else:
+        calling cflags.push with "-std=c11"
     calling cflags.push with "-Wall"
     ## El C generado es estricto (`-std=c11`) pero una biblioteca puede necesitar
     ## POSIX (sockets, `clock_gettime`, `getaddrinfo`). Estas macros tienen que
@@ -172,6 +234,10 @@ weave resolve with m as ref to manifest.Manifest, p as ref to paths.Paths, t as 
         calling add_flag with (sigil of cflags), tflag
         banish tflag
     for f in m->cflags:
+        # `-std=` es del lenguaje elegido: un manifiesto con `-std=c11` no debe
+        # pisar el `-std=c++20` de `--backend=cpp` (gcc lo rechaza).
+        if is_cpp and (f length) >= 5 and (f at 0 to 5) == "-std=":
+            continue
         calling add_flag with (sigil of cflags), f
     for d in m->defines:
         var df as string is "-D{d}"

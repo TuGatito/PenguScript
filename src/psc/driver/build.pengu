@@ -636,13 +636,6 @@ weave backend_family with name as string into string:
 weave backend_error with tool as string, name as string into string:
     return "{tool}: --backend must be 'c' or 'cpp' (got '{name}')"
 
-## Mensaje de error para un backend todavía no implementado (owned).
-##
-## ## Memoria
-## Devuelve string owned.
-weave backend_unavailable with tool as string into string:
-    return "{tool}: --backend=cpp is not implemented yet (phase F1 of the C++ migration); use --backend=c"
-
 ## Opciones por defecto.
 ##
 ## ## Memoria
@@ -955,7 +948,7 @@ weave build with o as BuildOptions into BuildResult:
             calling paths.free_paths with (sigil of p)
             return with ok is false, error is xerr, artifact is "", bundle_path is "", is_wasm is false
         banish xarch
-    var tc as toolchain.Toolchain is calling toolchain.resolve with (sigil of man), (sigil of p), eff, o.cc, o.profile, o.strict_c99, o.release_unsafe
+    var tc as toolchain.Toolchain is calling toolchain.resolve with (sigil of man), (sigil of p), eff, o.cc, o.profile, o.strict_c99, o.release_unsafe, o.family
     if o.verbose:
         var pdbg as string is "paths: base={man.base_dir} incdir={man.include_dir} libdir={man.lib_dir} archive={p.runtime_archive} include={p.runtime_include} stds={p.std_dirs.len} incs={tc.include_dirs.len} libs={tc.lib_dirs.len}"
         calling spark.eprintln with pdbg
@@ -1130,7 +1123,10 @@ weave build with o as BuildOptions into BuildResult:
             calling paths.free_paths with (sigil of p)
             calling toolchain.free_toolchain with (sigil of tc)
             return with ok is false, error is bderr, artifact is "", bundle_path is "", is_wasm is false
-        set bundle is "{build_dir}/bundle.c"
+        var bext as string is "c"
+        if o.family == "cpp":
+            set bext is "cpp"
+        set bundle is "{build_dir}/bundle.{bext}"
         if o.out_path length > 0:
             set artifact is calling compass.cp_absolute with o.out_path
             if eff.is_wasm and out_kind == "exe" and not (calling ends_with with artifact, ".html") and not (calling ends_with with artifact, ".js") and not (calling ends_with with artifact, ".mjs"):
