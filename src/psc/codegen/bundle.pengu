@@ -203,7 +203,10 @@ weave generate_bundle_c with c as ref to context.CgContext, live_out as ref to l
     else:
         calling emit.line with (sigil of c->emitter), "_Static_assert(PENGU_ABI_VERSION == 4, \"pengu_runtime.h ABI mismatch: bundle expects v4\");"
     calling emit.line with (sigil of c->emitter), "#endif"
-    calling emit.line with (sigil of c->emitter), "extern int pengu_abi_version(void);"
+    if c->options.family == "cpp":
+        calling emit.line with (sigil of c->emitter), "extern \"C\" int pengu_abi_version(void);"
+    else:
+        calling emit.line with (sigil of c->emitter), "extern int pengu_abi_version(void);"
     calling emit.line with (sigil of c->emitter), "#if defined(__GNUC__) || defined(__clang__)"
     calling emit.line with (sigil of c->emitter), "__attribute__((used))"
     calling emit.line with (sigil of c->emitter), "#endif"
@@ -609,7 +612,10 @@ weave generate_units_c with c as ref to context.CgContext, live_out as ref to li
     else:
         calling emit.line with (sigil of c->emitter), "_Static_assert(PENGU_ABI_VERSION == 4, \"pengu_runtime.h ABI mismatch: bundle expects v4\");"
     calling emit.line with (sigil of c->emitter), "#endif"
-    calling emit.line with (sigil of c->emitter), "extern int pengu_abi_version(void);"
+    if c->options.family == "cpp":
+        calling emit.line with (sigil of c->emitter), "extern \"C\" int pengu_abi_version(void);"
+    else:
+        calling emit.line with (sigil of c->emitter), "extern int pengu_abi_version(void);"
     calling emit.line with (sigil of c->emitter), "#if defined(__GNUC__) || defined(__clang__)"
     calling emit.line with (sigil of c->emitter), "__attribute__((used))"
     calling emit.line with (sigil of c->emitter), "#endif"

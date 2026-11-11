@@ -6,6 +6,7 @@
 
 import std.builder
 import std.scrolls
+import std.spark
 
 import psc.ast.kind as pskind
 import psc.ast.node as psast
@@ -4070,6 +4071,8 @@ weave at_expr with c as ref to context.CgContext, node as int, ast as ref to psa
             set is_ref is true
             if t.a > 0:
                 set t is calling types.at with (sigil of c->program->types), t.a
+        if c->options.dump_index_types:
+            calling dump_index_type with c, m, node, bt, t
         var cix as string is calling checked_index with c, ix, bs, bt, node, is_ref
         defer banish cix
         var amp as string is "&"
@@ -4136,6 +4139,31 @@ weave at_expr with c as ref to context.CgContext, node as int, ast as ref to psa
             if bn == "string":
                 return "pengu_string_char_at({bs}, (int)({cix}))"
     return "({bs})[{ix}]"
+
+## Imprime una línea de `--dump-index-types` para el `at` de `node`.
+##
+## Formato: `archivo:línea<TAB>tipo receptor<TAB>tipo resultado`.  Lo consume
+## el script de migración de F2 para saber qué indexaciones cambian de `string`
+## a `char`; no forma parte de la salida del compilador.
+##
+## ## Memoria
+## Strings temporales liberados.
+weave dump_index_type with c as ref to context.CgContext, m as loader.SemaModule, node as int, bt as int, t as tk.SemaType into void:
+    var recv as string is calling ctype.c_type with (sigil of c->names), bt
+    defer banish recv
+    var res_id as int is bt
+    if t.kind == tk.SemaTypeKind.TkList or t.kind == tk.SemaTypeKind.TkSlice or t.kind == tk.SemaTypeKind.TkMany:
+        set res_id is t.a
+    else if t.kind == tk.SemaTypeKind.TkMap:
+        set res_id is t.b
+    if res_id <= 0:
+        set res_id is bt
+    var res as string is calling ctype.c_type with (sigil of c->names), res_id
+    defer banish res
+    var line as int is calling origin.line_of with m, node
+    var txt as string is "{m.source.path}:{line}\t{recv}\t{res}"
+    calling spark.eprintln with txt
+    banish txt
 
 ## Target resuelto de una llamada: texto C y tipo.
 rune CgTarget:

@@ -40,6 +40,13 @@ extern const char *SDS_NOINIT;
 #include <stdarg.h>
 #include <stdint.h>
 
+/* El backend C++ (F1) incluye este header en una unidad C++: sin `extern "C"`
+   los simbolos de sds se manglan y el enlace contra libpengu_runtime.a (C)
+   falla.  En C el bloque es invisible. */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef char *sds;
 
 /* Note: sdshdr5 is never used, we just access the flags byte directly.
@@ -271,6 +278,10 @@ void sds_free(void *ptr);
 
 #ifdef REDIS_TEST
 int sdsTest(int argc, char *argv[]);
+#endif
+
+#ifdef __cplusplus
+}
 #endif
 
 #endif

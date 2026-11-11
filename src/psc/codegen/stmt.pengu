@@ -2037,6 +2037,42 @@ weave emit_local with c as ref to context.CgContext, node as int, ast as ref to 
         calling register_local with c, nid, ty, nid
         return
     var is_static as bool is (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdStaticVarDecl
+    # `array of T with size N` en C es un puntero a un literal compuesto
+    # `(T[N]){...}`; C++ no tiene literales compuestos, asi que el local se
+    # declara como array real (decae a `T*` en los usos) y se inicializa con
+    # la lista si la hay.
+    if c->options.family == "cpp":
+        var aty as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+        if aty.kind == tk.SemaTypeKind.TkArray and aty.a > 0 and aty.b > 0:
+            var ect as string is calling ctype.c_type with (sigil of c->names), aty.a
+            defer banish ect
+            var inits as string is r"{}"
+            defer banish inits
+            if vn >= 0 and (calling astutil.kind_of with ast, vn) == pskind.NodeKind.NdArrayLit:
+                var isb as StringBuilder is calling StringBuilder.new
+                defer banish isb
+                calling isb.append with r"{"
+                var ec as int is calling astutil.child_count with ast, vn
+                var ei as int is 0
+                while ei < ec:
+                    var en as int is calling astutil.node_child with ast, vn, ei
+                    if en >= 0:
+                        if ei > 0:
+                            calling isb.append with ", "
+                        var et as string is calling expr.emit_expr_as with c, en, aty.a
+                        defer banish et
+                        calling isb.append with et
+                    set ei is ei + 1
+                calling isb.append with r"}"
+                banish inits
+                set inits is calling isb.finish
+            var spfx as string is ""
+            if is_static:
+                set spfx is "static "
+            calling emit.line with (sigil of c->emitter), "{spfx}{ect} {cn}[{aty.b}] = {inits};"
+            calling emit.line with (sigil of c->emitter), "(void){cn};"
+            calling register_local with c, nid, ty, nid
+            return
     if is_static:
         calling emit.line with (sigil of c->emitter), "static {cdecl};"
         if vn >= 0:

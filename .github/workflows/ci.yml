@@ -70,6 +70,13 @@ jobs:
         run: |
           CXX="$(command -v g++ || command -v clang++)" bash ./tests/cpp_backend/run.sh
 
+      - name: C++ backend link + self-host suite
+        shell: bash
+        # F1: the C++ bundle must not only compile: it must link against the C
+        # runtime and behave like the C-built compiler (--version + 895 tests).
+        run: |
+          CXX="$(command -v g++ || command -v clang++)" bash ./tests/cpp_backend/run.sh --link
+
       - name: Golden C tests
         shell: bash
         run: bash ./tests/golden_c/run.sh

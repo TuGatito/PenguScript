@@ -623,6 +623,8 @@ weave run_emit_c with args as list of string into int:
             set cgp.line_markers is false
         else if a == "--strict-c99":
             set cgp.strict_c99 is true
+        else if a == "--dump-index-types":
+            set cgp.dump_index_types is true
         else if a == "--backend":
             if i + 1 >= args.len:
                 calling spark.eprintln with "psc emit-c: missing value for '--backend'"
@@ -647,7 +649,7 @@ weave run_emit_c with args as list of string into int:
                 banish bmsg2
                 calling sopts.free_options with (sigil of opts)
                 return 2
-            set cgp.family is "cpp"
+            set cgp.family is bfam2
         else if a == "--release-unsafe":
             set cgp.release_unsafe is true
         else if a == "--debug":
@@ -1022,7 +1024,8 @@ weave print_emit_c_help into void:
     calling spark.println with "  --prune-native          prune unused includes/links"
     calling spark.println with "  --no-line-markers       omit #line directives"
     calling spark.println with "  --strict-c99            portable C99 (no GNU extensions)"
-    calling spark.println with "  --backend=c|cpp         target language family (default: c; cpp is WIP for the F0.3 gate)"
+    calling spark.println with "  --backend=c|cpp         target language family (default: c)"
+    calling spark.println with "  --dump-index-types      print each `at` site's receiver/result types (stderr)"
     calling spark.println with "  --target-compiler=NAME  gcc|clang|tcc|msvc"
     calling spark.println with "  --target=TRIPLE|wasm    host or wasm32-unknown-emscripten"
     calling spark.println with "  -D NAME[=VALUE]         define for `when`"

@@ -678,7 +678,11 @@ antiquus _view with s as string, start as int, end as int into string:
 if (!s.data || start < 0) start = 0;
 if (end > s.len) end = s.len;
 if (end <= start) return pengu_string_from_cstr("");
-return (PenguString){s.data + start, end - start, 0};
+PenguString v = pengu_string_from_cstr("");
+v.data = s.data + start;
+v.len = end - start;
+v.is_owned = 0;
+return v;
 """
 
 ## `string.upper()` on the first byte of every whitespace-separated word.

@@ -154,7 +154,14 @@
  * project builds header-only and a mandatory reference would break it. Making
  * the reference mandatory is Phase 4 work (see docs/ABI.md).
  */
+#ifdef __cplusplus
+extern "C"
+{
+#endif
 int pengu_abi_version(void);
+#ifdef __cplusplus
+}
+#endif
 
 
 /* =========================================================================
@@ -2490,12 +2497,24 @@ static inline void pengu_string_append(PenguString *dst, PenguString v)
     while ((idx = pengu__find_sub(s, delim, cur)) != -1)
     {
       int seg_len = idx - cur;
-      PenguString part = (seg_len > 0) ? (PenguString){s.data + cur, seg_len, 0} : pengu_string_from_cstr("");
+      PenguString part = pengu_string_from_cstr("");
+      if (seg_len > 0)
+      {
+        part.data = s.data + cur;
+        part.len = seg_len;
+        part.is_owned = 0;
+      }
       pengu_list_push(&list, &part);
       cur = idx + delim.len;
     }
     int rem_len = s.len - cur;
-    PenguString rem_part = (rem_len > 0) ? (PenguString){s.data + cur, rem_len, 0} : pengu_string_from_cstr("");
+    PenguString rem_part = pengu_string_from_cstr("");
+    if (rem_len > 0)
+    {
+      rem_part.data = s.data + cur;
+      rem_part.len = rem_len;
+      rem_part.is_owned = 0;
+    }
     pengu_list_push(&list, &rem_part);
     return list;
   }
