@@ -42,7 +42,17 @@ psc check .                         # checker + codegen del proyecto (sin cc)
 ```
 
 Opciones: `--profile=debug|release`, `--cc=NAME`, `--out=PATH`,
-`--strict-c99`, `--release-unsafe`, `--verbose`, `--target=TRIPLE`, `--help`.
+`--strict-c99`, `--release-unsafe`, `--verbose`, `--target=TRIPLE`,
+`--backend=c|cpp`, `--help`.
+
+### Familia de backend
+
+`--backend=cpp` (F1) construye el mismo programa con el emisor C++; también
+lo aceptan `psc run` y `psc test` (la suite completa de `std/` en modo C++). El
+toolchain pasa a `g++`/`clang++`, las flags a `-std=c++20` (los `-std=` del
+manifiesto se descartan) y el bundle se escribe como `bundle.cpp`. La std y el
+runtime siguen siendo C y se enlazan con `extern "C"`. La clave de caché
+incluye la familia, así que un binario C y uno C++ no se pisan.
 
 `--target wasm` selecciona `wasm32-unknown-emscripten`: usa `emcc`/`emar`,
 busca el runtime en `build/wasm/lib` (o `PENGU_RUNTIME_CROSS`), produce

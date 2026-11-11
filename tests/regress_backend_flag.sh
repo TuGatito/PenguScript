@@ -68,6 +68,34 @@ expect_reject "build --backend=bogus" "must be 'c' or 'cpp'" \
 "$PSC" run "$WORK/main.pengu" --backend cpp --no-cache >/dev/null \
   || fail "run --backend cpp (space form) failed"
 
+# La suite también corre con el emisor C++ (F1): emite el bundle de test,
+# lo compila con el compilador de C++ y lo ejecuta.
+mkdir -p "$WORK/proj"
+cat > "$WORK/proj/pengu.toml" <<'TOML'
+[project]
+name = "backend_proj"
+version = "0.1.0"
+entry = "main.pengu"
+output_name = "backend_proj"
+TOML
+cat > "$WORK/proj/main.pengu" <<'PENGU'
+weave add with a as int, b as int into int:
+    return a + b
+
+weave main into int:
+    return 0
+
+test "suma":
+    var x as int is calling add with 2, 3
+    if x == 5:
+        return
+PENGU
+suite="$("$PSC" test "$WORK/proj" --backend=cpp --no-cache 2>&1 | tail -1)"
+case "$suite" in
+  *"1 test(s) passed"*) ;;
+  *) fail "psc test --backend=cpp: unexpected result: $suite" ;;
+esac
+
 "$PSC" emit-c --help | grep -q -- "--backend=c|cpp" || fail "emit-c --help does not document --backend"
 "$PSC" build --help | grep -q -- "--backend=c|cpp" || fail "build --help does not document --backend"
 

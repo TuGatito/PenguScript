@@ -4891,19 +4891,22 @@ static inline void pengu_string_append(PenguString *dst, PenguString v)
 
   typedef struct PenguReactor PenguReactor;
 
+  /* Los handles opacos viajan como `void *` en la frontera FFI: el std los
+   * declara como `ref to void` y así el mismo prototipo vale en C y en C++
+   * (en C++ no hay conversión implícita de `void *` a `PenguReactor *`). */
   PenguReactor *pengu_c_reactor_new(int workers);
-  int           pengu_c_reactor_is_owner(PenguReactor *r);
-  void          pengu_c_reactor_free(PenguReactor *r);
-  int           pengu_c_reactor_add(PenguReactor *r, int fd, int events, int64_t token);
-  int           pengu_c_reactor_del(PenguReactor *r, int fd);
-  int           pengu_c_reactor_wait(PenguReactor *r, int timeout_ms,
+  int           pengu_c_reactor_is_owner(void *r);
+  void          pengu_c_reactor_free(void *r);
+  int           pengu_c_reactor_add(void *r, int fd, int events, int64_t token);
+  int           pengu_c_reactor_del(void *r, int fd);
+  int           pengu_c_reactor_wait(void *r, int timeout_ms,
                                      int64_t *tokens, int cap);
-  int           pengu_c_reactor_post(PenguReactor *r, int64_t task_id, int64_t token);
-  int           pengu_c_reactor_take(PenguReactor *r, int64_t *task_id, int64_t *token);
+  int           pengu_c_reactor_post(void *r, int64_t task_id, int64_t token);
+  int           pengu_c_reactor_take(void *r, int64_t *task_id, int64_t *token);
   int64_t       pengu_c_reactor_now_ms(void);
-  int           pengu_c_reactor_offload(PenguReactor *r, void (*fn)(void *), void *ctx,
+  int           pengu_c_reactor_offload(void *r, void (*fn)(void *), void *ctx,
                                         int64_t task_id, int64_t token);
-  void          pengu_c_reactor_wake(PenguReactor *r);
+  void          pengu_c_reactor_wake(void *r);
 
 
   /* =========================================================================

@@ -57,18 +57,24 @@ if [ "$MODE" = "--stage0" ]; then
         tail -20 "$tmp/stage0chk.log" >&2
         exit 1
     fi
+    # Solo se compila el bundle del host: el de otro sistema incluye headers
+    # de plataforma que no están en esta máquina (windows necesita SDK propio).
+    host_os="$(uname -s)"
+    host_cpu="$(uname -m)"
+    case "$host_os:$host_cpu" in
+        Linux:x86_64)   host_bundle="linux_x64" ;;
+        Darwin:arm64)   host_bundle="macos_arm64" ;;
+        *)              host_bundle="" ;;
+    esac
     checked=0
-    for f in "$stage"/*.cpp; do
-        case "$f" in
-            *windows*) continue ;;
-        esac
-        if ! syntax_check "$f" "$tmp/stage0cxx.log"; then
-            echo "FAIL cpp_backend: $CXX rejects $(basename "$f")" >&2
+    if [ -n "$host_bundle" ] && [ -f "$stage/psc_stage0_${host_bundle}.cpp" ]; then
+        if ! syntax_check "$stage/psc_stage0_${host_bundle}.cpp" "$tmp/stage0cxx.log"; then
+            echo "FAIL cpp_backend: $CXX rejects psc_stage0_${host_bundle}.cpp" >&2
             grep 'error:' "$tmp/stage0cxx.log" | head -20 >&2
             exit 1
         fi
-        checked=$((checked + 1))
-    done
+        checked=1
+    fi
     echo "OK cpp_backend stage0 (3 targets reproducible, $checked ISO C++20 checked)"
     exit 0
 fi
@@ -104,10 +110,15 @@ if [ "$MODE" = "--link" ]; then
         tail -20 "$tmp/obj.log" >&2
         exit 1
     fi
+    # macOS no tiene libdl (dlopen vive en libSystem); Linux la necesita.
+    extra_libs=(-lm -pthread)
+    if [ "$(uname -s)" = "Linux" ]; then
+        extra_libs+=(-ldl)
+    fi
     if ! "$CXX" "$tmp/psc.o" \
             "$ROOT/build/lib/libpengu_runtime.a" \
             "$ROOT/build/lib/libminiz.a" "$ROOT/build/lib/libre.a" \
-            -lm -pthread -ldl -o "$tmp/psc_cpp" >"$tmp/link.log" 2>&1; then
+            "${extra_libs[@]}" -o "$tmp/psc_cpp" >"$tmp/link.log" 2>&1; then
         echo "FAIL cpp_backend: link against the C runtime failed" >&2
         tail -20 "$tmp/link.log" >&2
         exit 1

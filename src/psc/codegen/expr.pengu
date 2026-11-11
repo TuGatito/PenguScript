@@ -1731,21 +1731,41 @@ weave some_expr_c with c as ref to context.CgContext, node as int, ast as ref to
     defer banish av
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb
+    var cpp as bool is c->options.family == "cpp"
     calling sb.append with "__extension__(({ "
     if calling scrolls.contains with pt, "(*)":
         calling sb.append with "void* _h = malloc(sizeof("
         calling sb.append with pt
-        calling sb.append with ")); if (!_h) abort(); memcpy(_h, &("
-        calling sb.append with pt
-        calling sb.append with "){ "
-        calling sb.append with av
-        calling sb.append with " }, sizeof("
-        calling sb.append with pt
-        calling sb.append with ")); PenguMaybe _r = pengu_maybe_some(_h); _r; }))"
+        calling sb.append with ")); if (!_h) abort(); "
+        if cpp:
+            # C++ no tiene literales compuestos: se materializa el valor.
+            calling sb.append with pt
+            calling sb.append with " _pv = ("
+            calling sb.append with pt
+            calling sb.append with ")("
+            calling sb.append with av
+            calling sb.append with "); memcpy(_h, &_pv, sizeof("
+            calling sb.append with pt
+            calling sb.append with ")); PenguMaybe _r = pengu_maybe_some(_h); _r; }))"
+        else:
+            calling sb.append with "memcpy(_h, &("
+            calling sb.append with pt
+            calling sb.append with "){ "
+            calling sb.append with av
+            calling sb.append with " }, sizeof("
+            calling sb.append with pt
+            calling sb.append with ")); PenguMaybe _r = pengu_maybe_some(_h); _r; }))"
     else:
         calling sb.append with pt
         calling sb.append with " _p = "
-        calling sb.append with av
+        if cpp:
+            calling sb.append with "("
+            calling sb.append with pt
+            calling sb.append with ")("
+            calling sb.append with av
+            calling sb.append with ")"
+        else:
+            calling sb.append with av
         calling sb.append with "; "
         calling sb.append with pt
         calling sb.append with "* _h = ("
@@ -1835,17 +1855,29 @@ weave result_ctor with c as ref to context.CgContext, node as int, ast as ref to
     defer banish av
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb
+    var cpp as bool is c->options.family == "cpp"
     calling sb.append with "__extension__(({ "
     if calling scrolls.contains with pt, "(*)":
         calling sb.append with "void* _h = malloc(sizeof("
         calling sb.append with pt
-        calling sb.append with ")); if (!_h) abort(); memcpy(_h, &("
-        calling sb.append with pt
-        calling sb.append with "){ "
-        calling sb.append with av
-        calling sb.append with " }, sizeof("
-        calling sb.append with pt
-        calling sb.append with ")); "
+        calling sb.append with ")); if (!_h) abort(); "
+        if cpp:
+            calling sb.append with pt
+            calling sb.append with " _pv = ("
+            calling sb.append with pt
+            calling sb.append with ")("
+            calling sb.append with av
+            calling sb.append with "); memcpy(_h, &_pv, sizeof("
+            calling sb.append with pt
+            calling sb.append with ")); "
+        else:
+            calling sb.append with "memcpy(_h, &("
+            calling sb.append with pt
+            calling sb.append with "){ "
+            calling sb.append with av
+            calling sb.append with " }, sizeof("
+            calling sb.append with pt
+            calling sb.append with ")); "
     else:
         calling sb.append with pt
         calling sb.append with " _p = "

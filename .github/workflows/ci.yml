@@ -85,6 +85,13 @@ jobs:
         run: |
           CXX="$(command -v g++ || command -v clang++)" bash ./tests/cpp_backend/run.sh --link
 
+      - name: C++ test suite (whole std through the C++ emitter)
+        shell: bash
+        # `psc test .` in C++ mode emits the *test* bundle, which instantiates
+        # the whole std (not just the compiler's DCE'd closure): this is the
+        # gate that keeps the C++ backend able to compile every module.
+        run: ./build/psc test . --backend=cpp
+
       - name: Golden C tests
         shell: bash
         run: bash ./tests/golden_c/run.sh

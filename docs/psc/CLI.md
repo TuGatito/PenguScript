@@ -19,6 +19,25 @@ psc version | help
 `expand`. `wasm`, `wasm32`, `emscripten` y `wasm32-unknown-emscripten` son
 equivalentes; `wasm32-wasi` se rechaza con un mensaje explícito.
 
+## Familia de backend (F1)
+
+`build`, `run`, `test` y `emit-c` aceptan `--backend=c|cpp` (por defecto `c`;
+`cc` es sinónimo de `c`). Con `cpp` el driver elige `g++`/`clang++` (o el `…-g++`
+equivalente de un toolchain prefijado), compila con `-std=c++20`, ignora los
+`-std=` del manifiesto (describen el lenguaje C) y escribe
+`<build>/bundle.cpp` en lugar de `bundle.c`. El runtime (`pengu_runtime.h` y
+`libpengu_runtime.a`) se sigue compilando como C y se enlaza con linkage C,
+así que un binario construido en C++ ejecuta la misma std.
+
+`psc test . --backend=cpp` compila la suite completa (todo `std/`, no solo el
+cierre del compilador) con el emisor C++: es el gate que mantiene compilable
+cada módulo.
+
+`emit-c --dump-index-types` añade a la salida, por stderr, una línea
+`archivo:línea<TAB>receptor<TAB>resultado` por cada indexación (`at`). Con
+`--backend=cpp` permite medir qué `s at i` siguen siendo `string` y cuáles van
+a `char` en el dialecto nuevo.
+
 ## Bind (F10)
 
 ```bash
@@ -102,6 +121,7 @@ psc build [TARGET] [opciones]
 - `--profile=debug|release|small`, `--cc`, `--out`/`-o`, `--entry`/`-e`.
 - `-D NAME[=VALUE]` repetible.
 - `--test`, `--exe`, `--strict-c99`, `--release-unsafe`, `--verbose`, `--json`.
+- `--backend=c|cpp` (también en `run`, `test` y `emit-c`; ver «Familia de backend»).
 - `--split-codegen` emite `bundle.h`, `core.c` y una unidad por módulo, y las
   compila por separado; `--jobs=N` limita cuántas compilaciones C corren a la
   vez (solo `exe` nativo). Es opt-in: el camino de un único TU suele ser más

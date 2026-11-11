@@ -26,6 +26,7 @@ weave print_help into void:
     calling spark.println with "  --profile=debug|release|small"
     calling spark.println with "  --target=TRIPLE|wasm"
     calling spark.println with "  --cc=NAME"
+    calling spark.println with "  --backend=c|cpp"
     calling spark.println with "  --entry=PATH"
     calling spark.println with "  --json"
     calling spark.println with "  --coverage  (gcov; mapea #line a .pengu)"
@@ -72,6 +73,7 @@ weave run_test with args as list of string into int:
     calling vf.push with "--target"
     calling vf.push with "--entry"
     calling vf.push with "--sanitize"
+    calling vf.push with "--backend"
     var sf as list of string is list of string
     calling sf.push with "--json"
     calling sf.push with "--watch"
@@ -141,6 +143,18 @@ weave run_test with args as list of string into int:
         calling targetmod.free with (sigil of o.platform)
         set o.platform is nt
         set o.target_explicit is true
+    var be as string is calling cliargs.value with (sigil of pr.args), "--backend"
+    if be length > 0:
+        var fam as string is calling driver.backend_family with be
+        if fam length == 0:
+            var bmsg as string is calling driver.backend_error with "psc test", be
+            calling spark.eprintln with bmsg
+            banish bmsg
+            calling driver.free_options with (sigil of o)
+            calling cliargs.free_parse_result with (sigil of pr)
+            return 2
+        banish o.family
+        set o.family is calling copy with fam
     var ent as string is calling cliargs.value with (sigil of pr.args), "--entry"
     if ent length > 0:
         banish o.target
