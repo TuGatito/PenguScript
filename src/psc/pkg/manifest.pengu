@@ -44,13 +44,13 @@ weave load_layout with dir as string into Layout:
     if not txt.is_present:
         banish txt
         return out
-    var pr as result of list of toml.TomlEntry to string is calling toml.parse with txt.value
+    var pr as result of vector of toml.TomlEntry to string is calling toml.parse with txt.value
     banish txt.value
     banish txt
     if not pr.is_ok:
         banish pr
         return out
-    var entries as list of toml.TomlEntry is pr.value
+    var entries as vector of toml.TomlEntry is pr.value
     if calling toml.has with entries, "build.src_dir":
         banish out.src_dir
         set out.src_dir is (calling copy with (calling toml.get with entries, "build.src_dir"))
@@ -99,7 +99,7 @@ weave find_root with start as string into string:
 
 ## Ruta de un manifiesto legado en `base`, o `""`.
 weave legacy_manifest with base as string into string:
-    var cands as list of string is list of string
+    var cands as vector of string is vector of string
     calling cands.push with "pengu.yaml"
     calling cands.push with "pengu.yml"
     calling cands.push with "pengu.json"
@@ -117,22 +117,22 @@ weave legacy_manifest with base as string into string:
     return ""
 
 ## Carga dependencias.
-weave load with base as string into list of Dependency:
-    var out as list of Dependency is list of Dependency
+weave load with base as string into vector of Dependency:
+    var out as vector of Dependency is vector of Dependency
     var path as string is "{base}/pengu.toml"
     var txt as maybe string is calling archivum.read_text with path
     banish path
     if not txt.is_present:
         banish txt
         return out
-    var pr as result of list of toml.TomlEntry to string is calling toml.parse with txt.value
+    var pr as result of vector of toml.TomlEntry to string is calling toml.parse with txt.value
     banish txt.value
     banish txt
     if not pr.is_ok:
         banish pr
         return out
-    var entries as list of toml.TomlEntry is pr.value
-    var names as list of string is list of string
+    var entries as vector of toml.TomlEntry is pr.value
+    var names as vector of string is vector of string
     for e in entries:
         if calling starts_with with e.key, "dependencies.":
             var rest as string is e.key at 13 to (e.key length)
@@ -186,7 +186,7 @@ weave load with base as string into list of Dependency:
     return out
 
 ## Índice de una dependencia o -1.
-weave find_dep with ds as list of Dependency, name as string into int:
+weave find_dep with ds as vector of Dependency, name as string into int:
     var i as int is 0
     while i < ds.len:
         if (ds at i).name == name:
@@ -199,7 +199,7 @@ weave clone_dep with d as Dependency into Dependency:
     return with name is (calling copy with d.name), kind is (calling copy with d.kind), source is (calling copy with d.source), branch is (calling copy with d.branch), tag is (calling copy with d.tag), constraint is (calling copy with d.constraint)
 
 ## Libera una lista de dependencias.
-weave free with ds as list of Dependency into void:
+weave free with ds as vector of Dependency into void:
     var i as int is 0
     while i < ds.len:
         var d as Dependency is (ds at i)
@@ -333,8 +333,8 @@ weave entry_line with d as Dependency into string:
     return calling sb.finish
 
 ## Líneas del cuerpo de una sección `[dependencies.<name>]`.
-weave named_lines with d as Dependency into list of string:
-    var out as list of string is list of string
+weave named_lines with d as Dependency into vector of string:
+    var out as vector of string is vector of string
     if d.kind == "path":
         var es as string is calling escape with d.source
         calling out.push with "path = \"{es}\""
@@ -366,8 +366,8 @@ weave upsert with base as string, d as Dependency into bool:
         banish path
         return false
     var ttxt as string is calling copy with txt.value
-    var lines as list of string is calling ttxt.split with "\n"
-    var out as list of string is list of string
+    var lines as vector of string is calling ttxt.split with "\n"
+    var out as vector of string is vector of string
     var in_deps as bool is false
     var in_named as bool is false
     var replaced_named as bool is false
@@ -389,7 +389,7 @@ weave upsert with base as string, d as Dependency into bool:
             set in_named is true
             set replaced_named is true
             calling out.push with (calling copy with line)
-            var nl as list of string is calling named_lines with d
+            var nl as vector of string is calling named_lines with d
             for bl in nl:
                 calling out.push with bl
             banish nl
@@ -456,10 +456,10 @@ weave remove with base as string, name as string into bool:
         banish path
         return false
     var ttxt as string is calling copy with txt.value
-    var lines as list of string is calling ttxt.split with "\n"
+    var lines as vector of string is calling ttxt.split with "\n"
     banish txt.value
     banish txt
-    var out as list of string is list of string
+    var out as vector of string is vector of string
     var in_deps as bool is false
     var in_named as bool is false
     for line in lines:

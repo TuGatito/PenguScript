@@ -186,8 +186,8 @@ weave parse_value with s as string, start as int into string:
 ##
 ## ## Memoria
 ## Devuelve una lista owned; liberar con `banish`.
-weave parse_fields with line as string into list of MiField:
-    var out as list of MiField is list of MiField
+weave parse_fields with line as string into vector of MiField:
+    var out as vector of MiField is vector of MiField
     var i as int is 0
     var n as int is line length
     while i < n:
@@ -268,7 +268,7 @@ weave parse_fields with line as string into list of MiField:
 ##
 ## ## Memoria
 ## Devuelve un string owned (`""` si no existe).
-weave field with fields as ref to list of MiField, key as string into string:
+weave field with fields as ref to vector of MiField, key as string into string:
     var i as int is 0
     while i < fields->len:
         var f as MiField is fields at i
@@ -350,8 +350,8 @@ weave result_class with line as string into string:
 ##
 ## ## Memoria
 ## Devuelve una lista owned; liberar con `banish`.
-weave split_objects with text as string into list of string:
-    var out as list of string is list of string
+weave split_objects with text as string into vector of string:
+    var out as vector of string is vector of string
     var i as int is 0
     var n as int is text length
     while i < n:

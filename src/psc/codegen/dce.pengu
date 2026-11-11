@@ -28,23 +28,23 @@ insignia psc_codegen_dce_
 ## Dueño de `live`; liberar con `free`.
 rune CgReach:
     ## Un bool por función del catálogo.
-    live as list of bool
+    live as vector of bool
     ## `SymbolId` ya marcados.
-    seen as map of int to int
+    seen as map of int, int
     ## `TypeId` usados por funciones vivas.
-    types as map of int to int
+    types as map of int, int
 
 ## Crea el conjunto.
 ##
 ## ## Memoria
 ## Asigna lista/mapa.
 weave new_reach with n as int into CgReach:
-    var live as list of bool is list of bool
+    var live as vector of bool is vector of bool
     var i as int is 0
     while i < n:
         calling live.push with false
         set i is i + 1
-    return with live is live, seen is map of int to int, types is map of int to int
+    return with live is live, seen is map of int, int, types is map of int, int
 
 ## Libera el conjunto.
 ##
@@ -377,7 +377,7 @@ weave compute with c as ref to context.CgContext into CgReach:
         set i2 is i2 + 1
     # Los `.d.pengu` declarados por un módulo vivo deben emitirse: sus
     # `include`/`declare` son la interfaz C que usan los antiquus del padre.
-    var live_parents as map of int to int is map of int to int
+    var live_parents as map of int, int is map of int, int
     set i2 is 0
     while i2 < c->catalog.functions.len:
         if (r.live at i2):

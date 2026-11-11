@@ -187,6 +187,9 @@ psc debug . --llvm -- --flag   # lldb y argumentos del programa
 psc fmt src/
 psc fmt --check src/
 psc fmt --stdin < file.pengu
+psc migrate src/               # F2: sintaxis C++ mecánica
+psc migrate --check src/
+psc migrate --diff src/
 psc doc
 psc assets --list
 psc assets
@@ -201,6 +204,29 @@ psc time src/main.pengu
 
 `psc benchmark` y `psc selftest` son **dev-only** y requieren el checkout y
 Python; no forman parte del camino de build de usuario.
+
+### `psc migrate` (F2)
+
+Migra a las grafías del dialecto C++ solo lo que es **mecánico** (mismo AST,
+mismo código emitido en los dos backends):
+
+| Antes | Después |
+|---|---|
+| `list of T` | `vector of T` |
+| `slice of T` | `span of T` |
+| `map of K to V` | `map of K, V` |
+| `nasci` / `mori` / `imago` | `born` / `die` / `mirror` |
+| `namespace` | `regnum` |
+
+`--check` no escribe y sale con 1 si habría cambios; `--diff` muestra las
+líneas afectadas; sin flags escribe in place. El comando es idempotente y no
+toca comentarios, strings ni los `to` que no son separador de `map`
+(`for i in 0 to 5`, `result of T to E`).
+
+Lo que **no** hace, porque necesita semántica nueva o resolución de tipos:
+`umap`/`set`/`uset`, la retirada de `derive`, los identificadores que pasan a
+ser reservados (`result`, `span`, `set`, `map`, `unique`) y las firmas de la
+FFI. Cada una tiene su fase.
 
 ## LSP
 

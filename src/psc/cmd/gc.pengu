@@ -36,8 +36,8 @@ weave print_help into void:
 ## Libera `root`, `dirs`, sus strings y `sizes`.
 weave prune_to_size with limit as int into int:
     var root as string is calling cache.root
-    var dirs as list of string is calling archivum.find_dirs with root, false
-    var sizes as list of int is list of int
+    var dirs as vector of string is calling archivum.find_dirs with root, false
+    var sizes as vector of int is vector of int
     var total as int is 0
     for d in dirs:
         var sz as maybe int is calling archivum.dir_size with d, true
@@ -66,15 +66,15 @@ weave prune_to_size with limit as int into int:
 ##
 ## ## Memoria
 ## Libera ParseResult.
-weave run_gc with args as list of string into int:
-    var vf as list of string is list of string
+weave run_gc with args as vector of string into int:
+    var vf as vector of string is vector of string
     calling vf.push with "--max-age"
     calling vf.push with "--max-size"
-    var sf as list of string is list of string
+    var sf as vector of string is vector of string
     calling sf.push with "--all"
     calling sf.push with "--verbose"
     calling sf.push with "--json"
-    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, vector of string
     if not pr.ok:
         var e as string is pr.error
         calling spark.eprintln with e
@@ -108,7 +108,7 @@ weave run_gc with args as list of string into int:
                 set days is pm.value
             banish pm
         var root as string is calling cache.root
-        var dirs as list of string is calling archivum.find_dirs with root, false
+        var dirs as vector of string is calling archivum.find_dirs with root, false
         var nows as int is (calling chronicle.now_ms) / 1000
         var cutoff as int is nows - days * 86400
         for d in dirs:

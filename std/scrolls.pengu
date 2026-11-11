@@ -940,9 +940,9 @@ enchanting string:
     ## ```pengu
     ## calling "ab".chars    # ["a", "b"]
     ## ```
-    weave chars into list of string:
+    weave chars into vector of string:
         let sv is essence of self
-        var parts as list of string is list of string with capacity (sv length)
+        var parts as vector of string is vector of string with capacity (sv length)
         var i as int is 0
         let ll as int is sv length
         while i < ll:
@@ -962,9 +962,9 @@ enchanting string:
     ## ```pengu
     ## calling "AB".bytes    # [65, 66]
     ## ```
-    weave bytes into list of int:
+    weave bytes into vector of int:
         let sv is essence of self
-        var codes as list of int is list of int with capacity (sv length)
+        var codes as vector of int is vector of int with capacity (sv length)
         var i as int is 0
         let ll as int is sv length
         while i < ll:
@@ -1017,7 +1017,7 @@ enchanting string:
     ## ```pengu
     ## calling "abc".starts_with_any with ["x", "ab"]    # true
     ## ```
-    weave starts_with_any with prefixes as list of string into bool:
+    weave starts_with_any with prefixes as vector of string into bool:
         let sv is essence of self
         for prefix in prefixes:
             if calling pengu_string_starts_with with sv, prefix:
@@ -1051,7 +1051,7 @@ enchanting string:
     ## ```pengu
     ## calling "abc".ends_with_any with ["x", "bc"]    # true
     ## ```
-    weave ends_with_any with suffixes as list of string into bool:
+    weave ends_with_any with suffixes as vector of string into bool:
         let sv is essence of self
         for suffix in suffixes:
             if calling pengu_string_ends_with with sv, suffix:
@@ -1636,9 +1636,9 @@ enchanting string:
     ## ```pengu
     ## calling "  a  b ".split_whitespace    # ["a", "b"]
     ## ```
-    weave split_whitespace into list of string:
+    weave split_whitespace into vector of string:
         let sv is essence of self
-        var parts as list of string is list of string
+        var parts as vector of string is vector of string
         var start as int is -1
         var i as int is 0
         let ll as int is sv length
@@ -1666,7 +1666,7 @@ enchanting string:
     ## ```pengu
     ## calling "a\tb\nc".words    # ["a", "b", "c"]
     ## ```
-    weave words into list of string:
+    weave words into vector of string:
         return calling self.split_whitespace
     ## List of lines separated by `\n`.
     ##
@@ -1681,10 +1681,10 @@ enchanting string:
     ## ```pengu
     ## calling "a\r\nb".split_lines    # ["a\r", "b"]
     ## ```
-    weave split_lines into list of string:
+    weave split_lines into vector of string:
         let sv as string is essence of self
         if (sv length) == 0:
-            return list of string
+            return vector of string
         return calling sv.split with "\n"
     ## Number of `\n`-separated lines.
     ##
@@ -1733,9 +1733,9 @@ enchanting string:
     ## ```pengu
     ## calling "a\r\nb".lines    # ["a", "b"]
     ## ```
-    weave lines into list of string:
+    weave lines into vector of string:
         let raw is calling self.split_lines
-        var parts as list of string is list of string with capacity (raw length)
+        var parts as vector of string is vector of string with capacity (raw length)
         for line in raw:
             let ll as int is line length
             if ll > 0 and (calling _view with line, (ll - 1), ll) == "\r":
@@ -1792,10 +1792,10 @@ enchanting string:
     ## ```pengu
     ## calling "a,,b".split with ","    # ["a", "", "b"]
     ## ```
-    weave split with delim as string into list of string:
+    weave split with delim as string into vector of string:
         let sv is essence of self
         let dl as int is delim length
-        var parts as list of string is list of string
+        var parts as vector of string is vector of string
         if dl == 0:
             calling parts.push with sv
             return parts
@@ -1821,10 +1821,10 @@ enchanting string:
     ## ```pengu
     ## calling "a,b,c".splitn with ",", 2    # ["a", "b,c"]
     ## ```
-    weave splitn with delim as string, n as int into list of string:
+    weave splitn with delim as string, n as int into vector of string:
         let sv is essence of self
         let dl as int is delim length
-        var parts as list of string is list of string
+        var parts as vector of string is vector of string
         if n <= 0 or dl == 0:
             calling parts.push with sv
             return parts
@@ -1853,14 +1853,14 @@ enchanting string:
     ## ```pengu
     ## calling "a:b:c".rsplit with ":"    # ["a", "b", "c"]
     ## ```
-    weave rsplit with delim as string into list of string:
+    weave rsplit with delim as string into vector of string:
         let sv is essence of self
         let dl as int is delim length
-        var parts as list of string is list of string
+        var parts as vector of string is vector of string
         if dl == 0:
             calling parts.push with sv
             return parts
-        var hits as list of int is list of int
+        var hits as vector of int is vector of int
         defer banish hits
         var start as int is 0
         var hit as int is calling pengu__find_sub with sv, delim, start
@@ -1890,9 +1890,9 @@ enchanting string:
     ## ```pengu
     ## calling "a=b=c".partition with "="    # ["a", "=", "b=c"]
     ## ```
-    weave partition with sep as string into list of string:
+    weave partition with sep as string into vector of string:
         let sv is essence of self
-        var parts as list of string is list of string with capacity 3
+        var parts as vector of string is vector of string with capacity 3
         let hit as int is calling pengu__find_sub with sv, sep, 0
         if hit < 0 or (sep length) == 0:
             calling parts.push with sv
@@ -1938,7 +1938,7 @@ enchanting string:
         let sv is essence of self
         if count <= 0 or (sv length) == 0:
             return ""
-        var parts as list of string is list of string with capacity count
+        var parts as vector of string is vector of string with capacity count
         for i from 0 to count:
             calling parts.push with sv
         var out as string is calling _join_parts with parts, sep
@@ -3122,7 +3122,7 @@ weave starts_with with s as string, prefix as string into bool:
 ## ```pengu
 ## calling scrolls.starts_with_any with "abc", ["x", "ab"]    # true
 ## ```
-weave starts_with_any with s as string, prefixes as list of string into bool:
+weave starts_with_any with s as string, prefixes as vector of string into bool:
     return calling s.starts_with_any with prefixes
 ## Functional form of `ends_with`: true when `s` ends with `suffix`.
 ##
@@ -3152,7 +3152,7 @@ weave ends_with with s as string, suffix as string into bool:
 ## ```pengu
 ## calling scrolls.ends_with_any with "abc", ["x", "bc"]    # true
 ## ```
-weave ends_with_any with s as string, suffixes as list of string into bool:
+weave ends_with_any with s as string, suffixes as vector of string into bool:
     return calling s.ends_with_any with suffixes
 ## Functional form of `index_of`: first index of `sub`, or -1.
 ##
@@ -3380,7 +3380,7 @@ weave replace_all with s as string, from_str as string, to_str as string into st
 ## ```pengu
 ## calling scrolls.split with "a,b", ","    # ["a", "b"]
 ## ```
-weave split with s as string, delim as string into list of string:
+weave split with s as string, delim as string into vector of string:
     return calling s.split with delim
 ## Functional form of `splitn`: split into at most `n` parts.
 ##
@@ -3396,7 +3396,7 @@ weave split with s as string, delim as string into list of string:
 ## ```pengu
 ## calling scrolls.splitn with "a,b,c", ",", 2    # ["a", "b,c"]
 ## ```
-weave splitn with s as string, delim as string, n as int into list of string:
+weave splitn with s as string, delim as string, n as int into vector of string:
     return calling s.splitn with delim, n
 ## Functional form of `rsplit`: split scanning from the right.
 ##
@@ -3411,7 +3411,7 @@ weave splitn with s as string, delim as string, n as int into list of string:
 ## ```pengu
 ## calling scrolls.rsplit with "a:b:c", ":"    # ["a", "b", "c"]
 ## ```
-weave rsplit with s as string, delim as string into list of string:
+weave rsplit with s as string, delim as string into vector of string:
     return calling s.rsplit with delim
 ## Functional form of `repeat`: repeat `s` `count` times.
 ##
@@ -3771,7 +3771,7 @@ weave is_blank with s as string into bool:
 ## ```pengu
 ## calling scrolls.split_whitespace with "a b"    # ["a", "b"]
 ## ```
-weave split_whitespace with s as string into list of string:
+weave split_whitespace with s as string into vector of string:
     return calling s.split_whitespace
 ## Functional form of `words`: short `split_whitespace`.
 ##
@@ -3785,7 +3785,7 @@ weave split_whitespace with s as string into list of string:
 ## ```pengu
 ## calling scrolls.words with "a b"    # ["a", "b"]
 ## ```
-weave words with s as string into list of string:
+weave words with s as string into vector of string:
     return calling s.words
 ## Functional form of `split_lines`: split on `\n`, keeping CR bytes.
 ##
@@ -3799,7 +3799,7 @@ weave words with s as string into list of string:
 ## ```pengu
 ## calling scrolls.split_lines with "a\nb"    # ["a", "b"]
 ## ```
-weave split_lines with s as string into list of string:
+weave split_lines with s as string into vector of string:
     return calling s.split_lines
 ## Functional form of `lines`: split on `\n` and drop a trailing `\r`.
 ##
@@ -3813,7 +3813,7 @@ weave split_lines with s as string into list of string:
 ## ```pengu
 ## calling scrolls.lines with "a\r\nb"    # ["a", "b"]
 ## ```
-weave lines with s as string into list of string:
+weave lines with s as string into vector of string:
     return calling s.lines
 ## Functional form of `line_count`: number of `\n`-separated lines.
 ##
@@ -3985,7 +3985,7 @@ weave removesuffix with s as string, suffix as string into string:
 ## ```pengu
 ## calling scrolls.partition with "a=b", "="    # ["a", "=", "b"]
 ## ```
-weave partition with s as string, sep as string into list of string:
+weave partition with s as string, sep as string into vector of string:
     return calling s.partition with sep
 ## Functional form of `is_lower`: no uppercase and at least one lowercase.
 ##
@@ -4058,7 +4058,7 @@ weave compare with a as string, b as string into int:
 ## ```pengu
 ## calling scrolls.chars with "ab"    # ["a", "b"]
 ## ```
-weave chars with s as string into list of string:
+weave chars with s as string into vector of string:
     return calling s.chars
 ## Functional form of `bytes`: numeric code of each byte.
 ##
@@ -4072,7 +4072,7 @@ weave chars with s as string into list of string:
 ## ```pengu
 ## calling scrolls.bytes with "A"    # [65]
 ## ```
-weave bytes with s as string into list of int:
+weave bytes with s as string into vector of int:
     return calling s.bytes
 
 # --- Truncation ---------------------------------------------------------
@@ -4136,7 +4136,7 @@ weave is_numeric with s as string into bool:
 ## ```pengu
 ## calling scrolls.join with ["a", "b"], "-"    # "a-b"
 ## ```
-weave join with parts as list of string, sep as string into string:
+weave join with parts as vector of string, sep as string into string:
     return calling _join_parts with parts, sep
 
 # --- Private helpers ----------------------------------------------------
@@ -4148,7 +4148,7 @@ weave join with parts as list of string, sep as string into string:
 ##
 ## ## Retorno
 ## A new owned string; the caller releases it with `banish`.
-weave _join_parts with parts as list of string, sep as string into string:
+weave _join_parts with parts as vector of string, sep as string into string:
     let ll as int is parts length
     if ll == 0:
         return ""
@@ -4172,7 +4172,7 @@ weave _join_parts with parts as list of string, sep as string into string:
 ##
 ## ## Retorno
 ## A new owned string; the caller releases it with `banish`.
-weave _concat with parts as list of string into string:
+weave _concat with parts as vector of string into string:
     var out as string is ""
     for part in parts:
         var next as string is "{out}{part}"
@@ -4226,7 +4226,7 @@ weave _swap_char with ch as string into string:
 weave _pad_left with s as string, count as int, pad_char as string into string:
     if count <= 0:
         return "{s}"
-    var parts as list of string is list of string with capacity (count + 1)
+    var parts as vector of string is vector of string with capacity (count + 1)
     for i from 0 to count:
         calling parts.push with pad_char
     calling parts.push with s
@@ -4245,7 +4245,7 @@ weave _pad_left with s as string, count as int, pad_char as string into string:
 weave _pad_right with s as string, count as int, pad_char as string into string:
     if count <= 0:
         return "{s}"
-    var parts as list of string is list of string with capacity (count + 1)
+    var parts as vector of string is vector of string with capacity (count + 1)
     calling parts.push with s
     for i from 0 to count:
         calling parts.push with pad_char
@@ -4314,18 +4314,18 @@ test "is_empty distinguishes the empty string":
     calling _expect_eq_bool with (calling is_empty with "x"), false, "functional is_empty"
 test "chars returns a one-byte string per element":
     var s as string is "abc"
-    var parts as list of string is calling s.chars
+    var parts as vector of string is calling s.chars
     defer banish parts
     calling _expect_eq_int with (parts length), 3, "chars"
-    var letters as list of string is calling chars with s
+    var letters as vector of string is calling chars with s
     defer banish letters
     calling _expect_eq_string with (letters at 1), "b", "functional chars"
 test "bytes returns the ASCII codes":
     var s as string is "AB"
-    var codes as list of int is calling s.bytes
+    var codes as vector of int is calling s.bytes
     defer banish codes
     calling _expect_eq_int with (codes at 0), 65, "bytes"
-    var func_codes as list of int is calling bytes with s
+    var func_codes as vector of int is calling bytes with s
     defer banish func_codes
     calling _expect_eq_int with (func_codes at 1), 66, "functional bytes"
 
@@ -4623,34 +4623,34 @@ test "is_blank is true for empty or whitespace-only":
     calling _expect_eq_bool with (calling is_blank with "a"), false, "with text"
 test "split_whitespace ignores repeated spaces":
     var s as string is "  a  b "
-    var parts as list of string is calling s.split_whitespace
+    var parts as vector of string is calling s.split_whitespace
     defer banish parts
     calling _expect_eq_int with (parts length), 2, "split_whitespace"
-    var func_words as list of string is calling split_whitespace with s
+    var func_words as vector of string is calling split_whitespace with s
     defer banish func_words
     calling _expect_eq_string with (func_words at 0), "a", "functional"
 test "words is the short form of split_whitespace":
     var s as string is "a\tb\nc"
-    var _ll_4596 as list of string is calling s.words
+    var _ll_4596 as vector of string is calling s.words
     defer banish _ll_4596
     calling _expect_eq_int with (_ll_4596 length), 3, "words"
-    var _ll_4597 as list of string is calling words with "   "
+    var _ll_4597 as vector of string is calling words with "   "
     defer banish _ll_4597
     calling _expect_eq_int with (_ll_4597 length), 0, "only spaces"
 test "split_lines splits on LF and keeps the CR":
     var s as string is "a\r\nb"
-    var parts as list of string is calling s.split_lines
+    var parts as vector of string is calling s.split_lines
     defer banish parts
     calling _expect_eq_int with (parts length), 2, "split_lines"
-    var func_lines as list of string is calling split_lines with s
+    var func_lines as vector of string is calling split_lines with s
     defer banish func_lines
     calling _expect_eq_string with (func_lines at 0), "a\r", "functional"
 test "lines drops the trailing CR of every line":
     var s as string is "a\r\nb\nc"
-    var parts as list of string is calling s.lines
+    var parts as vector of string is calling s.lines
     defer banish parts
     calling _expect_eq_int with (parts length), 3, "lines"
-    var func_clean as list of string is calling lines with s
+    var func_clean as vector of string is calling lines with s
     defer banish func_clean
     calling _expect_eq_string with (func_clean at 0), "a", "functional"
 test "line_count counts LF-separated lines":
@@ -4675,16 +4675,16 @@ test "functional whitespace forms":
     defer banish _lt_4522
     calling _expect_eq_string with _lt_4522, "a", "rstrip"
 test "functional whitespace-splitting forms":
-    var _ll_4636 as list of string is calling split_whitespace with "a b"
+    var _ll_4636 as vector of string is calling split_whitespace with "a b"
     defer banish _ll_4636
     calling _expect_eq_int with (_ll_4636 length), 2, "split_whitespace"
-    var _ll_4637 as list of string is calling words with "a b"
+    var _ll_4637 as vector of string is calling words with "a b"
     defer banish _ll_4637
     calling _expect_eq_int with (_ll_4637 length), 2, "words"
-    var _ll_4638 as list of string is calling lines with "a\nb"
+    var _ll_4638 as vector of string is calling lines with "a\nb"
     defer banish _ll_4638
     calling _expect_eq_int with (_ll_4638 length), 2, "lines"
-    var _ll_4639 as list of string is calling split_lines with "a\nb"
+    var _ll_4639 as vector of string is calling split_lines with "a\nb"
     defer banish _ll_4639
     calling _expect_eq_int with (_ll_4639 length), 2, "split_lines"
 test "functional line and word count forms":
@@ -4727,73 +4727,73 @@ test "replace_all with an empty from_str changes nothing":
     calling _expect_eq_string with _ls_4685, "abc", "empty"
 test "split divides on every delimiter":
     var s as string is "a,,b"
-    var parts as list of string is calling s.split with ","
+    var parts as vector of string is calling s.split with ","
     defer banish parts
     calling _expect_eq_int with (parts length), 3, "split"
-    var func_chunks as list of string is calling split with s, ","
+    var func_chunks as vector of string is calling split with s, ","
     defer banish func_chunks
     calling _expect_eq_string with (func_chunks at 1), "", "functional"
 test "split with an empty delimiter returns the whole string":
     var s as string is "abc"
-    var parts as list of string is calling s.split with ""
+    var parts as vector of string is calling s.split with ""
     defer banish parts
     calling _expect_eq_int with (parts length), 1, "empty split"
     calling _expect_eq_string with (parts at 0), "abc", "content"
 test "split with an absent delimiter returns one element":
     var s as string is "abc"
-    var parts as list of string is calling s.split with "::"
+    var parts as vector of string is calling s.split with "::"
     defer banish parts
     calling _expect_eq_int with (parts length), 1, "absent"
 test "split accepts multi-byte delimiters":
     var s as string is "a::b::c"
-    var parts as list of string is calling s.split with "::"
+    var parts as vector of string is calling s.split with "::"
     defer banish parts
     calling _expect_eq_int with (parts length), 3, "multi-char"
 test "splitn keeps the remaining delimiters in the last part":
     var s as string is "a,b,c,d"
-    var parts as list of string is calling s.splitn with ",", 3
+    var parts as vector of string is calling s.splitn with ",", 3
     defer banish parts
     calling _expect_eq_int with (parts length), 3, "splitn"
     calling _expect_eq_string with (parts at 2), "c,d", "last part"
-    var single as list of string is calling splitn with s, ",", 1
+    var single as vector of string is calling splitn with s, ",", 1
     defer banish single
     calling _expect_eq_int with (single length), 1, "functional one part"
     calling _expect_eq_string with (single at 0), "a,b,c,d", "functional whole"
 test "splitn with n <= 0 does not split":
     var s as string is "a,b"
-    var parts as list of string is calling s.splitn with ",", 0
+    var parts as vector of string is calling s.splitn with ",", 0
     defer banish parts
     calling _expect_eq_int with (parts length), 1, "no split"
     calling _expect_eq_string with (parts at 0), "a,b", "whole string"
 test "rsplit scans from the right and preserves the order":
     var s as string is "a:b:c"
-    var parts as list of string is calling s.rsplit with ":"
+    var parts as vector of string is calling s.rsplit with ":"
     defer banish parts
     calling _expect_eq_int with (parts length), 3, "rsplit"
     calling _expect_eq_string with (parts at 0), "a", "first"
     calling _expect_eq_string with (parts at 2), "c", "last"
-    var func_parts as list of string is calling rsplit with s, ":"
+    var func_parts as vector of string is calling rsplit with s, ":"
     defer banish func_parts
     calling _expect_eq_int with (func_parts length), 3, "functional rsplit"
 test "rsplit keeps empty pieces and handles an empty delimiter":
     var s as string is "a::b"
-    var parts as list of string is calling s.rsplit with ":"
+    var parts as vector of string is calling s.rsplit with ":"
     defer banish parts
     calling _expect_eq_string with (parts at 1), "", "empty piece"
-    var whole as list of string is calling s.rsplit with ""
+    var whole as vector of string is calling s.rsplit with ""
     defer banish whole
     calling _expect_eq_int with (whole length), 1, "empty delimiter"
 test "partition returns before, separator and after":
     var s as string is "a=b=c"
-    var parts as list of string is calling s.partition with "="
+    var parts as vector of string is calling s.partition with "="
     defer banish parts
     calling _expect_eq_int with (parts length), 3, "partition"
-    var func_parts as list of string is calling partition with s, "="
+    var func_parts as vector of string is calling partition with s, "="
     defer banish func_parts
     calling _expect_eq_string with (func_parts at 2), "b=c", "functional"
 test "partition without a separator returns the string and two empties":
     var s as string is "abc"
-    var parts as list of string is calling s.partition with "="
+    var parts as vector of string is calling s.partition with "="
     defer banish parts
     calling _expect_eq_string with (parts at 0), "abc", "no sep"
     calling _expect_eq_string with (parts at 1), "", "empty"
@@ -4828,10 +4828,10 @@ test "functional replacement and splitting forms":
     var _ls_4782 as string is calling replace_all with "abc", "", "X"
     defer banish _ls_4782
     calling _expect_eq_string with _ls_4782, "abc", "replace_all"
-    var _ll_4771 as list of string is calling split with "a,b", ","
+    var _ll_4771 as vector of string is calling split with "a,b", ","
     defer banish _ll_4771
     calling _expect_eq_int with (_ll_4771 length), 2, "split"
-    var _ll_4772 as list of string is calling partition with "a=b", "="
+    var _ll_4772 as vector of string is calling partition with "a=b", "="
     defer banish _ll_4772
     calling _expect_eq_int with (_ll_4772 length), 3, "partition"
 
@@ -5085,7 +5085,7 @@ test "is_numeric rejects spaces, exponents and garbage":
 
 # join
 test "join connects the elements with the separator":
-    var parts as list of string is ["alpha", "beta", "gamma"]
+    var parts as vector of string is ["alpha", "beta", "gamma"]
     defer banish parts
     var _lt_4788 as string is calling join with parts, ", "
     defer banish _lt_4788
@@ -5094,19 +5094,19 @@ test "join connects the elements with the separator":
     defer banish _lt_4789
     calling _expect_eq_string with _lt_4789, "alpha|beta|gamma", "other sep"
 test "join of an empty list is empty":
-    var parts as list of string is list of string
+    var parts as vector of string is vector of string
     defer banish parts
     var _ls_5049 as string is calling join with parts, ","
     defer banish _ls_5049
     calling _expect_eq_string with _ls_5049, "", "empty"
 test "join of one element adds no separator":
-    var parts as list of string is ["x"]
+    var parts as vector of string is ["x"]
     defer banish parts
     var _lt_4795 as string is calling join with parts, ","
     defer banish _lt_4795
     calling _expect_eq_string with _lt_4795, "x", "one element"
 test "join preserves the empty elements":
-    var parts as list of string is ["", "x", ""]
+    var parts as vector of string is ["", "x", ""]
     defer banish parts
     var _lt_4798 as string is calling join with parts, "|"
     defer banish _lt_4798
@@ -5122,11 +5122,11 @@ test "functional length and slicing forms":
     defer banish _lt_4804
     calling _expect_eq_string with _lt_4804, "b", "char_at"
 test "functional chars and bytes forms":
-    var _ll_5056 as list of string is calling chars with "ab"
+    var _ll_5056 as vector of string is calling chars with "ab"
     defer banish _ll_5056
     calling _expect_eq_int with (_ll_5056 length), 2, "chars"
     var letter_a as string is "A"
-    var codes_a as list of int is calling bytes with letter_a
+    var codes_a as vector of int is calling bytes with letter_a
     defer banish codes_a
     calling _expect_eq_int with (codes_a at 0), 65, "bytes"
     calling _expect_eq_bool with (calling is_empty with ""), true, "is_empty"
@@ -5138,10 +5138,10 @@ test "the methods do not mutate the receiver":
     calling _expect_eq_string with t, "hola", "result"
 test "chars and bytes of the empty string are empty":
     var empty_s as string is ""
-    var _ll_5070 as list of string is calling empty_s.chars
+    var _ll_5070 as vector of string is calling empty_s.chars
     defer banish _ll_5070
     calling _expect_eq_int with (_ll_5070 length), 0, "chars"
-    var _ll_5071 as list of int is calling bytes with empty_s
+    var _ll_5071 as vector of int is calling bytes with empty_s
     defer banish _ll_5071
     calling _expect_eq_int with (_ll_5071 length), 0, "bytes"
 test "the content predicates are false for the empty string":
@@ -5174,7 +5174,7 @@ test "repeat_join with an empty separator":
     calling _expect_eq_string with _lt_4843, "abab", "no separator"
 test "lines with a trailing LF adds an empty line":
     var s as string is "a\n"
-    var parts as list of string is calling s.lines
+    var parts as vector of string is calling s.lines
     defer banish parts
     calling _expect_eq_int with (parts length), 2, "two lines"
     calling _expect_eq_string with (parts at 1), "", "last empty"
@@ -5199,31 +5199,31 @@ test "functional reverse and repetition forms":
 # New in 2.0: strip, splitn, rsplit and the any-prefix/any-suffix predicates
 test "starts_with_any matches any prefix":
     var s as string is "abc"
-    var some_prefixes as list of string is ["x", "ab"]
+    var some_prefixes as vector of string is ["x", "ab"]
     defer banish some_prefixes
-    var no_prefixes as list of string is list of string
+    var no_prefixes as vector of string is vector of string
     defer banish no_prefixes
-    var other_prefixes as list of string is ["x"]
+    var other_prefixes as vector of string is ["x"]
     defer banish other_prefixes
     calling _expect_eq_bool with (calling s.starts_with_any with some_prefixes), true, "match"
     calling _expect_eq_bool with (calling s.starts_with_any with no_prefixes), false, "empty list"
     calling _expect_eq_bool with (calling starts_with_any with s, other_prefixes), false, "functional"
 test "ends_with_any matches any suffix":
     var s as string is "abc"
-    var some_suffixes as list of string is ["x", "bc"]
+    var some_suffixes as vector of string is ["x", "bc"]
     defer banish some_suffixes
-    var no_suffixes as list of string is list of string
+    var no_suffixes as vector of string is vector of string
     defer banish no_suffixes
-    var other_suffixes as list of string is ["x"]
+    var other_suffixes as vector of string is ["x"]
     defer banish other_suffixes
     calling _expect_eq_bool with (calling s.ends_with_any with some_suffixes), true, "match"
     calling _expect_eq_bool with (calling s.ends_with_any with no_suffixes), false, "empty list"
     calling _expect_eq_bool with (calling ends_with_any with s, other_suffixes), false, "functional"
 test "starts_with_any and ends_with_any accept the empty pattern":
     var s as string is "abc"
-    var empty_prefixes as list of string is [""]
+    var empty_prefixes as vector of string is [""]
     defer banish empty_prefixes
-    var empty_suffixes as list of string is [""]
+    var empty_suffixes as vector of string is [""]
     defer banish empty_suffixes
     calling _expect_eq_bool with (calling s.starts_with_any with empty_prefixes), true, "empty prefix"
     calling _expect_eq_bool with (calling s.ends_with_any with empty_suffixes), true, "empty suffix"
@@ -5237,16 +5237,16 @@ test "strip is the module alias of trim":
     calling _expect_eq_string with _lt_4889, "x", "method strip"
 test "splitn splits into at most n parts":
     var s as string is "a,b,c"
-    var parts as list of string is calling s.splitn with ",", 2
+    var parts as vector of string is calling s.splitn with ",", 2
     defer banish parts
     calling _expect_eq_int with (parts length), 2, "two parts"
     calling _expect_eq_string with (parts at 1), "b,c", "remainder"
-    var func_parts as list of string is calling splitn with s, ",", 4
+    var func_parts as vector of string is calling splitn with s, ",", 4
     defer banish func_parts
     calling _expect_eq_int with (func_parts length), 3, "functional"
 test "rsplit agrees with split on a simple string":
     var s as string is "a-b-c"
-    var parts as list of string is calling s.rsplit with "-"
+    var parts as vector of string is calling s.rsplit with "-"
     defer banish parts
     calling _expect_eq_int with (parts length), 3, "rsplit"
     calling _expect_eq_string with (parts at 1), "b", "middle"

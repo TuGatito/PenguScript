@@ -82,7 +82,7 @@ weave has_root into bool:
 weave get_path with path as string into result of js.JsValue to js.JsError:
     if calling empty with path:
         return calling err_of with (with name is "NpmError", message is "empty path", stack is "")
-    var parts as list of string is calling scrolls.split with path, "."
+    var parts as vector of string is calling scrolls.split with path, "."
     defer banish parts
     var cur as result of js.JsValue to js.JsError is calling root
     if not cur.is_ok:
@@ -130,7 +130,7 @@ weave has_path with path as string into bool:
 ##
 ## ## Memoria
 ## El handle devuelto es owned. `args` no se libera.
-weave call with target as js.JsValue, method as string, args as list of js.JsValue into result of js.JsValue to js.JsError:
+weave call with target as js.JsValue, method as string, args as vector of js.JsValue into result of js.JsValue to js.JsError:
     if calling empty with method:
         return calling err_of with (with name is "NpmError", message is "empty method name", stack is "")
     return calling js.call_method with target, method, args
@@ -149,7 +149,7 @@ weave call_json with target as js.JsValue, method as string, args_json as string
     var ar as result of js.JsValue to js.JsError is calling js.parse_json with args_json
     if not ar.is_ok:
         return ar
-    var args as list of js.JsValue is list of js.JsValue
+    var args as vector of js.JsValue is vector of js.JsValue
     var lenr as result of int to js.JsError is calling js.length with ar.value
     if not lenr.is_ok:
         calling js.release with ar.value
@@ -190,7 +190,7 @@ weave call_json_text with target as js.JsValue, method as string, args_json as s
 ##
 ## ## Memoria
 ## El handle de la promesa se libera aquí; los callbacks son del bridge.
-weave call_async with target as js.JsValue, method as string, args as list of js.JsValue, on_ok as weave with v as js.JsValue into void, on_err as weave with e as js.JsValue into void into result of bool to js.JsError:
+weave call_async with target as js.JsValue, method as string, args as vector of js.JsValue, on_ok as weave with v as js.JsValue into void, on_err as weave with e as js.JsValue into void into result of bool to js.JsError:
     var pr as result of js.JsValue to js.JsError is calling call with target, method, args
     if not pr.is_ok:
         return calling err_of with (with name is "NpmError", message is (calling error_message with pr.error), stack is "")

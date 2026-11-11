@@ -40,7 +40,7 @@ weave emit_tuple with c as ref to context.CgContext, id as int into void:
     calling emit.line with (sigil of c->emitter), "typedef struct {name} {name};"
     calling emit.line with (sigil of c->emitter), "struct {name} {"
     calling emit.indent_more with (sigil of c->emitter)
-    var labels as list of string is list of string
+    var labels as vector of string is vector of string
     calling labels.push with "first"
     calling labels.push with "second"
     calling labels.push with "third"
@@ -389,7 +389,7 @@ weave nominal_type_id with c as ref to context.CgContext, tid as int into int:
 ##
 ## ## Memoria
 ## No retiene memoria.
-weave collect_type_deps with c as ref to context.CgContext, i as int, idx as ref to list of int, out as ref to list of int into void:
+weave collect_type_deps with c as ref to context.CgContext, i as int, idx as ref to vector of int, out as ref to vector of int into void:
     var t as catalog.CgType is (c->catalog.types at i)
     if t.type_id < 0 or t.type_id >= c->program->types.types.len:
         return
@@ -420,11 +420,11 @@ weave collect_type_deps with c as ref to context.CgContext, i as int, idx as ref
 ##
 ## ## Memoria
 ## Libera la lista temporal de dependencias.
-weave visit_catalog_type with c as ref to context.CgContext, i as int, idx as ref to list of int, state as ref to list of int, order as ref to list of int into void:
+weave visit_catalog_type with c as ref to context.CgContext, i as int, idx as ref to vector of int, state as ref to vector of int, order as ref to vector of int into void:
     if (state at i) == 1 or (state at i) == 2:
         return
     set state at i is 1
-    var deps as list of int is list of int
+    var deps as vector of int is vector of int
     calling collect_type_deps with c, i, idx, (sigil of deps)
     var d as int is 0
     while d < deps.len:
@@ -445,9 +445,9 @@ weave visit_catalog_type with c as ref to context.CgContext, i as int, idx as re
 ##
 ## ## Memoria
 ## Devuelve una lista owned; `idx`/`state` se liberan aquí.
-weave order_types with c as ref to context.CgContext into list of int:
+weave order_types with c as ref to context.CgContext into vector of int:
     var n as int is c->catalog.types.len
-    var idx as list of int is list of int
+    var idx as vector of int is vector of int
     var i as int is 0
     while i < c->program->types.types.len:
         calling idx.push with -1
@@ -458,12 +458,12 @@ weave order_types with c as ref to context.CgContext into list of int:
         if t.type_id >= 0 and t.type_id < idx.len:
             set idx at (t.type_id) is i
         set i is i + 1
-    var state as list of int is list of int
+    var state as vector of int is vector of int
     set i is 0
     while i < n:
         calling state.push with 0
         set i is i + 1
-    var order as list of int is list of int
+    var order as vector of int is vector of int
     set i is 0
     while i < n:
         calling visit_catalog_type with c, i, (sigil of idx), (sigil of state), (sigil of order)
@@ -473,8 +473,8 @@ weave order_types with c as ref to context.CgContext into list of int:
     # Las instancias concretas deben emitirse antes que la plantilla genérica:
     # la plantilla contiene campos ya sustituidos por tipos de instancia y C
     # exige que esos structs estén completos. Conserva el orden relativo.
-    var insts as list of int is list of int
-    var tmpls as list of int is list of int
+    var insts as vector of int is vector of int
+    var tmpls as vector of int is vector of int
     var oi as int is 0
     while oi < order.len:
         var ci as catalog.CgType is (c->catalog.types at (order at oi))
@@ -485,7 +485,7 @@ weave order_types with c as ref to context.CgContext into list of int:
         else:
             calling tmpls.push with (order at oi)
         set oi is oi + 1
-    var out as list of int is list of int
+    var out as vector of int is vector of int
     var ii as int is 0
     while ii < insts.len:
         calling out.push with (insts at ii)

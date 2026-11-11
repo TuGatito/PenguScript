@@ -1,0 +1,395 @@
+## psc/cmd/migrate.pengu — `psc migrate` (F2: migración mecánica de sintaxis).
+##
+## Reescribe solo transformaciones **mecánicas**: grafías que producen el
+## mismo AST y, por tanto, el mismo código en los dos backends.
+##
+## | Antes | Después |
+## |---|---|
+## | `list of T` | `vector of T` |
+## | `slice of T` | `span of T` |
+## | `map of K to V` | `map of K, V` |
+## | `nasci` / `mori` / `imago` | `born` / `die` / `mirror` |
+## | `namespace` | `regnum` |
+##
+## Lo que **no** hace, por necesitar semántica nueva o resolución de tipos:
+## `umap`/`set`/`uset`, la retirada de `derive`, los ~66 identificadores que
+## pasan a ser reservados (`result`, `span`, `set`, `map`, `unique`) y los
+## 87 `declare` de la FFI. Esas fases tienen su propio ciclo.
+##
+## ## Memoria
+## Cada edición posee su texto de reemplazo; `free_edits` lo libera.
+
+import std.archivum
+import std.builder
+import std.spark
+
+import psc.cli.args as cliargs
+import psc.sema.names as npool
+import psc.source as psource
+import psc.token as pstoken
+import psc.lexer as pslexer
+import psc.lexer_state as psstate
+import psc.diag_compat as diag_compat
+import psc.ast.kind as pskind
+import psc.ast.node as psast
+import psc.parse.api as papi
+import psc.parse.state as pstate
+
+insignia psc_cmd_migrate_
+
+## Una edición: reemplaza los bytes `[start, end)` por `text`.
+##
+## ## Memoria
+## `text` es owned; liberar con `free_edit`.
+rune MigrateEdit derive Nexus:
+    ## Offset inclusivo.
+    start as int
+    ## Offset exclusivo.
+    end as int
+    ## Texto de reemplazo.
+    text as string
+
+## Resultado de migrar un texto.
+##
+## ## Memoria
+## `text` es owned; `ok` es falso si el archivo no se pudo parsear.
+rune MigrateOutcome derive Nexus:
+    ## Texto migrado (copia owned).
+    text as string
+    ## Número de ediciones aplicadas.
+    changes as int
+    ## `true` si el archivo se pudo parsear.
+    ok as bool
+
+## Ayuda.
+##
+## ## Memoria
+## No asigna.
+weave print_help into void:
+    calling spark.println with "Usage: psc migrate [PATHS...] [options]"
+    calling spark.println with "  --check       no escribir; exit 1 si cambiaría algo"
+    calling spark.println with "  --diff        mostrar cada edición (línea y columna)"
+    calling spark.println with "  --verbose     listar los archivos tocados"
+    calling spark.println with "  --help"
+    calling spark.println with ""
+    calling spark.println with "Transformaciones: list of -> vector of, slice of -> span of,"
+    calling spark.println with "map of K to V -> map of K, V, nasci/mori/imago/namespace -> born/die/mirror/regnum."
+
+## Copia owned.
+##
+## ## Memoria
+## Devuelve string owned.
+weave copy with s as string into string:
+    return calling npool.copy_string with s
+
+## `true` si `s` termina en `suffix`.
+##
+## ## Memoria
+## O(suffix).
+weave ends_with with s as string, suffix as string into bool:
+    var n as int is s length
+    var m as int is suffix length
+    if m > n:
+        return false
+    return (s at (n - m) to n) == suffix
+
+## Añade una edición con copia owned del texto.
+##
+## ## Memoria
+## Asigna el reemplazo.
+weave add_edit with es as ref to vector of MigrateEdit, start as int, end as int, text as string into void:
+    var e as MigrateEdit is with start is start, end is end, text is calling copy with text
+    calling es.push with e
+
+## Índice del primer token cuyo `start` es `>= off`.
+##
+## ## Memoria
+## O(log n).
+weave token_index_at with tokens as vector of Token, off as int into int:
+    var lo as int is 0
+    var hi as int is tokens.len
+    while lo < hi:
+        var mid as int is (lo + hi) / 2
+        if (tokens at mid).start < off:
+            set lo is mid + 1
+        else:
+            set hi is mid
+    return lo
+
+## Ordena las ediciones por `start` (inserción; son pocas por archivo).
+##
+## ## Memoria
+## Mueve valores; no asigna.
+weave sort_edits with es as ref to vector of MigrateEdit into void:
+    var i as int is 1
+    while i < es->len:
+        var j as int is i
+        while j > 0:
+            var prev as MigrateEdit is es at (j - 1)
+            var cur as MigrateEdit is es at j
+            if prev.start <= cur.start:
+                break
+            set es at (j - 1) is cur
+            set es at j is prev
+            set j is j - 1
+        set i is i + 1
+
+## Renombra la palabra que abre un nodo de tipo (`list` -> `vector`).
+##
+## `head` es el offset del nodo; el token debe empezar exactamente ahí.
+##
+## ## Memoria
+## Añade la edición si hace falta.
+weave rename_head with text as string, tokens as vector of Token, head as int, from_word as string, to_word as string, es as ref to vector of MigrateEdit into void:
+    var ti as int is calling token_index_at with tokens, head
+    if ti >= tokens.len:
+        return
+    var t as Token is tokens at ti
+    if t.start != head:
+        return
+    if (text at t.start to t.end) != from_word:
+        return
+    calling add_edit with es, t.start, t.end, to_word
+
+## Convierte el separador de un `map of K to V` en una coma.
+##
+## Usa el AST: el separador es el primer `to` entre el final del tipo clave y
+## el principio del tipo valor. Así los mapas anidados (`map of map of a to b
+## to c`) no se confunden y `result of T to E` no se toca.
+##
+## ## Memoria
+## Añade la edición si hace falta.
+weave convert_map_sep with ast as ref to PsAst, tokens as vector of Token, nid as int, es as ref to vector of MigrateEdit into void:
+    var node as PsNode is ast->nodes at nid
+    if node.child_count < 2:
+        return
+    var kc as int is ast->children at node.first_child
+    var vc as int is ast->children at (node.first_child + 1)
+    if kc <= 0 or vc <= 0:
+        return
+    var kn as PsNode is ast->nodes at (kc - 1)
+    var vn as PsNode is ast->nodes at (vc - 1)
+    var ti as int is calling token_index_at with tokens, kn.end
+    while ti < tokens.len:
+        var t as Token is tokens at ti
+        if t.start >= vn.start:
+            return
+        if t.kind == TokKeyword and t.kw == KwTo:
+            calling add_edit with es, kn.end, t.end, ","
+            return
+        if t.kind == TokComma:
+            return
+        set ti is ti + 1
+
+## Recolecta las ediciones de un AST.
+##
+## ## Memoria
+## Añade ediciones a `es`.
+weave collect_edits with ast as ref to PsAst, tokens as vector of Token, text as string, es as ref to vector of MigrateEdit into void:
+    var i as int is 0
+    var n as int is ast->nodes.len
+    while i < n:
+        var node as PsNode is ast->nodes at i
+        if node.kind == NodeKind.NdListType or node.kind == NodeKind.NdListInitExpr:
+            calling rename_head with text, tokens, node.start, "list", "vector", es
+        else if node.kind == NodeKind.NdSliceType:
+            calling rename_head with text, tokens, node.start, "slice", "span", es
+        else if node.kind == NodeKind.NdMapType or node.kind == NodeKind.NdMapInitExpr:
+            calling convert_map_sep with ast, tokens, i, es
+        set i is i + 1
+
+## Renombra identificadores retirados (`nasci` -> `born`, etc.).
+##
+## Son palabras que hoy no usa nadie: el renombrado es seguro byte a byte.
+##
+## ## Memoria
+## Añade ediciones.
+weave collect_renames with tokens as vector of Token, text as string, es as ref to vector of MigrateEdit into void:
+    var i as int is 0
+    while i < tokens.len:
+        var t as Token is tokens at i
+        if t.kind == TokIdentifier:
+            var w as string is (text at t.start to t.end)
+            if w == "nasci":
+                calling add_edit with es, t.start, t.end, "born"
+            else if w == "mori":
+                calling add_edit with es, t.start, t.end, "die"
+            else if w == "imago":
+                calling add_edit with es, t.start, t.end, "mirror"
+            else if w == "namespace":
+                calling add_edit with es, t.start, t.end, "regnum"
+        set i is i + 1
+
+## Aplica las ediciones ordenadas a `text`.
+##
+## ## Memoria
+## Devuelve string owned.
+weave apply_edits with text as string, es as ref to vector of MigrateEdit into string:
+    calling sort_edits with es
+    var sb as StringBuilder is calling StringBuilder.new
+    var cursor as int is 0
+    var i as int is 0
+    while i < es->len:
+        var e as MigrateEdit is es at i
+        if e.start > cursor:
+            calling sb.append with (text at cursor to e.start)
+        calling sb.append with e.text
+        set cursor is e.end
+        set i is i + 1
+    if cursor < text length:
+        calling sb.append with (text at cursor to (text length))
+    return calling sb.finish
+
+## Migra un texto completo.
+##
+## ## Memoria
+## Devuelve `MigrateOutcome` owned; liberar con `banish`.
+weave migrate_text with text as string into MigrateOutcome:
+    var copy_text as string is calling copy with text
+    var src as SourceFile is calling SourceFile.from_text with "<migrate>", copy_text
+    var bag as diag.DiagnosticBag is calling diag_compat.new_diagnostic_bag
+    calling bag.add_source with "<migrate>", (calling src.get_text)
+    var kw as KeywordTable is calling pstoken.keyword_table_new
+    var lopt as LexOptions is calling psstate.default_lex_options
+    var lex as LexResult is calling pslexer.lex with (sigil of src), (sigil of bag), (sigil of kw), lopt
+    banish kw
+    var popt as PsParseOptions is calling pstate.ps_default_parse_options
+    var pr as PsParseResult is calling papi.ps_parse_file with (sigil of src), (sigil of bag), (sigil of lex), popt
+    var es as vector of MigrateEdit is vector of MigrateEdit
+    if pr.ok:
+        calling collect_edits with (sigil of pr.ast), lex.tokens, copy_text, (sigil of es)
+        calling collect_renames with lex.tokens, copy_text, (sigil of es)
+    var changes as int is es.len
+    var okp as bool is pr.ok
+    var out_text as string is ""
+    if changes > 0:
+        set out_text is calling apply_edits with copy_text, (sigil of es)
+    else:
+        set out_text is calling copy with text
+    banish es
+    banish pr
+    banish bag
+    banish src
+    banish copy_text
+    return with text is out_text, changes is changes, ok is okp
+
+## Implementa `psc migrate`.
+##
+## ## Memoria
+## Libera el ParseResult y los textos.
+weave run_migrate with args as vector of string into int:
+    var sf as vector of string is vector of string
+    calling sf.push with "--check"
+    calling sf.push with "--diff"
+    calling sf.push with "--verbose"
+    calling sf.push with "--help"
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vector of string, sf, vector of string
+    if not pr.ok:
+        var e as string is pr.error
+        calling spark.eprintln with e
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    if calling cliargs.enabled with (sigil of pr.args), "--help":
+        calling print_help
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 0
+    var check_only as bool is calling cliargs.enabled with (sigil of pr.args), "--check"
+    var show_diff as bool is calling cliargs.enabled with (sigil of pr.args), "--diff"
+    var verbose as bool is calling cliargs.enabled with (sigil of pr.args), "--verbose"
+    var changed as int is 0
+    var failed as int is 0
+    var pi as int is 0
+    while pi < pr.args.positionals.len:
+        var p as string is (pr.args.positionals at pi)
+        var files as vector of string is vector of string
+        if calling archivum.is_dir with p:
+            var found as vector of string is calling archivum.find_files with p, true
+            for f in found:
+                if calling ends_with with f, ".pengu":
+                    calling files.push with (calling copy with f)
+                banish f
+            banish found
+        else:
+            calling files.push with (calling copy with p)
+        var fi as int is 0
+        while fi < files.len:
+            var f as string is (files at fi)
+            var txtm as maybe string is calling archivum.read_text with f
+            if txtm.is_present:
+                var original as string is txtm.value
+                var mo as MigrateOutcome is calling migrate_text with original
+                if not mo.ok:
+                    set failed is failed + 1
+                    var fm as string is "cannot parse {f}: skipped"
+                    calling spark.eprintln with fm
+                    banish fm
+                else if mo.changes > 0:
+                    set changed is changed + 1
+                    if verbose or check_only:
+                        var hm as string is "{f}: {mo.changes} change(s)"
+                        calling spark.println with hm
+                        banish hm
+                    if show_diff:
+                        calling print_edits with f, original, mo.text
+                    if not check_only and not show_diff:
+                        var okw as bool is calling archivum.write_text with f, mo.text
+                        if not okw:
+                            var em as string is "cannot write {f}"
+                            calling spark.eprintln with em
+                            banish em
+                banish mo
+            banish txtm
+            banish f
+            set fi is fi + 1
+        banish files
+        set pi is pi + 1
+    if check_only or show_diff:
+        var cm as string is "{changed} file(s) would be migrated."
+        calling spark.println with cm
+        banish cm
+    else:
+        var dm as string is "{changed} file(s) migrated."
+        calling spark.println with dm
+        banish dm
+    if failed > 0:
+        var xm as string is "{failed} file(s) skipped (parse errors)."
+        calling spark.eprintln with xm
+        banish xm
+    calling cliargs.free_parse_result with (sigil of pr)
+    if check_only and changed > 0:
+        return 1
+    if failed > 0:
+        return 2
+    return 0
+
+## Imprime las líneas que cambian entre `old` y `new`.
+##
+## ## Memoria
+## Libera las listas de líneas.
+weave print_edits with path as string, old as string, new as string into void:
+    var hm as string is "--- {path}"
+    calling spark.println with hm
+    banish hm
+    var oldl as vector of string is calling old.split with "\n"
+    var newl as vector of string is calling new.split with "\n"
+    var i as int is 0
+    var n as int is oldl.len
+    if newl.len > n:
+        set n is newl.len
+    while i < n:
+        var ov as string is ""
+        var nv as string is ""
+        if i < oldl.len:
+            set ov is (oldl at i)
+        if i < newl.len:
+            set nv is (newl at i)
+        if ov != nv:
+            var om as string is "- {ov}"
+            calling spark.println with om
+            banish om
+            var nm as string is "+ {nv}"
+            calling spark.println with nm
+            banish nm
+        set i is i + 1
+    banish newl
+    banish oldl

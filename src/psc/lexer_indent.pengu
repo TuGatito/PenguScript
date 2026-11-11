@@ -28,13 +28,13 @@ import psc.diagnostics as psdiag
 ##
 ## ## Memoria
 ## Libera `tokens` y devuelve una lista nueva; el llamador la libera.
-weave lex_indent_apply with src as ref to psource.SourceFile, bag as ref to diag.DiagnosticBag, tokens as list of Token, opts as LexOptions into list of Token:
+weave lex_indent_apply with src as ref to psource.SourceFile, bag as ref to diag.DiagnosticBag, tokens as vector of Token, opts as LexOptions into vector of Token:
     if opts.warn_mixed_indentation:
         calling lex_indent_warn_mixed_indentation with src, bag
-    var out as list of Token is list of Token
-    var stack as list of int is list of int
+    var out as vector of Token is vector of Token
+    var stack as vector of int is vector of int
     calling stack.push with 0
-    var brackets as list of int is list of int
+    var brackets as vector of int is vector of int
     var i as int is 0
     while i < tokens.len:
         var t as Token is tokens at i
@@ -98,7 +98,7 @@ weave lex_indent_apply with src as ref to psource.SourceFile, bag as ref to diag
 ##
 ## ## Memoria
 ## `push` de un valor POD; no asigna.
-weave lex_indent_emit_zero with src as ref to psource.SourceFile, out as ref to list of Token, kind as TokenKind, offset as int, width as int into void:
+weave lex_indent_emit_zero with src as ref to psource.SourceFile, out as ref to vector of Token, kind as TokenKind, offset as int, width as int into void:
     var p as sourcemap.Position is calling src.position_at with offset
     calling lex_indent_emit_zero_at with src, out, kind, offset, p.line, p.col, width
 
@@ -106,7 +106,7 @@ weave lex_indent_emit_zero with src as ref to psource.SourceFile, out as ref to 
 ##
 ## ## Memoria
 ## `push` de un valor POD; no asigna.
-weave lex_indent_emit_zero_at with src as ref to psource.SourceFile, out as ref to list of Token, kind as TokenKind, offset as int, line as int, col as int, width as int into void:
+weave lex_indent_emit_zero_at with src as ref to psource.SourceFile, out as ref to vector of Token, kind as TokenKind, offset as int, line as int, col as int, width as int into void:
     var t as Token is with kind is kind, kw is KwNotKeyword, start is offset, end is offset, line is line, col is col, aux is width
     calling out.push with t
 

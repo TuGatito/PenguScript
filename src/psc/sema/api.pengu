@@ -51,7 +51,7 @@ weave check_file with path as string, options as sopts.SemaOptions into SemaResu
     var opts as sopts.SemaOptions is options
     calling configure_options with path, (sigil of opts)
     var p as ref to program.SemaProgram is calling program.new_program with opts
-    var visiting as list of string is list of string
+    var visiting as vector of string is vector of string
     defer banish visiting
     var root as int is calling program.discover with p, path, true, 0, (sigil of visiting), 0
     set p->root is root
@@ -117,7 +117,7 @@ weave configure_manifest with opts as ref to sopts.SemaOptions into void:
 ##
 ## ## Memoria
 ## O(n); no asigna.
-weave has_string with xs as list of string, s as string into bool:
+weave has_string with xs as vector of string, s as string into bool:
     var i as int is 0
     while i < xs.len:
         if (xs at i) == s:
@@ -242,7 +242,7 @@ weave check_text with path as string, text as string, options as sopts.SemaOptio
     calling p->modules.push with m
     calling p->by_path.put with m.canonical_path, id
     set p->root is id
-    var visiting as list of string is list of string
+    var visiting as vector of string is vector of string
     defer banish visiting
     calling program.discover_imports_of with p, m, 0, (sigil of visiting), 0
     calling program.create_module_scopes with p

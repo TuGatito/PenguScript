@@ -159,17 +159,17 @@ rune AntiquusInfo derive Par:
 ## `banish result` libera las listas. Todos los elementos son POD.
 rune LexResult derive Nexus:
     ## Tokens significativos, incluidos `Newline`/`Indent`/`Dedent`/`Eof`.
-    tokens as list of Token
+    tokens as vector of Token
     ## Comentarios capturados.
-    comments as list of Comment
+    comments as vector of Comment
     ## Metadatos de strings.
-    strings as list of StringInfo
+    strings as vector of StringInfo
     ## Segmentos de strings.
-    parts as list of StringPart
+    parts as vector of StringPart
     ## Metadatos de chars.
-    chars as list of CharInfo
+    chars as vector of CharInfo
     ## Cuerpos `antiquus`.
-    antiquus as list of AntiquusInfo
+    antiquus as vector of AntiquusInfo
 
 ## Estado mutable de una lexación.
 ##
@@ -206,7 +206,7 @@ rune LexerState:
 ## ## Memoria
 ## Asigna las seis listas de `result`; liberar con `banish result`.
 weave new_lexer_state with src as ref to psource.SourceFile, bag as ref to diag.DiagnosticBag, keywords as ref to pstoken.KeywordTable, opts as LexOptions into LexerState:
-    return with src is src, bag is bag, keywords is keywords, opts is opts, pos is 0, line is 1, line_start is 0, pending_antiquus is false, antiquus_colon is false, antiquus_name_start is -1, antiquus_name_end is -1, result is with tokens is list of Token, comments is list of Comment, strings is list of StringInfo, parts is list of StringPart, chars is list of CharInfo, antiquus is list of AntiquusInfo
+    return with src is src, bag is bag, keywords is keywords, opts is opts, pos is 0, line is 1, line_start is 0, pending_antiquus is false, antiquus_colon is false, antiquus_name_start is -1, antiquus_name_end is -1, result is with tokens is vector of Token, comments is vector of Comment, strings is vector of StringInfo, parts is vector of StringPart, chars is vector of CharInfo, antiquus is vector of AntiquusInfo
 
 ## Longitud total del fuente.
 ##

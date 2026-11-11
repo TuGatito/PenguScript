@@ -505,7 +505,7 @@ weave infer_generic_ref with s as ref to state.SemaState, node as int into int:
         var een as int is calling astutil.end_of with s->ast, node
         calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, est, een, "generic arity mismatch", "Pass exactly one type per shard.", ""
         return 0
-    var subst as map of int to int is map of int to int
+    var subst as map of int, int is map of int, int
     defer banish subst
     var ti as int is 0
     while ti < info.tparams_count:
@@ -824,13 +824,13 @@ weave check_spawn_arg with s as ref to state.SemaState, anode as int, aty as int
     # ocurrir en F3: el catálogo de tipos se cierra antes del codegen.
     var boxid as int is calling symbols.lookup_type_name with s->symbols, "SpawnBox"
     if boxid > 0:
-        var boxargs as list of int is list of int
+        var boxargs as vector of int is vector of int
         defer banish boxargs
         calling boxargs.push with aty
         var ignored_box as int is calling ginst.instantiate_nominal with s->symbols, boxid, boxargs
     calling check_arg_ownership with s, anode, aty, sym.SYM_MOVED
 
-weave infer_spawn with s as ref to state.SemaState, node as int, args as int, arg_types as list of int into void:
+weave infer_spawn with s as ref to state.SemaState, node as int, args as int, arg_types as vector of int into void:
     if args < 0:
         return
     var nargs as int is calling astutil.child_count with s->ast, args
@@ -908,7 +908,7 @@ weave check_coro_arg with s as ref to state.SemaState, anode as int, aty as int 
 ##
 ## Replica las reglas de worker de `infer_spawn`, pero no exige `@shared`:
 ## la corrutina nunca cambia de hilo.
-weave infer_coro with s as ref to state.SemaState, node as int, args as int, arg_types as list of int into void:
+weave infer_coro with s as ref to state.SemaState, node as int, args as int, arg_types as vector of int into void:
     if args < 0:
         return
     var nargs as int is calling astutil.child_count with s->ast, args
@@ -975,7 +975,7 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
     var sid as int is -1
     var recv_bounds as int is -1
     var inst_recv as int is -1
-    var arg_types as list of int is list of int
+    var arg_types as vector of int is vector of int
     defer banish arg_types
     var chain_last as int is -1
     var tname as string is ""
@@ -1272,7 +1272,7 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
     # Sustitución T -> tipo real: se siembra con el receptor (métodos) y se
     # amplía con cada argumento ya inferido, para que los argumentos
     # posteriores vean el tipo concreto y no `void*`.
-    var subst as map of int to int is map of int to int
+    var subst as map of int, int is map of int, int
     defer banish subst
     var gargs as int is calling astutil.node_child with s->ast, node, 1
     if gargs >= 0 and (calling astutil.kind_of with s->ast, gargs) == pskind.NodeKind.NdGenericArgs and info.tparams_count > 0:
@@ -1315,7 +1315,7 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
                 set has_many is true
                 set many_elem is plty.a
                 set fixed is info.params_count - 1
-    var named as list of int is list of int
+    var named as vector of int is vector of int
     defer banish named
     var pos_next as int is 0
     var seen_named as bool is false
@@ -1880,7 +1880,7 @@ weave infer_with_call with s as ref to state.SemaState, node as int, target as i
         if ft.kind == tk.SemaTypeKind.TkFn:
             var info as types.SemaFnInfo is (s->types->fn_infos at ft.a)
             calling ann.ann_set_symbol with s->annotations, node, sid
-            var arg_types as list of int is list of int
+            var arg_types as vector of int is vector of int
             var ai as int is 0
             var nargs as int is 0
             if args >= 0:
@@ -2239,7 +2239,7 @@ weave embed_sources_text with s as ref to state.SemaState, ty as int, nid as int
     while i < info.fields_count:
         var f as types.SemaField is (s->types->fields at (info.fields_first + i))
         if (f.flags & types.FIELD_EMBED) != 0:
-            var path as list of int is list of int
+            var path as vector of int is vector of int
             var r as int is calling embeds.route_into with s->types, f.type, nid, (sigil of path), 1
             banish path
             if r == embeds.ROUTE_FOUND:
@@ -2364,7 +2364,7 @@ weave report_ritual_not_promoted with s as ref to state.SemaState, node as int, 
 ## ## Memoria
 ## Asigna una ruta temporal y el mensaje del diagnóstico.
 weave promoted_field_type with s as ref to state.SemaState, ty as int, nid as int, node as int into int:
-    var path as list of int is list of int
+    var path as vector of int is vector of int
     defer banish path
     var r as int is calling embeds.route_into with s->types, ty, nid, (sigil of path), 0
     if r == embeds.ROUTE_AMBIGUOUS:
@@ -2656,15 +2656,15 @@ weave infer_field_inits with s as ref to state.SemaState, node as int, ty as int
     var n as int is calling astutil.child_count with s->ast, node
     var check_fields as bool is false
     var rune_name as string is ""
-    var seen as map of int to bool is map of int to bool
+    var seen as map of int, bool is map of int, bool
     defer banish seen
     # Embeds que reciben campos promovidos y embeds inicializados por su nombre:
     # las dos formas a la vez serían dos designadores del mismo miembro en C.
-    var promoted_embeds as list of int is list of int
+    var promoted_embeds as vector of int is vector of int
     defer banish promoted_embeds
-    var explicit_embeds as list of int is list of int
+    var explicit_embeds as vector of int is vector of int
     defer banish explicit_embeds
-    var explicit_nodes as list of int is list of int
+    var explicit_nodes as vector of int is vector of int
     defer banish explicit_nodes
     if ty > 0 and (calling has_nominal_fields with s, ty):
         set check_fields is true
@@ -2697,7 +2697,7 @@ weave infer_field_inits with s as ref to state.SemaState, node as int, ty as int
                     if expected <= 0:
                         set expected is calling embeds.own_field_type with s->types, ty, vnid
                 else if vnid >= 0:
-                    var rpath as list of int is list of int
+                    var rpath as vector of int is vector of int
                     var route as int is calling embeds.route_into with s->types, ty, vnid, (sigil of rpath), 0
                     if route == embeds.ROUTE_FOUND:
                         set found is true

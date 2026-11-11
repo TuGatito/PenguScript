@@ -31,65 +31,65 @@ rune SemaSymbols:
     ## Tabla de tipos prestada.
     types as ref to types.SemaTypeTable
     ## Símbolos en orden de creación.
-    symbols as list of sym.SemaSymbol
+    symbols as vector of sym.SemaSymbol
     ## Scopes en orden de creación; el 0 es el global.
-    scopes as list of scope.SemaScope
+    scopes as vector of scope.SemaScope
     ## Scope actual.
     current as int
     ## Registros por `NameId`.
-    runes as map of int to int
-    echos as map of int to int
-    omens as map of int to int
-    aliases as map of int to int
-    seals as map of int to int
-    concepts as map of int to int
-    functions as map of int to int
-    consts as map of int to int
-    methods as map of int to int
+    runes as map of int, int
+    echos as map of int, int
+    omens as map of int, int
+    aliases as map of int, int
+    seals as map of int, int
+    concepts as map of int, int
+    functions as map of int, int
+    consts as map of int, int
+    methods as map of int, int
     ## `SymbolId` de método -> TypeId del receptor declarado.
-    method_receiver as map of int to int
-    mutating_methods as map of int to int
-    generic_runes as map of int to int
-    generic_echos as map of int to int
-    generic_omens as map of int to int
-    generic_aliases as map of int to int
-    generic_concepts as map of int to int
-    generic_functions as map of int to int
-    generic_methods as map of int to int
-    container_methods as map of int to int
-    generic_owner as map of int to int
-    bind_owner as map of int to int
-    primitive_owner as map of int to int
-    shard_bounds as map of int to int
+    method_receiver as map of int, int
+    mutating_methods as map of int, int
+    generic_runes as map of int, int
+    generic_echos as map of int, int
+    generic_omens as map of int, int
+    generic_aliases as map of int, int
+    generic_concepts as map of int, int
+    generic_functions as map of int, int
+    generic_methods as map of int, int
+    container_methods as map of int, int
+    generic_owner as map of int, int
+    bind_owner as map of int, int
+    primitive_owner as map of int, int
+    shard_bounds as map of int, int
     ## Plantillas genéricas.
-    templates as list of sym.SemaTemplate
+    templates as vector of sym.SemaTemplate
     ## Instancias monomorfizadas.
-    instances as list of sym.SemaInstance
+    instances as vector of sym.SemaInstance
     ## Claves de instancias (NameId compuesto).
-    instance_keys as map of int to int
+    instance_keys as map of int, int
     ## `TypeId` de instancia -> índice en `instances`.
-    instance_by_type as map of int to int
+    instance_by_type as map of int, int
     ## Args de instancia, aplanados.
-    instance_args as list of int
+    instance_args as vector of int
     ## Valores constantes.
-    const_values as list of sym.SemaConst
+    const_values as vector of sym.SemaConst
     ## Bounds de símbolos, aplanados (`NameId`).
-    symbol_bounds as list of int
+    symbol_bounds as vector of int
     ## Tipos registrados por módulo: clave compuesta -> TypeId.
-    module_type_keys as map of int to int
+    module_type_keys as map of int, int
     ## `NameId -> TypeId` para `module_type_keys`.
-    module_types as map of int to int
+    module_types as map of int, int
     ## Includes/links/ldflags/imports en orden.
-    includes as list of string
-    links as list of string
+    includes as vector of string
+    links as vector of string
     ## Módulo que declaró cada `link`, en paralelo a `links`.
-    link_modules as list of int
-    ldflags as list of string
-    imports as list of string
+    link_modules as vector of int
+    ldflags as vector of string
+    imports as vector of string
     ## Orden topológico de módulos (IDs de módulo).
-    import_order as list of int
+    import_order as vector of int
     ## Grafo de imports: `module id -> lista de destinos` (índice en listas).
-    import_graph as list of int
+    import_graph as vector of int
     ## `true` si el módulo usa `include`.
     has_includes as bool
     ## `insignia` del módulo actual.
@@ -97,25 +97,25 @@ rune SemaSymbols:
     ## Módulo actual (`-1` fuera de módulo).
     current_module as int
     ## `scope -> module id`, para resolver nombres visibles.
-    module_of_scope as map of int to int
+    module_of_scope as map of int, int
     ## `module id -> scope` del módulo.
-    scope_of_module as map of int to int
+    scope_of_module as map of int, int
     ## Primer índice de `import_edges` por módulo.
-    import_first as map of int to int
+    import_first as map of int, int
     ## Número de imports directos por módulo.
-    import_count as map of int to int
+    import_count as map of int, int
     ## Destinos de import, aplanados y contiguos por módulo.
-    import_edges as list of int
+    import_edges as vector of int
     ## `NameId` del alias -> índice del último `SkImport` con ese nombre.
     ## Acelera el fallback de `lookup_name` (antes recorría todos los símbolos).
-    import_by_name as map of int to int
+    import_by_name as map of int, int
 
 ## Crea la tabla y registra builtins.
 ##
 ## ## Memoria
 ## Asigna listas/mapas; `free_symbols` los libera.
 weave new_symbols with t as ref to types.SemaTypeTable, pool as ref to npool.NamePool into SemaSymbols:
-    var s as SemaSymbols is with names is pool, types is t, symbols is list of sym.SemaSymbol, scopes is list of scope.SemaScope, current is -1, runes is map of int to int, echos is map of int to int, omens is map of int to int, aliases is map of int to int, seals is map of int to int, concepts is map of int to int, functions is map of int to int, consts is map of int to int, methods is map of int to int, method_receiver is map of int to int, mutating_methods is map of int to int, generic_runes is map of int to int, generic_echos is map of int to int, generic_omens is map of int to int, generic_aliases is map of int to int, generic_concepts is map of int to int, generic_functions is map of int to int, generic_methods is map of int to int, container_methods is map of int to int, generic_owner is map of int to int, bind_owner is map of int to int, primitive_owner is map of int to int, shard_bounds is map of int to int, templates is list of sym.SemaTemplate, instances is list of sym.SemaInstance, instance_keys is map of int to int, instance_by_type is map of int to int, instance_args is list of int, const_values is list of sym.SemaConst, symbol_bounds is list of int, module_type_keys is map of int to int, module_types is map of int to int, includes is list of string, links is list of string, link_modules is list of int, ldflags is list of string, imports is list of string, import_order is list of int, import_graph is list of int, has_includes is false, insignia is -1, current_module is -1, module_of_scope is map of int to int, scope_of_module is map of int to int, import_first is map of int to int, import_count is map of int to int, import_edges is list of int, import_by_name is map of int to int
+    var s as SemaSymbols is with names is pool, types is t, symbols is vector of sym.SemaSymbol, scopes is vector of scope.SemaScope, current is -1, runes is map of int, int, echos is map of int, int, omens is map of int, int, aliases is map of int, int, seals is map of int, int, concepts is map of int, int, functions is map of int, int, consts is map of int, int, methods is map of int, int, method_receiver is map of int, int, mutating_methods is map of int, int, generic_runes is map of int, int, generic_echos is map of int, int, generic_omens is map of int, int, generic_aliases is map of int, int, generic_concepts is map of int, int, generic_functions is map of int, int, generic_methods is map of int, int, container_methods is map of int, int, generic_owner is map of int, int, bind_owner is map of int, int, primitive_owner is map of int, int, shard_bounds is map of int, int, templates is vector of sym.SemaTemplate, instances is vector of sym.SemaInstance, instance_keys is map of int, int, instance_by_type is map of int, int, instance_args is vector of int, const_values is vector of sym.SemaConst, symbol_bounds is vector of int, module_type_keys is map of int, int, module_types is map of int, int, includes is vector of string, links is vector of string, link_modules is vector of int, ldflags is vector of string, imports is vector of string, import_order is vector of int, import_graph is vector of int, has_includes is false, insignia is -1, current_module is -1, module_of_scope is map of int, int, scope_of_module is map of int, int, import_first is map of int, int, import_count is map of int, int, import_edges is vector of int, import_by_name is map of int, int
     calling new_global_scope with (sigil of s)
     calling init_builtins with (sigil of s)
     return s
@@ -182,7 +182,7 @@ weave free_symbols with s as ref to SemaSymbols into void:
 ##
 ## ## Memoria
 ## Libera cada elemento y la lista.
-weave free_strings with xs as list of string into void:
+weave free_strings with xs as vector of string into void:
     var i as int is 0
     while i < xs.len:
         banish xs at (i)
@@ -320,9 +320,9 @@ weave lookup_scope_chain with s as ref to SemaSymbols, name as int into int:
 weave lookup_visible with s as ref to SemaSymbols, name as int into int:
     if s->current_module < 0:
         return -1
-    var queue as list of int is list of int
+    var queue as vector of int is vector of int
     defer banish queue
-    var seen as map of int to int is map of int to int
+    var seen as map of int, int is map of int, int
     defer banish seen
     calling queue.push with s->current_module
     calling seen.put with s->current_module, s->current_module
@@ -819,7 +819,7 @@ weave count_promoted_method with s as ref to SemaSymbols, ty as int, mid as int,
 ##
 ## ## Memoria
 ## Añade índices a `path`.
-weave find_promoted_method with s as ref to SemaSymbols, ty as int, mid as int, path as ref to list of int, depth as int into int:
+weave find_promoted_method with s as ref to SemaSymbols, ty as int, mid as int, path as ref to vector of int, depth as int into int:
     if depth > 32:
         return -1
     var nom as int is calling embed_nominal_type with s, ty
@@ -849,7 +849,7 @@ weave find_promoted_method with s as ref to SemaSymbols, ty as int, mid as int, 
 ## ## Memoria
 ## Asigna la lista temporal del camino; la libera.
 weave lookup_method_promoted with s as ref to SemaSymbols, receiver as int, method as int into int:
-    var path as list of int is list of int
+    var path as vector of int is vector of int
     var sid as int is calling find_promoted_method with s, receiver, method, (sigil of path), 0
     banish path
     return sid

@@ -14,7 +14,7 @@ insignia psc_os_proc_
 ##
 ## ## Memoria
 ## Los strings de `argv` son prestados y deben sobrevivir a la llamada.
-antiquus exec_replace with argv as list of string into int:
+antiquus exec_replace with argv as vector of string into int:
     r"""
 #if defined(_WIN32)
 if (argv.len <= 0)
@@ -50,7 +50,7 @@ return 127;
 #endif
 """
 
-antiquus run_argv with argv as list of string into int:
+antiquus run_argv with argv as vector of string into int:
     r"""
 #if defined(_WIN32)
 if (argv.len <= 0)
@@ -120,7 +120,7 @@ return -1;
 ##
 ## ## Memoria
 ## Los strings de `argv` son prestados.
-antiquus spawn_argv with argv as list of string into int:
+antiquus spawn_argv with argv as vector of string into int:
     r"""
 #if defined(_WIN32)
 (void)argv;
@@ -189,7 +189,7 @@ return kill(pid, 15) == 0;
 """
 
 ## Ejecuta un argv descartando stdout/stderr (benchmarks).
-antiquus run_argv_quiet with argv as list of string into int:
+antiquus run_argv_quiet with argv as vector of string into int:
     r"""
 #if defined(_WIN32)
 if (argv.len <= 0)
@@ -245,7 +245,7 @@ return (((st) & 0x7f) == 0) ? (((st) & 0xff00) >> 8) : -1;
 ##
 ## ## Memoria
 ## Los strings de `argv` son prestados.
-antiquus spawn_piped with argv as list of string, in_fd as ref to int, out_fd as ref to int, err_fd as ref to int into int:
+antiquus spawn_piped with argv as vector of string, in_fd as ref to int, out_fd as ref to int, err_fd as ref to int into int:
     r"""
 #if defined(_WIN32)
 (void)argv; (void)in_fd; (void)out_fd; (void)err_fd;

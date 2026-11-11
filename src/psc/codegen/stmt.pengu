@@ -1695,7 +1695,7 @@ weave emit_judge_core with c as ref to context.CgContext, node as int, ast as re
                         set body2 is calling astutil.node_child with ast, cl2, 2
                     if pat2 >= 0 and body2 >= 0:
                         calling origin.marker with c, m, cl2
-                        var lab as list of int is list of int
+                        var lab as vector of int is vector of int
                         defer banish lab
                         var scan as bool is true
                         while scan:

@@ -69,8 +69,8 @@ weave safe_name with s as string into string:
 ##
 ## ## Memoria
 ## Devuelve lista owned.
-weave split_links with s as string into list of string:
-    var out as list of string is list of string
+weave split_links with s as string into vector of string:
+    var out as vector of string is vector of string
     if s length == 0:
         return out
     var sb as StringBuilder is calling StringBuilder.new
@@ -100,7 +100,7 @@ weave split_links with s as string into list of string:
 ##
 ## ## Memoria
 ## Devuelve string owned.
-weave toml_list with xs as list of string into string:
+weave toml_list with xs as vector of string into string:
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb
     calling sb.append with "["
@@ -119,7 +119,7 @@ weave toml_list with xs as list of string into string:
 ##
 ## ## Memoria
 ## Libera argumentos y strings temporales.
-weave create_project with name as string, template as string, out_type as string, links as list of string, cc as string, out_name as string, force as bool into int:
+weave create_project with name as string, template as string, out_type as string, links as vector of string, cc as string, out_name as string, force as bool into int:
     var cwd as maybe string is calling rites.getcwd
     if not cwd.is_present:
         calling spark.eprintln with "psc init: cannot determine current directory"
@@ -252,17 +252,17 @@ weave create_project with name as string, template as string, out_type as string
 ##
 ## ## Memoria
 ## Libera ParseResult y links.
-weave run_init with args as list of string into int:
-    var vf as list of string is list of string
+weave run_init with args as vector of string into int:
+    var vf as vector of string is vector of string
     calling vf.push with "--type"
     calling vf.push with "--template"
     calling vf.push with "--links"
     calling vf.push with "--cc"
     calling vf.push with "--output-name"
     calling vf.push with "--format"
-    var sf as list of string is list of string
+    var sf as vector of string is vector of string
     calling sf.push with "--force"
-    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, vector of string
     if not pr.ok:
         var emsg as string is pr.error
         calling spark.eprintln with emsg
@@ -303,7 +303,7 @@ weave run_init with args as list of string into int:
         banish typ
         calling cliargs.free_parse_result with (sigil of pr)
         return 2
-    var links as list of string is calling split_links with (calling cliargs.value with (sigil of pr.args), "--links")
+    var links as vector of string is calling split_links with (calling cliargs.value with (sigil of pr.args), "--links")
     var cc as string is calling copy with (calling cliargs.value with (sigil of pr.args), "--cc")
     if cc length == 0:
         set cc is "gcc"
@@ -328,15 +328,15 @@ weave run_init with args as list of string into int:
 ##
 ## ## Memoria
 ## Libera ParseResult.
-weave run_new with args as list of string into int:
-    var vf as list of string is list of string
+weave run_new with args as vector of string into int:
+    var vf as vector of string is vector of string
     calling vf.push with "--links"
     calling vf.push with "--cc"
     calling vf.push with "--output-name"
     calling vf.push with "--format"
-    var sf as list of string is list of string
+    var sf as vector of string is vector of string
     calling sf.push with "--force"
-    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, vector of string
     if not pr.ok:
         var emsg as string is pr.error
         calling spark.eprintln with emsg
@@ -358,7 +358,7 @@ weave run_new with args as list of string into int:
         return 2
     var tpl as string is calling copy with (pr.args.positionals at 0)
     var name as string is calling copy with (pr.args.positionals at 1)
-    var links as list of string is calling split_links with (calling cliargs.value with (sigil of pr.args), "--links")
+    var links as vector of string is calling split_links with (calling cliargs.value with (sigil of pr.args), "--links")
     var cc as string is calling copy with (calling cliargs.value with (sigil of pr.args), "--cc")
     if cc length == 0:
         set cc is "gcc"

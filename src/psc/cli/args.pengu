@@ -13,10 +13,10 @@ insignia psc_cli_args_
 ## ## Memoria
 ## Strings propios; liberar con `free_parsed`.
 rune ParsedArgs:
-    values as map of string to string
-    switches as map of string to bool
-    lists as map of string to list of string
-    positionals as list of string
+    values as map of string, string
+    switches as map of string, bool
+    lists as map of string, vector of string
+    positionals as vector of string
 
 ## Resultado del parser.
 ##
@@ -32,7 +32,7 @@ rune ParseResult:
 ## ## Memoria
 ## Mapas/listas propios.
 weave empty_args into ParsedArgs:
-    return with values is map of string to string, switches is map of string to bool, lists is map of string to list of string, positionals is list of string
+    return with values is map of string, string, switches is map of string, bool, lists is map of string, vector of string, positionals is vector of string
 
 ## Copia un string.
 ##
@@ -45,7 +45,7 @@ weave copy with s as string into string:
 ##
 ## ## Memoria
 ## O(n).
-weave has_str with xs as list of string, s as string into bool:
+weave has_str with xs as vector of string, s as string into bool:
     var i as int is 0
     while i < xs.len:
         if (xs at i) == s:
@@ -59,7 +59,7 @@ weave has_str with xs as list of string, s as string into bool:
 ## No asigna si ya existe.
 weave ensure_list with a as ref to ParsedArgs, key as string into void:
     if not (calling a->lists.has with key):
-        calling a->lists.put with (calling copy with key), list of string
+        calling a->lists.put with (calling copy with key), vector of string
 
 ## Añade un valor repetible.
 ##
@@ -67,7 +67,7 @@ weave ensure_list with a as ref to ParsedArgs, key as string into void:
 ## Copia el valor.
 weave add_list with a as ref to ParsedArgs, key as string, value as string into void:
     calling ensure_list with a, key
-    var xs as list of string is calling a->lists.get with key
+    var xs as vector of string is calling a->lists.get with key
     calling xs.push with (calling copy with value)
     calling a->lists.put with (calling copy with key), xs
 
@@ -79,7 +79,7 @@ weave add_list with a as ref to ParsedArgs, key as string, value as string into 
 ##
 ## ## Memoria
 ## Devuelve ParseResult owned.
-weave parse with argv as list of string, start as int, value_flags as list of string, switch_flags as list of string, list_flags as list of string into ParseResult:
+weave parse with argv as vector of string, start as int, value_flags as vector of string, switch_flags as vector of string, list_flags as vector of string into ParseResult:
     var a as ParsedArgs is calling empty_args
     var i as int is start
     var after as bool is false
@@ -168,10 +168,10 @@ weave enabled with a as ref to ParsedArgs, key as string into bool:
 ##
 ## ## Memoria
 ## Devuelve lista prestada; puede estar vacía.
-weave list with a as ref to ParsedArgs, key as string into list of string:
+weave list with a as ref to ParsedArgs, key as string into vector of string:
     if calling a->lists.has with key:
         return calling a->lists.get with key
-    return list of string
+    return vector of string
 
 ## Primer posicional o `""`.
 ##
@@ -192,7 +192,7 @@ weave free_parsed with a as ref to ParsedArgs into void:
         banish v
     banish a->values
     banish a->switches
-    var lv as list of list of string is list of list of string
+    var lv as vector of vector of string is vector of vector of string
     for k in a->lists:
         calling lv.push with (a->lists at k)
     banish a->lists

@@ -343,7 +343,7 @@ rune KeywordEntry derive Par:
 ## `banish table` libera `entries`; los `word` son literales estáticos.
 rune KeywordTable derive Nexus:
     ## Entradas ordenadas alfabéticamente.
-    entries as list of KeywordEntry
+    entries as vector of KeywordEntry
 
 ## Añade una entrada a la tabla calculando `first` y `len`.
 ##
@@ -362,7 +362,7 @@ weave add_keyword with t as ref to KeywordTable, word as string, k as KeywordKin
 ## ## Memoria
 ## Asigna una lista; liberar con `banish`.
 weave keyword_table_new into KeywordTable:
-    var t as KeywordTable is with entries is list of KeywordEntry
+    var t as KeywordTable is with entries is vector of KeywordEntry
     calling add_keyword with sigil of t, "alias", KwAlias
     calling add_keyword with sigil of t, "and", KwAnd
     calling add_keyword with sigil of t, "antiquus", KwAntiquus

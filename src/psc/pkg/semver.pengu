@@ -35,7 +35,7 @@ weave parse_version with text as string into maybe Version:
     var i as int is 0
     if i < s length and (s at i to (i + 1)) == "v":
         set i is i + 1
-    var nums as list of int is list of int
+    var nums as vector of int is vector of int
     var cur as int is 0
     var has as bool is false
     while i < s length:
@@ -177,9 +177,9 @@ weave parse_constraint with text as string into maybe Constraint:
     return some cc
 
 ## Parsea una lista de constraints separadas por coma.
-weave parse_constraints with text as string into list of Constraint:
-    var out as list of Constraint is list of Constraint
-    var parts as list of string is calling text.split with ","
+weave parse_constraints with text as string into vector of Constraint:
+    var out as vector of Constraint is vector of Constraint
+    var parts as vector of string is calling text.split with ","
     for p in parts:
         var pm as maybe Constraint is calling parse_constraint with p
         if pm.is_present:
@@ -218,14 +218,14 @@ weave satisfies_one with v as Version, c as Constraint into bool:
     return false
 
 ## ¿Satisface todos?
-weave satisfies with v as Version, cs as list of Constraint into bool:
+weave satisfies with v as Version, cs as vector of Constraint into bool:
     for c in cs:
         if not calling satisfies_one with v, c:
             return false
     return true
 
 ## Elige el tag más alto que satisface; `""` si no.
-weave select_tag with tags as list of string, constraints as list of Constraint into string:
+weave select_tag with tags as vector of string, constraints as vector of Constraint into string:
     var best as string is ""
     var bestv as Version is with major is 0, minor is 0, patch is 0, pre is ""
     var has as bool is false

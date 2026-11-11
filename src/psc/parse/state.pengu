@@ -118,9 +118,9 @@ rune PsParser:
     ## Arena del AST.
     ast as PsAst
     ## Pila de hijos en construcción (post-orden).
-    child_stack as list of int
+    child_stack as vector of int
     ## Marcas de inicio de hijos por nodo.
-    marks as list of int
+    marks as vector of int
     ## Ganchos a módulos.
     hooks as PsHooks
 
@@ -199,7 +199,7 @@ weave _hook_missing with p as ref to PsParser, name as string into int:
 ## `free_scratch` + transferir/liberar `ast`.
 weave ps_parser_new with src as ref to psource.SourceFile, bag as ref to diag.DiagnosticBag, lex as ref to LexResult, opts as PsParseOptions into PsParser:
     var hooks as PsHooks is with value is (sigil of _no_value_hook), when is (sigil of _no_when_hook), judge is (sigil of _no_judge_hook), do_block is (sigil of _no_do_hook), with_init is (sigil of _no_with_hook), or_block is (sigil of _no_or_hook), when_body is (sigil of _no_body_hook), expr is (sigil of _no_expr_hook), list_expr is (sigil of _no_list_expr_hook), value_expr is (sigil of _no_value_expr_hook), list_value_expr is (sigil of _no_list_value_hook), expr_no_cast is (sigil of _no_expr_no_cast_hook), guard_expr is (sigil of _no_guard_hook), arg_expr is (sigil of _no_arg_expr_hook)
-    return with src is src, bag is bag, lex is lex, opts is opts, pos is 0, depth is 0, block_depth is 0, errors is 0, panic is false, guard_mode is false, range_to is false, stop is false, last_error_pos is -1, root is -1, ast is (calling psast.ps_ast_new), child_stack is list of int, marks is list of int, hooks is hooks
+    return with src is src, bag is bag, lex is lex, opts is opts, pos is 0, depth is 0, block_depth is 0, errors is 0, panic is false, guard_mode is false, range_to is false, stop is false, last_error_pos is -1, root is -1, ast is (calling psast.ps_ast_new), child_stack is vector of int, marks is vector of int, hooks is hooks
 
 ## Libera las listas de trabajo del parser.
 ##

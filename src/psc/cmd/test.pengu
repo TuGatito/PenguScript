@@ -40,7 +40,7 @@ weave fingerprint with path as string into string:
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb
     var abs as string is calling compass.cp_absolute with path
-    var files as list of string is list of string
+    var files as vector of string is vector of string
     if calling archivum.is_dir with abs:
         set files is calling archivum.find_files with abs, true
     else:
@@ -66,15 +66,15 @@ weave fingerprint with path as string into string:
 ##
 ## ## Memoria
 ## Libera opciones/resultado.
-weave run_test with args as list of string into int:
-    var vf as list of string is list of string
+weave run_test with args as vector of string into int:
+    var vf as vector of string is vector of string
     calling vf.push with "--profile"
     calling vf.push with "--cc"
     calling vf.push with "--target"
     calling vf.push with "--entry"
     calling vf.push with "--sanitize"
     calling vf.push with "--backend"
-    var sf as list of string is list of string
+    var sf as vector of string is vector of string
     calling sf.push with "--json"
     calling sf.push with "--watch"
     calling sf.push with "--verbose"
@@ -82,7 +82,7 @@ weave run_test with args as list of string into int:
     calling sf.push with "--clear-cache"
     calling sf.push with "--ephemeral"
     calling sf.push with "--coverage"
-    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, vector of string
     if not pr.ok:
         var e as string is pr.error
         calling spark.eprintln with e
@@ -93,7 +93,7 @@ weave run_test with args as list of string into int:
         calling cliargs.free_parse_result with (sigil of pr)
         return 0
     if calling cliargs.enabled with (sigil of pr.args), "--watch":
-        var childargs as list of string is list of string
+        var childargs as vector of string is vector of string
         for a in args:
             if a != "--watch":
                 calling childargs.push with (calling copy with a)
@@ -202,7 +202,7 @@ weave run_test with args as list of string into int:
     # El build resolvió el target (posible `[build] target = wasm`):
     # ejecutar con el target resuelto evita intentar exec de un .html.
     set o.platform.is_wasm is r.is_wasm
-    var code as int is calling runner.run with o.platform, art, list of string, false
+    var code as int is calling runner.run with o.platform, art, vector of string, false
     if o.coverage:
         calling emit_coverage with art
     if code != 0 and code != 2:
@@ -243,14 +243,14 @@ weave cov_index_of with s as string, needle as string into int:
 
 ## Resume los `.gcov` de PenguScript y silencia las cabeceras del runtime.
 weave report_coverage into void:
-    var covs as list of string is calling archivum.find_files with ".", false
+    var covs as vector of string is calling archivum.find_files with ".", false
     var seen as int is 0
     for cf in covs:
         if calling cov_has_suffix with cf, ".pengu.gcov":
             var tm as maybe string is calling archivum.read_text with cf
             if tm.is_present:
                 var body as string is tm.value
-                var lines as list of string is calling body.split with "\n"
+                var lines as vector of string is calling body.split with "\n"
                 var source as string is cf
                 var total as int is 0
                 var covered as int is 0
@@ -301,7 +301,7 @@ weave emit_coverage with artifact as string into void:
     # inglesas, así que fijamos el locale del hijo.
     var locale_ok as bool is calling rites.setenv with "LC_ALL", "C", true
     banish locale_ok
-    var argv as list of string is list of string
+    var argv as vector of string is vector of string
     calling argv.push with "gcov"
     calling argv.push with "-b"
     calling argv.push with "-o"

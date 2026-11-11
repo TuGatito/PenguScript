@@ -374,10 +374,10 @@ enchanting maybe shard T:
     ## ```pengu
     ## var xs as list of int is calling m.to_list     # [3]
     ## ```
-    weave to_list into list of T:
+    weave to_list into vector of T:
         if v as T is essence of self:
             return [v]
-        return list of T
+        return vector of T
 
     ## Returns a readable rendering of the container.
     ##
@@ -398,10 +398,10 @@ enchanting maybe shard T:
     ##
     ## ## Retorno
     ## A newly allocated owned `list of T`; release it with `banish`.
-    weave iter into list of T:
+    weave iter into vector of T:
         if v as T is essence of self:
             return [v]
-        return list of T
+        return vector of T
 
     ## Combines two present optionals into a `Pair`.
     ##
@@ -674,11 +674,11 @@ enchanting result of shard T to shard E:
     ##
     ## ## Retorno
     ## A newly allocated owned `list of T`; release it with `banish`.
-    weave to_list into list of T:
+    weave to_list into vector of T:
         let owns as result of T to E is essence of self
         if owns.is_ok:
             return [owns.value]
-        return list of T
+        return vector of T
 
     ## Returns a readable rendering of the result.
     ##
@@ -1521,10 +1521,10 @@ weave to_result_maybe shard T with m as maybe T, error_value as string into resu
 ##
 ## ## Retorno
 ## A newly allocated owned `list of T`; release it with `banish`.
-weave to_list_maybe shard T with m as maybe T into list of T:
+weave to_list_maybe shard T with m as maybe T into vector of T:
     if v as T is m:
         return [v]
-    return list of T
+    return vector of T
 
 ## Renders `m` as `"some(v)"` or `"none"`.
 ##
@@ -1545,10 +1545,10 @@ weave describe_optional shard T with m as maybe T into string:
 ##
 ## ## Retorno
 ## A newly allocated owned `list of T`; release it with `banish`.
-weave iter_maybe shard T with m as maybe T into list of T:
+weave iter_maybe shard T with m as maybe T into vector of T:
     if v as T is m:
         return [v]
-    return list of T
+    return vector of T
 
 ## Combines two present optionals into a `Pair of T and U`.
 ##
@@ -1784,10 +1784,10 @@ weave to_maybe_result shard T and E with r as result of T to E into maybe T:
 ##
 ## ## Retorno
 ## A newly allocated owned `list of T`; release it with `banish`.
-weave to_list_result shard T and E with r as result of T to E into list of T:
+weave to_list_result shard T and E with r as result of T to E into vector of T:
     if r.is_ok:
         return [r.value]
-    return list of T
+    return vector of T
 
 ## Renders `r` as `"ok(v)"` or `"err(e)"`.
 ##
@@ -1809,7 +1809,7 @@ weave describe_result shard T and E with r as result of T to E into string:
 ## ## Retorno
 ## `true` for an empty list (vacuous truth) and for a list whose elements are all
 ## present, `false` as soon as one is empty.
-weave all_present shard T with ms as list of maybe T into bool:
+weave all_present shard T with ms as vector of maybe T into bool:
     for m in ms:
         if not (m is present):
             return false
@@ -1823,7 +1823,7 @@ weave all_present shard T with ms as list of maybe T into bool:
 ## ## Retorno
 ## A rebuilt `some(v)` for the first present element, `maybe none` when every
 ## element is empty.
-weave first_present shard T with ms as list of maybe T into maybe T:
+weave first_present shard T with ms as vector of maybe T into maybe T:
     for m in ms:
         if v as T is m:
             return some v
@@ -1836,7 +1836,7 @@ weave first_present shard T with ms as list of maybe T into maybe T:
 ##
 ## ## Retorno
 ## `true` on the first present element, `false` when every element is empty.
-weave any_present shard T with ms as list of maybe T into bool:
+weave any_present shard T with ms as vector of maybe T into bool:
     for m in ms:
         if m is present:
             return true
@@ -1850,8 +1850,8 @@ weave any_present shard T with ms as list of maybe T into bool:
 ## ## Retorno
 ## A newly allocated owned `list of T` with one entry per `ok`, in order; release
 ## it with `banish`.
-weave collect_ok shard T and E with rs as list of result of T to E into list of T:
-    var out as list of T is list of T
+weave collect_ok shard T and E with rs as vector of result of T to E into vector of T:
+    var out as vector of T is vector of T
     for r in rs:
         if r.is_ok:
             calling out.push with r.value
@@ -1865,8 +1865,8 @@ weave collect_ok shard T and E with rs as list of result of T to E into list of 
 ## ## Retorno
 ## A newly allocated owned `list of E` with one entry per `err`, in order;
 ## release it with `banish`.
-weave collect_err shard T and E with rs as list of result of T to E into list of E:
-    var out as list of E is list of E
+weave collect_err shard T and E with rs as vector of result of T to E into vector of E:
+    var out as vector of E is vector of E
     for r in rs:
         if not r.is_ok:
             calling out.push with r.error
@@ -1886,15 +1886,15 @@ weave collect_err shard T and E with rs as list of result of T to E into list of
 ## ```pengu
 ## var p as oracle.Pair of list of int and list of string is calling oracle.partition_results with rs
 ## ```
-weave partition_results shard T and E with rs as list of result of T to E into Pair of list of T and list of E:
-    var oks as list of T is list of T
-    var errs as list of E is list of E
+weave partition_results shard T and E with rs as vector of result of T to E into Pair of vector of T and vector of E:
+    var oks as vector of T is vector of T
+    var errs as vector of E is vector of E
     for r in rs:
         if r.is_ok:
             calling oks.push with r.value
         else:
             calling errs.push with r.error
-    var out as Pair of list of T and list of E with:
+    var out as Pair of vector of T and vector of E with:
         set .first is oks
         set .second is errs
     return out
@@ -1969,15 +1969,15 @@ test "maybe.to_result produces err when empty":
     calling _expect_eq_string with (calling r.unwrap_err), "missing", "to_result err"
 test "maybe.to_list has one element when a value is stored":
     var m as maybe int is some 1
-    var l as list of int is calling m.to_list
+    var l as vector of int is calling m.to_list
     calling _expect_eq_int with l.length, 1, "to_list one"
 test "maybe.to_list is empty without a value":
     var n as maybe int is maybe none
-    var l as list of int is calling n.to_list
+    var l as vector of int is calling n.to_list
     calling _expect_eq_int with l.length, 0, "to_list zero"
 test "maybe.iter is an alias of to_list":
     var m as maybe string is some "x"
-    var l as list of string is calling m.iter
+    var l as vector of string is calling m.iter
     calling _expect_eq_int with l.length, 1, "iter"
 test "maybe.describe renders a present value":
     var m as maybe int is some 42
@@ -2097,11 +2097,11 @@ test "result.to_maybe is an alias of ok":
     calling _expect_eq_int with (calling m.unwrap_or with -1), 8, "to_maybe"
 test "result.to_list has one element for ok":
     var a as result of int to string is calling ok_of with 1
-    var l as list of int is calling a.to_list
+    var l as vector of int is calling a.to_list
     calling _expect_eq_int with l.length, 1, "to_list ok"
 test "result.to_list is empty for err":
     var b as result of int to string is calling err_of with "e"
-    var l as list of int is calling b.to_list
+    var l as vector of int is calling b.to_list
     calling _expect_eq_int with l.length, 0, "to_list err"
 test "result.describe formats success":
     var a as result of int to string is calling ok_of with 7
@@ -2170,11 +2170,11 @@ test "to_result_maybe produces err when empty":
     var r as result of int to string is calling to_result_maybe with n, "no"
     calling _expect_eq_string with (calling r.unwrap_err), "no", "to_result_maybe err"
 test "to_list_maybe has one element when a value is stored":
-    var l as list of int is calling to_list_maybe with (some 1)
+    var l as vector of int is calling to_list_maybe with (some 1)
     calling _expect_eq_int with l.length, 1, "to_list_maybe one"
 test "to_list_maybe is empty without a value":
     var n as maybe int is maybe none
-    var l as list of int is calling to_list_maybe with n
+    var l as vector of int is calling to_list_maybe with n
     calling _expect_eq_int with l.length, 0, "to_list_maybe zero"
 test "describe_optional formats a present value":
     calling _expect_eq_string with (calling describe_optional with (some 5)), "some(5)", "describe_optional"
@@ -2182,7 +2182,7 @@ test "describe_optional formats an empty optional":
     var n as maybe int is maybe none
     calling _expect_eq_string with (calling describe_optional with n), "none", "describe_optional none"
 test "iter_maybe is an alias of to_list_maybe":
-    var l as list of int is calling iter_maybe with (some 1)
+    var l as vector of int is calling iter_maybe with (some 1)
     calling _expect_eq_int with l.length, 1, "iter_maybe"
 test "zip_maybe combines two present optionals":
     var p as maybe Pair of int and string is calling zip_maybe with (some 1), (some "u")
@@ -2241,11 +2241,11 @@ test "to_maybe_result is an alias of ok_result":
     calling _expect_eq_int with (calling m.unwrap_or with -1), 6, "to_maybe_result"
 test "to_list_result has one element for ok":
     var a as result of int to string is calling ok_of with 1
-    var l as list of int is calling to_list_result with a
+    var l as vector of int is calling to_list_result with a
     calling _expect_eq_int with l.length, 1, "to_list_result ok"
 test "to_list_result is empty for err":
     var b as result of int to string is calling err_of with "e"
-    var l as list of int is calling to_list_result with b
+    var l as vector of int is calling to_list_result with b
     calling _expect_eq_int with l.length, 0, "to_list_result err"
 test "describe_result formats ok":
     var a as result of int to string is calling ok_of with 3
@@ -2254,73 +2254,73 @@ test "describe_result formats err":
     var b as result of int to string is calling err_of with "m"
     calling _expect_eq_string with (calling describe_result with b), "err(m)", "describe_result err"
 test "all_present is true when every element has a value":
-    var ms as list of maybe int is [some 1, some 2]
+    var ms as vector of maybe int is [some 1, some 2]
     calling _expect_eq_bool with (calling all_present with ms), true, "all_present"
 test "all_present is false with one empty element":
-    var ms as list of maybe int is [some 1, maybe none]
+    var ms as vector of maybe int is [some 1, maybe none]
     calling _expect_eq_bool with (calling all_present with ms), false, "all_present false"
 test "all_present of an empty list is true":
-    var ms as list of maybe int is list of maybe int
+    var ms as vector of maybe int is vector of maybe int
     calling _expect_eq_bool with (calling all_present with ms), true, "all_present empty"
 test "first_present returns the first payload":
-    var ms as list of maybe int is [maybe none, some 4, some 5]
+    var ms as vector of maybe int is [maybe none, some 4, some 5]
     var f as maybe int is calling first_present with ms
     calling _expect_eq_int with (calling f.unwrap_or with -1), 4, "first_present"
 test "first_present is empty without payloads":
-    var ms as list of maybe int is [maybe none, maybe none]
+    var ms as vector of maybe int is [maybe none, maybe none]
     var f as maybe int is calling first_present with ms
     calling _expect_eq_bool with (calling f.is_some), false, "first_present none"
 test "any_present detects at least one payload":
-    var ms as list of maybe int is [maybe none, some 1]
+    var ms as vector of maybe int is [maybe none, some 1]
     calling _expect_eq_bool with (calling any_present with ms), true, "any_present"
 test "any_present is false without payloads":
-    var ms as list of maybe int is [maybe none]
+    var ms as vector of maybe int is [maybe none]
     calling _expect_eq_bool with (calling any_present with ms), false, "any_present false"
 test "collect_ok gathers successes in order":
     var a as result of int to string is calling ok_of with 1
     var b as result of int to string is calling err_of with "e"
     var c as result of int to string is calling ok_of with 3
-    var rs as list of result of int to string is [a, b, c]
-    var oks as list of int is calling collect_ok with rs
+    var rs as vector of result of int to string is [a, b, c]
+    var oks as vector of int is calling collect_ok with rs
     calling _expect_eq_int with oks.length, 2, "collect_ok len"
     calling _expect_eq_int with (oks at 1), 3, "collect_ok second"
 test "collect_err gathers errors in order":
     var a as result of int to string is calling ok_of with 1
     var b as result of int to string is calling err_of with "e"
-    var rs as list of result of int to string is [a, b]
-    var errs as list of string is calling collect_err with rs
+    var rs as vector of result of int to string is [a, b]
+    var errs as vector of string is calling collect_err with rs
     calling _expect_eq_int with errs.length, 1, "collect_err len"
     calling _expect_eq_string with (errs at 0), "e", "collect_err first"
 test "collect_ok and collect_err of an empty list":
-    var rs as list of result of int to string is list of result of int to string
-    var oks as list of int is calling collect_ok with rs
-    var errs as list of string is calling collect_err with rs
+    var rs as vector of result of int to string is vector of result of int to string
+    var oks as vector of int is calling collect_ok with rs
+    var errs as vector of string is calling collect_err with rs
     calling _expect_eq_int with oks.length, 0, "collect_ok empty"
     calling _expect_eq_int with errs.length, 0, "collect_err empty"
 test "partition_results splits successes and errors":
     var a as result of int to string is calling ok_of with 1
     var b as result of int to string is calling err_of with "e"
     var c as result of int to string is calling ok_of with 3
-    var rs as list of result of int to string is [a, b, c]
-    var p as Pair of list of int and list of string is calling partition_results with rs
-    var oks as list of int is p.first
-    var errs as list of string is p.second
+    var rs as vector of result of int to string is [a, b, c]
+    var p as Pair of vector of int and vector of string is calling partition_results with rs
+    var oks as vector of int is p.first
+    var errs as vector of string is p.second
     calling _expect_eq_int with oks.length, 2, "partition oks"
     calling _expect_eq_int with errs.length, 1, "partition errs"
 test "partition_results with only errors":
     var a as result of int to string is calling err_of with "a"
     var b as result of int to string is calling err_of with "b"
-    var rs as list of result of int to string is [a, b]
-    var p as Pair of list of int and list of string is calling partition_results with rs
-    var oks as list of int is p.first
-    var errs as list of string is p.second
+    var rs as vector of result of int to string is [a, b]
+    var p as Pair of vector of int and vector of string is calling partition_results with rs
+    var oks as vector of int is p.first
+    var errs as vector of string is p.second
     calling _expect_eq_int with oks.length, 0, "partition no oks"
     calling _expect_eq_int with errs.length, 2, "partition errs"
 test "partition_results keeps the values":
     var a as result of int to string is calling ok_of with 7
-    var rs as list of result of int to string is [a]
-    var p as Pair of list of int and list of string is calling partition_results with rs
-    var oks as list of int is p.first
+    var rs as vector of result of int to string is [a]
+    var p as Pair of vector of int and vector of string is calling partition_results with rs
+    var oks as vector of int is p.first
     calling _expect_eq_int with (oks at 0), 7, "partition value"
 test "legacy MaybeInt keeps its methods":
     var m as MaybeInt is calling maybe_some_int with 5

@@ -777,7 +777,7 @@ weave assert_string_not_empty with s as string into void:
 ## ```pengu
 ## calling ward.assert_eq_int_list with xs, ys
 ## ```
-weave assert_eq_int_list with a as list of int , b as list of int into void:
+weave assert_eq_int_list with a as vector of int , b as vector of int into void:
     let na as int is a.len
     let nb as int is b.len
     if na != nb:
@@ -813,7 +813,7 @@ weave assert_eq_int_list with a as list of int , b as list of int into void:
 ## ```pengu
 ## calling ward.assert_eq_string_list with words, expected_words
 ## ```
-weave assert_eq_string_list with a as list of string , b as list of string into void:
+weave assert_eq_string_list with a as vector of string , b as vector of string into void:
     let na as int is a.len
     let nb as int is b.len
     if na != nb:
@@ -845,7 +845,7 @@ weave assert_eq_string_list with a as list of string , b as list of string into 
 ## ```pengu
 ## calling ward.assert_list_empty_int with queue
 ## ```
-weave assert_list_empty_int with l as list of int into void:
+weave assert_list_empty_int with l as vector of int into void:
     if l.len > 0:
         calling spark.panic with "assertion failed: expected empty list, got len {(l.len to string)}"
 
@@ -869,7 +869,7 @@ weave assert_list_empty_int with l as list of int into void:
 ## ```pengu
 ## calling ward.assert_list_not_empty_int with results
 ## ```
-weave assert_list_not_empty_int with l as list of int into void:
+weave assert_list_not_empty_int with l as vector of int into void:
     if l.len == 0:
         calling spark.panic with "assertion failed: expected non-empty list, got len 0"
 
@@ -893,7 +893,7 @@ weave assert_list_not_empty_int with l as list of int into void:
 ## ```pengu
 ## calling ward.assert_list_len_int with items, 3
 ## ```
-weave assert_list_len_int with l as list of int , expected as int into void:
+weave assert_list_len_int with l as vector of int , expected as int into void:
     if l.len != expected:
         calling spark.panic with "assertion failed: expected list len {(expected to string)}, got {(l.len to string)}"
 
@@ -919,7 +919,7 @@ weave assert_list_len_int with l as list of int , expected as int into void:
 ## ```pengu
 ## calling ward.assert_map_has_key with config, "host"
 ## ```
-weave assert_map_has_key with m as map of string to string , key as string into void:
+weave assert_map_has_key with m as map of string, string , key as string into void:
     if not (calling m.contains with key):
         calling spark.panic with "assertion failed: expected map to contain key {(calling _w_fmt_string with key)}"
 
@@ -945,7 +945,7 @@ weave assert_map_has_key with m as map of string to string , key as string into 
 ## ```pengu
 ## calling ward.assert_map_not_has_key with config, "secret"
 ## ```
-weave assert_map_not_has_key with m as map of string to string , key as string into void:
+weave assert_map_not_has_key with m as map of string, string , key as string into void:
     if calling m.contains with key:
         calling spark.panic with "assertion failed: unexpected key {(calling _w_fmt_string with key)} in map"
 
@@ -2231,28 +2231,28 @@ test "assert_string_empty and assert_string_not_empty accept matching lengths":
     calling assert_string_empty with ""
     calling assert_string_not_empty with "text"
 test "assert_eq_int_list accepts identical lists":
-    let xs as list of int is [1, 2, 3]
+    let xs as vector of int is [1, 2, 3]
     defer banish xs
-    let ys as list of int is [1, 2, 3]
+    let ys as vector of int is [1, 2, 3]
     defer banish ys
     calling assert_eq_int_list with xs, ys
 test "assert_eq_string_list accepts identical lists":
-    let xs as list of string is ["alpha", "beta"]
+    let xs as vector of string is ["alpha", "beta"]
     defer banish xs
-    let ys as list of string is ["alpha", "beta"]
+    let ys as vector of string is ["alpha", "beta"]
     defer banish ys
     calling assert_eq_string_list with xs, ys
 test "assert_list_len_int and assert_list_not_empty_int accept non-empty lists":
-    let xs as list of int is [7, 8]
+    let xs as vector of int is [7, 8]
     defer banish xs
     calling assert_list_len_int with xs, 2
     calling assert_list_not_empty_int with xs
 test "assert_list_empty_int accepts an empty list":
-    let xs as list of int is list of int
+    let xs as vector of int is vector of int
     defer banish xs
     calling assert_list_empty_int with xs
 test "assert_map_has_key and assert_map_not_has_key classify keys":
-    var config as map of string to string is map of string to string
+    var config as map of string, string is map of string, string
     defer banish config
     calling config.put with "host", "localhost"
     calling assert_map_has_key with config, "host"

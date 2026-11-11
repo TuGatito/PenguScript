@@ -28,7 +28,7 @@ import psc.lexer_string as psstring
 ##
 ## ## Memoria
 ## Devuelve un `string` owned; liberar con `banish`.
-weave decode_string with src as ref to psource.SourceFile, info as StringInfo, parts as list of StringPart into string:
+weave decode_string with src as ref to psource.SourceFile, info as StringInfo, parts as vector of StringPart into string:
     if info.has_interp:
         return calling decode_text_parts with src, info, parts
     var s as pspan.ByteSpan is with start is info.content_start, end is info.content_end
@@ -44,7 +44,7 @@ weave decode_string with src as ref to psource.SourceFile, info as StringInfo, p
 ##
 ## ## Memoria
 ## Devuelve un `string` owned; liberar con `banish`.
-weave decode_text_parts with src as ref to psource.SourceFile, info as StringInfo, parts as list of StringPart into string:
+weave decode_text_parts with src as ref to psource.SourceFile, info as StringInfo, parts as vector of StringPart into string:
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb
     var i as int is 0

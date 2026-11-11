@@ -42,8 +42,8 @@ rune Document:
 ## Estado del servidor.
 rune State:
     tr as transport.Transport
-    docs as map of string to Document
-    uris as list of string
+    docs as map of string, Document
+    uris as vector of string
     root as string
     exe as string
     std_dir as string
@@ -72,10 +72,10 @@ weave copy with s as string into string:
 ##
 ## ## Memoria
 ## Cada etiqueta es un string owned (el llamador lo banea); `inner` se presta.
-weave collect_param_labels with inner as string, out as ref to list of string into void:
+weave collect_param_labels with inner as string, out as ref to vector of string into void:
     if inner length == 0:
         return
-    var raw as list of string is calling inner.split with ","
+    var raw as vector of string is calling inner.split with ","
     for part in raw:
         var lab as string is calling scrolls.trim with part
         if lab length > 0:
@@ -530,7 +530,7 @@ weave did_change with st as ref to State, params as JsonValue into void:
         banish u
         return
     var cgv as JsonValue is cget.value
-    var changes as maybe list of JsonValue is calling cgv.as_array
+    var changes as maybe vector of JsonValue is calling cgv.as_array
     banish cget
     if changes.is_present:
         if changes.value.len > 0:
@@ -614,7 +614,7 @@ weave did_close with st as ref to State, params as JsonValue into void:
         var old as Document is (st->docs at u)
         calling free_doc with (sigil of old)
     var ignr as bool is calling st->docs.remove with u
-    var nuris as list of string is list of string
+    var nuris as vector of string is vector of string
     for ou in st->uris:
         if ou != u:
             calling nuris.push with ou
@@ -689,7 +689,7 @@ weave type_symbol_lookup with p as ref to sema_api.SemaResult, mid as int, text 
         defer banish alias
         var imp as int is calling query.imported_module with p->program, mid, alias
         if imp >= 0:
-            var exps as list of int is calling query.module_exports with p->program, imp
+            var exps as vector of int is calling query.module_exports with p->program, imp
             defer banish exps
             var i as int is 0
             while i < exps.len:
@@ -790,7 +790,7 @@ import {nm}
         var mscope as int is si.module_scope
         var mid2 as int is calling query.module_for_scope with p->program, mscope
         if mid2 >= 0:
-            var exports as list of int is calling query.module_exports with p->program, mid2
+            var exports as vector of int is calling query.module_exports with p->program, mid2
             calling sb.append with "**Exported symbols**: "
             var ei as int is 0
             var first as bool is true
@@ -903,7 +903,7 @@ weave member_hover with p as ref to sema_api.SemaResult, mid as int, text as str
         banish sb
         return ""
     var rty as string is calling query.type_text with p->program, rt
-    var ids as list of int is calling query.methods_for_type with p->program, rt
+    var ids as vector of int is calling query.methods_for_type with p->program, rt
     var i as int is 0
     while i < ids.len:
         var sid as int is (ids at i)
@@ -969,7 +969,7 @@ weave decl_line with text as string, word as string into string:
         while end < text length and ((b at end) to int) != 10:
             set end is end + 1
         var line as string is text at start to end
-        var keys as list of string is list of string
+        var keys as vector of string is vector of string
         calling keys.push with "weave "
         calling keys.push with "rune "
         calling keys.push with "echo "
@@ -1077,7 +1077,7 @@ weave handle_definition with st as ref to State, id as rpc.JsonRpcId, params as 
             if dotm >= 0 and w length > 0:
                 var rt as int is calling query.receiver_type_at with sp->program, mid, text, dotm
                 if rt > 0:
-                    var mids as list of int is calling query.methods_for_type with sp->program, rt
+                    var mids as vector of int is calling query.methods_for_type with sp->program, rt
                     var mi as int is 0
                     while mi < mids.len:
                         var msid as int is (mids at mi)
@@ -1248,8 +1248,8 @@ weave handle_document_symbols with st as ref to State, id as rpc.JsonRpcId, para
     var mid as int is calling doc_module with st, u
     if mid >= 0:
         var sp as ref to sema_api.SemaResult is calling doc_sema with st, u
-        var ids as list of int is calling query.module_symbols with sp->program, mid
-        var seen as map of string to bool is map of string to bool
+        var ids as vector of int is calling query.module_symbols with sp->program, mid
+        var seen as map of string, bool is map of string, bool
         var i as int is 0
         while i < ids.len:
             var sid as int is (ids at i)
@@ -1294,7 +1294,7 @@ weave ends_with with s as string, suffix as string into bool:
 ##
 ## ## Memoria
 ## Copia label/detail/insert/doc; no retiene los parámetros.
-weave add_completion with arr as ref to JsonValue, seen as ref to map of string to bool, label as string, kind as int, detail as string, insert as string, doc as string into void:
+weave add_completion with arr as ref to JsonValue, seen as ref to map of string, bool, label as string, kind as int, detail as string, insert as string, doc as string into void:
     if label length == 0 or calling seen->has with label:
         return
     calling seen->put with (calling copy with label), true
@@ -1330,7 +1330,7 @@ weave completion_kind with k as sym.SemaSymbolKind into int:
 ##
 ## ## Memoria
 ## Libera el texto de tipo.
-weave add_symbol_completion with p as ref to sema_api.SemaResult, arr as ref to JsonValue, seen as ref to map of string to bool, sid as int, prefix as string into void:
+weave add_symbol_completion with p as ref to sema_api.SemaResult, arr as ref to JsonValue, seen as ref to map of string, bool, sid as int, prefix as string into void:
     var nm as string is calling query.symbol_name with p->program, sid
     if nm length == 0:
         return
@@ -1358,14 +1358,14 @@ weave module_stem with name as string into string:
 ##
 ## ## Memoria
 ## Libera las listas de `read_dir`.
-weave add_std_modules with p as ref to sema_api.SemaResult, arr as ref to JsonValue, seen as ref to map of string to bool, prefix as string into void:
-    var dirs as list of string is calling query.std_dirs with p->program
+weave add_std_modules with p as ref to sema_api.SemaResult, arr as ref to JsonValue, seen as ref to map of string, bool, prefix as string into void:
+    var dirs as vector of string is calling query.std_dirs with p->program
     var di as int is 0
     while di < dirs.len:
         var dir as string is (dirs at di)
-        var ents as maybe list of string is calling archivum.read_dir with dir
+        var ents as maybe vector of string is calling archivum.read_dir with dir
         if ents.is_present:
-            var names as list of string is ents.value
+            var names as vector of string is ents.value
             var i as int is 0
             while i < names.len:
                 var name as string is (names at i)
@@ -1386,8 +1386,8 @@ weave add_std_modules with p as ref to sema_api.SemaResult, arr as ref to JsonVa
 ##
 ## ## Memoria
 ## Libera la lista de exports.
-weave add_module_exports with p as ref to sema_api.SemaResult, arr as ref to JsonValue, seen as ref to map of string to bool, mid as int, prefix as string into void:
-    var exps as list of int is calling query.module_exports with p->program, mid
+weave add_module_exports with p as ref to sema_api.SemaResult, arr as ref to JsonValue, seen as ref to map of string, bool, mid as int, prefix as string into void:
+    var exps as vector of int is calling query.module_exports with p->program, mid
     var i as int is 0
     while i < exps.len:
         calling add_symbol_completion with p, arr, seen, (exps at i), prefix
@@ -1398,8 +1398,8 @@ weave add_module_exports with p as ref to sema_api.SemaResult, arr as ref to Jso
 ##
 ## ## Memoria
 ## Libera la lista de ids y los textos auxiliares.
-weave add_method_completions with p as ref to sema_api.SemaResult, arr as ref to JsonValue, seen as ref to map of string to bool, type_id as int, prefix as string into void:
-    var ids as list of int is calling query.methods_for_type with p->program, type_id
+weave add_method_completions with p as ref to sema_api.SemaResult, arr as ref to JsonValue, seen as ref to map of string, bool, type_id as int, prefix as string into void:
+    var ids as vector of int is calling query.methods_for_type with p->program, type_id
     var i as int is 0
     while i < ids.len:
         var sid as int is (ids at i)
@@ -1427,7 +1427,7 @@ weave add_method_completions with p as ref to sema_api.SemaResult, arr as ref to
 ##
 ## ## Memoria
 ## Libera los textos auxiliares; no asigna estructuras nuevas.
-weave add_synthetic_method_completions with p as ref to sema_api.SemaResult, arr as ref to JsonValue, seen as ref to map of string to bool, type_id as int, prefix as string into void:
+weave add_synthetic_method_completions with p as ref to sema_api.SemaResult, arr as ref to JsonValue, seen as ref to map of string, bool, type_id as int, prefix as string into void:
     if type_id <= 0:
         return
     var ty as tk.SemaType is calling types.at with (sigil of p->program->types), type_id
@@ -1514,7 +1514,7 @@ weave add_synthetic_method_completions with p as ref to sema_api.SemaResult, arr
 ##
 ## ## Memoria
 ## Libera los nombres de campo ya copiados.
-weave add_field_completions with p as ref to sema_api.SemaResult, arr as ref to JsonValue, seen as ref to map of string to bool, type_id as int, prefix as string into void:
+weave add_field_completions with p as ref to sema_api.SemaResult, arr as ref to JsonValue, seen as ref to map of string, bool, type_id as int, prefix as string into void:
     var ty as tk.SemaType is calling types.at with (sigil of p->program->types), type_id
     if ty.kind != tk.SemaTypeKind.TkRune and ty.kind != tk.SemaTypeKind.TkEcho:
         return
@@ -1539,7 +1539,7 @@ weave add_field_completions with p as ref to sema_api.SemaResult, arr as ref to 
         set ei is ei + 1
 
 ## Añade las variantes de un `omen`.
-weave add_variant_completions with p as ref to sema_api.SemaResult, arr as ref to JsonValue, seen as ref to map of string to bool, type_id as int, prefix as string into void:
+weave add_variant_completions with p as ref to sema_api.SemaResult, arr as ref to JsonValue, seen as ref to map of string, bool, type_id as int, prefix as string into void:
     var ty as tk.SemaType is calling types.at with (sigil of p->program->types), type_id
     if ty.kind != tk.SemaTypeKind.TkOmen:
         return
@@ -1580,7 +1580,7 @@ weave handle_completion with st as ref to State, id as rpc.JsonRpcId, params as 
     var prefix as string is text at pstart to off
     defer banish prefix
     var arr as JsonValue is calling JsonValue.empty_array
-    var seen as map of string to bool is map of string to bool
+    var seen as map of string, bool is map of string, bool
     var mid as int is calling doc_module with st, u
     var handled_member as bool is false
     if mid >= 0:
@@ -1619,7 +1619,7 @@ weave handle_completion with st as ref to State, id as rpc.JsonRpcId, params as 
             if prefix length == 0 or calling starts_with with kw.word, prefix:
                 calling add_completion with (sigil of arr), (sigil of seen), kw.word, 14, "keyword", "", ""
             set ki is ki + 1
-        var soft as list of string is list of string
+        var soft as vector of string is vector of string
         calling soft.push with "self"
         calling soft.push with "frozen"
         calling soft.push with "inline"
@@ -1648,7 +1648,7 @@ weave handle_completion with st as ref to State, id as rpc.JsonRpcId, params as 
                     if si.kind != sym.SemaSymbolKind.SkImport:
                         calling add_symbol_completion with sp2, (sigil of arr), (sigil of seen), i, prefix
                 set i is i + 1
-            var aliases as list of string is calling query.import_aliases with sp2->program, mid
+            var aliases as vector of string is calling query.import_aliases with sp2->program, mid
             var ai as int is 0
             while ai < aliases.len:
                 var a as string is (aliases at ai)
@@ -1793,7 +1793,7 @@ weave handle_folding with st as ref to State, id as rpc.JsonRpcId, params as Jso
     banish td
     var text as string is calling doc_text with st, u
     var arr as JsonValue is calling JsonValue.empty_array
-    var lines as list of string is calling text.split with "\n"
+    var lines as vector of string is calling text.split with "\n"
     var i as int is 0
     while i < lines.len:
         var line as string is (lines at i)
@@ -1848,7 +1848,7 @@ weave handle_formatting with st as ref to State, id as rpc.JsonRpcId, params as 
     var res as JsonValue is calling JsonValue.null_value
     if calling archivum.write_text with tmp, text:
         var cmd as string is "{st->exe} fmt --stdin < {tmp} > {out}"
-        var code as int is calling rites.exec with cmd, list of string
+        var code as int is calling rites.exec with cmd, vector of string
         banish cmd
         if code == 0:
             var ot as maybe string is calling archivum.read_text with out
@@ -2116,7 +2116,7 @@ weave handle_signature with st as ref to State, id as rpc.JsonRpcId, params as J
                 var dotoff as int is ls + ci + 8 + p0 + lastdot
                 var rt as int is calling query.receiver_type_at with sp->program, mid, text, dotoff
                 if rt > 0:
-                    var mids as list of int is calling query.methods_for_type with sp->program, rt
+                    var mids as vector of int is calling query.methods_for_type with sp->program, rt
                     var mi as int is 0
                     while mi < mids.len:
                         var msid as int is (mids at mi)
@@ -2151,7 +2151,7 @@ weave handle_signature with st as ref to State, id as rpc.JsonRpcId, params as J
                 # La firma canónica (`**f**(a: int, b: int) -> R`) y la línea de
                 # declaración (`weave f with a as int, ... into R:`) comparten la
                 # forma "param, param"; se extraen entre los delimitadores.
-                var labels as list of string is list of string
+                var labels as vector of string is vector of string
                 var lp as int is calling scrolls.find with sig, "("
                 var rp as int is calling scrolls.find with sig, ")"
                 if lp >= 0 and rp > lp:
@@ -2201,7 +2201,7 @@ weave handle_workspace_symbols with st as ref to State, id as rpc.JsonRpcId, par
     if not st->ws_ready:
         banish st->ws_cache
         var all as JsonValue is calling JsonValue.empty_array
-        var files as list of string is calling archivum.find_files with st->root, true
+        var files as vector of string is calling archivum.find_files with st->root, true
         var count as int is 0
         for f in files:
             if count < 500 and calling scrolls.contains with f, ".pengu":
@@ -2237,7 +2237,7 @@ weave handle_workspace_symbols with st as ref to State, id as rpc.JsonRpcId, par
         banish files
         set st->ws_cache is all
         set st->ws_ready is true
-    var items as maybe list of JsonValue is calling st->ws_cache.as_array
+    var items as maybe vector of JsonValue is calling st->ws_cache.as_array
     var arr as JsonValue is calling JsonValue.empty_array
     if items.is_present:
         for item in items.value:
@@ -2315,7 +2315,7 @@ rune SemToken:
     ty as int
 
 ## Añade un token semántico si tiene longitud.
-weave add_sem with xs as ref to list of SemToken, start as int, end as int, ty as int into void:
+weave add_sem with xs as ref to vector of SemToken, start as int, end as int, ty as int into void:
     if end <= start:
         return
     var t as SemToken is with start is start, end is end, ty is ty
@@ -2366,7 +2366,7 @@ weave handle_semantic with st as ref to State, id as rpc.JsonRpcId, params as Js
     if st->semantic_enabled and mid >= 0:
         var sp as ref to sema_api.SemaResult is calling doc_sema with st, u
         var m as loader.SemaModule is (sp->program->modules at mid)
-        var toks as list of SemToken is list of SemToken
+        var toks as vector of SemToken is vector of SemToken
         var prev_kind as pstoken.TokenKind is pstoken.TokenKind.TokEof
         var prev_kw as pstoken.KeywordKind is pstoken.KeywordKind.KwNotKeyword
         var last_dot as int is -1
@@ -2387,7 +2387,7 @@ weave handle_semantic with st as ref to State, id as rpc.JsonRpcId, params as Js
                         if last_dot >= 0:
                             var rt as int is calling query.receiver_type_at with sp->program, mid, text, last_dot
                             if rt > 0:
-                                var mids as list of int is calling query.methods_for_type with sp->program, rt
+                                var mids as vector of int is calling query.methods_for_type with sp->program, rt
                                 var mi as int is 0
                                 while mi < mids.len:
                                     var msid as int is (mids at mi)
@@ -2541,8 +2541,8 @@ weave handle_inlay with st as ref to State, id as rpc.JsonRpcId, params as JsonV
         var sp as ref to sema_api.SemaResult is calling doc_sema with st, u
         var m as loader.SemaModule is (sp->program->modules at mid)
         if st->inlay_sizes:
-            var tids as list of int is calling query.module_symbols with sp->program, mid
-            var tseen as map of string to bool is map of string to bool
+            var tids as vector of int is calling query.module_symbols with sp->program, mid
+            var tseen as map of string, bool is map of string, bool
             var ti as int is 0
             while ti < tids.len:
                 var tsid as int is (tids at ti)
@@ -2647,7 +2647,7 @@ weave handle_code_action with st as ref to State, id as rpc.JsonRpcId, params as
     banish td
     if u length > 0:
         var txt as string is calling doc_text with st, u
-        var lines as list of string is calling txt.split with "\n"
+        var lines as vector of string is calling txt.split with "\n"
         if ln >= 0 and ln < lines.len:
             var cur as string is (lines at ln)
             var cb as ref to frozen byte is bytes of cur
@@ -2854,7 +2854,7 @@ weave handle_notification with st as ref to State, method as string, params as m
 
 ## Bucle principal.
 weave run_with with tr as transport.Transport, root as string, exe as string into int:
-    var st as State is with tr is tr, docs is map of string to Document, uris is (list of string), root is root, exe is exe, std_dir is "", inlay_enabled is true, inlay_sizes is true, inlay_types is true, semantic_enabled is true, ws_cache is (calling JsonValue.empty_array), ws_ready is false, initialized is false, shutdown is false
+    var st as State is with tr is tr, docs is map of string, Document, uris is (vector of string), root is root, exe is exe, std_dir is "", inlay_enabled is true, inlay_sizes is true, inlay_types is true, semantic_enabled is true, ws_cache is (calling JsonValue.empty_array), ws_ready is false, initialized is false, shutdown is false
     while true:
         var body as maybe string is calling transport.read_frame with (sigil of st.tr)
         if not body.is_present:

@@ -60,7 +60,7 @@ when wasm:
 
     ## Sends `method` to `url`. `headers` may be empty; `body` may be empty.
     ## `on_ok`/`on_err` receive borrowed handles and are released by the bridge.
-    weave request with method as string, url as string, headers as list of Header, body as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of bool to JsError:
+    weave request with method as string, url as string, headers as vector of Header, body as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of bool to JsError:
         var h as result of js.JsValue to JsError is calling _headers_object with headers
         if not h.is_ok:
             return calling err_of with h.error
@@ -73,11 +73,11 @@ when wasm:
 
     ## `GET url`.
     weave get with url as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of bool to JsError:
-        var none as list of Header is list of Header
+        var none as vector of Header is vector of Header
         return calling request with "GET", url, none, "", on_ok, on_err, timeout_ms
 
     ## Like `request`, but returns a handle that can be passed to `abort`.
-    weave request_abortable with method as string, url as string, headers as list of Header, body as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of RequestHandle to JsError:
+    weave request_abortable with method as string, url as string, headers as vector of Header, body as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of RequestHandle to JsError:
         var h as result of js.JsValue to JsError is calling _headers_object with headers
         if not h.is_ok:
             return calling err_of with h.error
@@ -90,7 +90,7 @@ when wasm:
 
     ## `GET url` abortable.
     weave get_abortable with url as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of RequestHandle to JsError:
-        var none as list of Header is list of Header
+        var none as vector of Header is vector of Header
         return calling request_abortable with "GET", url, none, "", on_ok, on_err, timeout_ms
 
     ## Aborta una petición viva. `false` si ya terminó.
@@ -99,17 +99,17 @@ when wasm:
 
     ## `POST url` with a text body.
     weave post with url as string, body as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of bool to JsError:
-        var none as list of Header is list of Header
+        var none as vector of Header is vector of Header
         return calling request with "POST", url, none, body, on_ok, on_err, timeout_ms
 
     ## `PUT url` with a text body.
     weave put with url as string, body as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of bool to JsError:
-        var none as list of Header is list of Header
+        var none as vector of Header is vector of Header
         return calling request with "PUT", url, none, body, on_ok, on_err, timeout_ms
 
     ## `DELETE url`.
     weave delete with url as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of bool to JsError:
-        var none as list of Header is list of Header
+        var none as vector of Header is vector of Header
         return calling request with "DELETE", url, none, "", on_ok, on_err, timeout_ms
 
     ## Converts a response handle into an owned `Response`. The caller owns the
@@ -166,7 +166,7 @@ when wasm:
         if not text.is_ok:
             return calling err_of with text.error
         defer banish text.value
-        var headers as list of Header is list of Header
+        var headers as vector of Header is vector of Header
         defer banish headers
         var ct as Header is with name is "content-type", value is "application/json"
         calling headers.push with ct
@@ -182,7 +182,7 @@ when wasm:
         banish r->body
 
     ## Builds the JavaScript headers object.
-    weave _headers_object with headers as list of Header into result of js.JsValue to JsError:
+    weave _headers_object with headers as vector of Header into result of js.JsValue to JsError:
         if headers.len == 0:
             return calling ok_of with (js.UNDEFINED)
         var obj as result of js.JsValue to JsError is calling js.object
@@ -279,9 +279,9 @@ when wasm:
 
 when not wasm:
 
-    weave request with method as string, url as string, headers as list of Header, body as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of bool to JsError:
+    weave request with method as string, url as string, headers as vector of Header, body as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of bool to JsError:
         return calling err_of with (calling js.last_error)
-    weave request_abortable with method as string, url as string, headers as list of Header, body as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of RequestHandle to JsError:
+    weave request_abortable with method as string, url as string, headers as vector of Header, body as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of RequestHandle to JsError:
         return calling err_of with (calling js.last_error)
     weave get_abortable with url as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of RequestHandle to JsError:
         return calling err_of with (calling js.last_error)

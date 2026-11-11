@@ -71,7 +71,7 @@ weave lex with src as ref to psource.SourceFile, bag as ref to diag.DiagnosticBa
         calling scan_unknown with sigil of lx
     calling lex_finish with sigil of lx
     var result as LexResult is lx.result
-    var indented as list of Token is calling pslind.lex_indent_apply with src, bag, result.tokens, opts
+    var indented as vector of Token is calling pslind.lex_indent_apply with src, bag, result.tokens, opts
     set result.tokens is indented
     return result
 

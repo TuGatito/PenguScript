@@ -46,7 +46,7 @@ weave run with base as string, lib_dir as string, name as string, trusted as boo
         banish script
         banish dir
         return false
-    var args as list of string is list of string
+    var args as vector of string is vector of string
     calling args.push with (calling copy with exe)
     calling args.push with "run"
     calling args.push with (calling copy with script)

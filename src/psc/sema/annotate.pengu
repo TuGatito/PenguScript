@@ -49,14 +49,14 @@ rune SemaAnnotation:
 ## Dueña de `items`.
 rune SemaAnnotations:
     ## Una entrada por nodo del AST.
-    items as list of SemaAnnotation
+    items as vector of SemaAnnotation
 
 ## Crea una tabla con una entrada por nodo.
 ##
 ## ## Memoria
 ## Asigna la lista; liberar con `free_annotations`.
 weave new_annotations with ast as ref to psast.PsAst into SemaAnnotations:
-    var items as list of SemaAnnotation is list of SemaAnnotation
+    var items as vector of SemaAnnotation is vector of SemaAnnotation
     var i as int is 0
     while i < ast->nodes.len:
         var a as SemaAnnotation is with type_id is -1, symbol_id is -1, aux is 0, flags is 0

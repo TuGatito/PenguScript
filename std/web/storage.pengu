@@ -33,7 +33,7 @@ when wasm:
         var k as result of js.JsValue to js.JsError is calling js.string with key
         if not k.is_ok:
             return calling err_of with k.error
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         calling args.push with k.value
         var r as result of js.JsValue to js.JsError is calling js.call_method with a.value, "getItem", args
@@ -62,7 +62,7 @@ when wasm:
         if not v.is_ok:
             return calling err_of with v.error
         defer calling js.release with v.value
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         calling args.push with k.value
         calling args.push with v.value
@@ -82,7 +82,7 @@ when wasm:
         if not k.is_ok:
             return calling err_of with k.error
         defer calling js.release with k.value
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         calling args.push with k.value
         var r as result of js.JsValue to js.JsError is calling js.call_method with a.value, "removeItem", args
@@ -97,7 +97,7 @@ when wasm:
         if not a.is_ok:
             return calling err_of with a.error
         defer calling js.release with a.value
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var r as result of js.JsValue to js.JsError is calling js.call_method with a.value, "clear", args
         if not r.is_ok:
@@ -129,7 +129,7 @@ when wasm:
         var i as result of js.JsValue to js.JsError is calling js.from_int with index
         if not i.is_ok:
             return calling err_of with i.error
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         calling args.push with i.value
         var r as result of js.JsValue to js.JsError is calling js.call_method with a.value, "key", args
@@ -169,7 +169,7 @@ when wasm:
         return calling _key_at with LOCAL, index
 
     ## Every localStorage key, owned. Banish each entry and the list.
-    weave local_keys into result of list of string to js.JsError:
+    weave local_keys into result of vector of string to js.JsError:
         return calling _keys with LOCAL
 
     ## `sessionStorage.getItem(key)`.
@@ -197,7 +197,7 @@ when wasm:
         return calling _key_at with SESSION, index
 
     ## Every sessionStorage key, owned. Banish each entry and the list.
-    weave session_keys into result of list of string to js.JsError:
+    weave session_keys into result of vector of string to js.JsError:
         return calling _keys with SESSION
 
     ## Reads a JSON value. The returned handle is owned.
@@ -209,7 +209,7 @@ when wasm:
         var k as result of js.JsValue to js.JsError is calling js.string with key
         if not k.is_ok:
             return calling err_of with k.error
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         calling args.push with k.value
         var r as result of js.JsValue to js.JsError is calling js.call_method with a.value, "getItem", args
@@ -260,7 +260,7 @@ when wasm:
         return calling js.get with g, name
 
     ## Every key in the area, owned.
-    weave _keys with area as int into result of list of string to js.JsError:
+    weave _keys with area as int into result of vector of string to js.JsError:
         var n as result of int to js.JsError is calling _length with area
         if not n.is_ok:
             return calling err_of with n.error
@@ -268,14 +268,14 @@ when wasm:
         if not a.is_ok:
             return calling err_of with a.error
         defer calling js.release with a.value
-        var out as list of string is list of string
+        var out as vector of string is vector of string
         var i as int is 0
         while i < n.value:
             var h as result of js.JsValue to js.JsError is calling js.from_int with i
             if not h.is_ok:
                 calling _free_keys with out
                 return calling err_of with h.error
-            var args as list of js.JsValue is list of js.JsValue
+            var args as vector of js.JsValue is vector of js.JsValue
             defer banish args
             calling args.push with h.value
             var r as result of js.JsValue to js.JsError is calling js.call_method with a.value, "key", args
@@ -295,11 +295,11 @@ when wasm:
         return calling ok_of with out
 
     ## Releases a list returned by `*_keys`.
-    weave free_keys with keys as list of string into void:
+    weave free_keys with keys as vector of string into void:
         calling _free_keys with keys
 
     ## Releases key strings and their list.
-    weave _free_keys with keys as list of string into void:
+    weave _free_keys with keys as vector of string into void:
         var i as int is 0
         while i < keys.len:
             banish keys at i
@@ -317,7 +317,7 @@ when not wasm:
         return calling err_of with (calling _native_error)
     weave _fail_int into result of int to js.JsError:
         return calling err_of with (calling _native_error)
-    weave _fail_list into result of list of string to js.JsError:
+    weave _fail_list into result of vector of string to js.JsError:
         return calling err_of with (calling _native_error)
     weave _fail_value into result of js.JsValue to js.JsError:
         return calling err_of with (calling _native_error)
@@ -334,7 +334,7 @@ when not wasm:
         return calling _fail_int
     weave local_key_at with index as int into result of maybe string to js.JsError:
         return calling _fail_maybe
-    weave local_keys into result of list of string to js.JsError:
+    weave local_keys into result of vector of string to js.JsError:
         return calling _fail_list
     weave session_get with key as string into result of maybe string to js.JsError:
         return calling _fail_maybe
@@ -348,7 +348,7 @@ when not wasm:
         return calling _fail_int
     weave session_key_at with index as int into result of maybe string to js.JsError:
         return calling _fail_maybe
-    weave session_keys into result of list of string to js.JsError:
+    weave session_keys into result of vector of string to js.JsError:
         return calling _fail_list
     weave get_json with area as int, key as string into result of js.JsValue to js.JsError:
         return calling _fail_value
@@ -362,5 +362,5 @@ when not wasm:
         return calling _fail_bool
     weave session_get_json with key as string into result of js.JsValue to js.JsError:
         return calling _fail_value
-    weave free_keys with keys as list of string into void:
+    weave free_keys with keys as vector of string into void:
         return

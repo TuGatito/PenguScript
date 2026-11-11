@@ -51,12 +51,12 @@ weave check_all_sizes with p as ref to program.SemaProgram into void:
     var n as int is calling types.type_count with (sigil of p->types)
     if n <= 1:
         return
-    var color as list of int is list of int
+    var color as vector of int is vector of int
     var i as int is 0
     while i < n:
         calling color.push with SIZE_UNVISITED
         set i is i + 1
-    var chain as list of int is list of int
+    var chain as vector of int is vector of int
     set i is 1
     while i < n:
         var t as tk.SemaType is calling types.at with (sigil of p->types), i
@@ -101,7 +101,7 @@ weave contains_by_value with t as tk.SemaType into bool:
 ##
 ## ## Memoria
 ## Presta `color`/`chain`; no asigna.
-weave size_walk with p as ref to program.SemaProgram, color as ref to list of int, chain as ref to list of int, ty as int, depth as int into bool:
+weave size_walk with p as ref to program.SemaProgram, color as ref to vector of int, chain as ref to vector of int, ty as int, depth as int into bool:
     if ty <= 0 or depth > SIZE_MAX_DEPTH:
         return false
     if not (calling types.valid with (sigil of p->types), ty):
@@ -143,7 +143,7 @@ weave size_walk with p as ref to program.SemaProgram, color as ref to list of in
 ##
 ## ## Memoria
 ## Presta `color`/`chain`; no asigna.
-weave size_walk_children with p as ref to program.SemaProgram, color as ref to list of int, chain as ref to list of int, t as tk.SemaType, depth as int into bool:
+weave size_walk_children with p as ref to program.SemaProgram, color as ref to vector of int, chain as ref to vector of int, t as tk.SemaType, depth as int into bool:
     var info as types.SemaNominalInfo is (p->types.nominal_infos at t.a)
     if t.kind == tk.SemaTypeKind.TkOmen:
         var vi as int is 0
@@ -173,7 +173,7 @@ weave size_walk_children with p as ref to program.SemaProgram, color as ref to l
 ##
 ## ## Memoria
 ## Crea un `SemaState` por módulo y strings owned; los libera.
-weave report_size_cycle with p as ref to program.SemaProgram, chain as ref to list of int, back as int into void:
+weave report_size_cycle with p as ref to program.SemaProgram, chain as ref to vector of int, back as int into void:
     var bt as tk.SemaType is calling types.at with (sigil of p->types), back
     if bt.a < 0 or bt.a >= p->types.nominal_infos.len:
         return

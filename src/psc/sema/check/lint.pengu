@@ -96,7 +96,7 @@ weave type_node_is_cow with s as ref to state.SemaState, tnode as int into bool:
 ##
 ## ## Memoria
 ## Empuja en las listas del llamador; no libera nada.
-weave scan_loop with s as ref to state.SemaState, node as int, decls as ref to list of int, muts as ref to list of string into void:
+weave scan_loop with s as ref to state.SemaState, node as int, decls as ref to vector of int, muts as ref to vector of string into void:
     if node < 0:
         return
     var ast as ref to psast.PsAst is s->ast
@@ -133,9 +133,9 @@ weave scan_loop with s as ref to state.SemaState, node as int, decls as ref to l
 ## ## Memoria
 ## Listas locales liberadas con `banish`.
 weave lint_loop with s as ref to state.SemaState, loop as int into void:
-    var decls as list of int is list of int
+    var decls as vector of int is vector of int
     defer banish decls
-    var muts as list of string is list of string
+    var muts as vector of string is vector of string
     defer banish muts
     calling scan_loop with s, loop, (sigil of decls), (sigil of muts)
     var ast as ref to psast.PsAst is s->ast

@@ -117,7 +117,7 @@ rune SourceFile derive Nexus:
     ## Bytes sin BOM; CRLF preservado.
     text as string
     ## Offset del primer byte de cada línea. Siempre empieza en 0.
-    line_starts as list of int
+    line_starts as vector of int
     ## SHA-256 hex de los bytes originales (incluye BOM y CRLF).
     sha256 as string
     ## Bytes de BOM eliminados al principio.
@@ -154,7 +154,7 @@ enchanting SourceFile:
         var raw_hash as string is calling digest.sha256_raw with raw
         var hash as string is calling sha256_hex_of with raw_hash
         banish raw_hash
-        var starts as list of int is list of int
+        var starts as vector of int is vector of int
         calling starts.push with 0
         var i as int is 0
         var tb as ref to frozen byte is bytes of text

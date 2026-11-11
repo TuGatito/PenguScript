@@ -97,8 +97,8 @@ weave print_expand_help into void:
 ##
 ## ## Memoria
 ## Libera opciones y resultado.
-weave run_build with args as list of string into int:
-    var vf as list of string is list of string
+weave run_build with args as vector of string into int:
+    var vf as vector of string is vector of string
     calling vf.push with "--profile"
     calling vf.push with "-p"
     calling vf.push with "--cc"
@@ -113,10 +113,10 @@ weave run_build with args as list of string into int:
     calling vf.push with "--sanitize"
     calling vf.push with "--jobs"
     calling vf.push with "--backend"
-    var lf as list of string is list of string
+    var lf as vector of string is vector of string
     calling lf.push with "--define"
     calling lf.push with "-D"
-    var sf as list of string is list of string
+    var sf as vector of string is vector of string
     calling sf.push with "--split-codegen"
     calling sf.push with "--verbose"
     calling sf.push with "--strict-c99"
@@ -249,7 +249,7 @@ weave run_build with args as list of string into int:
     var dscope as string is calling cliargs.value with (sigil of pr.args), "--dce-scope"
     if dscope == "user":
         set o.dce_scope_user is true
-    var defs as list of string is calling cliargs.list with (sigil of pr.args), "--define"
+    var defs as vector of string is calling cliargs.list with (sigil of pr.args), "--define"
     if defs.len == 0:
         set defs is calling cliargs.list with (sigil of pr.args), "-D"
     var di as int is 0
@@ -340,7 +340,7 @@ weave run_check_project with path as string, t as targetmod.Target, explicit as 
 ##
 ## ## Memoria
 ## Libera opciones, resultado y args del hijo.
-weave run_run with args as list of string into int:
+weave run_run with args as vector of string into int:
     var o as driver.BuildOptions is calling driver.default_options
     # `run` siempre necesita un ejecutable, aunque el proyecto sea una
     # librería (`output = "c"`/`"static"`); si no, intentaría ejecutar el
@@ -349,7 +349,7 @@ weave run_run with args as list of string into int:
     var prog as string is args at 0
     set o.compiler_path is calling copy_path with prog
     var path as string is ""
-    var child as list of string is list of string
+    var child as vector of string is vector of string
     var after as bool is false
     var no_cache as bool is false
     var clear_cache as bool is false
@@ -511,7 +511,7 @@ weave run_run with args as list of string into int:
 ##
 ## ## Memoria
 ## Libera opciones, resultado y bundle.
-weave run_expand with args as list of string into int:
+weave run_expand with args as vector of string into int:
     var o as driver.BuildOptions is calling driver.default_options
     set o.bundle_only is true
     var path as string is ""

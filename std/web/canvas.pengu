@@ -45,7 +45,7 @@ when wasm:
         if not found.is_ok:
             return calling err_of with found.error
         var el as dom.Element is found.value
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var name as result of js.JsValue to js.JsError is calling js.string with "2d"
         if not name.is_ok:
@@ -64,7 +64,7 @@ when wasm:
         var kept as result of bool to js.JsError is calling js.retain with (calling dom.raw with el)
         if not kept.is_ok:
             return calling err_of with kept.error
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var name as result of js.JsValue to js.JsError is calling js.string with "2d"
         if not name.is_ok:
@@ -231,7 +231,7 @@ when wasm:
 
     ## Calls a method with no numeric arguments.
     weave call0 with c as Canvas, method as string into result of js.JsValue to js.JsError:
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         return calling js.call_method with c._ctx, method, args
 
@@ -417,7 +417,7 @@ when wasm:
 
     ## Writes `data` (an `ImageData` handle) at `(dx, dy)`.
     weave put_image_data with c as Canvas, data as js.JsValue, dx as f64, dy as f64 into result of bool to js.JsError:
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         calling args.push with data
         var hx as result of js.JsValue to js.JsError is calling js.from_f64 with dx
@@ -500,10 +500,10 @@ when wasm:
 
     ## Calls a method with numeric arguments and discards its result.
     ## Empty numeric argument list.
-    weave _empty_numbers into list of f64:
-        return list of f64
+    weave _empty_numbers into vector of f64:
+        return vector of f64
 
-    weave _void_numbers with c as Canvas, method as string, values as list of f64 into result of bool to js.JsError:
+    weave _void_numbers with c as Canvas, method as string, values as vector of f64 into result of bool to js.JsError:
         var r as result of js.JsValue to js.JsError is calling _call_numbers with c, method, values
         if not r.is_ok:
             return calling err_of with r.error
@@ -511,7 +511,7 @@ when wasm:
         return calling ok_of with true
 
     ## Calls a method with a leading string and numeric arguments.
-    weave _void_text with c as Canvas, method as string, text as string, values as list of f64 into result of bool to js.JsError:
+    weave _void_text with c as Canvas, method as string, text as string, values as vector of f64 into result of bool to js.JsError:
         var r as result of js.JsValue to js.JsError is calling _call_text with c, method, text, values
         if not r.is_ok:
             return calling err_of with r.error
@@ -519,7 +519,7 @@ when wasm:
         return calling ok_of with true
 
     ## Calls a method with a leading element and numeric arguments.
-    weave _void_image with c as Canvas, method as string, image as dom.Element, values as list of f64 into result of bool to js.JsError:
+    weave _void_image with c as Canvas, method as string, image as dom.Element, values as vector of f64 into result of bool to js.JsError:
         var r as result of js.JsValue to js.JsError is calling _call_image with c, method, image, values
         if not r.is_ok:
             return calling err_of with r.error
@@ -527,9 +527,9 @@ when wasm:
         return calling ok_of with true
 
     ## Invokes `ctx[method](...)` with numeric arguments.
-    weave _call_numbers with c as Canvas, method as string, values as list of f64 into result of js.JsValue to js.JsError:
+    weave _call_numbers with c as Canvas, method as string, values as vector of f64 into result of js.JsValue to js.JsError:
         defer banish values
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var i as int is 0
         while i < values.len:
@@ -544,9 +544,9 @@ when wasm:
         return r
 
     ## Invokes `ctx[method](text, ...)`.
-    weave _call_text with c as Canvas, method as string, text as string, values as list of f64 into result of js.JsValue to js.JsError:
+    weave _call_text with c as Canvas, method as string, text as string, values as vector of f64 into result of js.JsValue to js.JsError:
         defer banish values
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var t as result of js.JsValue to js.JsError is calling js.string with text
         if not t.is_ok:
@@ -565,9 +565,9 @@ when wasm:
         return r
 
     ## Invokes `ctx[method](image, ...)`.
-    weave _call_image with c as Canvas, method as string, image as dom.Element, values as list of f64 into result of js.JsValue to js.JsError:
+    weave _call_image with c as Canvas, method as string, image as dom.Element, values as vector of f64 into result of js.JsValue to js.JsError:
         defer banish values
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         calling args.push with (calling dom.raw with image)
         var i as int is 0
@@ -583,7 +583,7 @@ when wasm:
         return r
 
     ## Releases numeric handles built for a call.
-    weave _release_args with args as list of js.JsValue into void:
+    weave _release_args with args as vector of js.JsValue into void:
         var i as int is 0
         while i < args.len:
             calling js.release with (args at i)

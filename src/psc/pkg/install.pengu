@@ -34,9 +34,9 @@ weave dep_version with dir as string into string:
     var txt as maybe string is calling archivum.read_text with path
     banish path
     if txt.is_present:
-        var pr as result of list of toml.TomlEntry to string is calling toml.parse with txt.value
+        var pr as result of vector of toml.TomlEntry to string is calling toml.parse with txt.value
         if pr.is_ok:
-            var entries as list of toml.TomlEntry is pr.value
+            var entries as vector of toml.TomlEntry is pr.value
             if calling toml.has with entries, "project.version":
                 var v as string is calling toml.get with entries, "project.version"
                 var vc as string is calling copy with v
@@ -56,7 +56,7 @@ weave satisfies_text with version as string, constraint as string into bool:
     if not vm.is_present:
         banish vm
         return false
-    var cs as list of semver.Constraint is calling semver.parse_constraints with constraint
+    var cs as vector of semver.Constraint is calling semver.parse_constraints with constraint
     if cs.len == 0:
         banish cs
         banish vm
@@ -131,8 +131,8 @@ weave install_from with base as string, lib_dir as string, d as pman.Dependency,
     else if d.branch length > 0:
         set ref is (calling copy with d.branch)
     else:
-        var tags as list of string is calling source.tags with d.source
-        var cons as list of semver.Constraint is calling semver.parse_constraints with d.constraint
+        var tags as vector of string is calling source.tags with d.source
+        var cons as vector of semver.Constraint is calling semver.parse_constraints with d.constraint
         var tag as string is calling semver.select_tag with tags, cons
         if tag length == 0:
             if d.constraint length > 0 and d.constraint != "*":

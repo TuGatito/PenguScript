@@ -294,7 +294,7 @@ rune Request derive Nexus:
     ## The absolute URL, including `http://` or `https://`.
     url as string
     ## Request headers. Keys are stored lower-case; use `header` to set them.
-    headers as map of string to string
+    headers as map of string, string
     ## The request body. Empty unless `text_body`, `json_body`, `form_body` or
     ## `bytes_body` set it.
     body as string
@@ -331,7 +331,7 @@ rune Request derive Nexus:
     ## Proxy credentials as `"user:password"`, or empty.
     proxy_credentials as string
     ## `multipart/form-data` parts. When non-empty they replace `body`.
-    parts as list of FormPart
+    parts as vector of FormPart
 
 ## An HTTP response, as received (after redirects).
 ##
@@ -344,7 +344,7 @@ rune Response derive Nexus:
     status as int
     ## Final-response headers. Keys are lower-case; duplicate names keep the
     ## last value (use `cookies` for every `Set-Cookie`).
-    headers as map of string to string
+    headers as map of string, string
     ## The response body, byte-exact. Compressed responses are decoded by
     ## libcurl, so this is the plain payload.
     body as string
@@ -363,11 +363,11 @@ rune Response derive Nexus:
     ## `true` when at least one redirect was followed.
     redirected as bool
     ## Cookies the server set, name → value, ignoring those it cleared.
-    cookies as map of string to string
+    cookies as map of string, string
     ## Cookie names the server cleared with `Max-Age=0`. `Session` consumes the
     ## list to forget stale cookies; it is public so a hand-built `Response`
     ## (tests, fixtures) can set it.
-    cleared_cookies as list of string
+    cleared_cookies as vector of string
 
 ## A set of default headers and cookies applied to many requests, with cookie
 ## persistence.
@@ -376,9 +376,9 @@ rune Response derive Nexus:
 ## `Session derive Nexus` releases both maps and every string inside them.
 rune Session derive Nexus:
     ## Headers applied to every request that does not set the same name.
-    _default_headers as map of string to string
+    _default_headers as map of string, string
     ## Cookies applied to every request and updated from every response.
-    _cookies as map of string to string
+    _cookies as map of string, string
 
 ## The pieces of an absolute URL.
 ##
@@ -637,7 +637,7 @@ weave _flag with value as bool into int:
 ## and the `put` that can rehash runs **after** the loop has exited, so mutating
 ## the map from inside the `for` cannot invalidate the iterator. The loop breaks
 ## immediately after the match for the same reason.
-weave _put_owned with m as ref to map of string to string, key as string, value as string into void:
+weave _put_owned with m as ref to map of string, string, key as string, value as string into void:
     for existing in essence of m:
         if (calling scrolls.compare with existing, key) == 0:
             var old_value as string is calling m.get with existing
@@ -652,7 +652,7 @@ weave _put_owned with m as ref to map of string to string, key as string, value 
 ##
 ## ## Retorno
 ## `true` when the key was present.
-weave _remove_owned with m as ref to map of string to string, key as string into bool:
+weave _remove_owned with m as ref to map of string, string, key as string into bool:
     for existing in essence of m:
         if (calling scrolls.compare with existing, key) == 0:
             var old_value as string is calling m.get with existing
@@ -664,7 +664,7 @@ weave _remove_owned with m as ref to map of string to string, key as string into
     return false
 
 ## `true` when `m` has `key` (exact byte match; header keys are lower-case).
-weave _has_key with m as ref to map of string to string, key as string into bool:
+weave _has_key with m as ref to map of string, string, key as string into bool:
     return calling m.contains with key
 
 ## Validates `name`/`value` and stores them in `m` under a lower-case key.
@@ -673,7 +673,7 @@ weave _has_key with m as ref to map of string to string, key as string into bool
 ## When `name` is not an RFC 7230 token, or `name`/`value` contains CR or LF.
 ## A header that could inject a second header line is a bug in the caller, never
 ## a network condition.
-weave _set_header with m as ref to map of string to string, name as string, value as string into void:
+weave _set_header with m as ref to map of string, string, name as string, value as string into void:
     if not calling _is_token with name:
         calling spark.panic with "petitio: invalid header name '{name}': expected an RFC 7230 token"
     if calling _has_control_byte with value:
@@ -710,8 +710,8 @@ enchanting Request:
         if not calling _is_token with method:
             calling spark.panic with "petitio: invalid HTTP method '{method}'"
         calling _require_clean with url, "URL"
-        var headers as map of string to string is map of string to string
-        var parts as list of FormPart is list of FormPart
+        var headers as map of string, string is map of string, string
+        var parts as vector of FormPart is vector of FormPart
         var request as Request is:
             method is (calling scrolls.upper with method)
             url is (calling _copy with url)
@@ -792,7 +792,7 @@ enchanting Request:
     ##
     ## Like `json_body`, the content type is always set; call `header` afterwards
     ## to override it.
-    weave form_body with fields as map of string to string into void:
+    weave form_body with fields as map of string, string into void:
         var encoded as string is calling build_query_string with fields
         calling self.text_body with encoded
         banish encoded
@@ -1021,8 +1021,8 @@ enchanting Request:
     ## calling spark.println_int with resp.status
     ## ```
     weave send into result of Response to HttpError:
-        var no_defaults as map of string to string is map of string to string
-        var no_cookies as map of string to string is map of string to string
+        var no_defaults as map of string, string is map of string, string
+        var no_cookies as map of string, string is map of string, string
         var outcome as result of Response to HttpError is calling _perform with self, (sigil of no_defaults), (sigil of no_cookies)
         banish no_defaults
         banish no_cookies
@@ -1051,8 +1051,8 @@ enchanting Request:
     ## defer banish r
     ## ```
     weave send_to_file with path as string into result of Response to HttpError:
-        var no_defaults as map of string to string is map of string to string
-        var no_cookies as map of string to string is map of string to string
+        var no_defaults as map of string, string is map of string, string
+        var no_cookies as map of string, string is map of string, string
         var handle as ref to petitio_request is calling _build_handle with self, (sigil of no_defaults), (sigil of no_cookies)
         banish no_defaults
         banish no_cookies
@@ -1102,8 +1102,8 @@ enchanting Request:
     ## var r as result of Response to HttpError is calling req.send_stream with count, (sigil of total)
     ## ```
     weave send_stream with cb as ref to weave with chunk as string, user as ref to void into bool, user as ref to void into result of Response to HttpError:
-        var no_defaults as map of string to string is map of string to string
-        var no_cookies as map of string to string is map of string to string
+        var no_defaults as map of string, string is map of string, string
+        var no_cookies as map of string, string is map of string, string
         var handle as ref to petitio_request is calling _build_handle with self, (sigil of no_defaults), (sigil of no_cookies)
         banish no_defaults
         banish no_cookies
@@ -1296,8 +1296,8 @@ weave url_decode with s as string into string:
 ## defer banish qs                    # "q=pengu%20script"
 ## banish params
 ## ```
-weave build_query_string with params as map of string to string into string:
-    var keys as list of string is list of string
+weave build_query_string with params as map of string, string into string:
+    var keys as vector of string is vector of string
     for k in params:
         calling keys.push with k
     var i as int is 0
@@ -1335,7 +1335,7 @@ weave build_query_string with params as map of string to string into string:
 ##
 ## ## Memoria
 ## Returns an owned string; `banish` it.
-weave with_query with url as string, params as map of string to string into string:
+weave with_query with url as string, params as map of string, string into string:
     if params.len == 0:
         return calling _copy with url
     var query as string is calling build_query_string with params
@@ -1523,9 +1523,9 @@ weave _error_from_code with code as int, reason as string, request as ref to Req
 
 ## Copies the fields of a C response into an owned `Response`.
 weave _response_from_c with raw as ref to petitio_response, request as ref to Request into Response:
-    var headers as map of string to string is map of string to string
-    var cookies as map of string to string is map of string to string
-    var expired as list of string is list of string
+    var headers as map of string, string is map of string, string
+    var cookies as map of string, string is map of string, string
+    var expired as vector of string is vector of string
     var count as int is calling petitio_response_header_count with raw
     var i as int is 0
     while i < count:
@@ -1595,13 +1595,13 @@ weave _auth_mode_code with mode as AuthMode into int:
         when AnyAuth -> 3
 
 ## An empty header map, for the helpers that take no overlay.
-weave _no_headers into map of string to string:
-    return map of string to string
+weave _no_headers into map of string, string:
+    return map of string, string
 
 ## Builds and configures the C request, merging `overlay_headers` (session
 ## defaults, never overriding a request header) and `cookies` (one `Cookie`
 ## header). Returns NULL only on allocation failure; the caller owns the handle.
-weave _build_handle with request as ref to Request, overlay_headers as ref to map of string to string, cookies as ref to map of string to string into ref to petitio_request:
+weave _build_handle with request as ref to Request, overlay_headers as ref to map of string, string, cookies as ref to map of string, string into ref to petitio_request:
     var handle as ref to petitio_request is calling petitio_request_new with request->url
     if calling ffi.is_null with handle:
         return handle
@@ -1655,7 +1655,7 @@ weave _build_handle with request as ref to Request, overlay_headers as ref to ma
 
 ## Sends `request`, merging `overlay_headers` (session defaults, never
 ## overriding a request header) and `cookies` (as a `Cookie` header).
-weave _perform with request as ref to Request, overlay_headers as ref to map of string to string, cookies as ref to map of string to string into result of Response to HttpError:
+weave _perform with request as ref to Request, overlay_headers as ref to map of string, string, cookies as ref to map of string, string into result of Response to HttpError:
     var handle as ref to petitio_request is calling _build_handle with request, overlay_headers, cookies
     if calling ffi.is_null with handle:
         return calling err_of with (with HttpOutOfMemory is 0)
@@ -1788,7 +1788,7 @@ weave _cookie_expired_by_date with value as string into bool:
 ##
 ## `banish list` frees only the element buffer (`PenguList` never recurses), so
 ## a list returned by `scrolls.split` needs one release per element too.
-weave _free_strings with items as list of string into void:
+weave _free_strings with items as vector of string into void:
     var i as int is 0
     while i < items.len:
         var item as string is items at i
@@ -1803,8 +1803,8 @@ weave _free_strings with items as list of string into void:
 enchanting Session:
     ## Creates an empty session: no default headers, no cookies.
     weave ritual new into Session:
-        var headers as map of string to string is map of string to string
-        var cookies as map of string to string is map of string to string
+        var headers as map of string, string is map of string, string
+        var cookies as map of string, string is map of string, string
         return with _default_headers is headers, _cookies is cookies
 
     ## Sets a default header. A request that sets the same name overrides it.
@@ -1888,7 +1888,7 @@ enchanting Session:
             return calling err_of with failure
         # Borrowed view: `banish content` releases the buffer and the box.
         var text as string is content.value
-        var lines as list of string is calling scrolls.lines with text
+        var lines as vector of string is calling scrolls.lines with text
         var loaded as int is 0
         var i as int is 0
         while i < lines.len:
@@ -1896,7 +1896,7 @@ enchanting Session:
             if (line length) > 0:
                 var raw as ref to frozen byte is bytes of line
                 if (raw at 0) != 35:
-                    var fields as list of string is calling scrolls.split with line, "\t"
+                    var fields as vector of string is calling scrolls.split with line, "\t"
                     if fields.len >= 7:
                         var name as string is fields at 5
                         var value as string is fields at 6
@@ -1987,7 +1987,7 @@ enchanting Session:
         return calling self.request with (sigil of req)
 
     ## `POST url` with a form-urlencoded body, through the session.
-    weave post_form with url as string, fields as map of string to string into result of Response to HttpError:
+    weave post_form with url as string, fields as map of string, string into result of Response to HttpError:
         var req as Request is calling Request.new with "POST", url
         defer banish req
         calling req.form_body with fields
@@ -2023,7 +2023,7 @@ enchanting Session:
         return calling self.request_async with (sigil of req), loop
 
     ## `POST url` with a form body, through the session, without blocking.
-    weave post_form_async with url as string, fields as map of string to string, loop as ref to reactor.EventLoop into result of Response to HttpError:
+    weave post_form_async with url as string, fields as map of string, string, loop as ref to reactor.EventLoop into result of Response to HttpError:
         var req as Request is calling Request.new with "POST", url
         defer banish req
         calling req.form_body with fields
@@ -2085,7 +2085,7 @@ weave post_json with url as string, v as json.JsonValue into result of Response 
     return calling request.send
 
 ## `POST url` with a form-urlencoded body.
-weave post_form with url as string, fields as map of string to string into result of Response to HttpError:
+weave post_form with url as string, fields as map of string, string into result of Response to HttpError:
     var request as Request is calling Request.new with "POST", url
     defer banish request
     calling request.form_body with fields
@@ -2154,8 +2154,8 @@ weave default_user_agent into string:
 ##     banish req
 ## banish reqs
 ## ```
-weave fetch_many with requests as list of Request into list of result of Response to HttpError:
-    var results as list of result of Response to HttpError is list of result of Response to HttpError
+weave fetch_many with requests as vector of Request into vector of result of Response to HttpError:
+    var results as vector of result of Response to HttpError is vector of result of Response to HttpError
     var n as int is requests.len
     var i as int is 0
     while i < n:
@@ -2169,8 +2169,8 @@ weave fetch_many with requests as list of Request into list of result of Respons
         return results
     defer calling petitio_multi_free with engine
 
-    var no_defaults as map of string to string is map of string to string
-    var no_cookies as map of string to string is map of string to string
+    var no_defaults as map of string, string is map of string, string
+    var no_cookies as map of string, string is map of string, string
     var added as int is 0
     set i is 0
     while i < n:
@@ -2321,7 +2321,7 @@ test "url_encode and url_decode round-trip":
     banish broken
 
 test "build_query_string sorts and encodes":
-    var params as map of string to string is map of string to string
+    var params as map of string, string is map of string, string
     calling params.put with "z", "1"
     calling params.put with "a", "2 3"
     var query as string is calling build_query_string with params
@@ -2432,8 +2432,8 @@ test "streaming error variants carry a message":
     banish cancelled
 
 test "fetch_many on an empty list returns an empty list":
-    var reqs as list of Request is list of Request
-    var results as list of result of Response to HttpError is calling fetch_many with reqs
+    var reqs as vector of Request is vector of Request
+    var results as vector of result of Response to HttpError is calling fetch_many with reqs
     calling _expect_int with results.len, 0, "empty result"
     banish results
     banish reqs
@@ -2509,9 +2509,9 @@ test "take_response and take_error leave the result banish-safe":
 
 ## A zeroed `Response`, used by the move tests.
 weave _empty_response into Response:
-    var headers as map of string to string is map of string to string
-    var cookies as map of string to string is map of string to string
-    var cleared as list of string is list of string
+    var headers as map of string, string is map of string, string
+    var cookies as map of string, string is map of string, string
+    var cleared as vector of string is vector of string
     var response as Response is:
         status is 0
         headers is headers
@@ -2544,7 +2544,7 @@ rune DispatchJob:
 rune PetitioDispatcher:
     mutex as filum.Mutex
     cond as filum.Cond
-    jobs as list of ref to DispatchJob
+    jobs as vector of ref to DispatchJob
     stopping as bool
     next as i64
     handle as opaque
@@ -2572,7 +2572,7 @@ weave _petitio_dispatcher_loop with d as ref to PetitioDispatcher into void:
         if d->stopping and d->jobs.len == 0:
             calling d->mutex.unlock
             break
-        var batch as list of ref to DispatchJob is list of ref to DispatchJob
+        var batch as vector of ref to DispatchJob is vector of ref to DispatchJob
         for j in d->jobs:
             calling batch.push with j
         while d->jobs.len > 0:
@@ -2581,7 +2581,7 @@ weave _petitio_dispatcher_loop with d as ref to PetitioDispatcher into void:
         calling _petitio_dispatcher_batch with d, batch
         banish batch
 
-weave _petitio_dispatcher_batch with d as ref to PetitioDispatcher, batch as list of ref to DispatchJob into void:
+weave _petitio_dispatcher_batch with d as ref to PetitioDispatcher, batch as vector of ref to DispatchJob into void:
     var engine as ref to petitio_multi is calling petitio_multi_new
     if calling ffi.is_null with engine:
         for j in batch:
@@ -2643,7 +2643,7 @@ weave _petitio_dispatcher_get with loop as ref to reactor.EventLoop into ref to 
     var d as ref to PetitioDispatcher is transmute boxed to ref to PetitioDispatcher
     set d->mutex is calling filum.mutex
     set d->cond is calling filum.cond
-    var jobs as list of ref to DispatchJob is list of ref to DispatchJob
+    var jobs as vector of ref to DispatchJob is vector of ref to DispatchJob
     set d->jobs is jobs
     set d->stopping is false
     set d->next is 1
@@ -2688,7 +2688,7 @@ weave _petitio_send_file_worker with ctx as ref to void into void:
 ## in-flight request on that loop.
 weave send_async with self as ref to Request, loop as ref to reactor.EventLoop into result of Response to HttpError:
     var d as ref to PetitioDispatcher is calling _petitio_dispatcher_get with loop
-    var no_headers as map of string to string is calling _no_headers
+    var no_headers as map of string, string is calling _no_headers
     var handle as ref to petitio_request is calling _build_handle with self, (sigil of no_headers), (sigil of no_headers)
     if calling ffi.is_null with handle:
         banish no_headers
@@ -2731,13 +2731,13 @@ weave get_async with url as string, loop as ref to reactor.EventLoop into result
 
 ## Async `fetch_many`: submits every request to the loop's dispatcher. The
 ## transfers run concurrently in one multi engine on the dispatcher thread.
-weave fetch_many_async with loop as ref to reactor.EventLoop, requests as list of Request into list of result of Response to HttpError:
-    var results as list of result of Response to HttpError is list of result of Response to HttpError
+weave fetch_many_async with loop as ref to reactor.EventLoop, requests as vector of Request into vector of result of Response to HttpError:
+    var results as vector of result of Response to HttpError is vector of result of Response to HttpError
     if requests.len == 0:
         return results
     var d as ref to PetitioDispatcher is calling _petitio_dispatcher_get with loop
-    var no_headers as map of string to string is calling _no_headers
-    var held as list of ref to DispatchJob is list of ref to DispatchJob
+    var no_headers as map of string, string is calling _no_headers
+    var held as vector of ref to DispatchJob is vector of ref to DispatchJob
     for req in requests:
         var r as Request is req
         var boxed as ref to void is calling pengu_c_coro_box_new with (size of DispatchJob)

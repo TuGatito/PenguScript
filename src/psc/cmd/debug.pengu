@@ -39,17 +39,17 @@ weave print_help into void:
 ##
 ## ## Memoria
 ## Libera opciones/resultado.
-weave run_debug with args as list of string into int:
-    var vf as list of string is list of string
+weave run_debug with args as vector of string into int:
+    var vf as vector of string is vector of string
     calling vf.push with "--profile"
     calling vf.push with "--target"
     calling vf.push with "--cc"
-    var sf as list of string is list of string
+    var sf as vector of string is vector of string
     calling sf.push with "--no-cache"
     calling sf.push with "--llvm"
     calling sf.push with "--verbose"
     calling sf.push with "--help"
-    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, vector of string
     if calling cliargs.enabled with (sigil of pr.args), "--help":
         calling cliargs.free_parse_result with (sigil of pr)
         calling print_help
@@ -96,7 +96,7 @@ weave run_debug with args as list of string into int:
         set o.cc is calling npool.copy_string with vcc
     set o.no_cache is calling cliargs.enabled with (sigil of pr.args), "--no-cache"
     var use_llvm as bool is calling cliargs.enabled with (sigil of pr.args), "--llvm"
-    var rest as list of string is list of string
+    var rest as vector of string is vector of string
     var i as int is 0
     var seen_dd as bool is false
     while i < args.len:
@@ -135,7 +135,7 @@ weave run_debug with args as list of string into int:
     var dbg as string is "gdb"
     if use_llvm:
         set dbg is "lldb"
-    var dargs as list of string is list of string
+    var dargs as vector of string is vector of string
     calling dargs.push with dbg
     if use_llvm:
         calling dargs.push with "--"

@@ -22,13 +22,13 @@ rune Package:
     version as string
     commit as string
     sha256 as string
-    required_by as list of string
-    children as list of string
+    required_by as vector of string
+    children as vector of string
 
 ## Lock completo.
 rune Lock:
     target as string
-    packages as list of Package
+    packages as vector of Package
 
 weave copy with s as string into string:
     return calling npool.copy_string with s
@@ -38,7 +38,7 @@ weave tree_hash with root as string into string:
     var b as string is ""
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb
-    var files as list of string is calling archivum.find_files with root, true
+    var files as vector of string is calling archivum.find_files with root, true
     for f in files:
         var relm as maybe string is calling compass.cp_relative_to with f, root
         var rel as string is ""
@@ -118,14 +118,14 @@ weave read with base as string into maybe Lock:
     if not txt.is_present:
         banish txt
         return (maybe none)
-    var pr as result of list of toml.TomlEntry to string is calling toml.parse with txt.value
+    var pr as result of vector of toml.TomlEntry to string is calling toml.parse with txt.value
     banish txt.value
     banish txt
     if not pr.is_ok:
         banish pr
         return (maybe none)
-    var entries as list of toml.TomlEntry is pr.value
-    var lock as Lock is with target is "", packages is list of Package
+    var entries as vector of toml.TomlEntry is pr.value
+    var lock as Lock is with target is "", packages is vector of Package
     var i as int is 0
     while i < 10000:
         var prefix as string is "package[{i}]."

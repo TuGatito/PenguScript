@@ -94,8 +94,8 @@ const ARENA_DEFAULT_ALIGNMENT as usize is 16
 ## two bookkeeping lists, **not** the blocks: call `free` first, or use
 ## `defer calling a.free`. `free` is idempotent and leaves the arena reusable.
 rune Arena derive Nexus:
-    _blocks as list of string
-    _block_sizes as list of usize
+    _blocks as vector of string
+    _block_sizes as vector of usize
     _current_block as int
     _current_offset as usize
     _block_size as usize
@@ -199,8 +199,8 @@ enchanting Arena:
     ## defer calling a.free
     ## ```
     weave ritual new into Arena:
-        var blocks as list of string is list of string
-        var sizes as list of usize is list of usize
+        var blocks as vector of string is vector of string
+        var sizes as vector of usize is vector of usize
         return with _blocks is blocks, _block_sizes is sizes, _current_block is 0, _current_offset is 0, _block_size is ARENA_DEFAULT_BLOCK_SIZE, _total_allocated is 0
 
     ## Creates an arena whose normal blocks are `bs` bytes.
@@ -221,8 +221,8 @@ enchanting Arena:
     weave ritual with_block_size with bs as usize into Arena:
         if bs == 0:
             calling spark.panic with "Arena.with_block_size: block size must be > 0"
-        var blocks as list of string is list of string
-        var sizes as list of usize is list of usize
+        var blocks as vector of string is vector of string
+        var sizes as vector of usize is vector of usize
         return with _blocks is blocks, _block_sizes is sizes, _current_block is 0, _current_offset is 0, _block_size is bs, _total_allocated is 0
 
     # ------------------------------------------------------------------------

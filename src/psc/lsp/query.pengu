@@ -197,8 +197,8 @@ weave type_at_offset with p as ref to program.SemaProgram, mid as int, text as s
     return -1
 
 ## Ids de símbolos declarados por un módulo.
-weave module_symbols with p as ref to program.SemaProgram, mid as int into list of int:
-    var out as list of int is list of int
+weave module_symbols with p as ref to program.SemaProgram, mid as int into vector of int:
+    var out as vector of int is vector of int
     var i as int is 0
     while i < p->symbols.symbols.len:
         var si as sym.SemaSymbol is (p->symbols.symbols at i)
@@ -220,12 +220,12 @@ weave module_for_scope with p as ref to program.SemaProgram, scope_id as int int
     return -1
 
 ## Exports de un módulo importado.
-weave module_exports with p as ref to program.SemaProgram, mid as int into list of int:
+weave module_exports with p as ref to program.SemaProgram, mid as int into vector of int:
     return calling module_symbols with p, mid
 
 ## Alias de imports del módulo.
-weave import_aliases with p as ref to program.SemaProgram, mid as int into list of string:
-    var out as list of string is list of string
+weave import_aliases with p as ref to program.SemaProgram, mid as int into vector of string:
+    var out as vector of string is vector of string
     var i as int is 0
     while i < p->symbols.symbols.len:
         var si as sym.SemaSymbol is (p->symbols.symbols at i)
@@ -248,7 +248,7 @@ weave imported_module with p as ref to program.SemaProgram, mid as int, alias as
     return -1
 
 ## Directorios de stdlib configurados.
-weave std_dirs with p as ref to program.SemaProgram into list of string:
+weave std_dirs with p as ref to program.SemaProgram into vector of string:
     return p->options.std_dirs
 
 ## Tamaño en bytes de un tipo con el layout C del ABI v3 (64-bit, con padding).
@@ -327,8 +327,8 @@ weave nominal_base with p as ref to program.SemaProgram, ty as int into string:
         set info is (p->types.nominal_infos at info.template_info)
     return calling npool.text with (sigil of p->names), info.base_name
 
-weave methods_for_type with p as ref to program.SemaProgram, type_id as int into list of int:
-    var out as list of int is list of int
+weave methods_for_type with p as ref to program.SemaProgram, type_id as int into vector of int:
+    var out as vector of int is vector of int
     if type_id <= 0:
         return out
     var i as int is 0
@@ -361,7 +361,7 @@ weave methods_for_type with p as ref to program.SemaProgram, type_id as int into
             while ei < einfo.fields_count:
                 var ef as types.SemaField is (p->types.fields at (einfo.fields_first + ei))
                 if (ef.flags & types.FIELD_EMBED) != 0 and ef.type > 0:
-                    var sub as list of int is calling methods_for_type with p, ef.type
+                    var sub as vector of int is calling methods_for_type with p, ef.type
                     var si2 as int is 0
                     while si2 < sub.len:
                         var cand as int is (sub at si2)
@@ -376,7 +376,7 @@ weave methods_for_type with p as ref to program.SemaProgram, type_id as int into
 ##
 ## ## Memoria
 ## No asigna.
-weave list_has with xs as list of int, v as int into bool:
+weave list_has with xs as vector of int, v as int into bool:
     var i as int is 0
     while i < xs.len:
         if (xs at i) == v:

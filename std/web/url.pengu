@@ -220,11 +220,11 @@ weave decode_component with text as string into result of string to string:
     return calling ok_of with out
 
 ## Splits a query string into decoded parameters. Malformed pairs are skipped.
-weave params with query as string into list of Param:
-    var out as list of Param is list of Param
+weave params with query as string into vector of Param:
+    var out as vector of Param is vector of Param
     if query.len == 0:
         return out
-    var parts as list of string is calling query.split with "&"
+    var parts as vector of string is calling query.split with "&"
     var i as int is 0
     while i < parts.len:
         var part as string is (parts at i)
@@ -251,7 +251,7 @@ weave params with query as string into list of Param:
 
 ## Returns the first value of `name`, decoded.
 weave query_get with query as string, name as string into maybe string:
-    var items as list of Param is calling params with query
+    var items as vector of Param is calling params with query
     var i as int is 0
     var found as string is ""
     var has as bool is false
@@ -272,7 +272,7 @@ weave query_get with query as string, name as string into maybe string:
 
 ## Returns `query` with `name=value` set (replacing the first occurrence).
 weave query_set with query as string, name as string, value as string into string:
-    var items as list of Param is calling params with query
+    var items as vector of Param is calling params with query
     var out as string is ""
     var i as int is 0
     var replaced as bool is false
@@ -311,7 +311,7 @@ weave query_set with query as string, name as string, value as string into strin
 
 ## Returns `query` without `name`.
 weave query_remove with query as string, name as string into string:
-    var items as list of Param is calling params with query
+    var items as vector of Param is calling params with query
     var out as string is ""
     var i as int is 0
     while i < items.len:
@@ -421,7 +421,7 @@ weave _decode_form with text as string into result of string to string:
     return decoded
 
 ## Releases the strings in a split list.
-weave _free_parts with parts as list of string into void:
+weave _free_parts with parts as vector of string into void:
     var i as int is 0
     while i < parts.len:
         banish (parts at i)

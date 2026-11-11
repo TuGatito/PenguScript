@@ -57,7 +57,7 @@ rune CgOptions:
     ## Triple canónico del target (vacío para host).
     target_triple as string
     ## `-D NAME` / `-D NAME=valor` para `when defined`.
-    defines as list of string
+    defines as vector of string
     ## Volcar a stderr cada `at` con su tipo receptor y su tipo resultado.
     ##
     ## Es una herramienta de medición para F2 (migración de `s at i` de
@@ -70,7 +70,7 @@ rune CgOptions:
 ## ## Memoria
 ## Devuelve strings prestados; no asigna.
 weave default_options with base_dir as string into CgOptions:
-    return with base_dir is base_dir, entry_file is "", is_test is false, test_json is false, is_library is false, dce is true, dce_scope_user is false, prune_types is true, prune_native is false, line_markers is true, strict_c99 is false, family is "c", legacy_copy is false, target_compiler is "gcc", release_unsafe is false, debug is false, os_name is "linux", arch is "x64", compiler is "gcc", wasm is false, wasm_target is "", target_triple is "", defines is list of string, dump_index_types is false
+    return with base_dir is base_dir, entry_file is "", is_test is false, test_json is false, is_library is false, dce is true, dce_scope_user is false, prune_types is true, prune_native is false, line_markers is true, strict_c99 is false, family is "c", legacy_copy is false, target_compiler is "gcc", release_unsafe is false, debug is false, os_name is "linux", arch is "x64", compiler is "gcc", wasm is false, wasm_target is "", target_triple is "", defines is vector of string, dump_index_types is false
 
 ## Estadísticas de emisión.
 rune CgStats:

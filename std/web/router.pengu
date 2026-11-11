@@ -26,10 +26,10 @@ when wasm:
 
     ## Matches `path` against `pattern`. `:name` captures one segment; a trailing
     ## `*` captures the remaining segments as the `"rest"` parameter.
-    weave match with pattern as string, path as string into maybe list of url.Param:
-        var pattern_parts as list of string is calling _segments with pattern
-        var path_parts as list of string is calling _segments with path
-        var params as list of url.Param is list of url.Param
+    weave match with pattern as string, path as string into maybe vector of url.Param:
+        var pattern_parts as vector of string is calling _segments with pattern
+        var path_parts as vector of string is calling _segments with path
+        var params as vector of url.Param is vector of url.Param
         var i as int is 0
         var ok as bool is true
         var wildcard as bool is false
@@ -62,7 +62,7 @@ when wasm:
         return some params
 
     ## First value of `name` in a match, decoded as-is.
-    weave param with params as list of url.Param, name as string into maybe string:
+    weave param with params as vector of url.Param, name as string into maybe string:
         var i as int is 0
         var found as string is ""
         var has as bool is false
@@ -82,7 +82,7 @@ when wasm:
         return maybe none
 
     ## Releases a parameter list.
-    weave free_params with params as list of url.Param into void:
+    weave free_params with params as vector of url.Param into void:
         var i as int is 0
         while i < params.len:
             banish (params at i).name
@@ -148,7 +148,7 @@ when wasm:
         calling dom.off with l
 
     ## Splits a route path on `/`, ignoring empty leading/trailing segments.
-    weave _segments with text as string into list of string:
+    weave _segments with text as string into vector of string:
         var raw as string is calling _strip_query with text
         var start as int is 0
         var end as int is raw.len
@@ -158,7 +158,7 @@ when wasm:
             set end is end - 1
         var body as string is calling url._slice with raw, start, end
         banish raw
-        var parts as list of string is list of string
+        var parts as vector of string is vector of string
         if body.len == 0:
             banish body
             return parts
@@ -174,7 +174,7 @@ when wasm:
         return parts
 
     ## Joins `parts` from `start` with `/`.
-    weave _join_from with parts as list of string, start as int into string:
+    weave _join_from with parts as vector of string, start as int into string:
         var out as string is ""
         var i as int is start
         while i < parts.len:
@@ -202,7 +202,7 @@ when wasm:
         return calling url._slice with text, 0, cut
 
     ## Releases a list of strings.
-    weave _free_strings with items as list of string into void:
+    weave _free_strings with items as vector of string into void:
         var i as int is 0
         while i < items.len:
             banish (items at i)
@@ -211,11 +211,11 @@ when wasm:
 
 when not wasm:
 
-    weave match with pattern as string, path as string into maybe list of url.Param:
+    weave match with pattern as string, path as string into maybe vector of url.Param:
         return maybe none
-    weave param with params as list of url.Param, name as string into maybe string:
+    weave param with params as vector of url.Param, name as string into maybe string:
         return maybe none
-    weave free_params with params as list of url.Param into void:
+    weave free_params with params as vector of url.Param into void:
         return
     weave current_path into result of string to js.JsError:
         return calling err_of with (calling js.last_error)

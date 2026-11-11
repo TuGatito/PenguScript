@@ -167,14 +167,14 @@ when wasm:
         return calling ok_of with true
 
     ## Calls `fn` with `this_v` and `args`.
-    weave call with fn as JsValue, this_v as JsValue, args as list of JsValue into result of JsValue to JsError:
+    weave call with fn as JsValue, this_v as JsValue, args as vector of JsValue into result of JsValue to JsError:
         var h as i32 is calling pengu_js_call with fn, this_v, args.data, args.len
         if h < 0:
             return calling _fail
         return calling ok_of with h
 
     ## Calls `obj.name(args...)`; releases the temporary method handle.
-    weave call_method with obj as JsValue, name as string, args as list of JsValue into result of JsValue to JsError:
+    weave call_method with obj as JsValue, name as string, args as vector of JsValue into result of JsValue to JsError:
         var f as result of JsValue to JsError is calling get with obj, name
         if not f.is_ok:
             return f
@@ -197,7 +197,7 @@ when wasm:
         return calling ok_of with h
 
     ## Constructs `new ctor(args...)`.
-    weave new with ctor as JsValue, args as list of JsValue into result of JsValue to JsError:
+    weave new with ctor as JsValue, args as vector of JsValue into result of JsValue to JsError:
         var h as i32 is calling pengu_js_new with ctor, args.data, args.len
         if h < 0:
             return calling _fail
@@ -336,7 +336,7 @@ when wasm:
         return cb._value
 
     ## Invokes a callback from PenguScript with an explicit `this` and args.
-    weave call_callback with cb as JsCallback, this_v as JsValue, args as list of JsValue into result of JsValue to JsError:
+    weave call_callback with cb as JsCallback, this_v as JsValue, args as vector of JsValue into result of JsValue to JsError:
         return calling call with cb._value, this_v, args
 
     ## Registers a callback that receives an owned copy of a JavaScript string.
@@ -717,10 +717,10 @@ when not wasm:
     weave set_index with obj as JsValue, index as int, value as JsValue into result of bool to JsError:
         return calling err_of with (calling _native_error)
 
-    weave call with fn as JsValue, this_v as JsValue, args as list of JsValue into result of JsValue to JsError:
+    weave call with fn as JsValue, this_v as JsValue, args as vector of JsValue into result of JsValue to JsError:
         return calling err_of with (calling _native_error)
 
-    weave call_method with obj as JsValue, name as string, args as list of JsValue into result of JsValue to JsError:
+    weave call_method with obj as JsValue, name as string, args as vector of JsValue into result of JsValue to JsError:
         return calling err_of with (calling _native_error)
 
     weave call_method_f64 with obj as JsValue, name as string, a as f64, b as f64, c as f64, d as f64, e as f64, f as f64, count as int into result of JsValue to JsError:
@@ -729,7 +729,7 @@ when not wasm:
     weave call_method_text_f64 with obj as JsValue, name as string, text as string, a as f64, b as f64 into result of JsValue to JsError:
         return calling err_of with (calling _native_error)
 
-    weave new with ctor as JsValue, args as list of JsValue into result of JsValue to JsError:
+    weave new with ctor as JsValue, args as vector of JsValue into result of JsValue to JsError:
         return calling err_of with (calling _native_error)
 
     weave typeof with v as JsValue into result of string to JsError:
@@ -795,7 +795,7 @@ when not wasm:
     weave callback_value with cb as JsCallback into JsValue:
         return cb._value
 
-    weave call_callback with cb as ref to JsCallback, this_v as JsValue, args as list of JsValue into result of JsValue to JsError:
+    weave call_callback with cb as ref to JsCallback, this_v as JsValue, args as vector of JsValue into result of JsValue to JsError:
         return calling err_of with (calling _native_error)
 
     weave make_string_callback with fn as weave with text as string into void into result of int to JsError:

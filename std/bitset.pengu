@@ -125,7 +125,7 @@ return (uint8_t *)data->data;
 ## ## Memoria
 ## No allocation; the slice aliases the bitset buffer and is invalidated by
 ## `banish`.
-antiquus _bitset_slice with data as string, n as int into slice of byte:
+antiquus _bitset_slice with data as string, n as int into span of byte:
     r"""
 return pengu_slice_new(data.data, 1, n);
 """
@@ -138,7 +138,7 @@ return pengu_slice_new(data.data, 1, n);
 ##
 ## ## Memoria
 ## Writes only; the source slice is borrowed.
-antiquus _bitset_copy_from with data as ref to string, src as slice of byte, n as int into void:
+antiquus _bitset_copy_from with data as ref to string, src as span of byte, n as int into void:
     r"""
 if (n <= 0 || !data->data || !src.data) return;
 memcpy(data->data, src.data, (size_t)n);
@@ -224,7 +224,7 @@ enchanting BitSet:
     ## var bs as BitSet is calling BitSet.from_bytes with view, 9
     ## defer banish bs
     ## ```
-    weave ritual from_bytes with data as slice of byte, bit_len as int into BitSet:
+    weave ritual from_bytes with data as span of byte, bit_len as int into BitSet:
         if bit_len < 0:
             calling spark.panic with "BitSet.from_bytes: negative bit length"
         var nbytes as int is (bit_len + 7) / 8
@@ -771,8 +771,8 @@ enchanting BitSet:
     ## var set_bits as list of int is calling bs.iter_set
     ## defer banish set_bits
     ## ```
-    weave iter_set into list of int:
-        var out as list of int is list of int
+    weave iter_set into vector of int:
+        var out as vector of int is vector of int
         var p as ref to byte is calling _bitset_ptr with (sigil of self->_data)
         var i as int is 0
         while i < self->_byte_len:
@@ -794,7 +794,7 @@ enchanting BitSet:
     ##
     ## ## Memoria
     ## O(1), no allocation, no ownership transfer.
-    weave to_bytes into slice of byte:
+    weave to_bytes into span of byte:
         return calling _bitset_slice with self->_data, self->_byte_len
 
     # ------------------------------------------------------------------------

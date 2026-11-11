@@ -229,7 +229,7 @@ dst->len = off + n;
 ##
 ## ## Memoria
 ## Writes only; the slice is borrowed and never freed.
-antiquus _builder_copy_slice with dst as ref to string, off as int, src as slice of byte into void:
+antiquus _builder_copy_slice with dst as ref to string, off as int, src as span of byte into void:
     r"""
 if (!dst->data || src.len <= 0 || !src.data) return;
 memcpy(dst->data + (size_t)off, src.data, (size_t)src.len);
@@ -480,7 +480,7 @@ return pengu_string_owned(buf.data + (size_t)start, end - start);
 ## ## Memoria
 ## Does not allocate. The view is invalidated by any operation that grows,
 ## shrinks or releases the builder.
-antiquus _builder_view with buf as string, len as int into slice of byte:
+antiquus _builder_view with buf as string, len as int into span of byte:
     r"""
 return pengu_slice_new(buf.data, 1, len);
 """
@@ -731,7 +731,7 @@ enchanting StringBuilder:
     ## ```pengu
     ## calling sb.append_bytes with payload
     ## ```
-    weave append_bytes with b as slice of byte into void:
+    weave append_bytes with b as span of byte into void:
         var n as int is b.length
         if n <= 0:
             return
@@ -1020,7 +1020,7 @@ enchanting StringBuilder:
     ## ```pengu
     ## vary view as slice of byte is calling sb.bytes_view
     ## ```
-    weave bytes_view into slice of byte:
+    weave bytes_view into span of byte:
         return calling _builder_view with self->_data, self->_len
 
     ## Returns a new owned copy of the bytes in `[start, end)`.

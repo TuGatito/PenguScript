@@ -15,7 +15,7 @@ weave print_help into void:
     calling spark.println with "  Servidor Debug Adapter Protocol por stdio para editores."
     calling spark.println with "  Configuración: launch.json / nvim-dap (ver docs/DEBUGGER.md)."
 
-weave run_debug_adapter with args as list of string into int:
+weave run_debug_adapter with args as vector of string into int:
     var i as int is 2
     while i < args.len:
         var a as string is args at i

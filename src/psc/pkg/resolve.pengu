@@ -15,13 +15,13 @@ insignia psc_pkg_resolve_
 rune Graph:
     ok as bool
     error as string
-    packages as list of plock.Package
+    packages as vector of plock.Package
 
 weave copy with s as string into string:
     return calling npool.copy_string with s
 
 ## Busca un paquete por nombre.
-weave find_pkg with ps as list of plock.Package, name as string into int:
+weave find_pkg with ps as vector of plock.Package, name as string into int:
     var i as int is 0
     while i < ps.len:
         if (ps at i).name == name:
@@ -60,22 +60,22 @@ weave ensure with base as string, lib_dir as string, d as pman.Dependency, paren
         if d.kind == "git":
             set commit is calling source.commit with target
     var hash as string is calling plock.tree_hash with target
-    var req as list of string is list of string
+    var req as vector of string is vector of string
     if parent length > 0:
         calling req.push with (calling copy with parent)
-    var p as plock.Package is with name is (calling copy with d.name), source is (calling copy with d.source), constraint is (calling copy with d.constraint), version is ver, commit is commit, sha256 is hash, required_by is req, children is list of string
+    var p as plock.Package is with name is (calling copy with d.name), source is (calling copy with d.source), constraint is (calling copy with d.constraint), version is ver, commit is commit, sha256 is hash, required_by is req, children is vector of string
     banish target
     return some p
 
 ## Resuelve el grafo desde dependencias directas.
 ##
 ## `force` reinstala cada paquete (usado por `psc update`/`upgrade`).
-weave resolve with base as string, lib_dir as string, deps as list of pman.Dependency, force as bool, locked as bool into Graph:
-    var g as Graph is with ok is true, error is "", packages is list of plock.Package
-    var roots as list of pman.Dependency is deps
-    var queue as list of pman.Dependency is list of pman.Dependency
-    var parents as list of string is list of string
-    var origins as list of string is list of string
+weave resolve with base as string, lib_dir as string, deps as vector of pman.Dependency, force as bool, locked as bool into Graph:
+    var g as Graph is with ok is true, error is "", packages is vector of plock.Package
+    var roots as vector of pman.Dependency is deps
+    var queue as vector of pman.Dependency is vector of pman.Dependency
+    var parents as vector of string is vector of string
+    var origins as vector of string is vector of string
     for d in roots:
         calling queue.push with (calling pman.clone_dep with d)
         calling parents.push with ""
@@ -151,7 +151,7 @@ weave resolve with base as string, lib_dir as string, deps as list of pman.Depen
                 banish psrc
                 banish corigin
                 set corigin is pnorm
-            var cdeps as list of pman.Dependency is calling pman.load with cpath
+            var cdeps as vector of pman.Dependency is calling pman.load with cpath
             for cd in cdeps:
                 calling queue.push with (calling pman.clone_dep with cd)
                 calling parents.push with (calling copy with child)

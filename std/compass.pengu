@@ -340,8 +340,8 @@ weave cp_has_suffix with path as string, suffix as string into bool:
 ## The returned list owns its element buffer and every pushed suffix (each a
 ## fresh substring). The basename itself is released here; the dot scan is an
 ## allocation-free byte read.
-weave cp_suffixes with path as string into list of string:
-    var out as list of string is list of string
+weave cp_suffixes with path as string into vector of string:
+    var out as vector of string is vector of string
     let base as string is calling cp_basename with path
     defer banish base
     let bl as int is base length
@@ -396,7 +396,7 @@ weave cp_normalize with path as string into string:
         if calling cp_is_sep with (pb at p_idx):
             set is_abs is true
             set p_idx is p_idx + 1
-    var stack as list of string is list of string
+    var stack as vector of string is vector of string
     var cur_start as int is p_idx
     var i as int is p_idx
     while i <= pl:
@@ -481,8 +481,8 @@ weave cp_parent with path as string into maybe string:
 ## The returned list owns its element buffer and every component it pushes (the
 ## drive prefix and the segments are fresh substrings; the root separator is a
 ## borrowed literal). The scan itself allocates nothing.
-weave cp_split with path as string into list of string:
-    var out as list of string is list of string
+weave cp_split with path as string into vector of string:
+    var out as vector of string is vector of string
     let pl as int is path length
     if pl == 0:
         return out
@@ -522,7 +522,7 @@ weave cp_split with path as string into list of string:
 ## released. The accumulator copies each part instead of aliasing it, releases
 ## its previous buffer before every reassignment, and is released before the
 ## normalized result is returned.
-weave cp_join with parts as list of string into string:
+weave cp_join with parts as vector of string into string:
     if parts.len == 0:
         return ""
     let sep as string is calling cp_sep
@@ -599,7 +599,7 @@ weave cp_add_ext with path as string, ext as string into string:
 ## ## Memoria
 ## Frees the element payloads exactly once; `banish` is a no-op on borrowed
 ## elements (the root separators pushed by `cp_split`, for instance).
-weave cp_release_strings with xs as list of string into void:
+weave cp_release_strings with xs as vector of string into void:
     for e in xs:
         banish e
 
@@ -615,9 +615,9 @@ weave cp_relative_to with target as string, base as string into maybe string:
     defer banish nt
     let nb as string is calling cp_normalize with base
     defer banish nb
-    let tp as list of string is calling cp_split with nt
+    let tp as vector of string is calling cp_split with nt
     defer banish tp
-    let bp as list of string is calling cp_split with nb
+    let bp as vector of string is calling cp_split with nb
     defer banish bp
     if tp.len == 0:
         calling cp_release_strings with tp
@@ -645,7 +645,7 @@ weave cp_relative_to with target as string, base as string into maybe string:
             calling cp_release_strings with tp
             calling cp_release_strings with bp
             return maybe none
-    var res as list of string is list of string
+    var res as vector of string is vector of string
     var i as int is common
     while i < bp.len:
         calling res.push with ".."
@@ -710,7 +710,7 @@ return pp == pend;
 """
 
 ## Splits normalized `path` into components.
-weave cp_components with path as string into list of string:
+weave cp_components with path as string into vector of string:
     let norm as string is calling cp_normalize with path
     defer banish norm
     return calling cp_split with norm
@@ -721,7 +721,7 @@ weave cp_components with path as string into list of string:
 ## Allocates only through `cp_components`, whose owned components are released
 ## here before every return; the list buffer is released by `defer`.
 weave cp_has_component with path as string, name as string into bool:
-    let comps as list of string is calling cp_components with path
+    let comps as vector of string is calling cp_components with path
     defer banish comps
     var i as int is 0
     var found as bool is false
@@ -857,7 +857,7 @@ weave cp_expand_user with path as string into string:
     let pb2 as ref to frozen byte is bytes of path
     if calling cp_is_sep with (pb2 at 1):
         let rest as string is path at 2 to pl
-        var parts as list of string is list of string
+        var parts as vector of string is vector of string
         calling parts.push with home
         calling parts.push with rest
         let joined as string is calling cp_join with parts
@@ -874,7 +874,7 @@ weave cp_absolute with path as string into string:
         return calling cp_normalize with path
     let cur as string is calling cp_cwd
     defer banish cur
-    var parts as list of string is list of string
+    var parts as vector of string is vector of string
     defer banish parts
     calling parts.push with cur
     calling parts.push with path
@@ -886,7 +886,7 @@ weave cp_with_filename with path as string, new_name as string into string:
     defer banish p
     if p length == 0:
         return new_name
-    var parts as list of string is list of string
+    var parts as vector of string is vector of string
     defer banish parts
     calling parts.push with p
     calling parts.push with new_name
@@ -913,7 +913,7 @@ weave cp_with_filename with path as string, new_name as string into string:
 ## ```pengu
 ## calling compass.join with ["a", "b"]     # "a/b"
 ## ```
-weave join with parts as list of string into string:
+weave join with parts as vector of string into string:
     return calling cp_join with parts
 
 ## Joins path parts with the platform separator and normalizes the result; twin of
@@ -934,7 +934,7 @@ weave join with parts as list of string into string:
 ## ```pengu
 ## calling compass.join_all with ["a", "b"]     # "a/b"
 ## ```
-weave join_all with parts as list of string into string:
+weave join_all with parts as vector of string into string:
     return calling cp_join with parts
 
 ## Final component of `path` (filename), or "" when there is none.
@@ -1118,7 +1118,7 @@ weave parent with path as string into maybe string:
 ## ```pengu
 ## calling compass.split with "/a/b"     # ["/", "a", "b"]
 ## ```
-weave split with path as string into list of string:
+weave split with path as string into vector of string:
     return calling cp_split with path
 
 ## Splits `path` into components after normalizing it.
@@ -1138,7 +1138,7 @@ weave split with path as string into list of string:
 ## ```pengu
 ## calling compass.components with "a//b"     # ["a", "b"]
 ## ```
-weave components with path as string into list of string:
+weave components with path as string into vector of string:
     return calling cp_components with path
 
 ## True when any component of `path` matches `name`.
@@ -1365,7 +1365,7 @@ weave has_suffix with path as string, suffix as string into bool:
 ## ```pengu
 ## calling compass.suffixes with "a.tar.gz"     # ["tar", "gz"]
 ## ```
-weave suffixes with path as string into list of string:
+weave suffixes with path as string into vector of string:
     return calling cp_suffixes with path
 
 ## True when `path` starts with a dot and is not "." or "..".
@@ -1636,7 +1636,7 @@ enchanting Path:
     ## ```pengu
     ## calling p.suffixes     # ["tar", "gz"]
     ## ```
-    weave suffixes into list of string:
+    weave suffixes into vector of string:
         return calling cp_suffixes with self->raw
 
     ## Windows drive prefix, "" when there is none.
@@ -1664,7 +1664,7 @@ enchanting Path:
     ## ```pengu
     ## calling p.parts     # ["/", "a", "b.txt"]
     ## ```
-    weave parts into list of string:
+    weave parts into vector of string:
         return calling cp_split with self->raw
 
     ## Normalized path components.
@@ -1680,7 +1680,7 @@ enchanting Path:
     ## ```pengu
     ## calling p.components     # ["a", "b.txt"]
     ## ```
-    weave components into list of string:
+    weave components into vector of string:
         return calling cp_components with self->raw
 
     ## True when the path is absolute.
@@ -1974,7 +1974,7 @@ enchanting Path:
         let parent_str as string is calling cp_dirname with self->raw
         if parent_str == "":
             return with raw is new_name
-        var parts as list of string is list of string
+        var parts as vector of string is vector of string
         defer banish parts
         calling parts.push with parent_str
         calling parts.push with new_name
@@ -2095,7 +2095,7 @@ weave current_dir into Path:
 ## ```pengu
 ## let p as compass.Path is calling compass.path_join with ["a", "b.txt"]
 ## ```
-weave path_join with parts as list of string into Path:
+weave path_join with parts as vector of string into Path:
     let joined as string is calling cp_join with parts
     return with raw is joined
 
@@ -2106,7 +2106,7 @@ weave path_join with parts as list of string into Path:
 # where `std.scrolls` also exports a `join` (with a different signature).
 
 ## Test-only compass join; avoids the `scrolls.join` name in the test namespace.
-weave _cp_test_join with parts as list of string into string:
+weave _cp_test_join with parts as vector of string into string:
     return calling cp_join with parts
 
 ## Aborts the current test with `label` when `got != want`.
@@ -2136,26 +2136,26 @@ test "separator is a single character":
 
 test "join combines two segments":
     let sep as string is calling separator
-    let parts as list of string is ["a", "b"]
+    let parts as vector of string is ["a", "b"]
     calling _cp_expect_str with (calling _cp_test_join with parts), "a{sep}b", "join"
 
 test "join skips empty segments":
     let sep as string is calling separator
-    let parts as list of string is ["a", "", "b"]
+    let parts as vector of string is ["a", "", "b"]
     calling _cp_expect_str with (calling _cp_test_join with parts), "a{sep}b", "join empties"
 
 test "join_all behaves like join":
     let sep as string is calling separator
-    let parts as list of string is ["a", "b"]
+    let parts as vector of string is ["a", "b"]
     calling _cp_expect_str with (calling join_all with parts), "a{sep}b", "join_all"
 
 test "join of an empty list is the empty string":
-    let empty as list of string is list of string
+    let empty as vector of string is vector of string
     calling _cp_expect_str with (calling _cp_test_join with empty), "", "empty join"
 
 test "join keeps an absolute first part":
     let sep as string is calling separator
-    let parts as list of string is ["{sep}a", "b"]
+    let parts as vector of string is ["{sep}a", "b"]
     calling _cp_expect_str with (calling _cp_test_join with parts), "{sep}a{sep}b", "absolute first"
 
 test "basename returns the last segment":
@@ -2262,7 +2262,7 @@ test "relative_to of an absolute target under a relative base is none":
 
 test "components includes the root separator":
     let sep as string is calling separator
-    let comps as list of string is calling components with "{sep}a{sep}b"
+    let comps as vector of string is calling components with "{sep}a{sep}b"
     calling _cp_expect_int with (comps.len), 3, "components count"
     calling _cp_expect_str with (comps at 0), sep, "components root"
     calling _cp_expect_str with (comps at 1), "a", "components a"
@@ -2270,7 +2270,7 @@ test "components includes the root separator":
 
 test "components splits a relative path":
     let sep as string is calling separator
-    let comps as list of string is calling components with "a{sep}b"
+    let comps as vector of string is calling components with "a{sep}b"
     calling _cp_expect_int with (comps.len), 2, "components count"
     calling _cp_expect_str with (comps at 1), "b", "components b"
 
@@ -2285,13 +2285,13 @@ test "has_suffix compares the tail":
     calling _cp_expect_true with (not (calling has_suffix with "a", "b")), "no suffix"
 
 test "suffixes lists the dotted suffixes":
-    let sfx as list of string is calling suffixes with "a.tar.gz"
+    let sfx as vector of string is calling suffixes with "a.tar.gz"
     calling _cp_expect_int with (sfx.len), 2, "suffixes count"
     calling _cp_expect_str with (sfx at 0), "tar", "first"
     calling _cp_expect_str with (sfx at 1), "gz", "second"
 
 test "suffixes of a dotfile is empty":
-    let sfx as list of string is calling suffixes with ".bashrc"
+    let sfx as vector of string is calling suffixes with ".bashrc"
     calling _cp_expect_int with (sfx.len), 0, "suffixes dotfile"
 
 test "drive has no prefix on a posix-style path":
@@ -2405,7 +2405,7 @@ test "Path normalize resolves segments":
 test "Path components splits the raw path":
     let sep as string is calling separator
     let p as Path is calling new_path with "a{sep}b"
-    let comps as list of string is calling p.components
+    let comps as vector of string is calling p.components
     calling _cp_expect_int with (comps.len), 2, "components count"
     calling _cp_expect_str with (comps at 0), "a", "first"
 

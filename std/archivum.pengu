@@ -79,7 +79,7 @@ rune CopyJob:
 
 rune ReadDirJob:
     path as string
-    out as maybe list of string
+    out as maybe vector of string
 
 rune SizeJob:
     path as string
@@ -207,7 +207,7 @@ weave copy_file_async with loop as ref to reactor.EventLoop, src as string, dst 
     return job.out
 
 ## Async `read_dir`.
-weave read_dir_async with loop as ref to reactor.EventLoop, path as string into maybe list of string:
+weave read_dir_async with loop as ref to reactor.EventLoop, path as string into maybe vector of string:
     var job as ReadDirJob is with path is path, out is maybe none
     var token as i64 is calling loop.offload with _arch_read_dir_worker, _arch_async_noop, (sigil of job)
     calling loop.await_token with token
@@ -275,7 +275,7 @@ declare pengu_c_archivum_create_dir with path as string, parents as bool into bo
 # Runtime primitive: removes the directory at `path`.
 declare pengu_c_archivum_remove_dir with path as string, recursive as bool into bool
 # Runtime primitive: lists the direct entry names of `path`.
-declare pengu_c_archivum_read_dir with path as string into maybe list of string
+declare pengu_c_archivum_read_dir with path as string into maybe vector of string
 # Runtime primitive: copies file `src` to `dst`.
 declare pengu_c_archivum_copy_file with src as string, dst as string, overwrite as bool into bool
 # Runtime primitive: moves file `src` to `dst`.
@@ -283,11 +283,11 @@ declare pengu_c_archivum_move_file with src as string, dst as string, overwrite 
 # Runtime primitive: renames entry `old` to `new`.
 declare pengu_c_archivum_rename with old as string, new as string into bool
 # Runtime primitive: stat()es `path` into an owned map of string to string.
-declare pengu_c_archivum_metadata with path as string into maybe map of string to string
+declare pengu_c_archivum_metadata with path as string into maybe map of string, string
 # Runtime primitive: globs `pattern` from the working directory.
-declare pengu_c_archivum_glob with pattern as string into list of string
+declare pengu_c_archivum_glob with pattern as string into vector of string
 # Runtime primitive: walks `root` depth-first into an owned nested list.
-declare pengu_c_archivum_walk with root as string into list of list of string
+declare pengu_c_archivum_walk with root as string into vector of vector of string
 # Runtime primitive: updates modification time of `path`.
 declare pengu_c_archivum_touch with path as string into bool
 # Runtime primitive: creates symbolic link `link` pointing at `target`.
@@ -343,7 +343,7 @@ return pengu_string_copy(s);
 ## Allocates one owned buffer of exactly the joined length (plus the NUL) and
 ## returns it; the caller releases it with `banish`. The input list and its
 ## strings are only read, never retained.
-antiquus _join_lines with lines as list of string into string:
+antiquus _join_lines with lines as vector of string into string:
     r"""
 const PenguString *items = (const PenguString *)lines.data;
 size_t total = 0;
@@ -797,7 +797,7 @@ weave remove_dir with path as string, recursive as bool is false into bool:
 ## ```pengu
 ## let names as maybe list of string is calling archivum.read_dir with "/tmp"
 ## ```
-weave read_dir with path as string into maybe list of string:
+weave read_dir with path as string into maybe vector of string:
     return calling pengu_c_archivum_read_dir with path
 
 ## Lists the direct entries inside `path` with `path` joined to each name.
@@ -818,16 +818,16 @@ weave read_dir with path as string into maybe list of string:
 ## ```pengu
 ## let paths as list of string is calling archivum.read_dir_full with "/tmp"
 ## ```
-weave read_dir_full with path as string into list of string:
-    var out as list of string is list of string
-    var entries as maybe list of string is calling read_dir with path
+weave read_dir_full with path as string into vector of string:
+    var out as vector of string is vector of string
+    var entries as maybe vector of string is calling read_dir with path
     if entries.is_present:
-        var names as list of string is entries.value
+        var names as vector of string is entries.value
         var i as int is 0
         while i < names.len:
             # `[path, names at i]` used to be rebuilt (and dropped) every
             # iteration; build one list, hand it to `join` and release it.
-            var parts as list of string is list of string
+            var parts as vector of string is vector of string
             calling parts.push with path
             calling parts.push with (names at i)
             calling out.push with (calling compass.join with parts)
@@ -921,7 +921,7 @@ weave rename with old as string, new as string into bool:
 ## ```pengu
 ## let md as maybe map of string to string is calling archivum.metadata with "notes.txt"
 ## ```
-weave metadata with path as string into maybe map of string to string:
+weave metadata with path as string into maybe map of string, string:
     return calling pengu_c_archivum_metadata with path
 
 # ----------------------------------------------------------------------------
@@ -943,15 +943,15 @@ weave metadata with path as string into maybe map of string to string:
 ## ```pengu
 ## let lines as maybe list of string is calling archivum.read_lines with "notes.txt"
 ## ```
-weave read_lines with path as string into maybe list of string:
+weave read_lines with path as string into maybe vector of string:
     var content as maybe string is calling read_file with path
     if content.is_present:
         var text as string is content.value
-        var parts as list of string is calling text.split with "\n"
+        var parts as vector of string is calling text.split with "\n"
         # `split` hands back *views* into the file text, so every element is
         # deep-copied before the text is released: the returned list owns its
         # strings and `banish` on them is meaningful.
-        var owned as list of string is list of string
+        var owned as vector of string is vector of string
         var i as int is 0
         while i < parts.len:
             calling owned.push with (calling _copy_string with (parts at i))
@@ -977,11 +977,11 @@ weave read_lines with path as string into maybe list of string:
 ## ```pengu
 ## let head as maybe list of string is calling archivum.read_first_n_lines with "notes.txt", 3
 ## ```
-weave read_first_n_lines with path as string, n as int into maybe list of string:
-    var lines_opt as maybe list of string is calling read_lines with path
+weave read_first_n_lines with path as string, n as int into maybe vector of string:
+    var lines_opt as maybe vector of string is calling read_lines with path
     if lines_opt.is_present:
-        var all_l as list of string is lines_opt.value
-        var out as list of string is list of string
+        var all_l as vector of string is lines_opt.value
+        var out as vector of string is vector of string
         var count_v as int is 0
         while (count_v < n) and (count_v < all_l.len):
             # `push` copies the element struct, so `out` shares the buffer and
@@ -1015,11 +1015,11 @@ weave read_first_n_lines with path as string, n as int into maybe list of string
 ## ```pengu
 ## let tail as maybe list of string is calling archivum.read_last_n_lines with "notes.txt", 2
 ## ```
-weave read_last_n_lines with path as string, n as int into maybe list of string:
-    var lines_opt as maybe list of string is calling read_lines with path
+weave read_last_n_lines with path as string, n as int into maybe vector of string:
+    var lines_opt as maybe vector of string is calling read_lines with path
     if lines_opt.is_present:
-        var all_l as list of string is lines_opt.value
-        var out as list of string is list of string
+        var all_l as vector of string is lines_opt.value
+        var out as vector of string is vector of string
         var start_at as int is all_l.len - n
         if start_at < 0:
             set start_at is 0
@@ -1056,9 +1056,9 @@ weave read_last_n_lines with path as string, n as int into maybe list of string:
 ## let total as maybe int is calling archivum.count_lines with "notes.txt"
 ## ```
 weave count_lines with path as string into maybe int:
-    var lines_opt as maybe list of string is calling read_lines with path
+    var lines_opt as maybe vector of string is calling read_lines with path
     if lines_opt.is_present:
-        var ll as list of string is lines_opt.value
+        var ll as vector of string is lines_opt.value
         var total as int is ll.len
         var i as int is 0
         while i < ll.len:
@@ -1082,7 +1082,7 @@ weave count_lines with path as string into maybe int:
 ## ```pengu
 ## calling archivum.write_lines with "notes.txt", ["a", "b"]
 ## ```
-weave write_lines with path as string, lines as list of string into bool:
+weave write_lines with path as string, lines as vector of string into bool:
     var payload as string is calling _join_lines with lines
     var wrote as bool is calling write_file with path, payload
     banish payload
@@ -1101,7 +1101,7 @@ weave write_lines with path as string, lines as list of string into bool:
 ## ```pengu
 ## calling archivum.append_lines with "notes.txt", ["c"]
 ## ```
-weave append_lines with path as string, lines as list of string into bool:
+weave append_lines with path as string, lines as vector of string into bool:
     var payload as string is calling _join_lines with lines
     var wrote as bool is calling append_file with path, payload
     banish payload
@@ -1127,11 +1127,11 @@ weave append_lines with path as string, lines as list of string into bool:
 ## ```pengu
 ## let r as result of list of string to archivum.IoError is calling archivum.read_lines_result with "notes.txt"
 ## ```
-weave read_lines_result with path as string into result of list of string to IoError:
+weave read_lines_result with path as string into result of vector of string to IoError:
     if calling is_dir with path:
         return calling err_of with IoError.IsADirectory
     # `or:` moves the list payload into `lines` and frees only the `maybe` box.
-    var lines as list of string is (calling read_lines with path) or:
+    var lines as vector of string is (calling read_lines with path) or:
         return calling err_of with IoError.Unknown
     return calling ok_of with lines
 
@@ -1153,7 +1153,7 @@ weave read_lines_result with path as string into result of list of string to IoE
 ## ```pengu
 ## let r as result of int to archivum.IoError is calling archivum.write_lines_result with "notes.txt", ["a"]
 ## ```
-weave write_lines_result with path as string, lines as list of string into result of int to IoError:
+weave write_lines_result with path as string, lines as vector of string into result of int to IoError:
     var payload as string is calling _join_lines with lines
     var outcome as result of int to IoError is calling write_file_result with path, payload
     banish payload
@@ -1176,7 +1176,7 @@ weave write_lines_result with path as string, lines as list of string into resul
 ## ```pengu
 ## let r as result of int to archivum.IoError is calling archivum.append_lines_result with "notes.txt", ["b"]
 ## ```
-weave append_lines_result with path as string, lines as list of string into result of int to IoError:
+weave append_lines_result with path as string, lines as vector of string into result of int to IoError:
     if calling is_dir with path:
         return calling err_of with IoError.IsADirectory
     var payload as string is calling _join_lines with lines
@@ -1203,10 +1203,10 @@ weave append_lines_result with path as string, lines as list of string into resu
 ## ```pengu
 ## let r as result of list of string to archivum.IoError is calling archivum.read_dir_result with "/tmp"
 ## ```
-weave read_dir_result with path as string into result of list of string to IoError:
+weave read_dir_result with path as string into result of vector of string to IoError:
     if not (calling is_dir with path):
         return calling err_of with (calling _missing_dir_error with path)
-    var entries as list of string is (calling read_dir with path) or:
+    var entries as vector of string is (calling read_dir with path) or:
         return calling err_of with IoError.Unknown
     return calling ok_of with entries
 
@@ -1391,10 +1391,10 @@ weave symlink_result with target as string, link as string into result of bool t
 ## ```pengu
 ## let r as result of map of string to string to archivum.IoError is calling archivum.metadata_result with "notes.txt"
 ## ```
-weave metadata_result with path as string into result of map of string to string to IoError:
+weave metadata_result with path as string into result of map of string, string to IoError:
     if not calling exists with path:
         return calling err_of with IoError.NotFound
-    var md as map of string to string is (calling metadata with path) or:
+    var md as map of string, string is (calling metadata with path) or:
         return calling err_of with IoError.Unknown
     return calling ok_of with md
 
@@ -1422,7 +1422,7 @@ weave metadata_result with path as string into result of map of string to string
 ## ```pengu
 ## let found as list of string is calling archivum.glob with "*.txt"
 ## ```
-weave glob with pattern as string into list of string:
+weave glob with pattern as string into vector of string:
     return calling pengu_c_archivum_glob with pattern
 
 ## Walks `root` depth-first and returns an owned nested list.
@@ -1442,7 +1442,7 @@ weave glob with pattern as string into list of string:
 ## ```pengu
 ## let levels as list of list of string is calling archivum.walk with "/tmp"
 ## ```
-weave walk with root as string into list of list of string:
+weave walk with root as string into vector of vector of string:
     return calling pengu_c_archivum_walk with root
 
 ## Updates modification time of `path` to now, creating an empty file when missing.
@@ -1521,9 +1521,9 @@ weave realpath with path as string into maybe string:
 # `PenguString` header.  `banish m` on the wrapper frees the entry cells but not
 # the 16 payload buffers, so a consumer that only reads one key must walk the
 # map and release every key and value explicitly.
-weave _release_metadata with m as maybe map of string to string into void:
+weave _release_metadata with m as maybe map of string, string into void:
     if m.is_present:
-        var md as map of string to string is m.value
+        var md as map of string, string is m.value
         for k in md:
             var v as string is calling md.get with k
             banish v
@@ -1532,9 +1532,9 @@ weave _release_metadata with m as maybe map of string to string into void:
 
 # Returns the `int` stored under `key` in metadata `md`, or `maybe none`.
 weave _metadata_int with path as string, key as string into maybe int:
-    var m as maybe map of string to string is calling metadata with path
+    var m as maybe map of string, string is calling metadata with path
     if m.is_present:
-        var md as map of string to string is m.value
+        var md as map of string, string is m.value
         if calling md.contains with key:
             var val_str as string is calling md.get with key
             var parsed as maybe int is calling spark.parse_int with val_str
@@ -1599,7 +1599,7 @@ weave dir_size with path as string, recursive as bool is false into maybe int:
         return maybe none
     var total as int is 0
     if recursive:
-        var files as list of string is calling list_files_recursive with path
+        var files as vector of string is calling list_files_recursive with path
         var i as int is 0
         while i < files.len:
             var sz as maybe int is calling file_size with (files at i)
@@ -1615,9 +1615,9 @@ weave dir_size with path as string, recursive as bool is false into maybe int:
         banish files
         return some total
     else:
-        var entries as maybe list of string is calling read_dir with path
+        var entries as maybe vector of string is calling read_dir with path
         if entries.is_present:
-            var l as list of string is entries.value
+            var l as vector of string is entries.value
             var i as int is 0
             while i < l.len:
                 var fp as string is "{path}/{(l at i)}"
@@ -1759,9 +1759,9 @@ weave is_empty_file with path as string into bool:
 weave is_empty_dir with path as string into bool:
     if not (calling is_dir with path):
         return false
-    var entries as maybe list of string is calling read_dir with path
+    var entries as maybe vector of string is calling read_dir with path
     if entries.is_present:
-        var l as list of string is entries.value
+        var l as vector of string is entries.value
         var empty as bool is l.len == 0
         # The entry names are owned by this caller: release them before the box.
         var i as int is 0
@@ -1791,18 +1791,18 @@ weave is_empty_dir with path as string into bool:
 ## ```pengu
 ## let files as list of string is calling archivum.find_files with "/tmp/a", true
 ## ```
-weave find_files with root as string, recursive as bool is true into list of string:
+weave find_files with root as string, recursive as bool is true into vector of string:
     if recursive:
         return calling list_files_recursive with root
-    var out as list of string is list of string
-    var entries as maybe list of string is calling read_dir with root
+    var out as vector of string is vector of string
+    var entries as maybe vector of string is calling read_dir with root
     if entries.is_present:
-        var l as list of string is entries.value
+        var l as vector of string is entries.value
         var i as int is 0
         while i < l.len:
             # Construir con `compass.join` (no con interpolación `"{root}/{...}"`):
             # la interpolación sólo admite identificadores/campos simples.
-            var parts as list of string is list of string
+            var parts as vector of string is vector of string
             calling parts.push with root
             calling parts.push with (l at i)
             var fp as string is calling compass.join with parts
@@ -1834,16 +1834,16 @@ weave find_files with root as string, recursive as bool is true into list of str
 ## ```pengu
 ## let dirs as list of string is calling archivum.find_dirs with "/tmp/a", true
 ## ```
-weave find_dirs with root as string, recursive as bool is true into list of string:
-    var out as list of string is list of string
-    var stack as list of string is list of string
+weave find_dirs with root as string, recursive as bool is true into vector of string:
+    var out as vector of string is vector of string
+    var stack as vector of string is vector of string
     calling stack.push with root
     while stack.len > 0:
         var cur as string is stack at (stack.len - 1)
         calling stack.pop
-        var entries as maybe list of string is calling read_dir with cur
+        var entries as maybe vector of string is calling read_dir with cur
         if entries.is_present:
-            var l as list of string is entries.value
+            var l as vector of string is entries.value
             var i as int is 0
             while i < l.len:
                 var dp as string is "{cur}/{(l at i)}"
@@ -1879,9 +1879,9 @@ weave find_dirs with root as string, recursive as bool is true into list of stri
 ## ```pengu
 ## let hits as list of string is calling archivum.find_by_name with "/tmp/a", "notes.txt"
 ## ```
-weave find_by_name with root as string, target_name as string, recursive as bool is true into list of string:
-    var files as list of string is calling find_files with root, recursive
-    var out as list of string is list of string
+weave find_by_name with root as string, target_name as string, recursive as bool is true into vector of string:
+    var files as vector of string is calling find_files with root, recursive
+    var out as vector of string is vector of string
     var i as int is 0
     while i < files.len:
         var f as string is files at i
@@ -1913,7 +1913,7 @@ weave find_by_name with root as string, target_name as string, recursive as bool
 ## ```pengu
 ## let logs as list of string is calling archivum.find_by_ext with "/tmp/a", ".log"
 ## ```
-weave find_by_ext with root as string, extension as string, recursive as bool is true into list of string:
+weave find_by_ext with root as string, extension as string, recursive as bool is true into vector of string:
     var ext_target as string is extension
     var ext_owned as bool is false
     if (ext_target length) > 0:
@@ -1925,8 +1925,8 @@ weave find_by_ext with root as string, extension as string, recursive as bool is
             var dotted as string is ".{ext_target}"
             set ext_target is dotted
             set ext_owned is true
-    var files as list of string is calling find_files with root, recursive
-    var out as list of string is list of string
+    var files as vector of string is calling find_files with root, recursive
+    var out as vector of string is vector of string
     var i as int is 0
     while i < files.len:
         var f as string is files at i
@@ -2000,7 +2000,7 @@ weave temp_file with prefix as string is "pengu" into string:
         var i_text as string is (i to string)
         var name as string is "{prefix}_{pid_text}_{i_text}.tmp"
         banish i_text
-        var parts as list of string is list of string
+        var parts as vector of string is vector of string
         calling parts.push with tdir
         calling parts.push with name
         var cand as string is calling compass.join with parts
@@ -2055,16 +2055,16 @@ weave copy_tree with src as string, dst as string into bool:
     # A failure stops the traversal exactly where the old early `return false`
     # did; the flag only lets the loop release every buffer before leaving.
     var failed as bool is false
-    var stack as list of FsCopyTask is list of FsCopyTask
+    var stack as vector of FsCopyTask is vector of FsCopyTask
     var first_task as bool is true
     var seed as FsCopyTask is with s is src, d is dst
     calling stack.push with seed
     while (stack.len > 0) and (not failed):
         var last_task as FsCopyTask is stack at (stack.len - 1)
         calling stack.pop
-        var entries as maybe list of string is calling read_dir with last_task.s
+        var entries as maybe vector of string is calling read_dir with last_task.s
         if entries.is_present:
-            var list_e as list of string is entries.value
+            var list_e as vector of string is entries.value
             var i as int is 0
             while (i < list_e.len) and (not failed):
                 var name as string is list_e at i
@@ -2132,17 +2132,17 @@ weave copy_tree with src as string, dst as string into bool:
 ## ```pengu
 ## let files as list of string is calling archivum.list_files_recursive with "/tmp/a"
 ## ```
-weave list_files_recursive with root as string into list of string:
-    var out as list of string is list of string
-    var dirs as list of string is list of string
+weave list_files_recursive with root as string into vector of string:
+    var out as vector of string is vector of string
+    var dirs as vector of string is vector of string
     var first_dir as bool is true
     calling dirs.push with root
     while dirs.len > 0:
         var last_d as string is dirs at (dirs.len - 1)
         calling dirs.pop
-        var entries as maybe list of string is calling read_dir with last_d
+        var entries as maybe vector of string is calling read_dir with last_d
         if entries.is_present:
-            var list_d as list of string is entries.value
+            var list_d as vector of string is entries.value
             var i as int is 0
             while i < list_d.len:
                 var name as string is list_d at i
@@ -2210,7 +2210,7 @@ enchanting compass.Path:
     ## ```pengu
     ## let lines as maybe list of string is calling p.read_lines
     ## ```
-    weave read_lines into maybe list of string:
+    weave read_lines into maybe vector of string:
         return calling read_lines with self->raw
 
     ## Appends `content` to this file, creating it when missing.
@@ -2280,7 +2280,7 @@ enchanting compass.Path:
     ## ```pengu
     ## let entries as list of string is calling p.iter_dir
     ## ```
-    weave iter_dir into list of string:
+    weave iter_dir into vector of string:
         return calling read_dir_full with self->raw
 
     ## Reads the metadata map of this path.
@@ -2293,7 +2293,7 @@ enchanting compass.Path:
     ## ```pengu
     ## let md as maybe map of string to string is calling p.stat
     ## ```
-    weave stat into maybe map of string to string:
+    weave stat into maybe map of string, string:
         return calling metadata with self->raw
 
 # --- Tests ---
@@ -2322,7 +2322,7 @@ weave _arch_expect_true with cond as bool, label as string into void:
 
 ## Joins `base` and `name` into a test path with the module separator.
 weave _arch_path with base as string, name as string into string:
-    let parts as list of string is [base, name]
+    let parts as vector of string is [base, name]
     var joined as string is calling compass.join with parts
     banish parts
     return joined
@@ -2384,10 +2384,10 @@ test "read_lines splits the file on newline":
     let base as string is calling _arch_fresh_dir with (calling _arch_base with "readlines")
     let path as string is calling _arch_path with base, "a.txt"
     calling write_file with path, "a\nb\nc"
-    let got as maybe list of string is calling read_lines with path
+    let got as maybe vector of string is calling read_lines with path
     calling _arch_expect_true with (got.is_present), "read_lines present"
     if got.is_present:
-        let lines as list of string is got.value
+        let lines as vector of string is got.value
         calling _arch_expect_int with (lines.len), 3, "read_lines len"
         if lines.len == 3:
             calling _arch_expect_str with (lines at 0), "a", "line 0"
@@ -2398,10 +2398,10 @@ test "read_first_n_lines takes the head":
     let base as string is calling _arch_fresh_dir with (calling _arch_base with "head")
     let path as string is calling _arch_path with base, "a.txt"
     calling write_file with path, "a\nb\nc\nd"
-    let got as maybe list of string is calling read_first_n_lines with path, 2
+    let got as maybe vector of string is calling read_first_n_lines with path, 2
     calling _arch_expect_true with (got.is_present), "head present"
     if got.is_present:
-        let head as list of string is got.value
+        let head as vector of string is got.value
         calling _arch_expect_int with (head.len), 2, "head len"
         if head.len == 2:
             calling _arch_expect_str with (head at 0), "a", "head 0"
@@ -2412,15 +2412,15 @@ test "read_last_n_lines takes the tail":
     let base as string is calling _arch_fresh_dir with (calling _arch_base with "tail")
     let path as string is calling _arch_path with base, "a.txt"
     calling write_file with path, "a\nb\nc\nd"
-    let got as maybe list of string is calling read_last_n_lines with path, 2
+    let got as maybe vector of string is calling read_last_n_lines with path, 2
     calling _arch_expect_true with (got.is_present), "tail present"
     if got.is_present:
-        let tail as list of string is got.value
+        let tail as vector of string is got.value
         calling _arch_expect_int with (tail.len), 2, "tail len"
         if tail.len == 2:
             calling _arch_expect_str with (tail at 0), "c", "tail 0"
             calling _arch_expect_str with (tail at 1), "d", "tail 1"
-    let all_opt as maybe list of string is calling read_last_n_lines with path, 9
+    let all_opt as maybe vector of string is calling read_last_n_lines with path, 9
     if all_opt.is_present:
         calling _arch_expect_int with (all_opt.value.len), 4, "tail overflow"
     calling _arch_cleanup with base
@@ -2438,12 +2438,12 @@ test "count_lines counts the split elements":
 test "write_lines and append_lines add a trailing newline":
     let base as string is calling _arch_fresh_dir with (calling _arch_base with "writelines")
     let path as string is calling _arch_path with base, "a.txt"
-    let first as list of string is ["one", "two"]
+    let first as vector of string is ["one", "two"]
     calling _arch_expect_true with (calling write_lines with path, first), "write_lines"
     let got as maybe string is calling read_file with path
     if got.is_present:
         calling _arch_expect_str with (got.value), "one\ntwo\n", "write_lines text"
-    let more as list of string is ["three"]
+    let more as vector of string is ["three"]
     calling _arch_expect_true with (calling append_lines with path, more), "append_lines"
     let got2 as maybe string is calling read_file with path
     if got2.is_present:
@@ -2527,10 +2527,10 @@ test "metadata reports the file size":
     calling _arch_expect_true with (byte_count.is_present), "size present"
     if byte_count.is_present:
         calling _arch_expect_int with (byte_count.value), 10, "file_size"
-    let md_opt as maybe map of string to string is calling metadata with path
+    let md_opt as maybe map of string, string is calling metadata with path
     calling _arch_expect_true with (md_opt.is_present), "metadata present"
     if md_opt.is_present:
-        let md as map of string to string is md_opt.value
+        let md as map of string, string is md_opt.value
         calling _arch_expect_true with (calling md.contains with "size"), "size key"
         calling _arch_expect_str with (calling md.get with "size"), "10", "size value"
     calling _arch_cleanup with base
@@ -2609,22 +2609,22 @@ test "read_file_result is err for a missing file and ok for a present one":
 test "the result variants report the ok path":
     let base as string is calling _arch_fresh_dir with (calling _arch_base with "okpath")
     let path as string is calling _arch_path with base, "a.txt"
-    let lines as list of string is ["x", "y"]
+    let lines as vector of string is ["x", "y"]
     let wr as result of int to IoError is calling write_lines_result with path, lines
     calling _arch_expect_true with (wr.is_ok), "write_lines_result ok"
-    let rr as result of list of string to IoError is calling read_lines_result with path
+    let rr as result of vector of string to IoError is calling read_lines_result with path
     calling _arch_expect_true with (rr.is_ok), "read_lines_result ok"
     if rr.is_ok:
         calling _arch_expect_int with (rr.value.len), 3, "read_lines_result len"
     let ar as result of int to IoError is calling append_lines_result with path, lines
     calling _arch_expect_true with (ar.is_ok), "append_lines_result ok"
-    let dr as result of list of string to IoError is calling read_dir_result with base
+    let dr as result of vector of string to IoError is calling read_dir_result with base
     calling _arch_expect_true with (dr.is_ok), "read_dir_result ok"
     let cr as result of bool to IoError is calling create_dir_result with (calling _arch_path with base, "sub"), true
     calling _arch_expect_true with (cr.is_ok), "create_dir_result ok"
     let tr as result of bool to IoError is calling touch_result with (calling _arch_path with base, "t.txt")
     calling _arch_expect_true with (tr.is_ok), "touch_result ok"
-    let mr as result of map of string to string to IoError is calling metadata_result with path
+    let mr as result of map of string, string to IoError is calling metadata_result with path
     calling _arch_expect_true with (mr.is_ok), "metadata_result ok"
     let xr as result of bool to IoError is calling remove_dir_result with (calling _arch_path with base, "sub"), true
     calling _arch_expect_true with (xr.is_ok), "remove_dir_result ok"
@@ -2635,19 +2635,19 @@ test "the result variants report the error path":
     let missing as string is calling _arch_path with base, "missing.txt"
     let file_path as string is calling _arch_path with base, "f.txt"
     calling write_file with file_path, "x"
-    let dir_bad as result of list of string to IoError is calling read_dir_result with missing
+    let dir_bad as result of vector of string to IoError is calling read_dir_result with missing
     calling _arch_expect_true with (not (dir_bad.is_ok)), "read_dir_result missing"
     calling _arch_expect_str with (calling describe_error with (dir_bad.error)), "no such file or directory", "dir error text"
-    let file_bad as result of list of string to IoError is calling read_dir_result with file_path
+    let file_bad as result of vector of string to IoError is calling read_dir_result with file_path
     calling _arch_expect_true with (not (file_bad.is_ok)), "read_dir_result on file"
     let cf as result of bool to IoError is calling copy_file_result with missing, file_path, false
     calling _arch_expect_true with (not (cf.is_ok)), "copy_file_result missing"
     let ct as result of bool to IoError is calling copy_tree_result with missing, base
     calling _arch_expect_true with (not (ct.is_ok)), "copy_tree_result missing"
-    let tl as result of list of string to IoError is calling read_lines_result with base
+    let tl as result of vector of string to IoError is calling read_lines_result with base
     calling _arch_expect_true with (not (tl.is_ok)), "read_lines_result on dir"
     calling _arch_expect_str with (calling describe_error with (tl.error)), "is a directory", "dir error"
-    let md_bad as result of map of string to string to IoError is calling metadata_result with missing
+    let md_bad as result of map of string, string to IoError is calling metadata_result with missing
     calling _arch_expect_true with (not (md_bad.is_ok)), "metadata_result missing"
     let dd as result of bool to IoError is calling create_dir_result with file_path, false
     calling _arch_expect_true with (not (dd.is_ok)), "create_dir_result on file"
@@ -2668,17 +2668,17 @@ test "read_dir lists entries and read_dir_full joins them":
     let base as string is calling _arch_fresh_dir with (calling _arch_base with "readdir")
     let path as string is calling _arch_path with base, "a.txt"
     calling write_file with path, "x"
-    let names as maybe list of string is calling read_dir with base
+    let names as maybe vector of string is calling read_dir with base
     calling _arch_expect_true with (names.is_present), "read_dir present"
     if names.is_present:
         calling _arch_expect_int with (names.value.len), 1, "read_dir len"
         if names.value.len == 1:
             calling _arch_expect_str with ((names.value) at 0), "a.txt", "read_dir name"
-    let full as list of string is calling read_dir_full with base
+    let full as vector of string is calling read_dir_full with base
     calling _arch_expect_int with (full.len), 1, "read_dir_full len"
     if full.len == 1:
         calling _arch_expect_str with (full at 0), path, "read_dir_full path"
-    let no_dir as list of string is calling read_dir_full with (calling _arch_path with base, "nope")
+    let no_dir as vector of string is calling read_dir_full with (calling _arch_path with base, "nope")
     calling _arch_expect_int with (no_dir.len), 0, "read_dir_full missing"
     calling _arch_cleanup with base
 
@@ -2692,15 +2692,15 @@ test "find_files and find_dirs and find_by_name and find_by_ext":
     calling write_file with f1, "1"
     calling write_file with f2, "2"
     calling write_file with f3, "3"
-    let files as list of string is calling find_files with base, true
+    let files as vector of string is calling find_files with base, true
     calling _arch_expect_int with (files.len), 3, "find_files recursive"
-    let shallow as list of string is calling find_files with base, false
+    let shallow as vector of string is calling find_files with base, false
     calling _arch_expect_int with (shallow.len), 1, "find_files shallow"
-    let dirs as list of string is calling find_dirs with base, true
+    let dirs as vector of string is calling find_dirs with base, true
     calling _arch_expect_int with (dirs.len), 1, "find_dirs"
-    let by_name as list of string is calling find_by_name with base, "one.txt", true
+    let by_name as vector of string is calling find_by_name with base, "one.txt", true
     calling _arch_expect_int with (by_name.len), 2, "find_by_name"
-    let by_ext as list of string is calling find_by_ext with base, "log", true
+    let by_ext as vector of string is calling find_by_ext with base, "log", true
     calling _arch_expect_int with (by_ext.len), 1, "find_by_ext"
     if by_ext.len == 1:
         calling _arch_expect_str with (by_ext at 0), f2, "find_by_ext path"
@@ -2714,9 +2714,9 @@ test "list_files_recursive and walk visit the tree":
     let f2 as string is calling _arch_path with sub, "deep.txt"
     calling write_file with f1, "1"
     calling write_file with f2, "2"
-    let all as list of string is calling list_files_recursive with base
+    let all as vector of string is calling list_files_recursive with base
     calling _arch_expect_int with (all.len), 2, "list_files_recursive"
-    let levels as list of list of string is calling walk with base
+    let levels as vector of vector of string is calling walk with base
     calling _arch_expect_true with (levels.len) >= 2, "walk levels"
     if levels.len >= 1:
         calling _arch_expect_true with ((levels at 0).len) >= 2, "walk root level"
@@ -2732,7 +2732,7 @@ test "glob finds the fixture inside its own directory":
     let pattern as string is "pengu_arch_glob_fixture"
     let path as string is calling _arch_path with base, "pengu_arch_glob_fixture.txt"
     calling _arch_expect_true with (calling write_file with path, "x"), "glob fixture write"
-    let hits as list of string is calling glob with pattern
+    let hits as vector of string is calling glob with pattern
     calling _arch_expect_int with hits.len, 1, "glob hits"
     if hits.len == 1:
         calling _arch_expect_true with (calling compass.basename with (hits at 0)) == "pengu_arch_glob_fixture.txt", "glob name"
@@ -2806,12 +2806,12 @@ test "Path enchanting exposes the filesystem methods":
     calling _arch_expect_true with (got.is_present), "read_text present"
     if got.is_present:
         calling _arch_expect_str with (got.value), "path text", "path text"
-    let lines as maybe list of string is calling p.read_lines
+    let lines as maybe vector of string is calling p.read_lines
     calling _arch_expect_true with (lines.is_present), "path read_lines"
     let dir as compass.Path is with raw is base
-    let entries as list of string is calling dir.iter_dir
+    let entries as vector of string is calling dir.iter_dir
     calling _arch_expect_int with (entries.len), 1, "path iter_dir"
-    let md as maybe map of string to string is calling p.stat
+    let md as maybe map of string, string is calling p.stat
     calling _arch_expect_true with (md.is_present), "path stat"
     let sub as compass.Path is with raw is (calling _arch_path with base, "psub")
     calling _arch_expect_true with (calling sub.mkdir with true), "path mkdir"

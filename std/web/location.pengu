@@ -56,7 +56,7 @@ when wasm:
         return calling _text_prop with "hash"
 
     ## Decoded query parameters.
-    weave search_params into result of list of url.Param to js.JsError:
+    weave search_params into result of vector of url.Param to js.JsError:
         var s as result of string to js.JsError is calling search
         if not s.is_ok:
             return calling err_of with s.error
@@ -66,7 +66,7 @@ when wasm:
             var cut as string is calling url._slice with trimmed, 1, trimmed.len
             banish query
             set trimmed is cut
-        var out as list of url.Param is calling url.params with trimmed
+        var out as vector of url.Param is calling url.params with trimmed
         banish trimmed
         return calling ok_of with out
 
@@ -84,7 +84,7 @@ when wasm:
         if not loc.is_ok:
             return calling err_of with loc.error
         defer calling js.release with loc.value
-        var r as result of js.JsValue to js.JsError is calling js.call_method with loc.value, "reload", list of js.JsValue
+        var r as result of js.JsValue to js.JsError is calling js.call_method with loc.value, "reload", vector of js.JsValue
         if not r.is_ok:
             return calling err_of with r.error
         calling js.release with r.value
@@ -144,7 +144,7 @@ when wasm:
         if not loc.is_ok:
             return calling err_of with loc.error
         defer calling js.release with loc.value
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var h as result of js.JsValue to js.JsError is calling js.string with target
         if not h.is_ok:
@@ -181,7 +181,7 @@ when not wasm:
         return calling err_of with (calling js.last_error)
     weave hash into result of string to js.JsError:
         return calling err_of with (calling js.last_error)
-    weave search_params into result of list of url.Param to js.JsError:
+    weave search_params into result of vector of url.Param to js.JsError:
         return calling err_of with (calling js.last_error)
     weave assign with target as string into result of bool to js.JsError:
         return calling err_of with (calling js.last_error)

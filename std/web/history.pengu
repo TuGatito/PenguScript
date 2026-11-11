@@ -62,7 +62,7 @@ when wasm:
         if not h.is_ok:
             return calling err_of with h.error
         defer calling js.release with h.value
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var d as result of js.JsValue to js.JsError is calling js.from_int with delta
         if not d.is_ok:
@@ -105,7 +105,7 @@ when wasm:
         if not h.is_ok:
             return calling err_of with h.error
         defer calling js.release with h.value
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var t as result of js.JsValue to js.JsError is calling js.string with title
         if not t.is_ok:
@@ -131,7 +131,7 @@ when wasm:
         if not h.is_ok:
             return calling err_of with h.error
         defer calling js.release with h.value
-        var r as result of js.JsValue to js.JsError is calling js.call_method with h.value, method, list of js.JsValue
+        var r as result of js.JsValue to js.JsError is calling js.call_method with h.value, method, vector of js.JsValue
         if not r.is_ok:
             return calling err_of with r.error
         calling js.release with r.value

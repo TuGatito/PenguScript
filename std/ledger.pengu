@@ -31,7 +31,7 @@ const LEDGER_VERSION as string is "2.14.0"
 # ----------------------------------------------------------------------------
 
 # Runtime bridge: returns keys of a string-to-string map as an owned list of string.
-declare pengu_map_keys_string with m as ref to map of string to string into list of string
+declare pengu_map_keys_string with m as ref to map of string, string into vector of string
 
 # ----------------------------------------------------------------------------
 # Quoting & Escaping (0.14.x baseline & 0.15.0 additions)
@@ -120,12 +120,12 @@ weave escape_field_backslash with field as string , delimiter as string is "," i
 
 ## Parses a single CSV/TSV line into its fields (RFC-4180 style quoting).
 ## delimiter defaults to ","; the returned list is always present, even for a blank line.
-weave parse_line with line as string , delimiter as string is "," into maybe list of string:
+weave parse_line with line as string , delimiter as string is "," into maybe vector of string:
     var delim as string is delimiter
     if delimiter length == 0:
         set delim is ","
     var dcode as int is ord delim
-    var fields as list of string is list of string
+    var fields as vector of string is vector of string
     var cur as string is ""
     var in_q as bool is false
     var dl as int is line length
@@ -167,12 +167,12 @@ weave parse_line with line as string , delimiter as string is "," into maybe lis
     return some fields
 
 ## Parses a single CSV line with strict RFC 4180 validation (returns none on unclosed quotes or syntax errors).
-weave parse_line_strict with line as string , delimiter as string is "," into maybe list of string:
+weave parse_line_strict with line as string , delimiter as string is "," into maybe vector of string:
     var delim as string is delimiter
     if delimiter length == 0:
         set delim is ","
     var dcode as int is ord delim
-    var fields as list of string is list of string
+    var fields as vector of string is vector of string
     var cur as string is ""
     var in_q as bool is false
     var dl as int is line length
@@ -215,8 +215,8 @@ weave parse_line_strict with line as string , delimiter as string is "," into ma
 ## Parses a full CSV/TSV payload into rows of fields.
 ## Delimiter defaults to ","; has_header is accepted for API parity: rows are
 ## returned as-is, including the header row if one is present.
-weave parse_csv with data as string , delimiter as string is "," , has_header as bool is false into maybe list of list of string:
-    var rows as list of list of string is list of list of string
+weave parse_csv with data as string , delimiter as string is "," , has_header as bool is false into maybe vector of vector of string:
+    var rows as vector of vector of string is vector of vector of string
     var dl as int is data length
     if dl == 0:
         return some rows
@@ -226,14 +226,14 @@ weave parse_csv with data as string , delimiter as string is "," , has_header as
         if i == dl:
             if i > start:
                 var last_line as string is data at start to i
-                var mlast_line as maybe list of string is calling parse_line with last_line , delimiter
+                var mlast_line as maybe vector of string is calling parse_line with last_line , delimiter
                 if mlast_line.is_present:
                     calling rows.push with mlast_line.value
             break
         var code as int is ord (data at i)
         if code == 10:
             var seg as string is data at start to i
-            var mseg as maybe list of string is calling parse_line with seg , delimiter
+            var mseg as maybe vector of string is calling parse_line with seg , delimiter
             if mseg.is_present:
                 calling rows.push with mseg.value
             set start is i + 1
@@ -241,11 +241,11 @@ weave parse_csv with data as string , delimiter as string is "," , has_header as
     return some rows
 
 ## Strict CSV parser requiring every row to have identical column count; returns none if jagged.
-weave parse_csv_strict with data as string , delimiter as string is "," into maybe list of list of string:
-    var mrows as maybe list of list of string is calling parse_csv with data , delimiter
+weave parse_csv_strict with data as string , delimiter as string is "," into maybe vector of vector of string:
+    var mrows as maybe vector of vector of string is calling parse_csv with data , delimiter
     if mrows is not present:
         return maybe none
-    var rows as list of list of string is mrows.value
+    var rows as vector of vector of string is mrows.value
     if rows.len <= 1:
         return some rows
     var first_len as int is (rows at 0).len
@@ -257,16 +257,16 @@ weave parse_csv_strict with data as string , delimiter as string is "," into may
     return some rows
 
 ## Parses CSV ignoring rows whose first non-empty field begins with `comment_prefix` (default "#").
-weave parse_csv_nocomments with data as string , delimiter as string is "," , comment_prefix as string is "#" into maybe list of list of string:
-    var mrows as maybe list of list of string is calling parse_csv with data , delimiter
+weave parse_csv_nocomments with data as string , delimiter as string is "," , comment_prefix as string is "#" into maybe vector of vector of string:
+    var mrows as maybe vector of vector of string is calling parse_csv with data , delimiter
     if mrows is not present:
         return maybe none
-    var rows as list of list of string is mrows.value
-    var result as list of list of string is list of list of string
+    var rows as vector of vector of string is mrows.value
+    var result as vector of vector of string is vector of vector of string
     var pfx_len as int is comment_prefix length
     var i as int is 0
     while i < rows.len:
-        var row as list of string is rows at i
+        var row as vector of string is rows at i
         var skip as bool is false
         if row.len > 0 and pfx_len > 0:
             var first_field as string is row at 0
@@ -279,12 +279,12 @@ weave parse_csv_nocomments with data as string , delimiter as string is "," , co
     return some result
 
 ## Parses CSV skipping the first `skip_rows` rows.
-weave parse_csv_skip with data as string , delimiter as string is "," , skip_rows as int is 0 into maybe list of list of string:
-    var mrows as maybe list of list of string is calling parse_csv with data , delimiter
+weave parse_csv_skip with data as string , delimiter as string is "," , skip_rows as int is 0 into maybe vector of vector of string:
+    var mrows as maybe vector of vector of string is calling parse_csv with data , delimiter
     if mrows is not present:
         return maybe none
-    var rows as list of list of string is mrows.value
-    var result as list of list of string is list of list of string
+    var rows as vector of vector of string is mrows.value
+    var result as vector of vector of string is vector of vector of string
     var start as int is skip_rows
     if start < 0:
         set start is 0
@@ -295,7 +295,7 @@ weave parse_csv_skip with data as string , delimiter as string is "," , skip_row
     return some result
 
 ## Normalizes CRLF / CR line endings to LF before parsing CSV.
-weave parse_csv_normalized with data as string , delimiter as string is "," into maybe list of list of string:
+weave parse_csv_normalized with data as string , delimiter as string is "," into maybe vector of vector of string:
     var s1 as string is calling data.get_replace_all with "\r\n" , "\n"
     var s2 as string is calling s1.get_replace_all with "\r" , "\n"
     return calling parse_csv with s2 , delimiter
@@ -306,20 +306,20 @@ weave parse_csv_normalized with data as string , delimiter as string is "," into
 
 ## Represents a tabular dataset with named column headers and rectangular data rows.
 rune CsvTable:
-    headers as list of string
-    rows as list of list of string
+    headers as vector of string
+    rows as vector of vector of string
 
 enchanting CsvTable:
     ## Constructs a CsvTable from raw CSV text, extracting the first row as headers.
     weave ritual from_csv with data as string , delimiter as string is "," into maybe CsvTable:
-        var mrows as maybe list of list of string is calling parse_csv with data , delimiter
+        var mrows as maybe vector of vector of string is calling parse_csv with data , delimiter
         if mrows is not present:
             return maybe none
-        var all_rows as list of list of string is mrows.value
+        var all_rows as vector of vector of string is mrows.value
         if all_rows.len == 0:
             return maybe none
-        var hdrs as list of string is all_rows at 0
-        var body_rows as list of list of string is list of list of string
+        var hdrs as vector of string is all_rows at 0
+        var body_rows as vector of vector of string is vector of vector of string
         var i as int is 1
         while i < all_rows.len:
             calling body_rows.push with (all_rows at i)
@@ -328,7 +328,7 @@ enchanting CsvTable:
         return some tbl
 
     ## Direct constructor taking explicit header and row lists.
-    weave ritual from_rows with headers as list of string , rows as list of list of string into CsvTable:
+    weave ritual from_rows with headers as vector of string , rows as vector of vector of string into CsvTable:
         return with headers is headers, rows is rows
 
     ## Returns the number of data rows (excluding the header row).
@@ -365,7 +365,7 @@ enchanting CsvTable:
         if col_idx_opt is not present:
             return maybe none
         var col_idx as int is col_idx_opt.value
-        var row as list of string is self->rows at row_idx
+        var row as vector of string is self->rows at row_idx
         if col_idx < 0 or col_idx >= row.len:
             return maybe none
         return some (row at col_idx)
@@ -378,15 +378,15 @@ enchanting CsvTable:
         return default_val
 
     ## Extracts all cell values down column `col_name` as a list of string.
-    weave column with col_name as string into maybe list of string:
+    weave column with col_name as string into maybe vector of string:
         var col_idx_opt as maybe int is calling self.column_index with col_name
         if col_idx_opt is not present:
             return maybe none
         var col_idx as int is col_idx_opt.value
-        var result as list of string is list of string
+        var result as vector of string is vector of string
         var i as int is 0
         while i < self->rows.len:
-            var row as list of string is self->rows at i
+            var row as vector of string is self->rows at i
             if col_idx < row.len:
                 calling result.push with (row at col_idx)
             else:
@@ -395,11 +395,11 @@ enchanting CsvTable:
         return some result
 
     ## Converts row `row_idx` into a map from column header to cell string.
-    weave row_as_map with row_idx as int into maybe map of string to string:
+    weave row_as_map with row_idx as int into maybe map of string, string:
         if row_idx < 0 or row_idx >= self->rows.len:
             return maybe none
-        var row as list of string is self->rows at row_idx
-        var result as map of string to string is map of string to string
+        var row as vector of string is self->rows at row_idx
+        var result as map of string, string is map of string, string
         var i as int is 0
         while i < self->headers.len:
             var k as string is self->headers at i
@@ -412,7 +412,7 @@ enchanting CsvTable:
 
     ## Serializes the table (headers followed by rows) to CSV text.
     weave to_csv with delimiter as string is "," into maybe string:
-        var all as list of list of string is list of list of string
+        var all as vector of vector of string is vector of vector of string
         calling all.push with self->headers
         var i as int is 0
         while i < self->rows.len:
@@ -432,10 +432,10 @@ weave csv_table_from_csv with data as string , delimiter as string is "," into m
 # Matrix Operations (enchanting list of list of string) (0.15.0 additions)
 # ----------------------------------------------------------------------------
 
-weave _mat_len with m as list of list of string into int:
+weave _mat_len with m as vector of vector of string into int:
     return calling m.len
 
-enchanting list of list of string:
+enchanting vector of vector of string:
     ## Returns the number of rows in the matrix.
     weave row_count into int:
         return calling _mat_len with (essence of self)
@@ -445,7 +445,7 @@ enchanting list of list of string:
         var n as int is calling _mat_len with (essence of self)
         if n == 0:
             return 0
-        var first_row as list of string is self at 0
+        var first_row as vector of string is self at 0
         return calling first_row.len
 
     ## Returns true if all rows have the exact same number of columns.
@@ -453,25 +453,25 @@ enchanting list of list of string:
         var n as int is calling _mat_len with (essence of self)
         if n <= 1:
             return true
-        var first_row as list of string is self at 0
+        var first_row as vector of string is self at 0
         var cols as int is calling first_row.len
         var i as int is 1
         while i < n:
-            var cur_row as list of string is self at i
+            var cur_row as vector of string is self at i
             if (calling cur_row.len) != cols:
                 return false
             set i is i + 1
         return true
 
     ## Extracts all cell values down column index `col_idx`.
-    weave column with col_idx as int into maybe list of string:
+    weave column with col_idx as int into maybe vector of string:
         if col_idx < 0:
             return maybe none
         var n as int is calling _mat_len with (essence of self)
-        var result as list of string is list of string
+        var result as vector of string is vector of string
         var i as int is 0
         while i < n:
-            var row as list of string is self at i
+            var row as vector of string is self at i
             if col_idx < (calling row.len):
                 calling result.push with (row at col_idx)
             else:
@@ -480,26 +480,26 @@ enchanting list of list of string:
         return some result
 
     ## Transposes rows and columns into a new rectangular matrix.
-    weave transpose into maybe list of list of string:
+    weave transpose into maybe vector of vector of string:
         var n as int is calling _mat_len with (essence of self)
         if n == 0:
-            var empty as list of list of string is list of list of string
+            var empty as vector of vector of string is vector of vector of string
             return some empty
-        var first_row as list of string is self at 0
+        var first_row as vector of string is self at 0
         var num_cols as int is calling first_row.len
         var i as int is 1
         while i < n:
-            var r as list of string is self at i
+            var r as vector of string is self at i
             if (calling r.len) != num_cols:
                 return maybe none
             set i is i + 1
-        var result as list of list of string is list of list of string
+        var result as vector of vector of string is vector of vector of string
         var c as int is 0
         while c < num_cols:
-            var new_row as list of string is list of string
+            var new_row as vector of string is vector of string
             var r_idx as int is 0
             while r_idx < n:
-                var old_row as list of string is self at r_idx
+                var old_row as vector of string is self at r_idx
                 calling new_row.push with (old_row at c)
                 set r_idx is r_idx + 1
             calling result.push with new_row
@@ -511,17 +511,17 @@ enchanting list of list of string:
 # ----------------------------------------------------------------------------
 
 ## Parses a 2-column CSV into a list of [key, value] pairs.
-weave parse_csv_as_pairs with data as string , delimiter as string is "," into maybe list of list of string:
-    var mrows as maybe list of list of string is calling parse_csv with data , delimiter
+weave parse_csv_as_pairs with data as string , delimiter as string is "," into maybe vector of vector of string:
+    var mrows as maybe vector of vector of string is calling parse_csv with data , delimiter
     if mrows is not present:
         return maybe none
-    var rows as list of list of string is mrows.value
-    var result as list of list of string is list of list of string
+    var rows as vector of vector of string is mrows.value
+    var result as vector of vector of string is vector of vector of string
     var r as int is 0
     while r < rows.len:
-        var row as list of string is rows at r
+        var row as vector of string is rows at r
         if row.len >= 2:
-            var pair as list of string is list of string
+            var pair as vector of string is vector of string
             calling pair.push with (row at 0)
             calling pair.push with (row at 1)
             calling result.push with pair
@@ -529,15 +529,15 @@ weave parse_csv_as_pairs with data as string , delimiter as string is "," into m
     return some result
 
 ## Parses a 2-column CSV directly into a map of string to string (col 0 = key, col 1 = value).
-weave parse_csv_key_value with data as string , delimiter as string is "," into maybe map of string to string:
-    var mrows as maybe list of list of string is calling parse_csv with data , delimiter
+weave parse_csv_key_value with data as string , delimiter as string is "," into maybe map of string, string:
+    var mrows as maybe vector of vector of string is calling parse_csv with data , delimiter
     if mrows is not present:
         return maybe none
-    var rows as list of list of string is mrows.value
-    var result as map of string to string is map of string to string
+    var rows as vector of vector of string is mrows.value
+    var result as map of string, string is map of string, string
     var r as int is 0
     while r < rows.len:
-        var row as list of string is rows at r
+        var row as vector of string is rows at r
         if row.len >= 2:
             var k as string is row at 0
             var v as string is row at 1
@@ -546,14 +546,14 @@ weave parse_csv_key_value with data as string , delimiter as string is "," into 
     return some result
 
 ## Writes a map of string to string to a 2-column CSV file on disk.
-weave write_key_value_map with path as string , m as map of string to string , delimiter as string is "," into bool:
-    var keys as list of string is calling pengu_map_keys_string with sigil of m
-    var rows as list of list of string is list of list of string
+weave write_key_value_map with path as string , m as map of string, string , delimiter as string is "," into bool:
+    var keys as vector of string is calling pengu_map_keys_string with sigil of m
+    var rows as vector of vector of string is vector of vector of string
     var i as int is 0
     while i < keys.len:
         var k as string is keys at i
         var v as string is calling m.get with k
-        var row as list of string is list of string
+        var row as vector of string is vector of string
         calling row.push with k
         calling row.push with v
         calling rows.push with row
@@ -565,11 +565,11 @@ weave write_key_value_map with path as string , m as map of string to string , d
 # ----------------------------------------------------------------------------
 
 ## Serializes rows of fields into CSV/TSV text (with a trailing newline).
-weave to_csv_string with rows as list of list of string , delimiter as string is "," into maybe string:
+weave to_csv_string with rows as vector of vector of string , delimiter as string is "," into maybe string:
     var out as string is ""
     var r as int is 0
     while r < rows.len:
-        var row as list of string is rows at r
+        var row as vector of string is rows at r
         var c as int is 0
         while c < row.len:
             if c > 0:
@@ -582,7 +582,7 @@ weave to_csv_string with rows as list of list of string , delimiter as string is
     return some out
 
 ## Serializes rows of fields into CSV text without a trailing newline.
-weave to_csv_string_no_trailing_newline with rows as list of list of string , delimiter as string is "," into maybe string:
+weave to_csv_string_no_trailing_newline with rows as vector of vector of string , delimiter as string is "," into maybe string:
     var mres as maybe string is calling to_csv_string with rows , delimiter
     if mres is not present:
         return maybe none
@@ -595,11 +595,11 @@ weave to_csv_string_no_trailing_newline with rows as list of list of string , de
     return some s
 
 ## Serializes rows of fields into CSV text using Windows CRLF (\r\n) line endings.
-weave to_csv_string_crlf with rows as list of list of string , delimiter as string is "," into maybe string:
+weave to_csv_string_crlf with rows as vector of vector of string , delimiter as string is "," into maybe string:
     var out as string is ""
     var r as int is 0
     while r < rows.len:
-        var row as list of string is rows at r
+        var row as vector of string is rows at r
         var c as int is 0
         while c < row.len:
             if c > 0:
@@ -662,11 +662,11 @@ weave detect_delimiter with data as string into maybe string:
     return some chosen
 
 ## Parses tab-separated data into rows of fields.
-weave parse_tsv with data as string , has_header as bool is false into maybe list of list of string:
+weave parse_tsv with data as string , has_header as bool is false into maybe vector of vector of string:
     return calling parse_csv with data , "\t" , has_header
 
 ## Serializes rows into tab-separated text with a trailing newline.
-weave to_tsv_string with rows as list of list of string into maybe string:
+weave to_tsv_string with rows as vector of vector of string into maybe string:
     return calling to_csv_string with rows , "\t"
 
 # ----------------------------------------------------------------------------
@@ -674,28 +674,28 @@ weave to_tsv_string with rows as list of list of string into maybe string:
 # ----------------------------------------------------------------------------
 
 ## Reads the file at path and parses it as CSV.
-weave read_csv with path as string , has_header as bool is false , delimiter as string is "," into maybe list of list of string:
+weave read_csv with path as string , has_header as bool is false , delimiter as string is "," into maybe vector of vector of string:
     var content as maybe string is calling archivum.read_file with path
     if content.is_present:
         return calling parse_csv with content.value , delimiter , has_header
     return maybe none
 
 ## Reads the file at path and parses it as TSV.
-weave read_tsv with path as string , has_header as bool is false into maybe list of list of string:
+weave read_tsv with path as string , has_header as bool is false into maybe vector of vector of string:
     var content as maybe string is calling archivum.read_file with path
     if content.is_present:
         return calling parse_tsv with content.value , has_header
     return maybe none
 
 ## Serializes rows to CSV text and writes it to path.
-weave write_csv with path as string , rows as list of list of string , delimiter as string is "," into bool:
+weave write_csv with path as string , rows as vector of vector of string , delimiter as string is "," into bool:
     var gen as maybe string is calling to_csv_string with rows , delimiter
     if gen.is_present:
         return calling archivum.write_file with path , gen.value
     return false
 
 ## Serializes rows to TSV text and writes it to path.
-weave write_tsv with path as string , rows as list of list of string into bool:
+weave write_tsv with path as string , rows as vector of vector of string into bool:
     var gen as maybe string is calling to_tsv_string with rows
     if gen.is_present:
         return calling archivum.write_file with path , gen.value
@@ -704,7 +704,7 @@ weave write_tsv with path as string , rows as list of list of string into bool:
 ## Writes CSV to a temporary file (.tmp), then replaces the destination.
 ## NOTE: NOT atomic on POSIX/Windows because the runtime deletes the destination
 ## before renaming; a crash between the two operations loses the original file.
-weave write_csv_safe with path as string , rows as list of list of string , delimiter as string is "," into bool:
+weave write_csv_safe with path as string , rows as vector of vector of string , delimiter as string is "," into bool:
     var tmp_path as string is "{path}.tmp"
     var ok as bool is calling write_csv with tmp_path , rows , delimiter
     if not ok:

@@ -35,15 +35,15 @@ weave copy with s as string into string:
     return calling npool.copy_string with s
 
 ## Implementa `psc lsp`.
-weave run_lsp with args as list of string into int:
-    var vf as list of string is list of string
+weave run_lsp with args as vector of string into int:
+    var vf as vector of string is vector of string
     calling vf.push with "--host"
     calling vf.push with "--port"
-    var sf as list of string is list of string
+    var sf as vector of string is vector of string
     calling sf.push with "--stdio"
     calling sf.push with "--tcp"
     calling sf.push with "--help"
-    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, vector of string
     if not pr.ok:
         var e as string is pr.error
         calling spark.eprintln with e

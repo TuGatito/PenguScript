@@ -106,7 +106,7 @@ weave scan_string_generic with lx as ref to psstate.LexerState, raw as bool, tri
     var dedent as int is 0
     if triple:
         set dedent is calling compute_dedent with lx, content_start, content_end
-    var parts as list of StringPart is calling split_parts with lx, content_start, content_end, raw, triple
+    var parts as vector of StringPart is calling split_parts with lx, content_start, content_end, raw, triple
     var has_interp as bool is false
     var i as int is 0
     while i < parts.len:
@@ -283,8 +283,8 @@ weave compute_dedent with lx as ref to psstate.LexerState, start as int, end as 
 ##
 ## ## Memoria
 ## Devuelve un `list of StringPart` owned; liberar con `banish`.
-weave split_parts with lx as ref to psstate.LexerState, start as int, end as int, raw as bool, triple as bool into list of StringPart:
-    var out as list of StringPart is list of StringPart
+weave split_parts with lx as ref to psstate.LexerState, start as int, end as int, raw as bool, triple as bool into vector of StringPart:
+    var out as vector of StringPart is vector of StringPart
     if raw:
         if end > start:
             calling out.push with (with kind is SegText, start is start, end is end)

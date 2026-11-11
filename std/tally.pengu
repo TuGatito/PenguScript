@@ -113,7 +113,7 @@ const TALLY_VERSION as string is "2.14.0"
 
 ## Generic methods that only need a default value (`donum T`): access,
 ## reversal, flattening and selection by range.
-enchanting list of shard T where T: Donum:
+enchanting vector of shard T where T: Donum:
     ## First element of `self`, or `donum T` when `self` is empty.
     ##
     ## ## Parámetros
@@ -224,8 +224,8 @@ enchanting list of shard T where T: Donum:
     ## var xs as list of int is [3, 1, 2]
     ## calling xs.reverse    # [2, 1, 3]
     ## ```
-    weave reverse into list of T:
-        var out as list of T is for x in essence of self then x
+    weave reverse into vector of T:
+        var out as vector of T is for x in essence of self then x
         let n as int is calling out.len
         var i as int is 0
         while i < (n / 2):
@@ -248,7 +248,7 @@ enchanting list of shard T where T: Donum:
     ## var xs as list of int is [3, 1, 2]
     ## calling xs.flatten    # [3, 1, 2]
     ## ```
-    weave flatten into list of T:
+    weave flatten into vector of T:
         for x in essence of self then x
 
     ## First `n` elements of `self`, clipped to its length.
@@ -265,10 +265,10 @@ enchanting list of shard T where T: Donum:
     ## var xs as list of int is [3, 1, 2]
     ## calling xs.take with 2    # [3, 1]
     ## ```
-    weave take with n as int is 1 into list of T:
+    weave take with n as int is 1 into vector of T:
         let total as int is calling self.len
         let limit as int is (if n < 0 then 0 else (if n > total then total else n))
-        var idxs as list of int is list of int
+        var idxs as vector of int is vector of int
         defer banish idxs
         var i as int is 0
         while i < limit:
@@ -290,10 +290,10 @@ enchanting list of shard T where T: Donum:
     ## var xs as list of int is [3, 1, 2]
     ## calling xs.drop with 1    # [1, 2]
     ## ```
-    weave drop with n as int is 1 into list of T:
+    weave drop with n as int is 1 into vector of T:
         let total as int is calling self.len
         let start as int is (if n < 0 then 0 else n)
-        var idxs as list of int is list of int
+        var idxs as vector of int is vector of int
         defer banish idxs
         var i as int is start
         while i < total:
@@ -316,11 +316,11 @@ enchanting list of shard T where T: Donum:
     ## var xs as list of int is [3, 1, 2]
     ## calling xs.slice_list with 1, 3    # [1, 2]
     ## ```
-    weave slice_list with start as int, end_idx as int into list of T:
+    weave slice_list with start as int, end_idx as int into vector of T:
         let total as int is calling self.len
         let s as int is (if start < 0 then 0 else start)
         let e as int is (if end_idx > total then total else end_idx)
-        var idxs as list of int is list of int
+        var idxs as vector of int is vector of int
         defer banish idxs
         var i as int is s
         while i < e:
@@ -329,7 +329,7 @@ enchanting list of shard T where T: Donum:
         for j in idxs then (self at j)
 
 ## Generic numeric methods (`+ - * /` and literals).
-enchanting list of shard T where T: Num:
+enchanting vector of shard T where T: Num:
     ## Sum of every element; the empty list gives `donum T`.
     ##
     ## ## Parámetros
@@ -448,7 +448,7 @@ enchanting list of shard T where T: Num:
     ## var xs as list of int is [3, 1, 2]
     ## calling xs.map_double    # [6, 2, 4]
     ## ```
-    weave map_double into list of T:
+    weave map_double into vector of T:
         for x in essence of self then (x * 2)
 
     ## Copy of `self` with every element squared.
@@ -464,7 +464,7 @@ enchanting list of shard T where T: Num:
     ## var xs as list of int is [3, 1, 2]
     ## calling xs.map_square    # [9, 1, 4]
     ## ```
-    weave map_square into list of T:
+    weave map_square into vector of T:
         for x in essence of self then (x * x)
 
     ## Copy of `self` with every element negated.
@@ -481,7 +481,7 @@ enchanting list of shard T where T: Num:
     ## var xs as list of int is [3, -1]
     ## calling xs.map_negate    # [-3, 1]
     ## ```
-    weave map_negate into list of T:
+    weave map_negate into vector of T:
         for x in essence of self then (0 - x)
 
     ## Copy of `self` with the scalar `k` added to every element.
@@ -497,7 +497,7 @@ enchanting list of shard T where T: Num:
     ## var xs as list of int is [3, 1]
     ## calling xs.map_add_scalar with 10    # [13, 11]
     ## ```
-    weave map_add_scalar with k as T into list of T:
+    weave map_add_scalar with k as T into vector of T:
         for x in essence of self then (x + k)
 
     ## Copy of `self` with `delta` added to every element (same as
@@ -514,7 +514,7 @@ enchanting list of shard T where T: Num:
     ## var xs as list of int is [3, 1]
     ## calling xs.map_increment    # [4, 2]
     ## ```
-    weave map_increment with delta as int is 1 into list of T:
+    weave map_increment with delta as int is 1 into vector of T:
         let d as T is delta
         for x in essence of self then (x + d)
 
@@ -522,7 +522,7 @@ enchanting list of shard T where T: Num:
 ## for `int`, `i32`, `i64`, `float`, `f32`, `f64` and `string`; a `seal`/`rune`
 ## joins with its own `bind`. Every comparison is `calling a.cmp with b`, which
 ## returns 1, 0 or -1 and is the only comparison that compiles for `PenguString`.
-enchanting list of shard T where T: Donum and T: Ordered:
+enchanting vector of shard T where T: Donum and T: Ordered:
     ## Largest element; the empty list gives `donum T`.
     ##
     ## ## Parámetros
@@ -730,7 +730,7 @@ enchanting list of shard T where T: Donum and T: Ordered:
         return maybe none
 
 ## Methods that combine arithmetic and ordering (`median` averages two values).
-enchanting list of shard T where T: Num and T: Ordered:
+enchanting vector of shard T where T: Num and T: Ordered:
     ## Median after sorting; the empty list gives `donum T`.
     ##
     ## With an even length it averages the two central values (truncated
@@ -752,7 +752,7 @@ enchanting list of shard T where T: Num and T: Ordered:
         let n as int is calling self.len
         if n == 0:
             return donum T
-        var s as list of T is for x in essence of self then x
+        var s as vector of T is for x in essence of self then x
         defer banish s
         var i as int is 0
         while i < n:
@@ -774,7 +774,7 @@ enchanting list of shard T where T: Num and T: Ordered:
 
 ## Range checks (`all_in_range`, `filter_in_range`); the comparisons still go
 ## through the `Ordered` bind.
-enchanting list of shard T where T: Donum and T: Ordered:
+enchanting vector of shard T where T: Donum and T: Ordered:
     ## True when every element falls in `[lo, hi]`.
     ##
     ## ## Parámetros
@@ -814,14 +814,14 @@ enchanting list of shard T where T: Donum and T: Ordered:
     ## var xs as list of int is [3, 1, 4, 1, 5]
     ## calling xs.filter_in_range with 2, 4    # [3, 4]
     ## ```
-    weave filter_in_range with lo as T, hi as T into list of T:
-        var flags as list of bool is list of bool
+    weave filter_in_range with lo as T, hi as T into vector of T:
+        var flags as vector of bool is vector of bool
         defer banish flags
         for x in essence of self:
             let c_lo as int is calling x.cmp with lo
             let c_hi as int is calling x.cmp with hi
             calling flags.push with (c_lo >= 0 and c_hi <= 0)
-        var keep as list of int is list of int
+        var keep as vector of int is vector of int
         defer banish keep
         var i as int is 0
         for f in flags:
@@ -844,14 +844,14 @@ enchanting list of shard T where T: Donum and T: Ordered:
     ## var xs as list of int is [3, 1, 4, 1, 5]
     ## calling xs.filter_range with 2, 4    # [3, 4]
     ## ```
-    weave filter_range with lo as T, hi as T into list of T:
-        var flags as list of bool is list of bool
+    weave filter_range with lo as T, hi as T into vector of T:
+        var flags as vector of bool is vector of bool
         defer banish flags
         for x in essence of self:
             let c_lo as int is calling x.cmp with lo
             let c_hi as int is calling x.cmp with hi
             calling flags.push with (c_lo >= 0 and c_hi <= 0)
-        var keep as list of int is list of int
+        var keep as vector of int is vector of int
         defer banish keep
         var i as int is 0
         for f in flags:
@@ -862,7 +862,7 @@ enchanting list of shard T where T: Donum and T: Ordered:
 
 ## Methods that combine arithmetic and ordering over the `donum T` sentinel
 ## (absolute value, positivity, negation).
-enchanting list of shard T where T: Num and T: Ordo:
+enchanting vector of shard T where T: Num and T: Ordo:
     ## Copy of `self` with the absolute value of every element.
     ##
     ## ## Parámetros
@@ -877,7 +877,7 @@ enchanting list of shard T where T: Num and T: Ordo:
     ## var xs as list of int is [-3, 1, -2]
     ## calling xs.abs_all    # [3, 1, 2]
     ## ```
-    weave abs_all into list of T:
+    weave abs_all into vector of T:
         let zero as T is donum T
         for x in essence of self then (if x < zero then (zero - x) else x)
 
@@ -937,7 +937,7 @@ enchanting list of shard T where T: Num and T: Ordo:
     ## var xs as list of int is [3, -1, 0]
     ## calling xs.filter_positive    # [3]
     ## ```
-    weave filter_positive into list of T:
+    weave filter_positive into vector of T:
         let zero as T is donum T
         for x in essence of self when x > zero then x
 
@@ -954,12 +954,12 @@ enchanting list of shard T where T: Num and T: Ordo:
     ## var xs as list of int is [3, -1, 0]
     ## calling xs.filter_negative    # [-1]
     ## ```
-    weave filter_negative into list of T:
+    weave filter_negative into vector of T:
         let zero as T is donum T
         for x in essence of self when x < zero then x
 
 ## Methods that only compare by equality (`== !=`).
-enchanting list of shard T where T: Donum and T: Par:
+enchanting vector of shard T where T: Donum and T: Par:
     ## True when every element equals `donum T`.
     ##
     ## ## Parámetros
@@ -1024,9 +1024,9 @@ enchanting list of shard T where T: Donum and T: Par:
     ## var xs as list of int is [3, 1, 3, 2]
     ## calling xs.unique    # [3, 1, 2]
     ## ```
-    weave unique into list of T:
+    weave unique into vector of T:
         let n as int is calling self.len
-        var keep as list of int is list of int
+        var keep as vector of int is vector of int
         defer banish keep
         var i as int is 0
         while i < n:
@@ -1054,9 +1054,9 @@ enchanting list of shard T where T: Donum and T: Par:
     ## var xs as list of int is [3, 1, 3, 2]
     ## calling xs.dedup    # [3, 1, 2]
     ## ```
-    weave dedup into list of T:
+    weave dedup into vector of T:
         let n as int is calling self.len
-        var keep as list of int is list of int
+        var keep as vector of int is vector of int
         defer banish keep
         var i as int is 0
         while i < n:
@@ -1114,7 +1114,7 @@ enchanting list of shard T where T: Donum and T: Par:
         -1
 
 ## Methods that need integer arithmetic (`%`).
-enchanting list of shard T where T: Integrum and T: Par:
+enchanting vector of shard T where T: Integrum and T: Par:
     ## Copy of `self` with the even elements.
     ##
     ## ## Parámetros
@@ -1129,7 +1129,7 @@ enchanting list of shard T where T: Integrum and T: Par:
     ## var xs as list of int is [3, 1, 4, 1, 5]
     ## calling xs.filter_even    # [4]
     ## ```
-    weave filter_even into list of T:
+    weave filter_even into vector of T:
         for x in essence of self when (x % 2) == 0 then x
 
     ## Copy of `self` with the odd elements.
@@ -1146,11 +1146,11 @@ enchanting list of shard T where T: Integrum and T: Par:
     ## var xs as list of int is [3, 1, 4, 1, 5]
     ## calling xs.filter_odd    # [3, 1, 1, 5]
     ## ```
-    weave filter_odd into list of T:
+    weave filter_odd into vector of T:
         for x in essence of self when (x % 2) != 0 then x
 
 ## Concrete specialisations whose default depends on the `int` type.
-enchanting list of int:
+enchanting vector of int:
     ## Element at `idx`, or `default` when out of range.
     ##
     ## ## Parámetros
@@ -1188,7 +1188,7 @@ enchanting list of int:
     ## var xs as list of int is [-5, 150]
     ## calling xs.clamp_all    # [0, 100]
     ## ```
-    weave clamp_all with lo as int is 0, hi as int is 100 into list of int:
+    weave clamp_all with lo as int is 0, hi as int is 100 into vector of int:
         for x in essence of self then (if x < lo then lo else (if x > hi then hi else x))
 
 
@@ -1197,12 +1197,12 @@ enchanting list of int:
 # --- Concrete sort module functions (stable merge sort, O(n log n)) ---
 
 ## Stable merge sort of `list of int` (`asc`).
-weave sort_int_asc with l as list of int into list of int:
-    var out as list of int is for x in l then x
+weave sort_int_asc with l as vector of int into vector of int:
+    var out as vector of int is for x in l then x
     let n as int is calling out.len
     if n < 2:
         return out
-    var buf as list of int is for x in out then x
+    var buf as vector of int is for x in out then x
     var width as int is 1
     while width < n:
         var w as int is 0
@@ -1243,12 +1243,12 @@ weave sort_int_asc with l as list of int into list of int:
     return out
 
 ## Stable merge sort of `list of int` (`desc`).
-weave sort_int_desc with l as list of int into list of int:
-    var out as list of int is for x in l then x
+weave sort_int_desc with l as vector of int into vector of int:
+    var out as vector of int is for x in l then x
     let n as int is calling out.len
     if n < 2:
         return out
-    var buf as list of int is for x in out then x
+    var buf as vector of int is for x in out then x
     var width as int is 1
     while width < n:
         var w as int is 0
@@ -1289,12 +1289,12 @@ weave sort_int_desc with l as list of int into list of int:
     return out
 
 ## Stable merge sort of `list of float` (`asc`).
-weave sort_float_asc with l as list of float into list of float:
-    var out as list of float is for x in l then x
+weave sort_float_asc with l as vector of float into vector of float:
+    var out as vector of float is for x in l then x
     let n as int is calling out.len
     if n < 2:
         return out
-    var buf as list of float is for x in out then x
+    var buf as vector of float is for x in out then x
     var width as int is 1
     while width < n:
         var w as int is 0
@@ -1335,12 +1335,12 @@ weave sort_float_asc with l as list of float into list of float:
     return out
 
 ## Stable merge sort of `list of float` (`desc`).
-weave sort_float_desc with l as list of float into list of float:
-    var out as list of float is for x in l then x
+weave sort_float_desc with l as vector of float into vector of float:
+    var out as vector of float is for x in l then x
     let n as int is calling out.len
     if n < 2:
         return out
-    var buf as list of float is for x in out then x
+    var buf as vector of float is for x in out then x
     var width as int is 1
     while width < n:
         var w as int is 0
@@ -1381,12 +1381,12 @@ weave sort_float_desc with l as list of float into list of float:
     return out
 
 ## Stable merge sort of `list of f64` (`asc`).
-weave sort_f64_asc with l as list of f64 into list of f64:
-    var out as list of f64 is for x in l then x
+weave sort_f64_asc with l as vector of f64 into vector of f64:
+    var out as vector of f64 is for x in l then x
     let n as int is calling out.len
     if n < 2:
         return out
-    var buf as list of f64 is for x in out then x
+    var buf as vector of f64 is for x in out then x
     var width as int is 1
     while width < n:
         var w as int is 0
@@ -1427,12 +1427,12 @@ weave sort_f64_asc with l as list of f64 into list of f64:
     return out
 
 ## Stable merge sort of `list of f64` (`desc`).
-weave sort_f64_desc with l as list of f64 into list of f64:
-    var out as list of f64 is for x in l then x
+weave sort_f64_desc with l as vector of f64 into vector of f64:
+    var out as vector of f64 is for x in l then x
     let n as int is calling out.len
     if n < 2:
         return out
-    var buf as list of f64 is for x in out then x
+    var buf as vector of f64 is for x in out then x
     var width as int is 1
     while width < n:
         var w as int is 0
@@ -1473,12 +1473,12 @@ weave sort_f64_desc with l as list of f64 into list of f64:
     return out
 
 ## Stable merge sort of `list of string` (`asc`).
-weave sort_string_asc with l as list of string into list of string:
-    var out as list of string is for x in l then x
+weave sort_string_asc with l as vector of string into vector of string:
+    var out as vector of string is for x in l then x
     let n as int is calling out.len
     if n < 2:
         return out
-    var buf as list of string is for x in out then x
+    var buf as vector of string is for x in out then x
     var width as int is 1
     while width < n:
         var w as int is 0
@@ -1519,12 +1519,12 @@ weave sort_string_asc with l as list of string into list of string:
     return out
 
 ## Stable merge sort of `list of string` (`desc`).
-weave sort_string_desc with l as list of string into list of string:
-    var out as list of string is for x in l then x
+weave sort_string_desc with l as vector of string into vector of string:
+    var out as vector of string is for x in l then x
     let n as int is calling out.len
     if n < 2:
         return out
-    var buf as list of string is for x in out then x
+    var buf as vector of string is for x in out then x
     var width as int is 1
     while width < n:
         var w as int is 0
@@ -1574,7 +1574,7 @@ weave _string_greater with a as string, b as string into bool:
     return (calling scrolls.compare with a, b) > 0
 
 ## True when `l` is non-decreasing.
-weave is_sorted_int_asc with l as list of int into bool:
+weave is_sorted_int_asc with l as vector of int into bool:
     let n as int is calling l.len
     if n < 2:
         return true
@@ -1586,7 +1586,7 @@ weave is_sorted_int_asc with l as list of int into bool:
     return true
 
 ## True when `l` is non-increasing.
-weave is_sorted_int_desc with l as list of int into bool:
+weave is_sorted_int_desc with l as vector of int into bool:
     let n as int is calling l.len
     if n < 2:
         return true
@@ -1598,7 +1598,7 @@ weave is_sorted_int_desc with l as list of int into bool:
     return true
 
 ## True when `l` is non-decreasing.
-weave is_sorted_float_asc with l as list of float into bool:
+weave is_sorted_float_asc with l as vector of float into bool:
     let n as int is calling l.len
     if n < 2:
         return true
@@ -1610,7 +1610,7 @@ weave is_sorted_float_asc with l as list of float into bool:
     return true
 
 ## True when `l` is non-increasing.
-weave is_sorted_float_desc with l as list of float into bool:
+weave is_sorted_float_desc with l as vector of float into bool:
     let n as int is calling l.len
     if n < 2:
         return true
@@ -1622,7 +1622,7 @@ weave is_sorted_float_desc with l as list of float into bool:
     return true
 
 ## True when `l` is non-decreasing.
-weave is_sorted_f64_asc with l as list of f64 into bool:
+weave is_sorted_f64_asc with l as vector of f64 into bool:
     let n as int is calling l.len
     if n < 2:
         return true
@@ -1634,7 +1634,7 @@ weave is_sorted_f64_asc with l as list of f64 into bool:
     return true
 
 ## True when `l` is non-increasing.
-weave is_sorted_f64_desc with l as list of f64 into bool:
+weave is_sorted_f64_desc with l as vector of f64 into bool:
     let n as int is calling l.len
     if n < 2:
         return true
@@ -1646,7 +1646,7 @@ weave is_sorted_f64_desc with l as list of f64 into bool:
     return true
 
 ## True when `l` is non-decreasing (UTF-8 byte order).
-weave is_sorted_string_asc with l as list of string into bool:
+weave is_sorted_string_asc with l as vector of string into bool:
     let n as int is calling l.len
     if n < 2:
         return true
@@ -1658,7 +1658,7 @@ weave is_sorted_string_asc with l as list of string into bool:
     return true
 
 ## True when `l` is non-increasing (UTF-8 byte order).
-weave is_sorted_string_desc with l as list of string into bool:
+weave is_sorted_string_desc with l as vector of string into bool:
     let n as int is calling l.len
     if n < 2:
         return true
@@ -1684,7 +1684,7 @@ weave is_sorted_string_desc with l as list of string into bool:
 ## var xs as list of int is list of int
 ## calling is_empty with xs    # true
 ## ```
-weave is_empty shard T with l as list of T into bool:
+weave is_empty shard T with l as vector of T into bool:
     return (calling l.len) == 0
 
 ## Functional form of `sum`: arithmetic total of every element.
@@ -1700,7 +1700,7 @@ weave is_empty shard T with l as list of T into bool:
 ## var xs as list of int is [3, 1, 2]
 ## calling sum with xs    # 6
 ## ```
-weave sum shard T where T: Num with l as list of T into T:
+weave sum shard T where T: Num with l as vector of T into T:
     var acc as T is donum T
     for x in l:
         set acc is acc + x
@@ -1721,7 +1721,7 @@ weave sum shard T where T: Num with l as list of T into T:
 ## var ws as list of string is ["a", "c", "b"]
 ## calling max_val with ws    # "c"
 ## ```
-weave max_val shard T where T: Donum and T: Ordered with l as list of T into T:
+weave max_val shard T where T: Donum and T: Ordered with l as vector of T into T:
     let n as int is calling l.len
     if n == 0:
         return donum T
@@ -1745,7 +1745,7 @@ weave max_val shard T where T: Donum and T: Ordered with l as list of T into T:
 ## var xs as list of int is [3, 1, 2]
 ## calling min_val with xs    # 1
 ## ```
-weave min_val shard T where T: Donum and T: Ordered with l as list of T into T:
+weave min_val shard T where T: Donum and T: Ordered with l as vector of T into T:
     let n as int is calling l.len
     if n == 0:
         return donum T
@@ -1775,8 +1775,8 @@ weave min_val shard T where T: Donum and T: Ordered with l as list of T into T:
 ## var b as list of int is [4, 5]
 ## calling concat with a, b    # [3, 1, 4, 5]
 ## ```
-weave concat shard T with a as list of T, b as list of T into list of T:
-    var out as list of T is list of T
+weave concat shard T with a as vector of T, b as vector of T into vector of T:
+    var out as vector of T is vector of T
     for x in a:
         calling out.push with x
     for x in b:
@@ -1799,8 +1799,8 @@ weave concat shard T with a as list of T, b as list of T into list of T:
 ## var b as list of int is [1, 1, 1]
 ## calling zip_sum with a, b    # [4, 2, 3]
 ## ```
-weave zip_sum shard T where T: Num with a as list of T, b as list of T into list of T:
-    var out as list of T is list of T
+weave zip_sum shard T where T: Num with a as vector of T, b as vector of T into vector of T:
+    var out as vector of T is vector of T
     let na as int is calling a.len
     let nb as int is calling b.len
     let limit as int is (if nb < na then nb else na)
@@ -1826,7 +1826,7 @@ weave zip_sum shard T where T: Num with a as list of T, b as list of T into list
 ## var b as list of int is [1, 1, 1]
 ## calling dot with a, b    # 6
 ## ```
-weave dot shard T where T: Num with a as list of T, b as list of T into T:
+weave dot shard T where T: Num with a as vector of T, b as vector of T into T:
     var total as T is donum T
     let na as int is calling a.len
     let nb as int is calling b.len
@@ -1850,8 +1850,8 @@ weave dot shard T where T: Num with a as list of T, b as list of T into T:
 ## ```pengu
 ## calling repeat with 7, 3    # [7, 7, 7]
 ## ```
-weave repeat shard T with val as T, times as int into list of T:
-    var out as list of T is list of T
+weave repeat shard T with val as T, times as int into vector of T:
+    var out as vector of T is vector of T
     var i as int is 0
     while i < times:
         calling out.push with val
@@ -1871,7 +1871,7 @@ weave repeat shard T with val as T, times as int into list of T:
 ## var xs as list of int is [3, 1, 2]
 ## calling len with xs    # 3
 ## ```
-weave len shard T with l as list of T into int:
+weave len shard T with l as vector of T into int:
     return l.len
 
 ## Functional form of `first`: first element of `l`.
@@ -1887,7 +1887,7 @@ weave len shard T with l as list of T into int:
 ## var xs as list of int is [3, 1, 2]
 ## calling first with xs    # 3
 ## ```
-weave first shard T where T: Donum with l as list of T into T:
+weave first shard T where T: Donum with l as vector of T into T:
     let n as int is calling l.len
     if n == 0:
         return donum T
@@ -1906,7 +1906,7 @@ weave first shard T where T: Donum with l as list of T into T:
 ## var xs as list of int is [3, 1, 2]
 ## calling last with xs    # 2
 ## ```
-weave last shard T where T: Donum with l as list of T into T:
+weave last shard T where T: Donum with l as vector of T into T:
     let n as int is calling l.len
     if n == 0:
         return donum T
@@ -1930,7 +1930,7 @@ weave last shard T where T: Donum with l as list of T into T:
 ## var xs as list of int is [3, 1, 2]
 ## calling at_or with xs, 9, -1    # -1
 ## ```
-weave at_or with l as list of int, idx as int, default as int is 0 into int:
+weave at_or with l as vector of int, idx as int, default as int is 0 into int:
     let n as int is calling l.len
     if idx < 0:
         return default
@@ -1954,7 +1954,7 @@ weave at_or with l as list of int, idx as int, default as int is 0 into int:
 ## var ws as list of string is ["a", "b"]
 ## calling at_or_shard with ws, 9, "?"    # "?"
 ## ```
-weave at_or_shard shard T where T: Donum with l as list of T, idx as int, default as T into T:
+weave at_or_shard shard T where T: Donum with l as vector of T, idx as int, default as T into T:
     let n as int is calling l.len
     if idx < 0:
         return default
@@ -1976,7 +1976,7 @@ weave at_or_shard shard T where T: Donum with l as list of T, idx as int, defaul
 ## var xs as list of int is [3, 1, 2]
 ## calling at_safe with xs, 2    # some 2
 ## ```
-weave at_safe shard T where T: Donum with l as list of T, idx as int into maybe T:
+weave at_safe shard T where T: Donum with l as vector of T, idx as int into maybe T:
     if idx < 0:
         return maybe none
     if idx >= (calling l.len):
@@ -1997,7 +1997,7 @@ weave at_safe shard T where T: Donum with l as list of T, idx as int into maybe 
 ## var xs as list of int is [3, 1, 2]
 ## calling contains with xs, 1    # true
 ## ```
-weave contains shard T where T: Par with l as list of T, item as T into bool:
+weave contains shard T where T: Par with l as vector of T, item as T into bool:
     for x in l:
         if x == item:
             return true
@@ -2017,7 +2017,7 @@ weave contains shard T where T: Par with l as list of T, item as T into bool:
 ## var xs as list of int is [3, 1, 4, 1]
 ## calling index_of with xs, 4    # 2
 ## ```
-weave index_of shard T where T: Par with l as list of T, item as T into int:
+weave index_of shard T where T: Par with l as vector of T, item as T into int:
     var idx as int is 0
     for x in l:
         if x == item:
@@ -2039,7 +2039,7 @@ weave index_of shard T where T: Par with l as list of T, item as T into int:
 ## var xs as list of int is [3, 1, 4, 1]
 ## calling last_index_of with xs, 1    # 3
 ## ```
-weave last_index_of shard T where T: Par with l as list of T, item as T into int:
+weave last_index_of shard T where T: Par with l as vector of T, item as T into int:
     var found as int is -1
     var idx as int is 0
     for x in l:
@@ -2062,7 +2062,7 @@ weave last_index_of shard T where T: Par with l as list of T, item as T into int
 ## var xs as list of int is [3, 1, 4, 1]
 ## calling count_of with xs, 1    # 2
 ## ```
-weave count_of shard T where T: Par with l as list of T, item as T into int:
+weave count_of shard T where T: Par with l as vector of T, item as T into int:
     var total as int is 0
     for x in l:
         if x == item:
@@ -2083,7 +2083,7 @@ weave count_of shard T where T: Par with l as list of T, item as T into int:
 ## var xs as list of int is [3, 1, 4]
 ## calling find_first_gt with xs, 3    # some 4
 ## ```
-weave find_first_gt shard T where T: Ordered with l as list of T, threshold as T into maybe T:
+weave find_first_gt shard T where T: Ordered with l as vector of T, threshold as T into maybe T:
     for x in l:
         let c as int is calling x.cmp with threshold
         if c > 0:
@@ -2104,7 +2104,7 @@ weave find_first_gt shard T where T: Ordered with l as list of T, threshold as T
 ## var xs as list of int is [3, 1, 4]
 ## calling find_first_lt with xs, 2    # some 1
 ## ```
-weave find_first_lt shard T where T: Ordered with l as list of T, threshold as T into maybe T:
+weave find_first_lt shard T where T: Ordered with l as vector of T, threshold as T into maybe T:
     for x in l:
         let c as int is calling x.cmp with threshold
         if c < 0:
@@ -2124,7 +2124,7 @@ weave find_first_lt shard T where T: Ordered with l as list of T, threshold as T
 ## var xs as list of int is [3, 1, 2]
 ## calling product with xs    # 6
 ## ```
-weave product shard T where T: Num with l as list of T into T:
+weave product shard T where T: Num with l as vector of T into T:
     var acc as T is 1
     for x in l:
         set acc is acc * x
@@ -2143,7 +2143,7 @@ weave product shard T where T: Num with l as list of T into T:
 ## var xs as list of int is [3, 1, 4]
 ## calling max_index with xs    # 2
 ## ```
-weave max_index shard T where T: Ordered with l as list of T into int:
+weave max_index shard T where T: Ordered with l as vector of T into int:
     let n as int is calling l.len
     if n == 0:
         return -1
@@ -2171,7 +2171,7 @@ weave max_index shard T where T: Ordered with l as list of T into int:
 ## var xs as list of int is [3, 1, 4]
 ## calling min_index with xs    # 1
 ## ```
-weave min_index shard T where T: Ordered with l as list of T into int:
+weave min_index shard T where T: Ordered with l as vector of T into int:
     let n as int is calling l.len
     if n == 0:
         return -1
@@ -2199,7 +2199,7 @@ weave min_index shard T where T: Ordered with l as list of T into int:
 ## var xs as list of int is [3, 1, 4]
 ## calling argmin with xs    # 1
 ## ```
-weave argmin shard T where T: Ordered with l as list of T into int:
+weave argmin shard T where T: Ordered with l as vector of T into int:
     let n as int is calling l.len
     if n == 0:
         return -1
@@ -2227,7 +2227,7 @@ weave argmin shard T where T: Ordered with l as list of T into int:
 ## var xs as list of int is [3, 1, 4]
 ## calling argmax with xs    # 2
 ## ```
-weave argmax shard T where T: Ordered with l as list of T into int:
+weave argmax shard T where T: Ordered with l as vector of T into int:
     let n as int is calling l.len
     if n == 0:
         return -1
@@ -2256,7 +2256,7 @@ weave argmax shard T where T: Ordered with l as list of T into int:
 ## var xs as list of int is [3, 1, 4]
 ## calling mean with xs    # 2
 ## ```
-weave mean shard T where T: Num with l as list of T into T:
+weave mean shard T where T: Num with l as vector of T into T:
     let n as int is calling l.len
     if n == 0:
         return donum T
@@ -2278,7 +2278,7 @@ weave mean shard T where T: Num with l as list of T into T:
 ## var xs as list of int is [3, 1, 4]
 ## calling average with xs    # 2
 ## ```
-weave average shard T where T: Num with l as list of T into T:
+weave average shard T where T: Num with l as vector of T into T:
     let n as int is calling l.len
     if n == 0:
         return donum T
@@ -2300,7 +2300,7 @@ weave average shard T where T: Num with l as list of T into T:
 ## var xs as list of int is [3, 1, 2]
 ## calling sum_of_squares with xs    # 14
 ## ```
-weave sum_of_squares shard T where T: Num with l as list of T into T:
+weave sum_of_squares shard T where T: Num with l as vector of T into T:
     var acc as T is donum T
     for x in l:
         set acc is acc + (x * x)
@@ -2320,11 +2320,11 @@ weave sum_of_squares shard T where T: Num with l as list of T into T:
 ## var xs as list of int is [3, 1, 4]
 ## calling median with xs    # 3
 ## ```
-weave median shard T where T: Num and T: Ordered with l as list of T into T:
+weave median shard T where T: Num and T: Ordered with l as vector of T into T:
     let n as int is calling l.len
     if n == 0:
         return donum T
-    var s as list of T is list of T
+    var s as vector of T is vector of T
     defer banish s
     for x in l:
         calling s.push with x
@@ -2360,7 +2360,7 @@ weave median shard T where T: Num and T: Ordered with l as list of T into T:
 ## var xs as list of int is [3, 1, 3]
 ## calling mode with xs    # 3
 ## ```
-weave mode shard T where T: Donum and T: Par with l as list of T into T:
+weave mode shard T where T: Donum and T: Par with l as vector of T into T:
     let n as int is calling l.len
     if n == 0:
         return donum T
@@ -2389,8 +2389,8 @@ weave mode shard T where T: Donum and T: Par with l as list of T into T:
 ## var xs as list of int is [3, 1, 2]
 ## calling reverse with xs    # [2, 1, 3]
 ## ```
-weave reverse shard T with l as list of T into list of T:
-    var out as list of T is for x in l then x
+weave reverse shard T with l as vector of T into vector of T:
+    var out as vector of T is for x in l then x
     let n as int is calling out.len
     var i as int is 0
     while i < (n / 2):
@@ -2414,9 +2414,9 @@ weave reverse shard T with l as list of T into list of T:
 ## var xs as list of int is [3, 1, 3, 2]
 ## calling unique with xs    # [3, 1, 2]
 ## ```
-weave unique shard T where T: Par with l as list of T into list of T:
+weave unique shard T where T: Par with l as vector of T into vector of T:
     let n as int is calling l.len
-    var keep as list of int is list of int
+    var keep as vector of int is vector of int
     defer banish keep
     var i as int is 0
     while i < n:
@@ -2444,9 +2444,9 @@ weave unique shard T where T: Par with l as list of T into list of T:
 ## var xs as list of int is [3, 1, 3, 2]
 ## calling dedup with xs    # [3, 1, 2]
 ## ```
-weave dedup shard T where T: Par with l as list of T into list of T:
+weave dedup shard T where T: Par with l as vector of T into vector of T:
     let n as int is calling l.len
-    var keep as list of int is list of int
+    var keep as vector of int is vector of int
     defer banish keep
     var i as int is 0
     while i < n:
@@ -2474,7 +2474,7 @@ weave dedup shard T where T: Par with l as list of T into list of T:
 ## var xs as list of int is [3, 1, 2]
 ## calling flatten with xs    # [3, 1, 2]
 ## ```
-weave flatten shard T with l as list of T into list of T:
+weave flatten shard T with l as vector of T into vector of T:
     return for x in l then x
 
 ## Functional form of `abs_all`: copy with absolute values.
@@ -2490,7 +2490,7 @@ weave flatten shard T with l as list of T into list of T:
 ## var xs as list of int is [-3, 1, -2]
 ## calling abs_all with xs    # [3, 1, 2]
 ## ```
-weave abs_all shard T where T: Num and T: Ordo with l as list of T into list of T:
+weave abs_all shard T where T: Num and T: Ordo with l as vector of T into vector of T:
     let zero as T is donum T
     return for x in l then (if x < zero then (zero - x) else x)
 
@@ -2512,7 +2512,7 @@ weave abs_all shard T where T: Num and T: Ordo with l as list of T into list of 
 ## var xs as list of int is [-5, 150]
 ## calling clamp_all with xs, 0, 100    # [0, 100]
 ## ```
-weave clamp_all with l as list of int, lo as int is 0, hi as int is 100 into list of int:
+weave clamp_all with l as vector of int, lo as int is 0, hi as int is 100 into vector of int:
     return for x in l then (if x < lo then lo else (if x > hi then hi else x))
 
 ## Copy of `l` with every value clipped to `[lo, hi]`, for any `T: Num`.
@@ -2530,7 +2530,7 @@ weave clamp_all with l as list of int, lo as int is 0, hi as int is 100 into lis
 ## var fs as list of float is [-1.5, 4.5]
 ## calling clamp_all_shard with fs, 0.0, 2.0    # [0.0, 2.0]
 ## ```
-weave clamp_all_shard shard T where T: Num and T: Ordo with l as list of T, lo as T, hi as T into list of T:
+weave clamp_all_shard shard T where T: Num and T: Ordo with l as vector of T, lo as T, hi as T into vector of T:
     return for x in l then (if x < lo then lo else (if x > hi then hi else x))
 
 ## Functional form of `take`: first `n` elements of `l`.
@@ -2547,10 +2547,10 @@ weave clamp_all_shard shard T where T: Num and T: Ordo with l as list of T, lo a
 ## var xs as list of int is [3, 1, 2]
 ## calling take with xs, 2    # [3, 1]
 ## ```
-weave take shard T with l as list of T, n as int is 1 into list of T:
+weave take shard T with l as vector of T, n as int is 1 into vector of T:
     let total as int is calling l.len
     let limit as int is (if n < 0 then 0 else (if n > total then total else n))
-    var idxs as list of int is list of int
+    var idxs as vector of int is vector of int
     defer banish idxs
     var i as int is 0
     while i < limit:
@@ -2572,10 +2572,10 @@ weave take shard T with l as list of T, n as int is 1 into list of T:
 ## var xs as list of int is [3, 1, 2]
 ## calling drop with xs, 1    # [1, 2]
 ## ```
-weave drop shard T with l as list of T, n as int is 1 into list of T:
+weave drop shard T with l as vector of T, n as int is 1 into vector of T:
     let total as int is calling l.len
     let start as int is (if n < 0 then 0 else n)
-    var idxs as list of int is list of int
+    var idxs as vector of int is vector of int
     defer banish idxs
     var i as int is start
     while i < total:
@@ -2598,11 +2598,11 @@ weave drop shard T with l as list of T, n as int is 1 into list of T:
 ## var xs as list of int is [3, 1, 2]
 ## calling slice_list with xs, 1, 3    # [1, 2]
 ## ```
-weave slice_list shard T with l as list of T, start as int, end_idx as int into list of T:
+weave slice_list shard T with l as vector of T, start as int, end_idx as int into vector of T:
     let total as int is calling l.len
     let s as int is (if start < 0 then 0 else start)
     let e as int is (if end_idx > total then total else end_idx)
-    var idxs as list of int is list of int
+    var idxs as vector of int is vector of int
     defer banish idxs
     var i as int is s
     while i < e:
@@ -2623,7 +2623,7 @@ weave slice_list shard T with l as list of T, start as int, end_idx as int into 
 ## var xs as list of int is [3, 1, 2]
 ## calling all_positive with xs    # true
 ## ```
-weave all_positive shard T where T: Num and T: Ordo with l as list of T into bool:
+weave all_positive shard T where T: Num and T: Ordo with l as vector of T into bool:
     let zero as T is donum T
     for x in l:
         if x <= zero:
@@ -2644,7 +2644,7 @@ weave all_positive shard T where T: Num and T: Ordo with l as list of T into boo
 ## var xs as list of int is [0, 0]
 ## calling all_zero with xs    # true
 ## ```
-weave all_zero shard T where T: Donum and T: Par with l as list of T into bool:
+weave all_zero shard T where T: Donum and T: Par with l as vector of T into bool:
     let zero as T is donum T
     for x in l:
         if x != zero:
@@ -2664,7 +2664,7 @@ weave all_zero shard T where T: Donum and T: Par with l as list of T into bool:
 ## var xs as list of int is [3, -1]
 ## calling any_negative with xs    # true
 ## ```
-weave any_negative shard T where T: Num and T: Ordo with l as list of T into bool:
+weave any_negative shard T where T: Num and T: Ordo with l as vector of T into bool:
     let zero as T is donum T
     for x in l:
         if x < zero:
@@ -2686,7 +2686,7 @@ weave any_negative shard T where T: Num and T: Ordo with l as list of T into boo
 ## var xs as list of int is [1, 3, 5]
 ## calling all_in_range with xs, 1, 5    # true
 ## ```
-weave all_in_range shard T where T: Ordered with l as list of T, lo as T, hi as T into bool:
+weave all_in_range shard T where T: Ordered with l as vector of T, lo as T, hi as T into bool:
     for x in l:
         let c_lo as int is calling x.cmp with lo
         if c_lo < 0:
@@ -2710,7 +2710,7 @@ weave all_in_range shard T where T: Ordered with l as list of T, lo as T, hi as 
 ## var xs as list of int is [3, 1, 4, 1, 5]
 ## calling filter_even with xs    # [4]
 ## ```
-weave filter_even shard T where T: Integrum and T: Par with l as list of T into list of T:
+weave filter_even shard T where T: Integrum and T: Par with l as vector of T into vector of T:
     return for x in l when (x % 2) == 0 then x
 
 ## Functional form of `filter_odd`: copy with the odd elements.
@@ -2727,7 +2727,7 @@ weave filter_even shard T where T: Integrum and T: Par with l as list of T into 
 ## var xs as list of int is [3, 1, 4, 1, 5]
 ## calling filter_odd with xs    # [3, 1, 1, 5]
 ## ```
-weave filter_odd shard T where T: Integrum and T: Par with l as list of T into list of T:
+weave filter_odd shard T where T: Integrum and T: Par with l as vector of T into vector of T:
     return for x in l when (x % 2) != 0 then x
 
 ## Functional form of `filter_positive`: copy with the strictly positive
@@ -2744,7 +2744,7 @@ weave filter_odd shard T where T: Integrum and T: Par with l as list of T into l
 ## var xs as list of int is [3, -1, 0]
 ## calling filter_positive with xs    # [3]
 ## ```
-weave filter_positive shard T where T: Num and T: Ordo with l as list of T into list of T:
+weave filter_positive shard T where T: Num and T: Ordo with l as vector of T into vector of T:
     let zero as T is donum T
     return for x in l when x > zero then x
 
@@ -2762,7 +2762,7 @@ weave filter_positive shard T where T: Num and T: Ordo with l as list of T into 
 ## var xs as list of int is [3, -1, 0]
 ## calling filter_negative with xs    # [-1]
 ## ```
-weave filter_negative shard T where T: Num and T: Ordo with l as list of T into list of T:
+weave filter_negative shard T where T: Num and T: Ordo with l as vector of T into vector of T:
     let zero as T is donum T
     return for x in l when x < zero then x
 
@@ -2782,14 +2782,14 @@ weave filter_negative shard T where T: Num and T: Ordo with l as list of T into 
 ## var xs as list of int is [3, 1, 4, 1, 5]
 ## calling filter_in_range with xs, 2, 4    # [3, 4]
 ## ```
-weave filter_in_range shard T where T: Ordered with l as list of T, lo as T, hi as T into list of T:
-    var flags as list of bool is list of bool
+weave filter_in_range shard T where T: Ordered with l as vector of T, lo as T, hi as T into vector of T:
+    var flags as vector of bool is vector of bool
     defer banish flags
     for x in l:
         let c_lo as int is calling x.cmp with lo
         let c_hi as int is calling x.cmp with hi
         calling flags.push with (c_lo >= 0 and c_hi <= 0)
-    var keep as list of int is list of int
+    var keep as vector of int is vector of int
     defer banish keep
     var i as int is 0
     for f in flags:
@@ -2813,14 +2813,14 @@ weave filter_in_range shard T where T: Ordered with l as list of T, lo as T, hi 
 ## var xs as list of int is [3, 1, 4, 1, 5]
 ## calling filter_range with xs, 2, 4    # [3, 4]
 ## ```
-weave filter_range shard T where T: Ordered with l as list of T, lo as T, hi as T into list of T:
-    var flags as list of bool is list of bool
+weave filter_range shard T where T: Ordered with l as vector of T, lo as T, hi as T into vector of T:
+    var flags as vector of bool is vector of bool
     defer banish flags
     for x in l:
         let c_lo as int is calling x.cmp with lo
         let c_hi as int is calling x.cmp with hi
         calling flags.push with (c_lo >= 0 and c_hi <= 0)
-    var keep as list of int is list of int
+    var keep as vector of int is vector of int
     defer banish keep
     var i as int is 0
     for f in flags:
@@ -2842,7 +2842,7 @@ weave filter_range shard T where T: Ordered with l as list of T, lo as T, hi as 
 ## var xs as list of int is [3, 1, 2]
 ## calling map_double with xs    # [6, 2, 4]
 ## ```
-weave map_double shard T where T: Num with l as list of T into list of T:
+weave map_double shard T where T: Num with l as vector of T into vector of T:
     return for x in l then (x * 2)
 
 ## Functional form of `map_square`: copy with every element squared.
@@ -2858,7 +2858,7 @@ weave map_double shard T where T: Num with l as list of T into list of T:
 ## var xs as list of int is [3, 1, 2]
 ## calling map_square with xs    # [9, 1, 4]
 ## ```
-weave map_square shard T where T: Num with l as list of T into list of T:
+weave map_square shard T where T: Num with l as vector of T into vector of T:
     return for x in l then (x * x)
 
 ## Functional form of `map_negate`: copy with every element negated.
@@ -2874,7 +2874,7 @@ weave map_square shard T where T: Num with l as list of T into list of T:
 ## var xs as list of int is [3, -1]
 ## calling map_negate with xs    # [-3, 1]
 ## ```
-weave map_negate shard T where T: Num with l as list of T into list of T:
+weave map_negate shard T where T: Num with l as vector of T into vector of T:
     return for x in l then (0 - x)
 
 ## Functional form of `map_add_scalar`: copy with `k` added to every element.
@@ -2891,7 +2891,7 @@ weave map_negate shard T where T: Num with l as list of T into list of T:
 ## var xs as list of int is [3, 1]
 ## calling map_add_scalar with xs, 10    # [13, 11]
 ## ```
-weave map_add_scalar shard T where T: Num with l as list of T, k as T into list of T:
+weave map_add_scalar shard T where T: Num with l as vector of T, k as T into vector of T:
     return for x in l then (x + k)
 
 ## Functional form of `map_increment`: copy with `delta` added to every element.
@@ -2908,7 +2908,7 @@ weave map_add_scalar shard T where T: Num with l as list of T, k as T into list 
 ## var xs as list of int is [3, 1]
 ## calling map_increment with xs, 2    # [5, 3]
 ## ```
-weave map_increment shard T where T: Num with l as list of T, delta as int is 1 into list of T:
+weave map_increment shard T where T: Num with l as vector of T, delta as int is 1 into vector of T:
     let d as T is delta
     return for x in l then (x + d)
 
@@ -2938,11 +2938,11 @@ weave map_increment shard T where T: Num with l as list of T, delta as int is 1 
 ## var ys as list of int is [1, 1]
 ## calling zip_with with xs, ys, add    # [4, 2]
 ## ```
-weave zip_with shard T and U and V with xs as list of T, ys as list of U, f as weave with a as T, b as U into V into list of V:
+weave zip_with shard T and U and V with xs as vector of T, ys as vector of U, f as weave with a as T, b as U into V into vector of V:
     let na as int is calling xs.len
     let nb as int is calling ys.len
     let limit as int is (if nb < na then nb else na)
-    var idxs as list of int is list of int
+    var idxs as vector of int is vector of int
     defer banish idxs
     var i as int is 0
     while i < limit:
@@ -2969,15 +2969,15 @@ weave zip_with shard T and U and V with xs as list of T, ys as list of U, f as w
 ## var xs as list of int is [3, 1, 4, 1, 5]
 ## calling chunk with xs, 2    # [[3, 1], [4, 1], [5]]
 ## ```
-weave chunk shard T with xs as list of T, span as int into list of list of T:
+weave chunk shard T with xs as vector of T, span as int into vector of vector of T:
     let n as int is calling xs.len
     if span <= 0:
         return for x in xs when false then x
-    var out as list of list of T is list of list of T
+    var out as vector of vector of T is vector of vector of T
     var c as int is 0
     while c < n:
         let stop as int is (if (c + span) < n then (c + span) else n)
-        var piece as list of T is list of T
+        var piece as vector of T is vector of T
         var i as int is c
         while i < stop:
             calling piece.push with (xs at i)
@@ -3002,17 +3002,17 @@ weave chunk shard T with xs as list of T, span as int into list of list of T:
 ## var xs as list of int is [3, 1, 4]
 ## calling windowed with xs, 2    # [[3, 1], [1, 4]]
 ## ```
-weave windowed shard T with xs as list of T, width as int into list of list of T:
+weave windowed shard T with xs as vector of T, width as int into vector of vector of T:
     let n as int is calling xs.len
     if width <= 0:
         return for x in xs when false then x
     if width > n:
         return for x in xs when false then x
-    var out as list of list of T is list of list of T
+    var out as vector of vector of T is vector of vector of T
     var c as int is 0
     let last_start as int is (n - width)
     while c <= last_start:
-        var piece as list of T is list of T
+        var piece as vector of T is vector of T
         var j as int is 0
         while j < width:
             calling piece.push with (xs at (c + j))
@@ -3040,11 +3040,11 @@ weave windowed shard T with xs as list of T, width as int into list of list of T
 ## var xs as list of int is [1, 2, 3]
 ## calling scan_left with xs, (lambda acc as int, x as int into acc + x)    # [1, 3, 6]
 ## ```
-weave scan_left shard T where T: Num with xs as list of T, f as weave with acc as T, x as T into T into list of T:
+weave scan_left shard T where T: Num with xs as vector of T, f as weave with acc as T, x as T into T into vector of T:
     let n as int is calling xs.len
     if n == 0:
         return for x in xs then x
-    var out as list of T is list of T
+    var out as vector of T is vector of T
     var seed as int is 0
     while seed < n:
         calling out.push with (xs at 0)
@@ -3069,11 +3069,11 @@ weave scan_left shard T where T: Num with xs as list of T, f as weave with acc a
 ## var xs as list of int is [3, 1, 2]
 ## calling running_sum with xs    # [3, 4, 6]
 ## ```
-weave running_sum shard T where T: Num with xs as list of T into list of T:
+weave running_sum shard T where T: Num with xs as vector of T into vector of T:
     let n as int is calling xs.len
     if n == 0:
         return for x in xs then x
-    var out as list of T is list of T
+    var out as vector of T is vector of T
     var seed as int is 0
     while seed < n:
         calling out.push with (xs at 0)
@@ -3099,8 +3099,8 @@ weave running_sum shard T where T: Num with xs as list of T into list of T:
 ## var xs as list of int is [3, 1, 4]
 ## calling min_max with xs    # [1, 4]
 ## ```
-weave min_max shard T where T: Ordered with xs as list of T into list of T:
-    var out as list of T is list of T
+weave min_max shard T where T: Ordered with xs as vector of T into vector of T:
+    var out as vector of T is vector of T
     if (calling xs.len) == 0:
         return out
     var lo as T is xs at 0
@@ -3133,11 +3133,11 @@ weave min_max shard T where T: Ordered with xs as list of T into list of T:
 ## var xs as list of int is [3, 1]
 ## calling enumerate_pairs with xs    # [[0, 3], [1, 1]]
 ## ```
-weave _enumerate_pairs_int with xs as list of int into list of list of int:
-    var out as list of list of int is list of list of int
+weave _enumerate_pairs_int with xs as vector of int into vector of vector of int:
+    var out as vector of vector of int is vector of vector of int
     var i as int is 0
     for x in xs:
-        var pair as list of int is list of int
+        var pair as vector of int is vector of int
         calling pair.push with i
         calling pair.push with x
         calling out.push with pair
@@ -3158,7 +3158,7 @@ weave _enumerate_pairs_int with xs as list of int into list of list of int:
 ## var xs as list of int is [3, 1]
 ## calling enumerate_pairs with xs    # [[0, 3], [1, 1]]
 ## ```
-weave enumerate_pairs with xs as list of int into list of list of int:
+weave enumerate_pairs with xs as vector of int into vector of vector of int:
     return calling _enumerate_pairs_int with xs
 
 ## Partitions `xs` with `predicate` into `[matching, non_matching]`.
@@ -3179,15 +3179,15 @@ weave enumerate_pairs with xs as list of int into list of list of int:
 ## var xs as list of int is [3, 1, 4]
 ## calling partition_by with xs, (lambda x as int into (x % 2) == 0)    # [[4], [3, 1]]
 ## ```
-weave partition_by with xs as list of int, predicate as weave with x as int into bool into list of list of int:
-    var yes as list of int is list of int
-    var no as list of int is list of int
+weave partition_by with xs as vector of int, predicate as weave with x as int into bool into vector of vector of int:
+    var yes as vector of int is vector of int
+    var no as vector of int is vector of int
     for x in xs:
         if calling predicate with x:
             calling yes.push with x
         else:
             calling no.push with x
-    var out as list of list of int is list of list of int
+    var out as vector of vector of int is vector of vector of int
     calling out.push with yes
     calling out.push with no
     return out
@@ -3209,8 +3209,8 @@ weave partition_by with xs as list of int, predicate as weave with x as int into
 ## var xs as list of int is [3, 1, 3]
 ## calling frequencies with xs    # 3 -> 2, 1 -> 1
 ## ```
-weave frequencies shard T where T: Vinculum with xs as list of T into map of T to int:
-    var m as map of T to int is map of T to int
+weave frequencies shard T where T: Vinculum with xs as vector of T into map of T, int:
+    var m as map of T, int is map of T, int
     for x in xs:
         calling m.put with x, ((calling m.get_or with x, 0) + 1)
     return m
@@ -3228,8 +3228,8 @@ weave frequencies shard T where T: Vinculum with xs as list of T into map of T t
 ## var xs as list of int is [2, 2]
 ## calling group_count with xs    # 2 -> 2
 ## ```
-weave group_count shard T where T: Vinculum with xs as list of T into map of T to int:
-    var m as map of T to int is map of T to int
+weave group_count shard T where T: Vinculum with xs as vector of T into map of T, int:
+    var m as map of T, int is map of T, int
     for x in xs:
         calling m.put with x, ((calling m.get_or with x, 0) + 1)
     return m
@@ -3263,760 +3263,760 @@ test "TALLY_VERSION is 2.14.0":
 
 # --- Length and access ---
 test "is_empty is true for the empty list":
-    let _a1 as list of int is list of int
+    let _a1 as vector of int is vector of int
     calling _expect_eq_bool with (calling is_empty with _a1), true, "is_empty empty"
 test "is_empty is false with elements":
-    let _a2 as list of int is [1]
+    let _a2 as vector of int is [1]
     calling _expect_eq_bool with (calling is_empty with _a2), false, "is_empty one"
 test "len returns the number of elements":
-    let _a3 as list of int is [3, 1, 4, 1, 5]
+    let _a3 as vector of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling len with _a3), 5, "len"
 test "first returns the first element":
-    let _a4 as list of int is [3, 1, 2]
+    let _a4 as vector of int is [3, 1, 2]
     calling _expect_eq_int with (calling first with _a4), 3, "first"
 test "first returns 0 on the empty list":
-    let _a5 as list of int is list of int
+    let _a5 as vector of int is vector of int
     calling _expect_eq_int with (calling first with _a5), 0, "first empty"
 test "last returns the last element":
-    let _a6 as list of int is [3, 1, 2]
+    let _a6 as vector of int is [3, 1, 2]
     calling _expect_eq_int with (calling last with _a6), 2, "last"
 test "last returns 0 on the empty list":
-    let _a7 as list of int is list of int
+    let _a7 as vector of int is vector of int
     calling _expect_eq_int with (calling last with _a7), 0, "last empty"
 test "at_or returns the element in range":
-    let _a8 as list of int is [3, 1, 2]
+    let _a8 as vector of int is [3, 1, 2]
     calling _expect_eq_int with (calling at_or with _a8, 1), 1, "at_or in range"
 test "at_or returns the default out of range":
-    let _a9 as list of int is [3, 1, 2]
+    let _a9 as vector of int is [3, 1, 2]
     calling _expect_eq_int with (calling at_or with _a9, 9, -1), -1, "at_or default"
 test "at_or returns the default for a negative index":
-    let _a10 as list of int is [3, 1, 2]
+    let _a10 as vector of int is [3, 1, 2]
     calling _expect_eq_int with (calling at_or with _a10, -1, 7), 7, "at_or negative"
 test "the at_or method uses its default 0":
-    let xs as list of int is [3, 1, 2]
+    let xs as vector of int is [3, 1, 2]
     calling _expect_eq_int with (calling xs.at_or with 99), 0, "method at_or default"
 test "at_safe returns some for a valid index":
-    let _a11 as list of int is [3, 1, 2]
+    let _a11 as vector of int is [3, 1, 2]
     let m as maybe int is calling at_safe with _a11, 2
     calling _expect_eq_int with m.value, 2, "at_safe present"
 test "at_safe returns none out of range":
-    let _a12 as list of int is [3, 1, 2]
+    let _a12 as vector of int is [3, 1, 2]
     let m as maybe int is calling at_safe with _a12, 9
     calling _expect_eq_bool with m.is_present, false, "at_safe none"
 test "the at_safe method rejects negative indices":
-    let xs as list of int is [3, 1, 2]
+    let xs as vector of int is [3, 1, 2]
     let m as maybe int is calling xs.at_safe with -1
     calling _expect_eq_bool with m.is_present, false, "method at_safe negative"
 test "the first and last methods work on int":
-    let xs as list of int is [3, 1, 2]
+    let xs as vector of int is [3, 1, 2]
     calling _expect_eq_int with (calling xs.first), 3, "method first"
     calling _expect_eq_int with (calling xs.last), 2, "method last"
 test "the reverse method matches the module function":
-    let xs as list of int is [3, 1, 2]
-    let by_method as list of int is calling xs.reverse
-    let by_func as list of int is calling reverse with xs
+    let xs as vector of int is [3, 1, 2]
+    let by_method as vector of int is calling xs.reverse
+    let by_func as vector of int is calling reverse with xs
     calling _expect_eq_int with (by_method at 0), 2, "method reverse first"
     calling _expect_eq_int with (by_func at 0), 2, "func reverse first"
 test "the flatten method returns an identity copy":
-    let xs as list of int is [3, 1, 2]
-    let out as list of int is calling xs.flatten
+    let xs as vector of int is [3, 1, 2]
+    let out as vector of int is calling xs.flatten
     calling _expect_eq_int with (calling out.len), 3, "method flatten len"
     calling _expect_eq_int with (out at 1), 1, "method flatten value"
 test "the take method clips and uses its default":
-    let xs as list of int is [3, 1, 4]
-    let one as list of int is calling xs.take
-    let two as list of int is calling xs.take with 2
+    let xs as vector of int is [3, 1, 4]
+    let one as vector of int is calling xs.take
+    let two as vector of int is calling xs.take with 2
     calling _expect_eq_int with (calling one.len), 1, "method take default"
     calling _expect_eq_int with (two at 1), 1, "method take second"
 test "the drop method skips leading elements":
-    let xs as list of int is [3, 1, 4]
-    let out as list of int is calling xs.drop with 1
+    let xs as vector of int is [3, 1, 4]
+    let out as vector of int is calling xs.drop with 1
     calling _expect_eq_int with (calling out.len), 2, "method drop len"
     calling _expect_eq_int with (out at 0), 1, "method drop first"
 test "the slice_list method cuts a generic range":
-    let xs as list of float is [2.5, -1.5, 4.5]
-    let out as list of float is calling xs.slice_list with 1, 3
+    let xs as vector of float is [2.5, -1.5, 4.5]
+    let out as vector of float is calling xs.slice_list with 1, 3
     calling _expect_eq_int with (calling out.len), 2, "method slice len"
     calling _expect_eq_float with (out at 0), -1.5, "method slice first"
 # --- Search ---
 test "contains finds a present element":
-    let _a13 as list of int is [3, 1, 2]
+    let _a13 as vector of int is [3, 1, 2]
     calling _expect_eq_bool with (calling contains with _a13, 1), true, "contains"
 test "contains is false for an absent element":
-    let _a14 as list of int is [3, 1, 2]
+    let _a14 as vector of int is [3, 1, 2]
     calling _expect_eq_bool with (calling contains with _a14, 9), false, "not contains"
 test "index_of returns the first position":
-    let _a15 as list of int is [3, 1, 4, 1, 5]
+    let _a15 as vector of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling index_of with _a15, 4), 2, "index_of"
 test "index_of returns -1 when absent":
-    let _a16 as list of int is [3, 1, 2]
+    let _a16 as vector of int is [3, 1, 2]
     calling _expect_eq_int with (calling index_of with _a16, 9), -1, "index_of missing"
 test "last_index_of returns the last position":
-    let _a17 as list of int is [3, 1, 4, 1, 5]
+    let _a17 as vector of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling last_index_of with _a17, 1), 3, "last_index_of"
 test "last_index_of returns -1 when absent":
-    let _a18 as list of int is [3, 1, 2]
+    let _a18 as vector of int is [3, 1, 2]
     calling _expect_eq_int with (calling last_index_of with _a18, 9), -1, "last_index_of missing"
 test "count_of counts the occurrences":
-    let _a19 as list of int is [3, 1, 4, 1, 5]
+    let _a19 as vector of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling count_of with _a19, 1), 2, "count_of"
 test "find_first_gt returns the first greater element":
-    let _a20 as list of int is [3, 1, 4, 1, 5]
+    let _a20 as vector of int is [3, 1, 4, 1, 5]
     let m as maybe int is calling find_first_gt with _a20, 3
     calling _expect_eq_int with m.value, 4, "find_first_gt"
 test "find_first_gt returns none when nothing beats it":
-    let _a21 as list of int is [3, 1, 2]
+    let _a21 as vector of int is [3, 1, 2]
     let m as maybe int is calling find_first_gt with _a21, 9
     calling _expect_eq_bool with m.is_present, false, "find_first_gt none"
 test "find_first_lt returns the first smaller element":
-    let _a22 as list of int is [3, 1, 4]
+    let _a22 as vector of int is [3, 1, 4]
     let m as maybe int is calling find_first_lt with _a22, 2
     calling _expect_eq_int with m.value, 1, "find_first_lt"
 test "the count_of method matches the function":
-    let xs as list of int is [3, 1, 4, 1, 5]
+    let xs as vector of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling xs.count_of with 1), 2, "method count_of"
 test "the last_index_of method matches the function":
-    let xs as list of int is [3, 1, 4, 1, 5]
+    let xs as vector of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling xs.last_index_of with 1), 3, "method last_index_of"
 test "the find_first methods return maybe":
-    let xs as list of int is [3, 1, 4]
+    let xs as vector of int is [3, 1, 4]
     let gt as maybe int is calling xs.find_first_gt with 3
     let lt as maybe int is calling xs.find_first_lt with 2
     calling _expect_eq_int with gt.value, 4, "method find_first_gt"
     calling _expect_eq_int with lt.value, 1, "method find_first_lt"
 test "the find_first methods give none when nothing matches":
-    let xs as list of int is [3, 1, 4]
+    let xs as vector of int is [3, 1, 4]
     let gt as maybe int is calling xs.find_first_gt with 9
     let lt as maybe int is calling xs.find_first_lt with 0
     calling _expect_eq_bool with gt.is_present, false, "method find_first_gt none"
     calling _expect_eq_bool with lt.is_present, false, "method find_first_lt none"
 # --- Reductions ---
 test "sum adds every element":
-    let _a23 as list of int is [3, 1, 4, 1, 5]
+    let _a23 as vector of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling sum with _a23), 14, "sum"
 test "sum of the empty list is 0":
-    let _a24 as list of int is list of int
+    let _a24 as vector of int is vector of int
     calling _expect_eq_int with (calling sum with _a24), 0, "sum empty"
 test "the sum method matches the function":
-    let xs as list of int is [3, 1, 4, 1, 5]
+    let xs as vector of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling xs.sum), 14, "method sum"
 test "sum is generic over float":
-    let fs as list of float is [2.5, -1.5, 4.5]
+    let fs as vector of float is [2.5, -1.5, 4.5]
     calling _expect_eq_float with (calling fs.sum), 5.5, "float sum"
 test "product multiplies every element":
-    let _a25 as list of int is [3, 1, 4, 1, 5]
+    let _a25 as vector of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling product with _a25), 60, "product"
 test "product of the empty list is 1":
-    let _a26 as list of int is list of int
+    let _a26 as vector of int is vector of int
     calling _expect_eq_int with (calling product with _a26), 1, "product empty"
 test "dot multiplies and adds up to the shorter list":
-    let _a27 as list of int is [3, 1, 2]
-    let _a28 as list of int is [1, 1, 1]
+    let _a27 as vector of int is [3, 1, 2]
+    let _a28 as vector of int is [1, 1, 1]
     calling _expect_eq_int with (calling dot with _a27, _a28), 6, "dot"
 test "dot with different lengths uses the shorter one":
-    let _a29 as list of int is [3, 1, 2]
-    let _a30 as list of int is [2, 2]
+    let _a29 as vector of int is [3, 1, 2]
+    let _a30 as vector of int is [2, 2]
     calling _expect_eq_int with (calling dot with _a29, _a30), 8, "dot short"
 test "dot of the empty list is 0":
-    let _a31 as list of int is list of int
-    let _a32 as list of int is [1, 2]
+    let _a31 as vector of int is vector of int
+    let _a32 as vector of int is [1, 2]
     calling _expect_eq_int with (calling dot with _a31, _a32), 0, "dot empty"
 test "sum_of_squares accumulates the squares":
-    let _a33 as list of int is [3, 1, 4, 1, 5]
+    let _a33 as vector of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling sum_of_squares with _a33), 52, "sum_of_squares"
 test "the product method multiplies every element":
-    let xs as list of int is [3, 2, 4]
+    let xs as vector of int is [3, 2, 4]
     calling _expect_eq_int with (calling xs.product), 24, "method product"
 test "the mean method truncates towards zero":
-    let xs as list of int is [3, 1, 4, 1]
+    let xs as vector of int is [3, 1, 4, 1]
     calling _expect_eq_int with (calling xs.mean), 2, "method mean"
 test "the average method is an alias of mean":
-    let xs as list of int is [3, 1, 4, 1]
+    let xs as vector of int is [3, 1, 4, 1]
     calling _expect_eq_int with (calling xs.average), 2, "method average"
 test "the sum_of_squares method accumulates squares":
-    let xs as list of int is [3, 1, 2]
+    let xs as vector of int is [3, 1, 2]
     calling _expect_eq_int with (calling xs.sum_of_squares), 14, "method squares"
 # --- Statistics ---
 test "max_val returns the largest":
-    let _a34 as list of int is [3, 1, 4, 1, 5]
+    let _a34 as vector of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling max_val with _a34), 5, "max_val"
 test "max_val of the empty list is 0":
-    let _a35 as list of int is list of int
+    let _a35 as vector of int is vector of int
     calling _expect_eq_int with (calling max_val with _a35), 0, "max_val empty"
 test "min_val returns the smallest":
-    let _a36 as list of int is [3, 1, 4, 1, 5]
+    let _a36 as vector of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling min_val with _a36), 1, "min_val"
 test "min_val of the empty list is 0":
-    let _a37 as list of int is list of int
+    let _a37 as vector of int is vector of int
     calling _expect_eq_int with (calling min_val with _a37), 0, "min_val empty"
 test "max_val and min_val are generic over float":
-    let fs as list of float is [2.5, -1.5, 4.5]
+    let fs as vector of float is [2.5, -1.5, 4.5]
     calling _expect_eq_float with (calling fs.max_val), 4.5, "float max"
     calling _expect_eq_float with (calling fs.min_val), -1.5, "float min"
 test "max_index returns the first maximum":
-    let _a38 as list of int is [3, 1, 4, 1, 5]
+    let _a38 as vector of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling max_index with _a38), 4, "max_index"
 test "max_index of the empty list is -1":
-    let _a39 as list of int is list of int
+    let _a39 as vector of int is vector of int
     calling _expect_eq_int with (calling max_index with _a39), -1, "max_index empty"
 test "min_index returns the first minimum":
-    let _a40 as list of int is [3, 1, 4, 1, 5]
+    let _a40 as vector of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling min_index with _a40), 1, "min_index"
 test "argmin and argmax are aliases of min_index and max_index":
-    let _a41 as list of int is [3, 1, 4, 1, 5]
-    let _a42 as list of int is [3, 1, 4, 1, 5]
+    let _a41 as vector of int is [3, 1, 4, 1, 5]
+    let _a42 as vector of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling argmin with _a41), 1, "argmin"
     calling _expect_eq_int with (calling argmax with _a42), 4, "argmax"
 test "mean truncates the division towards zero":
-    let _a43 as list of int is [3, 1, 4, 1, 5]
+    let _a43 as vector of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling mean with _a43), 2, "mean"
 test "mean of the empty list is 0":
-    let _a44 as list of int is list of int
+    let _a44 as vector of int is vector of int
     calling _expect_eq_int with (calling mean with _a44), 0, "mean empty"
 test "average is an alias of mean":
-    let _a45 as list of int is [3, 1, 4, 1, 5]
+    let _a45 as vector of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling average with _a45), 2, "average"
 test "median with odd length returns the centre":
-    let _a46 as list of int is [3, 1, 4, 1, 5]
+    let _a46 as vector of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling median with _a46), 3, "median odd"
 test "median with even length averages the centre":
-    let _a47 as list of int is [1, 2, 3, 4]
+    let _a47 as vector of int is [1, 2, 3, 4]
     calling _expect_eq_int with (calling median with _a47), 2, "median even"
 test "median of the empty list is 0":
-    let _a48 as list of int is list of int
+    let _a48 as vector of int is vector of int
     calling _expect_eq_int with (calling median with _a48), 0, "median empty"
 test "mode returns the most frequent value":
-    let _a49 as list of int is [3, 1, 4, 1, 5]
+    let _a49 as vector of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling mode with _a49), 1, "mode"
 test "mode of the empty list is 0":
-    let _a50 as list of int is list of int
+    let _a50 as vector of int is vector of int
     calling _expect_eq_int with (calling mode with _a50), 0, "mode empty"
 test "the mode method prefers the first appearance on a tie":
-    let xs as list of int is [7, 1, 2]
+    let xs as vector of int is [7, 1, 2]
     calling _expect_eq_int with (calling xs.mode), 7, "method mode tie"
 test "the max_val and min_val methods match the functions":
-    let xs as list of int is [3, 1, 4, 1, 5]
+    let xs as vector of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling xs.max_val), 5, "method max_val"
     calling _expect_eq_int with (calling xs.min_val), 1, "method min_val"
 test "the max_index and min_index methods match the functions":
-    let xs as list of int is [3, 1, 4, 1, 5]
+    let xs as vector of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling xs.max_index), 4, "method max_index"
     calling _expect_eq_int with (calling xs.min_index), 1, "method min_index"
 test "the argmin and argmax methods are aliases":
-    let xs as list of int is [3, 1, 4, 1, 5]
+    let xs as vector of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling xs.argmin), 1, "method argmin"
     calling _expect_eq_int with (calling xs.argmax), 4, "method argmax"
 
 # --- Transformations ---
 
 test "reverse returns a reversed copy":
-    let _a51 as list of int is [3, 1, 4, 1, 5]
-    let out as list of int is calling reverse with _a51
+    let _a51 as vector of int is [3, 1, 4, 1, 5]
+    let out as vector of int is calling reverse with _a51
     calling _expect_eq_int with (out at 0), 5, "reverse first"
 test "sort_int_asc sorts ascending without mutating the input":
-    let _a52 as list of int is [3, 1, 4, 1, 5]
-    let out as list of int is calling sort_int_asc with _a52
+    let _a52 as vector of int is [3, 1, 4, 1, 5]
+    let out as vector of int is calling sort_int_asc with _a52
     calling _expect_eq_int with (out at 0), 1, "sort_int_asc first"
     calling _expect_eq_int with (_a52 at 0), 3, "sort_int_asc input intact"
 test "sort_int_desc sorts descending":
-    let _a53 as list of int is [3, 1, 4, 1, 5]
-    let out as list of int is calling sort_int_desc with _a53
+    let _a53 as vector of int is [3, 1, 4, 1, 5]
+    let out as vector of int is calling sort_int_desc with _a53
     calling _expect_eq_int with (out at 0), 5, "sort_int_desc first"
 test "sort_float_asc and sort_float_desc order floats":
-    let fs as list of float is [2.5, -1.5, 4.5]
-    let up as list of float is calling tally.sort_float_asc with fs
-    let down as list of float is calling tally.sort_float_desc with fs
+    let fs as vector of float is [2.5, -1.5, 4.5]
+    let up as vector of float is calling tally.sort_float_asc with fs
+    let down as vector of float is calling tally.sort_float_desc with fs
     calling _expect_eq_float with (up at 0), -1.5, "float sort_float_asc"
     calling _expect_eq_float with (down at 0), 4.5, "float sort_float_desc"
 test "sort_f64_asc sorts 64-bit floats":
-    let xs as list of f64 is [2.5, -1.5, 4.5]
-    let out as list of f64 is calling sort_f64_asc with xs
+    let xs as vector of f64 is [2.5, -1.5, 4.5]
+    let out as vector of f64 is calling sort_f64_asc with xs
     calling _expect with (out at 0) < -1.0, "f64 sort first"
     calling _expect with (out at 2) > 4.0, "f64 sort last"
 test "sort_string_desc sorts strings in reverse order":
-    let ws as list of string is ["b", "a", "c"]
-    let out as list of string is calling sort_string_desc with ws
+    let ws as vector of string is ["b", "a", "c"]
+    let out as vector of string is calling sort_string_desc with ws
     calling _expect with (out at 0) == "c", "string desc first"
     calling _expect with (out at 2) == "a", "string desc last"
 test "the 1000-element sort stays ordered":
-    var xs as list of int is list of int
+    var xs as vector of int is vector of int
     var i as int is 0
     while i < 1000:
         calling xs.push with ((i * 37) % 1000)
         set i is i + 1
-    let out as list of int is calling sort_int_asc with xs
+    let out as vector of int is calling sort_int_asc with xs
     calling _expect with (calling is_sorted_int_asc with out), "1000 sorted asc"
     calling _expect with (out at 0) == 0, "1000 first"
     calling _expect with (out at 999) == 999, "1000 last"
 test "is_sorted methods work for strings":
-    let good as list of string is ["a", "b", "c"]
-    let bad as list of string is ["b", "a"]
+    let good as vector of string is ["a", "b", "c"]
+    let bad as vector of string is ["b", "a"]
     calling _expect with (calling is_sorted_string_asc with good), "string sorted asc"
     calling _expect with (calling is_sorted_string_asc with bad) == false, "string not sorted asc"
     calling _expect with (calling is_sorted_string_desc with bad), "string sorted desc"
 test "unique removes duplicates keeping the order":
-    let _a54 as list of int is [3, 1, 4, 1, 5]
-    let out as list of int is calling unique with _a54
+    let _a54 as vector of int is [3, 1, 4, 1, 5]
+    let out as vector of int is calling unique with _a54
     calling _expect_eq_int with (calling out.len), 4, "unique len"
     calling _expect_eq_int with (out at 1), 1, "unique second"
 test "dedup is an alias of unique":
-    let _a55 as list of int is [1, 2, 1, 2, 3]
-    let out as list of int is calling dedup with _a55
+    let _a55 as vector of int is [1, 2, 1, 2, 3]
+    let out as vector of int is calling dedup with _a55
     calling _expect_eq_int with (calling out.len), 3, "dedup len"
 test "flatten returns an identity copy":
-    let _a56 as list of int is [3, 1, 2]
-    let out as list of int is calling flatten with _a56
+    let _a56 as vector of int is [3, 1, 2]
+    let out as vector of int is calling flatten with _a56
     calling _expect_eq_int with (out at 2), 2, "flatten"
 test "abs_all turns negatives into positives":
-    let _a57 as list of int is [-3, 1, -2]
-    let out as list of int is calling abs_all with _a57
+    let _a57 as vector of int is [-3, 1, -2]
+    let out as vector of int is calling abs_all with _a57
     calling _expect_eq_int with (out at 0), 3, "abs first"
     calling _expect_eq_int with (out at 2), 2, "abs last"
 test "clamp_all clips to the given range":
-    let _a58 as list of int is [3, 1, 4, 1, 5]
-    let out as list of int is calling clamp_all with _a58, 2, 4
+    let _a58 as vector of int is [3, 1, 4, 1, 5]
+    let out as vector of int is calling clamp_all with _a58, 2, 4
     calling _expect_eq_int with (out at 1), 2, "clamp low"
     calling _expect_eq_int with (out at 4), 4, "clamp high"
 test "clamp_all uses the default range [0, 100]":
-    let _a59 as list of int is [-5, 150]
-    let out as list of int is calling clamp_all with _a59
+    let _a59 as vector of int is [-5, 150]
+    let out as vector of int is calling clamp_all with _a59
     calling _expect_eq_int with (out at 0), 0, "clamp default low"
     calling _expect_eq_int with (out at 1), 100, "clamp default high"
 test "is_sorted_int_asc detects unsorted and sorted lists":
-    let _a60 as list of int is [3, 1, 2]
-    let _a61 as list of int is [1, 2, 3]
+    let _a60 as vector of int is [3, 1, 2]
+    let _a61 as vector of int is [1, 2, 3]
     calling _expect_eq_bool with (calling is_sorted_int_asc with _a60), false, "not sorted asc"
     calling _expect_eq_bool with (calling is_sorted_int_asc with _a61), true, "sorted asc"
 test "is_sorted_int_desc detects descending order":
-    let _a62 as list of int is [3, 2, 1]
+    let _a62 as vector of int is [3, 2, 1]
     calling _expect_eq_bool with (calling is_sorted_int_desc with _a62), true, "sorted desc"
 test "the map_square, map_negate and map_add_scalar methods transform":
-    let xs as list of int is [3, -1]
-    let sq as list of int is calling xs.map_square
-    let neg as list of int is calling xs.map_negate
-    let add as list of int is calling xs.map_add_scalar with 10
+    let xs as vector of int is [3, -1]
+    let sq as vector of int is calling xs.map_square
+    let neg as vector of int is calling xs.map_negate
+    let add as vector of int is calling xs.map_add_scalar with 10
     calling _expect_eq_int with (sq at 0), 9, "method square"
     calling _expect_eq_int with (neg at 0), -3, "method negate"
     calling _expect_eq_int with (add at 0), 13, "method add scalar"
 test "the map_increment method uses delta 1 by default":
-    let xs as list of int is [3, 1]
-    let out as list of int is calling xs.map_increment
+    let xs as vector of int is [3, 1]
+    let out as vector of int is calling xs.map_increment
     calling _expect_eq_int with (out at 0), 4, "method increment"
 test "the abs_all method removes signs":
-    let xs as list of int is [-3, 1, -2]
-    let out as list of int is calling xs.abs_all
+    let xs as vector of int is [-3, 1, -2]
+    let out as vector of int is calling xs.abs_all
     calling _expect_eq_int with (out at 0), 3, "method abs_all"
 test "the median method matches the module function":
-    let xs as list of float is [3.5, 1.5, 2.5]
+    let xs as vector of float is [3.5, 1.5, 2.5]
     calling _expect_eq_float with (calling xs.median), 2.5, "method median"
 test "the clamp_all method clips to the span":
-    let xs as list of int is [-5, 150]
-    let out as list of int is calling xs.clamp_all
+    let xs as vector of int is [-5, 150]
+    let out as vector of int is calling xs.clamp_all
     calling _expect_eq_int with (out at 0), 0, "method clamp low"
     calling _expect_eq_int with (out at 1), 100, "method clamp high"
 # --- Selection ---
 
 test "take returns the first n elements":
-    let _a64 as list of int is [3, 1, 4, 1, 5]
-    let out as list of int is calling take with _a64, 2
+    let _a64 as vector of int is [3, 1, 4, 1, 5]
+    let out as vector of int is calling take with _a64, 2
     calling _expect_eq_int with (calling out.len), 2, "take len"
     calling _expect_eq_int with (out at 1), 1, "take second"
 test "take without an argument returns one element":
-    let _a65 as list of int is [3, 1, 4]
-    let out as list of int is calling take with _a65
+    let _a65 as vector of int is [3, 1, 4]
+    let out as vector of int is calling take with _a65
     calling _expect_eq_int with (calling out.len), 1, "take default"
 test "drop skips the first n elements":
-    let _a67 as list of int is [3, 1, 4, 1, 5]
-    let out as list of int is calling drop with _a67, 2
+    let _a67 as vector of int is [3, 1, 4, 1, 5]
+    let out as vector of int is calling drop with _a67, 2
     calling _expect_eq_int with (calling out.len), 3, "drop len"
     calling _expect_eq_int with (out at 0), 4, "drop first"
 test "slice_list returns the [start, end) range":
-    let _a69 as list of int is [3, 1, 4, 1, 5]
-    let out as list of int is calling slice_list with _a69, 1, 3
+    let _a69 as vector of int is [3, 1, 4, 1, 5]
+    let out as vector of int is calling slice_list with _a69, 1, 3
     calling _expect_eq_int with (calling out.len), 2, "slice len"
     calling _expect_eq_int with (out at 0), 1, "slice first"
 test "take and drop are generic over float":
-    let fs as list of float is [2.5, -1.5, 4.5]
-    let firsts as list of float is calling fs.take with 2
-    let rest as list of float is calling fs.drop with 1
+    let fs as vector of float is [2.5, -1.5, 4.5]
+    let firsts as vector of float is calling fs.take with 2
+    let rest as vector of float is calling fs.drop with 1
     calling _expect_eq_float with (firsts at 0), 2.5, "float take"
     calling _expect_eq_float with (rest at 0), -1.5, "float drop"
 test "take clips n above the length":
-    let xs as list of int is [3, 1]
-    let out as list of int is calling take with xs, 9
+    let xs as vector of int is [3, 1]
+    let out as vector of int is calling take with xs, 9
     calling _expect_eq_int with (calling out.len), 2, "take clipping"
 test "drop beyond the length is empty":
-    let xs as list of int is [3, 1]
-    let out as list of int is calling drop with xs, 9
+    let xs as vector of int is [3, 1]
+    let out as vector of int is calling drop with xs, 9
     calling _expect_eq_int with (calling out.len), 0, "drop beyond"
 test "slice_list with start above end is empty":
-    let xs as list of int is [3, 1, 2]
-    let out as list of int is calling slice_list with xs, 2, 1
+    let xs as vector of int is [3, 1, 2]
+    let out as vector of int is calling slice_list with xs, 2, 1
     calling _expect_eq_int with (calling out.len), 0, "slice inverted"
 # --- Predicates ---
 
 test "all_positive is true only with strict positives":
-    let _a72 as list of int is [3, 1, 4]
-    let _a73 as list of int is [3, 0, 4]
+    let _a72 as vector of int is [3, 1, 4]
+    let _a73 as vector of int is [3, 0, 4]
     calling _expect_eq_bool with (calling all_positive with _a72), true, "all positive"
     calling _expect_eq_bool with (calling all_positive with _a73), false, "zero is not positive"
 test "all_zero is true only when everything is zero":
-    let _a74 as list of int is [0, 0]
-    let _a75 as list of int is [0, 1]
+    let _a74 as vector of int is [0, 0]
+    let _a75 as vector of int is [0, 1]
     calling _expect_eq_bool with (calling all_zero with _a74), true, "all zero"
     calling _expect_eq_bool with (calling all_zero with _a75), false, "not all zero"
 test "any_negative detects at least one negative":
-    let _a76 as list of int is [-1, 2]
-    let _a77 as list of int is [1, 2]
+    let _a76 as vector of int is [-1, 2]
+    let _a77 as vector of int is [1, 2]
     calling _expect_eq_bool with (calling any_negative with _a76), true, "has negative"
     calling _expect_eq_bool with (calling any_negative with _a77), false, "no negative"
 test "all_in_range checks the inclusive range":
-    let _a78 as list of int is [1, 3, 5]
-    let _a79 as list of int is [1, 9]
+    let _a78 as vector of int is [1, 3, 5]
+    let _a79 as vector of int is [1, 9]
     calling _expect_eq_bool with (calling all_in_range with _a78, 1, 5), true, "in range"
     calling _expect_eq_bool with (calling all_in_range with _a79, 1, 5), false, "out of range"
 test "the is_sorted methods inspect the order":
-    let up as list of int is [1, 2, 3]
-    let down as list of int is [3, 2, 1]
+    let up as vector of int is [1, 2, 3]
+    let down as vector of int is [3, 2, 1]
     calling _expect_eq_bool with (calling is_sorted_int_asc with up), true, "method sorted asc"
     calling _expect_eq_bool with (calling is_sorted_int_desc with down), true, "method sorted desc"
     calling _expect_eq_bool with (calling is_sorted_int_desc with up), false, "method not sorted desc"
 test "the all_positive and any_negative methods scan the sign":
-    let pos as list of int is [3, 1]
-    let mixed as list of int is [3, -1]
-    let zeroed as list of int is [0, 0]
+    let pos as vector of int is [3, 1]
+    let mixed as vector of int is [3, -1]
+    let zeroed as vector of int is [0, 0]
     calling _expect_eq_bool with (calling pos.all_positive), true, "method all positive"
     calling _expect_eq_bool with (calling zeroed.all_positive), false, "method zero not positive"
     calling _expect_eq_bool with (calling mixed.any_negative), true, "method any negative"
 test "the all_zero method checks the zero sentinel":
-    let xs as list of int is [0, 0]
-    let ys as list of int is [0, 1]
+    let xs as vector of int is [0, 0]
+    let ys as vector of int is [0, 1]
     calling _expect_eq_bool with (calling xs.all_zero), true, "method all zero"
     calling _expect_eq_bool with (calling ys.all_zero), false, "method not all zero"
 test "the all_in_range method checks the inclusive span":
-    let xs as list of int is [1, 3, 5]
+    let xs as vector of int is [1, 3, 5]
     calling _expect_eq_bool with (calling xs.all_in_range with 1, 5), true, "method in range"
     calling _expect_eq_bool with (calling xs.all_in_range with 2, 5), false, "method out of range"
 # --- Filters ---
 
 test "filter_even keeps the even elements":
-    let _a80 as list of int is [3, 1, 4, 1, 5]
-    let out as list of int is calling filter_even with _a80
+    let _a80 as vector of int is [3, 1, 4, 1, 5]
+    let out as vector of int is calling filter_even with _a80
     calling _expect_eq_int with (calling out.len), 1, "evens len"
     calling _expect_eq_int with (out at 0), 4, "evens value"
 test "filter_odd keeps the odd elements":
-    let _a81 as list of int is [3, 1, 4, 1, 5]
-    let out as list of int is calling filter_odd with _a81
+    let _a81 as vector of int is [3, 1, 4, 1, 5]
+    let out as vector of int is calling filter_odd with _a81
     calling _expect_eq_int with (calling out.len), 4, "odds len"
 test "filter_positive and filter_negative split by sign":
-    let _a82 as list of int is [-3, 1, -2, 4]
-    let pos as list of int is calling filter_positive with _a82
-    let neg as list of int is calling filter_negative with _a82
+    let _a82 as vector of int is [-3, 1, -2, 4]
+    let pos as vector of int is calling filter_positive with _a82
+    let neg as vector of int is calling filter_negative with _a82
     calling _expect_eq_int with (calling pos.len), 2, "positives"
     calling _expect_eq_int with (calling neg.len), 2, "negatives"
 test "filter_in_range keeps the inclusive range":
-    let _a83 as list of int is [3, 1, 4, 1, 5]
-    let out as list of int is calling filter_in_range with _a83, 2, 4
+    let _a83 as vector of int is [3, 1, 4, 1, 5]
+    let out as vector of int is calling filter_in_range with _a83, 2, 4
     calling _expect_eq_int with (calling out.len), 2, "in range len"
 test "filter_range is an alias of filter_in_range":
-    let _a84 as list of int is [3, 1, 4, 1, 5]
-    let out as list of int is calling filter_range with _a84, 2, 4
+    let _a84 as vector of int is [3, 1, 4, 1, 5]
+    let out as vector of int is calling filter_range with _a84, 2, 4
     calling _expect_eq_int with (calling out.len), 2, "filter_range"
 test "filter_positive is generic over float":
-    let fs as list of float is [2.5, -1.5, 4.5]
-    let out as list of float is calling fs.filter_positive
+    let fs as vector of float is [2.5, -1.5, 4.5]
+    let out as vector of float is calling fs.filter_positive
     calling _expect_eq_int with (calling out.len), 2, "float filter positive"
 test "the filter_even and filter_odd methods split by parity":
-    let xs as list of int is [3, 1, 4, 2]
-    let evens as list of int is calling xs.filter_even
-    let odds as list of int is calling xs.filter_odd
+    let xs as vector of int is [3, 1, 4, 2]
+    let evens as vector of int is calling xs.filter_even
+    let odds as vector of int is calling xs.filter_odd
     calling _expect_eq_int with (calling evens.len), 2, "method evens"
     calling _expect_eq_int with (calling odds.len), 2, "method odds"
 test "the filter_negative method keeps negatives":
-    let xs as list of int is [3, -1, 0, -2]
-    let out as list of int is calling xs.filter_negative
+    let xs as vector of int is [3, -1, 0, -2]
+    let out as vector of int is calling xs.filter_negative
     calling _expect_eq_int with (calling out.len), 2, "method negatives len"
     calling _expect_eq_int with (out at 0), -1, "method negatives first"
 test "the filter_in_range and filter_range methods agree":
-    let xs as list of int is [3, 1, 4, 1, 5]
-    let a as list of int is calling xs.filter_in_range with 2, 4
-    let b as list of int is calling xs.filter_range with 2, 4
+    let xs as vector of int is [3, 1, 4, 1, 5]
+    let a as vector of int is calling xs.filter_in_range with 2, 4
+    let b as vector of int is calling xs.filter_range with 2, 4
     calling _expect_eq_int with (calling a.len), 2, "method filter_in_range"
     calling _expect_eq_int with (calling b.len), 2, "method filter_range"
 test "the unique and dedup methods remove duplicates":
-    let xs as list of int is [3, 1, 3, 2]
-    let a as list of int is calling xs.unique
-    let b as list of int is calling xs.dedup
+    let xs as vector of int is [3, 1, 3, 2]
+    let a as vector of int is calling xs.unique
+    let b as vector of int is calling xs.dedup
     calling _expect_eq_int with (calling a.len), 3, "method unique len"
     calling _expect_eq_int with (calling b.len), 3, "method dedup len"
 # --- Maps ---
 
 test "map_double doubles every element":
-    let _a86 as list of int is [3, 1, 4]
-    let out as list of int is calling map_double with _a86
+    let _a86 as vector of int is [3, 1, 4]
+    let out as vector of int is calling map_double with _a86
     calling _expect_eq_int with (out at 0), 6, "double first"
     calling _expect_eq_int with (out at 2), 8, "double last"
 test "map_square squares every element":
-    let _a87 as list of int is [3, 1, 4]
-    let out as list of int is calling map_square with _a87
+    let _a87 as vector of int is [3, 1, 4]
+    let out as vector of int is calling map_square with _a87
     calling _expect_eq_int with (out at 2), 16, "square"
 test "map_negate flips the sign":
-    let _a88 as list of int is [3, -1]
-    let out as list of int is calling map_negate with _a88
+    let _a88 as vector of int is [3, -1]
+    let out as vector of int is calling map_negate with _a88
     calling _expect_eq_int with (out at 0), -3, "negate first"
     calling _expect_eq_int with (out at 1), 1, "negate second"
 test "map_add_scalar adds the scalar":
-    let _a89 as list of int is [3, 1, 4]
-    let out as list of int is calling map_add_scalar with _a89, 10
+    let _a89 as vector of int is [3, 1, 4]
+    let out as vector of int is calling map_add_scalar with _a89, 10
     calling _expect_eq_int with (out at 0), 13, "add scalar"
 test "map_increment uses delta 1 by default":
-    let _a90 as list of int is [3, 1, 4]
-    let out as list of int is calling map_increment with _a90
+    let _a90 as vector of int is [3, 1, 4]
+    let out as vector of int is calling map_increment with _a90
     calling _expect_eq_int with (out at 0), 4, "increment default"
 test "map_double is generic over float":
-    let fs as list of float is [2.5, -1.5]
-    let out as list of float is calling fs.map_double
+    let fs as vector of float is [2.5, -1.5]
+    let out as vector of float is calling fs.map_double
     calling _expect_eq_float with (out at 0), 5.0, "float double"
 # --- Combination ---
 
 test "concat joins two lists into a new one":
-    let _a92 as list of int is [3, 1]
-    let _a93 as list of int is [4, 5]
-    let out as list of int is calling concat with _a92, _a93
+    let _a92 as vector of int is [3, 1]
+    let _a93 as vector of int is [4, 5]
+    let out as vector of int is calling concat with _a92, _a93
     calling _expect_eq_int with (calling out.len), 4, "concat len"
     calling _expect_eq_int with (out at 2), 4, "concat third"
 test "zip_sum adds element by element":
-    let _a94 as list of int is [3, 1, 2]
-    let _a95 as list of int is [1, 1, 1]
-    let out as list of int is calling zip_sum with _a94, _a95
+    let _a94 as vector of int is [3, 1, 2]
+    let _a95 as vector of int is [1, 1, 1]
+    let out as vector of int is calling zip_sum with _a94, _a95
     calling _expect_eq_int with (out at 0), 4, "zip_sum first"
 test "repeat repeats a value":
-    let out as list of int is calling repeat of int with 7, 3
+    let out as vector of int is calling repeat of int with 7, 3
     calling _expect_eq_int with (calling out.len), 3, "repeat len"
     calling _expect_eq_int with (out at 1), 7, "repeat value"
 test "repeat with a non-positive times returns an empty list":
-    let out as list of int is calling repeat of int with 7, 0
+    let out as vector of int is calling repeat of int with 7, 0
     calling _expect_eq_int with (calling out.len), 0, "repeat zero"
 
 # --- New API ---
 
 test "zip_with combines two lists with a function":
-    let _a98 as list of int is [3, 1, 2]
-    let _a99 as list of int is [1, 1, 1]
-    let out as list of int is calling zip_with with _a98, _a99, (lambda a as int, b as int into a + b)
+    let _a98 as vector of int is [3, 1, 2]
+    let _a99 as vector of int is [1, 1, 1]
+    let out as vector of int is calling zip_with with _a98, _a99, (lambda a as int, b as int into a + b)
     calling _expect_eq_int with (out at 0), 4, "zip_with sum"
 test "zip_with accepts different input types":
-    let _a100 as list of int is [3, 1]
-    let _a101 as list of float is [0.5, 0.5]
-    let out as list of float is calling zip_with with _a100, _a101, (lambda a as int, b as float into (a to float) + b)
+    let _a100 as vector of int is [3, 1]
+    let _a101 as vector of float is [0.5, 0.5]
+    let out as vector of float is calling zip_with with _a100, _a101, (lambda a as int, b as float into (a to float) + b)
     calling _expect_eq_float with (out at 0), 3.5, "zip_with mixed"
 test "chunk splits into consecutive runs":
-    let _a102 as list of int is [3, 1, 4, 1, 5]
-    let out as list of list of int is calling chunk with _a102, 2
+    let _a102 as vector of int is [3, 1, 4, 1, 5]
+    let out as vector of vector of int is calling chunk with _a102, 2
     calling _expect_eq_int with (calling out.len), 3, "chunk count"
-    let last as list of int is out at 2
+    let last as vector of int is out at 2
     calling _expect_eq_int with (calling last.len), 1, "chunk last len"
 test "chunk with a span greater than the list gives one run":
-    let _a104 as list of int is [3, 1, 4]
-    let out as list of list of int is calling chunk with _a104, 9
+    let _a104 as vector of int is [3, 1, 4]
+    let out as vector of vector of int is calling chunk with _a104, 9
     calling _expect_eq_int with (calling out.len), 1, "chunk big span"
 test "windowed produces sliding windows":
-    let _a105 as list of int is [3, 1, 4, 1, 5]
-    let out as list of list of int is calling windowed with _a105, 3
+    let _a105 as vector of int is [3, 1, 4, 1, 5]
+    let out as vector of vector of int is calling windowed with _a105, 3
     calling _expect_eq_int with (calling out.len), 3, "windowed count"
-    let w1 as list of int is out at 1
+    let w1 as vector of int is out at 1
     calling _expect_eq_int with (w1 at 0), 1, "windowed second start"
 test "running_sum accumulates the prefixes":
-    let _a107 as list of int is [3, 1, 2]
-    let out as list of int is calling running_sum with _a107
+    let _a107 as vector of int is [3, 1, 2]
+    let out as vector of int is calling running_sum with _a107
     calling _expect_eq_int with (out at 0), 3, "running first"
     calling _expect_eq_int with (out at 2), 6, "running last"
 test "scan_left accumulates with the given function":
-    let _a109 as list of int is [1, 2, 3]
-    let out as list of int is calling scan_left with _a109, (lambda acc as int, x as int into acc + x)
+    let _a109 as vector of int is [1, 2, 3]
+    let out as vector of int is calling scan_left with _a109, (lambda acc as int, x as int into acc + x)
     calling _expect_eq_int with (out at 1), 3, "scan second"
     calling _expect_eq_int with (out at 2), 6, "scan third"
 test "scan_left is generic over float":
-    let fs as list of float is [2.5, -1.5, 4.5]
-    let out as list of float is calling scan_left with fs, (lambda acc as float, x as float into acc + x)
+    let fs as vector of float is [2.5, -1.5, 4.5]
+    let out as vector of float is calling scan_left with fs, (lambda acc as float, x as float into acc + x)
     calling _expect_eq_float with (out at 2), 5.5, "float scan"
 test "min_max returns [min, max]":
-    let _a110 as list of int is [3, 1, 4, 1, 5]
-    let out as list of int is calling min_max with _a110
+    let _a110 as vector of int is [3, 1, 4, 1, 5]
+    let out as vector of int is calling min_max with _a110
     calling _expect_eq_int with (out at 0), 1, "min_max min"
     calling _expect_eq_int with (out at 1), 5, "min_max max"
 test "enumerate_pairs returns [index, value] pairs":
-    let _a112 as list of int is [3, 1]
-    let out as list of list of int is calling _enumerate_pairs_int with _a112
-    let p1 as list of int is out at 1
+    let _a112 as vector of int is [3, 1]
+    let out as vector of vector of int is calling _enumerate_pairs_int with _a112
+    let p1 as vector of int is out at 1
     calling _expect_eq_int with (p1 at 0), 1, "pair index"
     calling _expect_eq_int with (p1 at 1), 1, "pair value"
 test "partition_by splits according to the predicate":
-    let _a114 as list of int is [3, 1, 4, 1, 5]
-    let out as list of list of int is calling partition_by with _a114, (lambda x as int into (x % 2) == 0)
-    let yes as list of int is out at 0
-    let no as list of int is out at 1
+    let _a114 as vector of int is [3, 1, 4, 1, 5]
+    let out as vector of vector of int is calling partition_by with _a114, (lambda x as int into (x % 2) == 0)
+    let yes as vector of int is out at 0
+    let no as vector of int is out at 1
     calling _expect_eq_int with (calling yes.len), 1, "partition yes"
     calling _expect_eq_int with (calling no.len), 4, "partition no"
 test "frequencies counts every value":
-    let _a115 as list of int is [3, 1, 3]
-    let m as map of int to int is calling frequencies with _a115
+    let _a115 as vector of int is [3, 1, 3]
+    let m as map of int, int is calling frequencies with _a115
     calling _expect_eq_int with (calling m.get with 3), 2, "freq three"
     calling _expect_eq_int with (calling m.get with 1), 1, "freq one"
 test "group_count is an alias of frequencies":
-    let _a116 as list of int is [2, 2, 2]
-    let m as map of int to int is calling group_count with _a116
+    let _a116 as vector of int is [2, 2, 2]
+    let m as map of int, int is calling group_count with _a116
     calling _expect_eq_int with (calling m.get with 2), 3, "group count"
 test "zip_with stops at the shorter list":
-    let xs as list of int is [3, 1, 2]
-    let ys as list of int is [1, 1]
-    let out as list of int is calling zip_with with xs, ys, (lambda a as int, b as int into a + b)
+    let xs as vector of int is [3, 1, 2]
+    let ys as vector of int is [1, 1]
+    let out as vector of int is calling zip_with with xs, ys, (lambda a as int, b as int into a + b)
     calling _expect_eq_int with (calling out.len), 2, "zip_with short len"
     calling _expect_eq_int with (out at 0), 4, "zip_with short first"
 test "zip_with is generic over float":
-    let xs as list of float is [2.5, -1.5]
-    let ys as list of float is [0.5, 0.5]
-    let out as list of float is calling zip_with with xs, ys, (lambda a as float, b as float into a + b)
+    let xs as vector of float is [2.5, -1.5]
+    let ys as vector of float is [0.5, 0.5]
+    let out as vector of float is calling zip_with with xs, ys, (lambda a as float, b as float into a + b)
     calling _expect_eq_float with (out at 0), 3.0, "zip_with float"
 test "chunk with a non-positive span is empty":
-    let xs as list of int is [3, 1, 4]
-    let out as list of list of int is calling chunk with xs, 0
+    let xs as vector of int is [3, 1, 4]
+    let out as vector of vector of int is calling chunk with xs, 0
     calling _expect_eq_int with (calling out.len), 0, "chunk zero span"
 test "windowed with a non-positive width is empty":
-    let xs as list of int is [3, 1, 4]
-    let out as list of list of int is calling windowed with xs, 0
+    let xs as vector of int is [3, 1, 4]
+    let out as vector of vector of int is calling windowed with xs, 0
     calling _expect_eq_int with (calling out.len), 0, "windowed zero width"
 test "windowed wider than the list is empty":
-    let xs as list of int is [3, 1]
-    let out as list of list of int is calling windowed with xs, 5
+    let xs as vector of int is [3, 1]
+    let out as vector of vector of int is calling windowed with xs, 5
     calling _expect_eq_int with (calling out.len), 0, "windowed too wide"
 test "running_sum and scan_left of the empty list are empty":
-    let xs as list of int is list of int
-    let a as list of int is calling running_sum with xs
-    let b as list of int is calling scan_left with xs, (lambda acc as int, x as int into acc + x)
+    let xs as vector of int is vector of int
+    let a as vector of int is calling running_sum with xs
+    let b as vector of int is calling scan_left with xs, (lambda acc as int, x as int into acc + x)
     calling _expect_eq_int with (calling a.len), 0, "running_sum empty"
     calling _expect_eq_int with (calling b.len), 0, "scan_left empty"
 test "scan_left seeds the accumulator with the first element":
-    let xs as list of int is [3, 1, 2]
-    let out as list of int is calling scan_left with xs, (lambda acc as int, x as int into acc + x)
+    let xs as vector of int is [3, 1, 2]
+    let out as vector of int is calling scan_left with xs, (lambda acc as int, x as int into acc + x)
     calling _expect_eq_int with (out at 0), 3, "scan seed"
     calling _expect_eq_int with (out at 2), 6, "scan total"
 test "min_max of the empty list is empty":
-    let xs as list of int is list of int
-    let out as list of int is calling min_max with xs
+    let xs as vector of int is vector of int
+    let out as vector of int is calling min_max with xs
     calling _expect_eq_int with (calling out.len), 0, "min_max empty"
 test "min_max of a single element repeats it":
-    let xs as list of int is [7]
-    let out as list of int is calling min_max with xs
+    let xs as vector of int is [7]
+    let out as vector of int is calling min_max with xs
     calling _expect_eq_int with (out at 0), 7, "min_max single min"
     calling _expect_eq_int with (out at 1), 7, "min_max single max"
 test "enumerate_pairs of the empty list is empty":
-    let xs as list of int is list of int
-    let out as list of list of int is calling _enumerate_pairs_int with xs
+    let xs as vector of int is vector of int
+    let out as vector of vector of int is calling _enumerate_pairs_int with xs
     calling _expect_eq_int with (calling out.len), 0, "enumerate empty"
 test "partition_by of the empty list returns two empty lists":
-    let xs as list of int is list of int
-    let out as list of list of int is calling partition_by with xs, (lambda x as int into x > 0)
+    let xs as vector of int is vector of int
+    let out as vector of vector of int is calling partition_by with xs, (lambda x as int into x > 0)
     calling _expect_eq_int with (calling out.len), 2, "partition empty outer"
-    let yes as list of int is out at 0
-    let no as list of int is out at 1
+    let yes as vector of int is out at 0
+    let no as vector of int is out at 1
     calling _expect_eq_int with (calling yes.len), 0, "partition empty yes"
     calling _expect_eq_int with (calling no.len), 0, "partition empty no"
 test "frequencies of the empty list is an empty map":
-    let xs as list of int is list of int
-    let m as map of int to int is calling frequencies with xs
+    let xs as vector of int is vector of int
+    let m as map of int, int is calling frequencies with xs
     calling _expect_eq_int with (calling m.get with 1), 0, "frequencies empty"
 # --- Widened module functions ---
 test "the sum module function adds floats":
-    let fs as list of float is [1.5, 2.5]
+    let fs as vector of float is [1.5, 2.5]
     calling _expect_eq_float with (calling sum with fs), 4.0, "module sum float"
 test "the sum module function adds i64 values":
-    let ls as list of i64 is [4, 5, 6]
+    let ls as vector of i64 is [4, 5, 6]
     calling _expect_eq_int with ((calling sum with ls) to int), 15, "module sum i64"
 test "the product module function multiplies floats":
-    let fs as list of float is [1.5, 2.0]
+    let fs as vector of float is [1.5, 2.0]
     calling _expect_eq_float with (calling product with fs), 3.0, "module product float"
 test "the mean module function averages floats":
-    let fs as list of float is [1.5, 2.5, 2.0]
+    let fs as vector of float is [1.5, 2.5, 2.0]
     calling _expect_eq_float with (calling mean with fs), 2.0, "module mean float"
 test "the max_val module function orders strings":
-    let ws as list of string is ["b", "a", "c"]
+    let ws as vector of string is ["b", "a", "c"]
     calling _expect with (calling max_val with ws) == "c", "module max_val string"
 test "the min_val module function orders strings":
-    let ws as list of string is ["b", "a", "c"]
+    let ws as vector of string is ["b", "a", "c"]
     calling _expect with (calling min_val with ws) == "a", "module min_val string"
 test "sort_string_asc sorts strings":
-    let ws as list of string is ["b", "a", "c"]
-    let out as list of string is calling sort_string_asc with ws
+    let ws as vector of string is ["b", "a", "c"]
+    let out as vector of string is calling sort_string_asc with ws
     let first_word as string is out at 0
     let last_word as string is out at 2
     calling _expect with first_word == "a", "module sort_string_asc first"
     calling _expect with last_word == "c", "module sort_string_asc last"
 test "the filter_even module function keeps i64 parity":
-    let ls as list of i64 is [1, 2, 3, 4]
-    let evens as list of i64 is calling filter_even with ls
+    let ls as vector of i64 is [1, 2, 3, 4]
+    let evens as vector of i64 is calling filter_even with ls
     calling _expect_eq_int with ((calling evens.len) to int), 2, "module filter_even i64"
 test "the contains module function compares strings":
-    let ws as list of string is ["a", "b"]
+    let ws as vector of string is ["a", "b"]
     calling _expect_eq_bool with (calling contains with ws, "b"), true, "module contains string"
 test "the frequencies module function counts strings":
-    let ws as list of string is ["a", "b", "a"]
-    let counts as map of string to int is calling frequencies with ws
+    let ws as vector of string is ["a", "b", "a"]
+    let counts as map of string, int is calling frequencies with ws
     calling _expect_eq_int with (calling counts.get with "a"), 2, "module frequencies string"
 test "the at_or_shard module function returns its string default":
-    let ws as list of string is ["a", "b"]
+    let ws as vector of string is ["a", "b"]
     let missing as string is calling at_or_shard with ws, 9, "?"
     let present as string is calling at_or_shard with ws, 1, "?"
     calling _expect with missing == "?", "at_or_shard default"
     calling _expect with present == "b", "at_or_shard in range"
 test "the clamp_all_shard module function clips floats":
-    let fs as list of float is [1.5, 5.5]
-    let out as list of float is calling clamp_all_shard with fs, 2.0, 4.0
+    let fs as vector of float is [1.5, 5.5]
+    let out as vector of float is calling clamp_all_shard with fs, 2.0, 4.0
     calling _expect_eq_float with (out at 0), 2.0, "clamp_all_shard low"
     calling _expect_eq_float with (out at 1), 4.0, "clamp_all_shard high"
 test "the min_max module function orders float values":
-    let fs as list of float is [3.5, 1.5]
-    let mm as list of float is calling min_max with fs
+    let fs as vector of float is [3.5, 1.5]
+    let mm as vector of float is calling min_max with fs
     calling _expect_eq_float with (mm at 0), 1.5, "min_max float low"
     calling _expect_eq_float with (mm at 1), 3.5, "min_max float high"
 test "the dot module function reduces floats":
-    let a as list of float is [1.5, 2.0]
-    let b as list of float is [2.0, 2.0]
+    let a as vector of float is [1.5, 2.0]
+    let b as vector of float is [2.0, 2.0]
     calling _expect_eq_float with (calling dot with a, b), 7.0, "module dot float"
 test "the root sum module function reduces floats":
-    let fs as list of float is [1.5, 2.5]
+    let fs as vector of float is [1.5, 2.5]
     calling _expect_eq_float with (calling sum with fs), 4.0, "root sum float"
 test "the root max_val module function orders strings":
-    let ws as list of string is ["b", "a", "c"]
+    let ws as vector of string is ["b", "a", "c"]
     calling _expect with (calling max_val with ws) == "c", "root max_val string"
 test "the root sort_string_asc module function sorts strings":
-    let ws as list of string is ["b", "a", "c"]
-    let out as list of string is calling sort_string_asc with ws
+    let ws as vector of string is ["b", "a", "c"]
+    let out as vector of string is calling sort_string_asc with ws
     calling _expect with (out at 0) == "a", "root sort_string_asc string"
 test "the root at_or_shard module function returns its default":
-    let ws as list of string is ["a"]
+    let ws as vector of string is ["a"]
     let missing as string is calling at_or_shard with ws, 9, "?"
     calling _expect with missing == "?", "root at_or_shard"
 
 # --- Edge cases ---
 
 test "a one-element list reduces to itself":
-    let _a118 as list of int is [42]
+    let _a118 as vector of int is [42]
     calling _expect_eq_int with (calling sum with _a118), 42, "single sum"
     calling _expect_eq_int with (calling max_val with _a118), 42, "single max"
     calling _expect_eq_int with (calling median with _a118), 42, "single median"
 test "a list of negatives keeps its sign in the reductions":
-    let _a119 as list of int is [-3, -1, -2]
+    let _a119 as vector of int is [-3, -1, -2]
     calling _expect_eq_int with (calling sum with _a119), -6, "neg sum"
     calling _expect_eq_int with (calling max_val with _a119), -1, "neg max"
     calling _expect_eq_int with (calling min_val with _a119), -3, "neg min"
 test "duplicates affect count_of and unique":
-    let _a120 as list of int is [1, 2, 1, 2, 3]
+    let _a120 as vector of int is [1, 2, 1, 2, 3]
     calling _expect_eq_int with (calling count_of with _a120, 2), 2, "dups count"
-    let out as list of int is calling unique with _a120
+    let out as vector of int is calling unique with _a120
     calling _expect_eq_int with (calling out.len), 3, "dups unique"
 test "operations on the empty list are safe":
-    let _a121 as list of int is list of int
+    let _a121 as vector of int is vector of int
     calling _expect_eq_int with (calling sum with _a121), 0, "empty sum"
     calling _expect_eq_int with (calling product with _a121), 1, "empty product"
     calling _expect_eq_int with (calling len with _a121), 0, "empty len"

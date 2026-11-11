@@ -145,7 +145,7 @@ declare pengu_log_set_level with level as int into void
 declare pengu_log_get_level into int
 
 ## C bridge that copies the keys of a `map of string to string` into a list.
-declare pengu_map_keys_string with m as ref to map of string to string into list of string
+declare pengu_map_keys_string with m as ref to map of string, string into vector of string
 
 # ----------------------------------------------------------------------------
 # C name prefix
@@ -324,8 +324,8 @@ weave is_enabled with level as int into bool:
 ## ```pengu
 ## var names as list of string is calling whisper.log_levels
 ## ```
-weave log_levels into list of string:
-    var res as list of string is list of string
+weave log_levels into vector of string:
+    var res as vector of string is vector of string
     calling res.push with "trace"
     calling res.push with "debug"
     calling res.push with "info"
@@ -475,8 +475,8 @@ weave set_level_from_string with s as string into bool:
 ##
 ## ## Retorno
 ## A new owned `list of string`.
-weave _env_names into list of string:
-    var names as list of string is list of string
+weave _env_names into vector of string:
+    var names as vector of string is vector of string
     calling names.push with "LOG_LEVEL"
     calling names.push with "RUST_LOG"
     calling names.push with "PENGU_LOG"
@@ -497,7 +497,7 @@ weave _env_names into list of string:
 ## and skipped; a variable that is not set at all is skipped silently. That is
 ## the 2.1.0 fix for B17, which used to treat both cases identically.
 weave _level_from_env_or with fallback as int into int:
-    var names as list of string is calling _env_names
+    var names as vector of string is calling _env_names
     for name in names:
         var opt as maybe string is calling rites.getenv with name
         if opt is present:
@@ -604,8 +604,8 @@ weave json_escape_public with s as string into string:
 ## ## Retorno
 ## A new owned `list of string` in ascending byte order, which is what makes
 ## the JSON output deterministic (2.1.0 fix for B16).
-weave _sorted_keys with m as map of string to string into list of string:
-    var ks as list of string is calling pengu_map_keys_string with sigil of m
+weave _sorted_keys with m as map of string, string into vector of string:
+    var ks as vector of string is calling pengu_map_keys_string with sigil of m
     var n as int is calling ks.len
     var i as int is 1
     while i < n:
@@ -638,7 +638,7 @@ weave _sorted_keys with m as map of string to string into list of string:
 ## ## Nota
 ## Rendering is pure: it never touches the environment and never writes, which
 ## is what lets the internal tests assert on the exact bytes.
-weave _render_json with level as int, logger_name as string, msg as string, fields as map of string to string, include_time as bool into string:
+weave _render_json with level as int, logger_name as string, msg as string, fields as map of string, string, include_time as bool into string:
     var out as string is "{\"level\":\"{(calling get_level_name with level)}\""
     if include_time:
         var stamp as string is calling chronicle.to_iso with (calling chronicle.time)
@@ -646,7 +646,7 @@ weave _render_json with level as int, logger_name as string, msg as string, fiel
     if (logger_name length) > 0:
         set out is "{out},\"logger\":\"{(calling _json_escape with logger_name)}\""
     set out is "{out},\"msg\":\"{(calling _json_escape with msg)}\""
-    var field_keys as list of string is calling _sorted_keys with fields
+    var field_keys as vector of string is calling _sorted_keys with fields
     for k in field_keys:
         set out is "{out},\"{(calling _json_escape with k)}\":\"{(calling _json_escape with (fields at k))}\""
     set out is "{out}}"
@@ -860,7 +860,7 @@ weave fatal_and_exit with msg as string, code as int is 1 into void:
 ##     calling .put with "pid", "42"
 ## calling whisper.log_json with whisper.LOG_INFO, "started", f
 ## ```
-weave log_json with level as int, msg as string, fields as map of string to string into void:
+weave log_json with level as int, msg as string, fields as map of string, string into void:
     var cur as int is calling get_level
     if level >= cur:
         var out as string is calling _render_json with level, "", msg, fields, true
@@ -893,15 +893,15 @@ rune Logger:
     file_path as string
     stream as int
     fmt as string
-    context as map of string to string
+    context as map of string, string
 
 ## Returns the module-level singleton registry of named loggers.
 ##
 ## ## Retorno
 ## A reference to the registry map. The `static var` lives here and only here,
 ## which is what makes every caller see the same map.
-weave _registry into ref to map of string to Logger:
-    static var reg as map of string to Logger is map of string to Logger
+weave _registry into ref to map of string, Logger:
+    static var reg as map of string, Logger is map of string, Logger
     return sigil of reg
 
 ## Builds a `Logger` from already-prepared field values.
@@ -912,15 +912,15 @@ weave _registry into ref to map of string to Logger:
 ##
 ## ## Retorno
 ## A new `Logger` value.
-weave _copy_of with new_name as string, new_level as int, new_ts as bool, new_color as bool, new_file as string, new_stream as int, new_fmt as string, new_ctx as map of string to string into Logger:
+weave _copy_of with new_name as string, new_level as int, new_ts as bool, new_color as bool, new_file as string, new_stream as int, new_fmt as string, new_ctx as map of string, string into Logger:
     return with name is new_name, min_level is new_level, show_timestamp is new_ts, use_color is new_color, file_path is new_file, stream is new_stream, fmt is new_fmt, context is new_ctx
 
 ## Returns an empty structured-field map.
 ##
 ## ## Retorno
 ## A new empty `map of string to string`.
-weave _no_fields into map of string to string:
-    return map of string to string
+weave _no_fields into map of string, string:
+    return map of string, string
 
 ## Publishes a new level for `name` into the singleton registry.
 ##
@@ -933,7 +933,7 @@ weave _no_fields into map of string to string:
 weave _registry_store_level with name as string, level as int into void:
     if (name length) == 0:
         return
-    var reg as ref to map of string to Logger is calling _registry
+    var reg as ref to map of string, Logger is calling _registry
     if not (calling reg.contains with name):
         return
     var existing as Logger is reg at name
@@ -1033,7 +1033,7 @@ enchanting Logger:
     ## var log as whisper.Logger is calling whisper.Logger.get_or_create with "app"
     ## ```
     weave ritual get_or_create with name as string into Logger:
-        var reg as ref to map of string to Logger is calling _registry
+        var reg as ref to map of string, Logger is calling _registry
         if (calling reg.contains with name):
             var existing as Logger is reg at name
             return calling _copy_of with ("{existing.name}"), existing.min_level, existing.show_timestamp, existing.use_color, ("{existing.file_path}"), existing.stream, ("{existing.fmt}"), existing.context
@@ -1218,8 +1218,8 @@ enchanting Logger:
     ## ```pengu
     ## var child as whisper.Logger is calling log.with_context with fields
     ## ```
-    weave with_context with fields as map of string to string into Logger:
-        var merged as map of string to string is map of string to string
+    weave with_context with fields as map of string, string into Logger:
+        var merged as map of string, string is map of string, string
         for k in self->context:
             with merged:
                 calling .put with k, (self->context at k)
@@ -1252,8 +1252,8 @@ enchanting Logger:
     ##
     ## ## Retorno
     ## A new `map of string to string` with a single entry.
-    weave _one_field with key as string, value as string into map of string to string:
-        var m as map of string to string is map of string to string
+    weave _one_field with key as string, value as string into map of string, string:
+        var m as map of string, string is map of string, string
         with m:
             calling .put with key, value
         return m
@@ -1533,7 +1533,7 @@ enchanting Logger:
     ## var f as map of string to string is map of string to string
     ## calling log.log_json with whisper.LOG_INFO, "ready", f
     ## ```
-    weave log_json with level as int, msg as string, fields as map of string to string into void:
+    weave log_json with level as int, msg as string, fields as map of string, string into void:
         calling self.log_json_ex with level, msg, fields, self->show_timestamp
 
     ## Emits a JSON line with explicit control over the timestamp member.
@@ -1551,10 +1551,10 @@ enchanting Logger:
     ## ```pengu
     ## calling log.log_json_ex with whisper.LOG_INFO, "ready", f, true
     ## ```
-    weave log_json_ex with level as int, msg as string, fields as map of string to string, include_time as bool into void:
+    weave log_json_ex with level as int, msg as string, fields as map of string, string, include_time as bool into void:
         if level < self->min_level:
             return
-        var merged as map of string to string is map of string to string
+        var merged as map of string, string is map of string, string
         for k in self->context:
             with merged:
                 calling .put with k, (self->context at k)
@@ -1652,7 +1652,7 @@ test "set_level, get_level and is_enabled agree on the global level":
     calling set_level with LOG_TRACE
 
 test "log_levels publishes the six names in severity order":
-    let names as list of string is calling log_levels
+    let names as vector of string is calling log_levels
     calling _wsp_expect_eq_int with (calling names.len), 6, "length"
     calling _wsp_expect_eq_string with (names at 0), "trace", "first"
     calling _wsp_expect_eq_string with (names at 5), "fatal", "last"
@@ -1678,19 +1678,19 @@ test "json_escape_public is the public spelling of _json_escape":
     calling _wsp_expect_eq_string with (calling json_escape_public with "a\tb"), (calling _json_escape with "a\tb"), "same bytes"
 
 test "BUG-16: _sorted_keys returns byte-sorted keys":
-    var m as map of string to string is map of string to string
+    var m as map of string, string is map of string, string
     with m:
         calling .put with "gamma", "3"
         calling .put with "alpha", "1"
         calling .put with "beta", "2"
-    let keys as list of string is calling _sorted_keys with m
+    let keys as vector of string is calling _sorted_keys with m
     calling _wsp_expect_eq_int with (calling keys.len), 3, "count"
     calling _wsp_expect_eq_string with (keys at 0), "alpha", "first"
     calling _wsp_expect_eq_string with (keys at 1), "beta", "second"
     calling _wsp_expect_eq_string with (keys at 2), "gamma", "third"
 
 test "BUG-16: _render_json emits fields in a deterministic order":
-    var m as map of string to string is map of string to string
+    var m as map of string, string is map of string, string
     with m:
         calling .put with "zzz", "26"
         calling .put with "aaa", "1"
@@ -1702,7 +1702,7 @@ test "BUG-16: _render_json emits fields in a deterministic order":
     calling _wsp_expect with (calling _wsp_contains with first, "\"msg\":\"hi\""), "has msg"
 
 test "BUG-15: _render_json includes a timestamp only when asked":
-    var empty as map of string to string is map of string to string
+    var empty as map of string, string is map of string, string
     let without as string is calling _render_json with LOG_INFO, "app", "hi", empty, false
     calling _wsp_expect with (not (calling _wsp_contains with without, "\"time\"")), "no time"
     let with_time as string is calling _render_json with LOG_INFO, "app", "hi", empty, true
@@ -1822,7 +1822,7 @@ test "BUG-21: a logger pointed at an unwritable file does not crash":
 
 test "log_json_ex renders through the logger and respects the level":
     let log as Logger is calling Logger.named with "json", LOG_ERROR
-    var fields as map of string to string is map of string to string
+    var fields as map of string, string is map of string, string
     with fields:
         calling .put with "k", "v"
     calling log.log_json_ex with LOG_INFO, "suppressed", fields, true
@@ -1839,15 +1839,15 @@ test "the global helpers emit and suppress according to the global level":
 
 ## Emits one global JSON line (helper kept out of the test body for readability).
 weave log_json_global_helper into void:
-    var fields as map of string to string is map of string to string
+    var fields as map of string, string is map of string, string
     with fields:
         calling .put with "z", "1"
         calling .put with "a", "2"
     calling log_json with LOG_WARN, "structured", fields
 
 ## Returns a one-entry context map for the `with_context` test.
-weave _wsp_fields into map of string to string:
-    var m as map of string to string is map of string to string
+weave _wsp_fields into map of string, string:
+    var m as map of string, string is map of string, string
     with m:
         calling .put with "env", "test"
     return m

@@ -86,7 +86,7 @@ rune BuildOptions:
     split as bool
     ## Número máximo de compilaciones C en paralelo (0 = secuencial).
     jobs as int
-    defines as list of string
+    defines as vector of string
 
 ## Resultado de un build.
 ##
@@ -112,7 +112,7 @@ weave copy with s as string into string:
 ##
 ## ## Memoria
 ## Libera elementos y lista.
-weave free_strings with xs as list of string into void:
+weave free_strings with xs as vector of string into void:
     var i as int is 0
     while i < xs.len:
         banish xs at i
@@ -213,7 +213,7 @@ weave str_contains with s as string, needle as string into bool:
 ##
 ## ## Memoria
 ## No copia ni libera strings; mueve las celdas de la lista.
-weave sort_strings_in_place with xs as list of string into void:
+weave sort_strings_in_place with xs as vector of string into void:
     var i as int is 1
     while i < xs.len:
         var cur as string is (xs at i)
@@ -251,7 +251,7 @@ weave ext_allowed with path as string, mode as string into bool:
 ##
 ## ## Memoria
 ## No asigna.
-weave seen_has with seen as ref to list of string, dir as string into bool:
+weave seen_has with seen as ref to vector of string, dir as string into bool:
     var i as int is 0
     while i < seen->len:
         if (seen at i) == dir:
@@ -267,7 +267,7 @@ weave seen_has with seen as ref to list of string, dir as string into bool:
 ##
 ## ## Memoria
 ## Libera la lista de archivos y los hashes temporales.
-weave push_tree_hashes with cparts as ref to list of string, dir as string, mode as string, skip as string, seen as ref to list of string into void:
+weave push_tree_hashes with cparts as ref to vector of string, dir as string, mode as string, skip as string, seen as ref to vector of string into void:
     if dir length == 0:
         return
     if not (calling archivum.is_dir with dir):
@@ -275,7 +275,7 @@ weave push_tree_hashes with cparts as ref to list of string, dir as string, mode
     if calling seen_has with seen, dir:
         return
     calling seen.push with (calling copy with dir)
-    var files as list of string is calling archivum.find_files with dir, true
+    var files as vector of string is calling archivum.find_files with dir, true
     calling sort_strings_in_place with files
     var i as int is 0
     while i < files.len:
@@ -305,7 +305,7 @@ weave push_tree_hashes with cparts as ref to list of string, dir as string, mode
 ##
 ## ## Memoria
 ## Libera el hash temporal.
-weave push_file_hash with cparts as ref to list of string, path as string into void:
+weave push_file_hash with cparts as ref to vector of string, path as string into void:
     if not (calling archivum.is_file with path):
         return
     calling cparts.push with (calling copy with path)
@@ -346,8 +346,8 @@ weave same_file_content with a as string, b as string into bool:
 ##
 ## ## Memoria
 ## Devuelve string owned; libera todas las partes temporales.
-weave compute_cache_key with o as ref to BuildOptions, man as ref to Manifest, p as ref to paths.Paths, tc as ref to toolchain.Toolchain, eff as ref to target.Target, base as string, entry as string, is_project as bool, is_file as bool, eff_output as string, out_name as string, dep_dirs as list of string into string:
-    var parts as list of string is list of string
+weave compute_cache_key with o as ref to BuildOptions, man as ref to Manifest, p as ref to paths.Paths, tc as ref to toolchain.Toolchain, eff as ref to target.Target, base as string, entry as string, is_project as bool, is_file as bool, eff_output as string, out_name as string, dep_dirs as vector of string into string:
+    var parts as vector of string is vector of string
     var cbytes as maybe string is calling archivum.read_bytes with o->compiler_path
     if cbytes.is_present:
         var ch as string is calling digest.sha256_hex with cbytes.value
@@ -421,7 +421,7 @@ weave compute_cache_key with o as ref to BuildOptions, man as ref to Manifest, p
     calling push_file_hash with (sigil of parts), "{base}/pengu.toml"
     calling push_file_hash with (sigil of parts), "{base}/pengu.lock"
     calling push_file_hash with (sigil of parts), entry
-    var seen as list of string is list of string
+    var seen as vector of string is vector of string
     if is_project:
         calling push_tree_hashes with (sigil of parts), "{base}/{man->src_dir}", "pengu", skip, (sigil of seen)
         calling push_tree_hashes with (sigil of parts), "{base}/{man->lib_dir}", "pengu", skip, (sigil of seen)
@@ -481,8 +481,8 @@ weave compute_cache_key with o as ref to BuildOptions, man as ref to Manifest, p
 ##
 ## ## Memoria
 ## Devuelve una lista owned.
-weave module_fingerprints with sr as ref to sema_api.SemaResult into list of string:
-    var out as list of string is list of string
+weave module_fingerprints with sr as ref to sema_api.SemaResult into vector of string:
+    var out as vector of string is vector of string
     for mm in sr->program->modules:
         var h as string is calling digest.sha256_hex with mm.source.text
         var line as string is "{mm.source.path}\t{h}"
@@ -520,7 +520,7 @@ weave fingerprint_hash with line as string into string:
 ##
 ## ## Memoria
 ## No retiene nada.
-weave fingerprint_has with lines as list of string, path as string into bool:
+weave fingerprint_has with lines as vector of string, path as string into bool:
     for line in lines:
         var p as string is calling fingerprint_path with line
         var eq as bool is p == path
@@ -533,7 +533,7 @@ weave fingerprint_has with lines as list of string, path as string into bool:
 ##
 ## ## Memoria
 ## Devuelve string owned (`""` si no existe).
-weave fingerprint_of with lines as list of string, path as string into string:
+weave fingerprint_of with lines as vector of string, path as string into string:
     for line in lines:
         var p as string is calling fingerprint_path with line
         if p == path:
@@ -546,7 +546,7 @@ weave fingerprint_of with lines as list of string, path as string into string:
 ##
 ## ## Memoria
 ## No retiene nada.
-weave report_fingerprint_changes with old_lines as list of string, cur_lines as list of string into void:
+weave report_fingerprint_changes with old_lines as vector of string, cur_lines as vector of string into void:
     for line in cur_lines:
         var p as string is calling fingerprint_path with line
         var h as string is calling fingerprint_hash with line
@@ -641,7 +641,7 @@ weave backend_error with tool as string, name as string into string:
 ## ## Memoria
 ## Strings owned; liberar con `free_options`.
 weave default_options into BuildOptions:
-    return with target is "", platform is (calling targetmod.host), target_explicit is false, profile is (calling copy with "debug"), cc is "", family is (calling copy with "c"), out_path is "", verbose is false, strict_c99 is false, lint_cow is false, lint_shadow is true, legacy_copy is false, release_unsafe is false, is_library is false, is_test is false, test_json is false, bundle_only is false, check_only is false, no_dce is false, prune_types is true, no_line_markers is false, prune_native is false, dce_scope_user is false, pch is false, compiler_path is "", no_cache is false, clear_cache is false, ephemeral is false, locked is false, frozen is false, force_exe is false, coverage is false, sanitize_kind is 0, split is false, jobs is 0, defines is list of string
+    return with target is "", platform is (calling targetmod.host), target_explicit is false, profile is (calling copy with "debug"), cc is "", family is (calling copy with "c"), out_path is "", verbose is false, strict_c99 is false, lint_cow is false, lint_shadow is true, legacy_copy is false, release_unsafe is false, is_library is false, is_test is false, test_json is false, bundle_only is false, check_only is false, no_dce is false, prune_types is true, no_line_markers is false, prune_native is false, dce_scope_user is false, pch is false, compiler_path is "", no_cache is false, clear_cache is false, ephemeral is false, locked is false, frozen is false, force_exe is false, coverage is false, sanitize_kind is 0, split is false, jobs is 0, defines is vector of string
 
 ## Libera opciones.
 ##
@@ -723,8 +723,8 @@ weave emar_for with cc as string into string:
 ## dynlib/ffi/secrets/petitio dependen de librerías nativas que no están en el
 ## sysroot wasm. Se rechazan antes de llegar a un error de linker.
 ## Clave de caché de un objeto de unidad: cabecera + fuente + flags + cc.
-weave unit_object_key with header_hash as string, src as string, cc as string, flags as list of string into string:
-    var parts as list of string is list of string
+weave unit_object_key with header_hash as string, src as string, cc as string, flags as vector of string into string:
+    var parts as vector of string is vector of string
     calling parts.push with (calling copy with "unit-object-v1")
     calling parts.push with (calling copy with header_hash)
     var sm as maybe string is calling digest.sha256_file with src
@@ -749,17 +749,17 @@ weave unit_object_key with header_hash as string, src as string, cc as string, f
 ##
 ## ## Memoria
 ## Los argv temporales se liberan tras cada spawn.
-weave compile_units with cc as string, flags as list of string, srcs as list of string, objs as list of string, jobs as int into int:
+weave compile_units with cc as string, flags as vector of string, srcs as vector of string, objs as vector of string, jobs as int into int:
     var limit as int is jobs
     if limit < 1:
         set limit is 1
-    var running as list of int is list of int
+    var running as vector of int is vector of int
     var failed as bool is false
     var i as int is 0
     while i < srcs.len and not failed:
         var src as string is (srcs at i)
         var obj as string is (objs at i)
-        var argv as list of string is list of string
+        var argv as vector of string is vector of string
         calling argv.push with (calling copy with cc)
         for f in flags:
             calling argv.push with (calling copy with f)
@@ -786,7 +786,7 @@ weave compile_units with cc as string, flags as list of string, srcs as list of 
                     set failed is true
                 set w is w + 1
             banish running
-            set running is list of int
+            set running is vector of int
         set i is i + 1
     var w2 as int is 0
     while w2 < running.len:
@@ -986,7 +986,7 @@ weave build with o as BuildOptions into BuildResult:
     while doi < o.defines.len:
         calling so.defines.push with (calling copy with (o.defines at doi))
         set doi is doi + 1
-    var dep_ds as list of pman.Dependency is calling pman.load with base
+    var dep_ds as vector of pman.Dependency is calling pman.load with base
     if dep_ds.len > 0:
         if o.frozen:
             for vd in dep_ds:
@@ -1059,7 +1059,7 @@ weave build with o as BuildOptions into BuildResult:
                 return with ok is false, error is "E0061: pengu.lock is out of date (--locked/--frozen)", artifact is "", bundle_path is "", is_wasm is false
             banish lm
         else:
-            var lk as plock.Lock is with target is "x86_64-unknown-linux-gnu", packages is list of plock.Package
+            var lk as plock.Lock is with target is "x86_64-unknown-linux-gnu", packages is vector of plock.Package
             for gp2 in g.packages:
                 calling lk.packages.push with gp2
             var lw as bool is calling plock.write with base, lk
@@ -1156,7 +1156,7 @@ weave build with o as BuildOptions into BuildResult:
                 if (not cok) and (calling same_file_content with hit, artifact):
                     set cok is true
                 if cok:
-                    var cargsx as list of string is list of string
+                    var cargsx as vector of string is vector of string
                     calling cargsx.push with "chmod"
                     calling cargsx.push with "+x"
                     calling cargsx.push with (calling copy with artifact)
@@ -1253,12 +1253,12 @@ weave build with o as BuildOptions into BuildResult:
     # explica qué fuente invalidó la clave (visible con --verbose).
     if build_dir length > 0:
         var oldp as string is "{build_dir}/.psc-modules"
-        var olds as list of string is list of string
+        var olds as vector of string is vector of string
         if o.verbose and calling archivum.is_file with oldp:
             var om as maybe string is calling archivum.read_text with oldp
             if om.is_present:
                 var otxt as string is calling copy with om.value
-                var oparts as list of string is calling otxt.split with "\n"
+                var oparts as vector of string is calling otxt.split with "\n"
                 for pl in oparts:
                     if pl length > 0:
                         calling olds.push with (calling copy with pl)
@@ -1266,7 +1266,7 @@ weave build with o as BuildOptions into BuildResult:
                 banish oparts
                 banish otxt
             banish om
-        var cur as list of string is calling module_fingerprints with (sigil of sr)
+        var cur as vector of string is calling module_fingerprints with (sigil of sr)
         if o.verbose and olds.len > 0:
             calling report_fingerprint_changes with olds, cur
         var acc as string is ""
@@ -1341,7 +1341,7 @@ weave build with o as BuildOptions into BuildResult:
     defer banish ccn2
     set cgo.target_compiler is ccn2
     set cgo.compiler is ccn2
-    var all_defs as list of string is list of string
+    var all_defs as vector of string is vector of string
     var adi as int is 0
     while adi < man.defines.len:
         calling all_defs.push with (calling copy with (man.defines at adi))
@@ -1357,9 +1357,9 @@ weave build with o as BuildOptions into BuildResult:
     # siguen en el camino de un único translation unit.
     var split_mode as bool is o.split and out_kind == "exe" and not eff.is_wasm
     var units_dir as string is ""
-    var unit_srcs as list of string is list of string
-    var unit_objs as list of string is list of string
-    var cr as cgapi.CgResult is with ok is true, bundle is "", error is "", stats is (with types is 0, prototypes is 0, functions is 0, instances is 0, includes is 0, bytes is 0, lines is 0), live_modules is list of int
+    var unit_srcs as vector of string is vector of string
+    var unit_objs as vector of string is vector of string
+    var cr as cgapi.CgResult is with ok is true, bundle is "", error is "", stats is (with types is 0, prototypes is 0, functions is 0, instances is 0, includes is 0, bytes is 0, lines is 0), live_modules is vector of int
     if split_mode:
         var cru as cgapi.CgUnitsResult is calling cgapi.generate_units with sr.program, cgo
         if not cru.ok:
@@ -1393,7 +1393,7 @@ weave build with o as BuildOptions into BuildResult:
             banish up
             set ui is ui + 1
         set cr.live_modules is cru.live_modules
-        set cru.live_modules is list of int
+        set cru.live_modules is vector of int
         calling cgapi.free_units with (sigil of cru)
         banish bundle
         set bundle is (calling copy with cex)
@@ -1473,7 +1473,7 @@ weave build with o as BuildOptions into BuildResult:
     if out_kind == "static":
         banish objpath
         set objpath is "{build_dir}/{out_name}.o"
-    var args as list of string is list of string
+    var args as vector of string is vector of string
     for f in tc.cflags:
         calling args.push with (calling copy with f)
     # Debug debe traer DWARF por defecto: los manifiestos de usuario no
@@ -1519,7 +1519,7 @@ weave build with o as BuildOptions into BuildResult:
         calling args.push with "-DPENGU_ENABLE_THREADS=0"
     for inc in tc.include_dirs:
         calling args.push with "-I{inc}"
-    var unit_keys as list of string is list of string
+    var unit_keys as vector of string is vector of string
     if split_mode:
         # Caché por unidad: si la cabecera y esta unidad no cambian, el objeto
         # se reutiliza. Cambiar solo un cuerpo recompila solo esa unidad.
@@ -1528,12 +1528,12 @@ weave build with o as BuildOptions into BuildResult:
         if hm.is_present:
             set hh is (calling copy with hm.value)
         banish hm
-        var uflags as list of string is list of string
+        var uflags as vector of string is vector of string
         for uf in args:
             if uf != "-I{build_dir}":
                 calling uflags.push with (calling copy with uf)
-        var todo_srcs as list of string is list of string
-        var todo_objs as list of string is list of string
+        var todo_srcs as vector of string is vector of string
+        var todo_objs as vector of string is vector of string
         var oi as int is 0
         while oi < unit_srcs.len:
             var op as string is "{units_dir}/unit_{oi}.o"
@@ -1584,16 +1584,16 @@ weave build with o as BuildOptions into BuildResult:
             calling toolchain.free_toolchain with (sigil of tc)
             return with ok is false, error is (calling copy with "C compilation failed"), artifact is "", bundle_path is "", is_wasm is false
     calling args.push with (calling copy with bundle)
-    var glue as list of string is list of string
+    var glue as vector of string is vector of string
     if is_project:
         var cdir as string is "{base}/{man.c_dir}"
-        var cfiles as list of string is calling archivum.find_files with cdir, false
+        var cfiles as vector of string is calling archivum.find_files with cdir, false
         for cf in cfiles:
             if (calling ends_with with cf, ".c"):
                 calling glue.push with (calling copy with cf)
             banish cf
         banish cfiles
-        var bfiles as list of string is calling archivum.find_files with build_dir, false
+        var bfiles as vector of string is calling archivum.find_files with build_dir, false
         for bf in bfiles:
             if calling ends_with with bf, "_assets.c":
                 calling glue.push with (calling copy with bf)
@@ -1707,7 +1707,7 @@ weave build with o as BuildOptions into BuildResult:
         calling spark.eprintln with vmsg
         banish vmsg
         banish cmdline
-    var cc_argv as list of string is list of string
+    var cc_argv as vector of string is vector of string
     calling cc_argv.push with (calling copy with tc.cc)
     for ca in args:
         calling cc_argv.push with ca
@@ -1732,7 +1732,7 @@ weave build with o as BuildOptions into BuildResult:
         calling toolchain.free_toolchain with (sigil of tc)
         return with ok is false, error is (calling copy with "C compilation failed"), artifact is "", bundle_path is "", is_wasm is false
     if out_kind == "static":
-        var ar_args as list of string is list of string
+        var ar_args as vector of string is vector of string
         if eff.is_wasm:
             var emar as string is calling emar_for with tc.cc
             calling ar_args.push with emar

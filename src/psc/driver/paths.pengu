@@ -23,7 +23,7 @@ rune Paths:
     runtime_archive as string
     runtime_include as string
     std_c_dir as string
-    std_dirs as list of string
+    std_dirs as vector of string
     ## Shell HTML para builds wasm exe (vacío si no hay).
     wasm_shell as string
     ## JS library de interop wasm (vacío si no hay).
@@ -64,7 +64,7 @@ weave find_repo_root with base_dir as string into string:
 ##
 ## ## Memoria
 ## Devuelve string owned o `""`; no libera la lista.
-weave first_file with xs as list of string into string:
+weave first_file with xs as vector of string into string:
     var i as int is 0
     while i < xs.len:
         var p as string is (xs at i)
@@ -77,7 +77,7 @@ weave first_file with xs as list of string into string:
 ##
 ## ## Memoria
 ## Devuelve string owned o `""`; no libera la lista.
-weave first_dir with xs as list of string into string:
+weave first_dir with xs as vector of string into string:
     var i as int is 0
     while i < xs.len:
         var p as string is (xs at i)
@@ -115,7 +115,7 @@ weave find_paths with base_dir as string, t as target.Target into Paths:
     var archive as string is ""
     var include as string is ""
     var stdc as string is ""
-    var stds as list of string is list of string
+    var stds as vector of string is vector of string
     var shell as string is ""
     var jslib as string is ""
     var jspre as string is ""
@@ -127,12 +127,12 @@ weave find_paths with base_dir as string, t as target.Target into Paths:
     var env_cross as string is calling env_or_empty with "PENGU_RUNTIME_CROSS"
     var env_home as string is calling env_or_empty with "PENGU_HOME"
     if env_home length == 0:
-        var av as list of string is calling rites.get_args
+        var av as vector of string is calling rites.get_args
         if av.len > 0:
             var exe0 as string is (av at 0)
             var ed as string is calling compass.cp_dirname with exe0
             var eh as string is calling compass.cp_dirname with ed
-            var hc as list of string is list of string
+            var hc as vector of string is vector of string
             if is_wasm:
                 calling hc.push with "{eh}/lib/wasm/libpengu_runtime.a"
                 calling hc.push with "{eh}/lib/pengu/wasm/libpengu_runtime.a"
@@ -167,14 +167,14 @@ weave find_paths with base_dir as string, t as target.Target into Paths:
         else:
             banish cand
     if archive length == 0 and env_cross length > 0:
-        var crc as list of string is list of string
+        var crc as vector of string is vector of string
         calling crc.push with "{env_cross}/lib/libpengu_runtime.a"
         calling crc.push with "{env_cross}/libpengu_runtime.a"
         set archive is calling first_file with crc
         calling free_strings with crc
     if env_home length > 0:
         if archive length == 0:
-            var hc as list of string is list of string
+            var hc as vector of string is vector of string
             if is_wasm:
                 calling hc.push with "{env_home}/lib/wasm/libpengu_runtime.a"
                 calling hc.push with "{env_home}/lib/pengu/wasm/libpengu_runtime.a"
@@ -186,7 +186,7 @@ weave find_paths with base_dir as string, t as target.Target into Paths:
             set archive is calling first_file with hc
             calling free_strings with hc
         if include length == 0:
-            var hi as list of string is list of string
+            var hi as vector of string is vector of string
             if is_wasm:
                 calling hi.push with "{env_home}/lib/wasm/include"
                 calling hi.push with "{env_home}/include/wasm"
@@ -199,7 +199,7 @@ weave find_paths with base_dir as string, t as target.Target into Paths:
             set include is calling first_dir with hi
             calling free_strings with hi
         if stdc length == 0:
-            var hs as list of string is list of string
+            var hs as vector of string is vector of string
             calling hs.push with "{env_home}/std_c"
             calling hs.push with "{env_home}/share/pengu/std_c"
             calling hs.push with "{env_home}/build/std_c"
@@ -230,18 +230,18 @@ weave find_paths with base_dir as string, t as target.Target into Paths:
             else:
                 banish env_shell
         if env_home length > 0:
-            var jhc as list of string is list of string
+            var jhc as vector of string is vector of string
             calling jhc.push with "{env_home}/share/pengu/pengu_js.js"
             calling jhc.push with "{env_home}/lib/pengu_js.js"
             set jslib is calling first_file with jhc
             calling free_strings with jhc
-            var jpc as list of string is list of string
+            var jpc as vector of string is vector of string
             calling jpc.push with "{env_home}/share/pengu/pengu_js_pre.js"
             calling jpc.push with "{env_home}/lib/pengu_js_pre.js"
             set jspre is calling first_file with jpc
             calling free_strings with jpc
         if shell length == 0 and env_home length > 0:
-            var shc as list of string is list of string
+            var shc as vector of string is vector of string
             calling shc.push with "{env_home}/share/pengu/pengu_wasm_shell.html"
             calling shc.push with "{env_home}/pengu_wasm_shell.html"
             set shell is calling first_file with shc
@@ -249,7 +249,7 @@ weave find_paths with base_dir as string, t as target.Target into Paths:
     banish env_home
     if repo length > 0:
         if archive length == 0:
-            var cands as list of string is list of string
+            var cands as vector of string is vector of string
             if is_wasm:
                 calling cands.push with "{repo}/build/wasm/lib/libpengu_runtime.a"
             else:
@@ -258,7 +258,7 @@ weave find_paths with base_dir as string, t as target.Target into Paths:
             set archive is calling first_file with cands
             calling free_strings with cands
         if include length == 0:
-            var incs as list of string is list of string
+            var incs as vector of string is vector of string
             if is_wasm:
                 calling incs.push with "{repo}/build/wasm/include"
             calling incs.push with "{repo}/build/include"
@@ -278,18 +278,18 @@ weave find_paths with base_dir as string, t as target.Target into Paths:
         else:
             banish st
     if is_wasm and jslib length == 0 and repo length > 0:
-        var jl as list of string is list of string
+        var jl as vector of string is vector of string
         calling jl.push with "{repo}/runtime/pengu_js.js"
         calling jl.push with "{repo}/pengu_js.js"
         set jslib is calling first_file with jl
         calling free_strings with jl
-        var jp as list of string is list of string
+        var jp as vector of string is vector of string
         calling jp.push with "{repo}/runtime/pengu_js_pre.js"
         calling jp.push with "{repo}/pengu_js_pre.js"
         set jspre is calling first_file with jp
         calling free_strings with jp
     if is_wasm and shell length == 0 and repo length > 0:
-        var rsh as list of string is list of string
+        var rsh as vector of string is vector of string
         calling rsh.push with "{repo}/pengu_wasm_shell.html"
         calling rsh.push with "{repo}/runtime/pengu_wasm_shell.html"
         set shell is calling first_file with rsh
@@ -341,7 +341,7 @@ weave free_paths with p as ref to Paths into void:
 ##
 ## ## Memoria
 ## Libera elementos y la lista.
-weave free_strings with xs as list of string into void:
+weave free_strings with xs as vector of string into void:
     var i as int is 0
     while i < xs.len:
         banish xs at i

@@ -61,18 +61,18 @@ rune PsLoopLabel derive Par:
 ## `banish ast` libera las tres listas.
 rune PsAst derive Nexus:
     ## Nodos en orden de creación (post-orden).
-    nodes as list of PsNode
+    nodes as vector of PsNode
     ## Hijos codificados como enteros.
-    children as list of int
+    children as vector of int
     ## Etiquetas de loops.
-    labels as list of PsLoopLabel
+    labels as vector of PsLoopLabel
 
 ## Construye un AST vacío.
 ##
 ## ## Memoria
 ## Asigna las tres listas; liberar con `banish`.
 weave ps_ast_new into PsAst:
-    return with nodes is list of PsNode, children is list of int, labels is list of PsLoopLabel
+    return with nodes is vector of PsNode, children is vector of int, labels is vector of PsLoopLabel
 
 ## Codifica un id de nodo como hijo.
 ##

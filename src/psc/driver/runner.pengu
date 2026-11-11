@@ -83,7 +83,7 @@ weave js_path with artifact as string into string:
 ## ## Memoria
 ## Devuelve un string owned o `maybe none`.
 weave chromium_path into maybe string:
-    var names as list of string is list of string
+    var names as vector of string is vector of string
     calling names.push with "chromium"
     calling names.push with "chromium-browser"
     calling names.push with "google-chrome"
@@ -122,7 +122,7 @@ weave run_browser with artifact as string into int:
         set dir is calling copy with "."
     var base as string is calling compass.cp_basename with artifact
     var port as int is 18765
-    var sargs as list of string is list of string
+    var sargs as vector of string is vector of string
     calling sargs.push with py.value
     calling sargs.push with "-m"
     calling sargs.push with "http.server"
@@ -143,7 +143,7 @@ weave run_browser with artifact as string into int:
     calling chronicle.sleep_ms with 600
     var url as string is "http://127.0.0.1:{port}/{base}"
     var shot as string is "{dir}/psc-wasm.png"
-    var cargs as list of string is list of string
+    var cargs as vector of string is vector of string
     calling cargs.push with chrome.value
     calling cargs.push with "--headless=new"
     calling cargs.push with "--no-sandbox"
@@ -171,8 +171,8 @@ weave run_browser with artifact as string into int:
 ##
 ## ## Memoria
 ## Libera argv y temporales.
-weave run with t as target.Target, artifact as string, argv as list of string, browser as bool into int:
-    var args as list of string is list of string
+weave run with t as target.Target, artifact as string, argv as vector of string, browser as bool into int:
+    var args as vector of string is vector of string
     if t.is_wasm:
         if browser:
             var bcode as int is calling run_browser with artifact

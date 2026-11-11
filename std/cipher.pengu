@@ -163,7 +163,7 @@ weave _z85_alphabet into string:
 # ----------------------------------------------------------------------------
 
 ## C bridge: copies the keys of a `map of string to string` into a fresh list.
-declare pengu_map_keys_string with m as ref to map of string to string into list of string
+declare pengu_map_keys_string with m as ref to map of string, string into vector of string
 
 # ----------------------------------------------------------------------------
 # C name prefix
@@ -198,7 +198,7 @@ insignia cipher_
 ## Allocates one owned buffer of exactly the concatenated length (plus the NUL)
 ## and returns it; the caller releases it with `banish`. The input list and its
 ## strings are only read, never retained.
-antiquus _concat_parts with parts as list of string into string:
+antiquus _concat_parts with parts as vector of string into string:
     r"""
 const PenguString *items = (const PenguString *)parts.data;
 size_t total = 0;
@@ -244,7 +244,7 @@ return (int)(unsigned char)s.data[i];
 ## ## Memoria
 ## Consumes `parts`: the returned string is freshly allocated and the caller
 ## releases it with `banish`; the input list must not be used afterwards.
-weave _finish_parts with parts as list of string into string:
+weave _finish_parts with parts as vector of string into string:
     var out as string is calling _concat_parts with parts
     for e in parts:
         banish e
@@ -260,7 +260,7 @@ weave _finish_parts with parts as list of string into string:
 ##
 ## ## Memoria
 ## Consumes `parts`: every owned element and the list buffer are released.
-weave _drop_parts with parts as list of string into void:
+weave _drop_parts with parts as vector of string into void:
     for e in parts:
         banish e
     banish parts
@@ -879,7 +879,7 @@ omen CipherJsonValue:
 ## ## Campos
 ## - `items`: the array elements, in document order.
 rune JsonArrayNode:
-    items as list of CipherJsonValue
+    items as vector of CipherJsonValue
 
 ## Recursive payload of the `CipherJsonValue.JvObject` variant.
 ##
@@ -888,7 +888,7 @@ rune JsonArrayNode:
 ##   PenguScript `map`, so iteration order is unspecified; `json_dumps_canonical`
 ##   sorts the keys.
 rune JsonObjectNode:
-    pairs as map of string to CipherJsonValue
+    pairs as map of string, CipherJsonValue
 
 # ----------------------------------------------------------------------------
 # Base64 API
@@ -1399,7 +1399,7 @@ weave _char_index with alphabet as string, cb as int into int:
 ## An owned string of exactly `count` alphabet characters; release it with
 ## `banish`.
 weave _b85_group with v as i64, count as int into string:
-    var lows as list of int is list of int with capacity 5
+    var lows as vector of int is vector of int with capacity 5
     var x as i64 is v
     var k as int is 0
     while k < 5:
@@ -1407,7 +1407,7 @@ weave _b85_group with v as i64, count as int into string:
         set x is x / 85
         set k is k + 1
     var alpha as string is calling _base85_alphabet
-    var parts as list of string is list of string with capacity count
+    var parts as vector of string is vector of string with capacity count
     var j as int is 4
     var taken as int is 0
     while taken < count:
@@ -1436,7 +1436,7 @@ weave encode_base85 with data as string into string:
     var dl as int is data length
     if dl == 0:
         return ""
-    var parts as list of string is list of string
+    var parts as vector of string is vector of string
     var i as int is 0
     while i + 4 <= dl:
         var v as i64 is 0
@@ -1474,7 +1474,7 @@ weave decode_base85 with data as string into maybe string:
     if (dl % 5) == 1:
         return maybe none
     var alpha as string is calling _base85_alphabet
-    var parts as list of string is list of string
+    var parts as vector of string is vector of string
     var i as int is 0
     while i < dl:
         var left as int is dl - i
@@ -1504,7 +1504,7 @@ weave decode_base85 with data as string into maybe string:
                 set mz2 is mz2 + 1
             set v is v + filler - 1
         var bytes_n as int is (group_len * 4) / 5
-        var piece as list of string is list of string with capacity bytes_n
+        var piece as vector of string is vector of string with capacity bytes_n
         var j as int is 0
         while j < bytes_n:
             var shift as int is 8 * (3 - j)
@@ -1535,7 +1535,7 @@ weave encode_base85_z85 with data as string into string:
     if (dl % 4) != 0:
         return ""
     var alpha as string is calling _z85_alphabet
-    var parts as list of string is list of string
+    var parts as vector of string is vector of string
     var i as int is 0
     while i < dl:
         var v as i64 is 0
@@ -1543,7 +1543,7 @@ weave encode_base85_z85 with data as string into string:
         while k < 4:
             set v is (v << 8) | ((calling _byte_at with data, (i + k)) to i64)
             set k is k + 1
-        var lows as list of int is list of int with capacity 5
+        var lows as vector of int is vector of int with capacity 5
         var x as i64 is v
         var d as int is 0
         while d < 5:
@@ -1573,7 +1573,7 @@ weave decode_base85_z85 with data as string into maybe string:
     if (dl % 5) != 0:
         return maybe none
     var alpha as string is calling _z85_alphabet
-    var parts as list of string is list of string
+    var parts as vector of string is vector of string
     var i as int is 0
     while i < dl:
         var v as i64 is 0
@@ -1586,7 +1586,7 @@ weave decode_base85_z85 with data as string into maybe string:
             set k is k + 1
         if v > 4294967295:
             return maybe none
-        var piece as list of string is list of string with capacity 4
+        var piece as vector of string is vector of string with capacity 4
         var j as int is 0
         while j < 4:
             var shift as int is 8 * (3 - j)
@@ -1618,7 +1618,7 @@ weave encode_base58 with data as string into string:
         if (calling _byte_at with data, zeros) != 0:
             break
         set zeros is zeros + 1
-    var digits as list of int is list of int
+    var digits as vector of int is vector of int
     if zeros < dl:
         var i as int is zeros
         while i < dl:
@@ -1633,7 +1633,7 @@ weave encode_base58 with data as string into string:
                 calling digits.push with (carry % 58)
                 set carry is carry / 58
             set i is i + 1
-    var parts as list of string is list of string with capacity zeros + digits.len
+    var parts as vector of string is vector of string with capacity zeros + digits.len
     var z as int is 0
     while z < zeros:
         calling parts.push with "1"
@@ -1668,7 +1668,7 @@ weave decode_base58 with data as string into maybe string:
         if (calling _byte_at with data, zeros) != 49:
             break
         set zeros is zeros + 1
-    var octets as list of int is list of int
+    var octets as vector of int is vector of int
     if zeros < dl:
         var i as int is zeros
         while i < dl:
@@ -1687,7 +1687,7 @@ weave decode_base58 with data as string into maybe string:
                 calling octets.push with (carry % 256)
                 set carry is carry / 256
             set i is i + 1
-    var parts as list of string is list of string with capacity zeros + octets.len
+    var parts as vector of string is vector of string with capacity zeros + octets.len
     var z as int is 0
     while z < zeros:
         calling parts.push with (calling nul_byte)
@@ -1722,7 +1722,7 @@ weave encode_url with s as string into string:
     var sl as int is s length
     if sl == 0:
         return ""
-    var parts as list of string is list of string
+    var parts as vector of string is vector of string
     var i as int is 0
     while i < sl:
         var code as int is (calling _byte_at with s, i)
@@ -1764,7 +1764,7 @@ weave decode_url with data as string into maybe string:
     var dl as int is data length
     if dl == 0:
         return some ""
-    var parts as list of string is list of string
+    var parts as vector of string is vector of string
     var i as int is 0
     while i < dl:
         var code is (calling _byte_at with data, i)
@@ -1804,7 +1804,7 @@ weave decode_url with data as string into maybe string:
 ## ```
 weave crc32_hex with data as string into string:
     var crc as u32 is calling _crc32_raw with data
-    var parts as list of string is list of string with capacity 8
+    var parts as vector of string is vector of string with capacity 8
     var shift as int is 28
     while shift >= 0:
         calling parts.push with (HEX_DIGITS at (((crc >> (shift to u32)) & 15) to int))
@@ -1906,7 +1906,7 @@ weave _scan_string_body with s as string, start as int, quoted as bool, strict a
         if (calling _byte_at with s, cur) != 34:
             return maybe none
         set cur is cur + 1
-    var parts as list of string is list of string
+    var parts as vector of string is vector of string
     var closed as bool is not quoted
     while cur < sl:
         var code as int is (calling _byte_at with s, cur)
@@ -2129,7 +2129,7 @@ weave json_read_value with s as string, p as ref to int into string:
         if code == 91:
             set close is 93
         var depth as int is 0
-        var parts as list of string is list of string
+        var parts as vector of string is vector of string
         var done2 as bool is false
         while cur < sl:
             if done2:
@@ -2387,7 +2387,7 @@ weave _parse_value_at_depth with json as string, p as ref to int, depth as int i
     if code == 123:
         set cur is cur + 1
         set essence of p is cur
-        var pairs as map of string to CipherJsonValue is map of string to CipherJsonValue
+        var pairs as map of string, CipherJsonValue is map of string, CipherJsonValue
         var is_first as bool is true
         var running as bool is true
         while running:
@@ -2427,7 +2427,7 @@ weave _parse_value_at_depth with json as string, p as ref to int, depth as int i
     if code == 91:
         set cur is cur + 1
         set essence of p is cur
-        var items as list of CipherJsonValue is list of CipherJsonValue
+        var items as vector of CipherJsonValue is vector of CipherJsonValue
         var first2 as bool is true
         var running2 as bool is true
         while running2:
@@ -2582,11 +2582,11 @@ weave _read_raw_value_strict with s as string, p as ref to int into maybe string
 ## ```pengu
 ## var m as maybe map of string to string is calling cipher.parse_json with "{\"a\": 1}"
 ## ```
-weave parse_json with json as string into maybe map of string to string:
+weave parse_json with json as string into maybe map of string, string:
     var dl as int is json length
     if dl == 0:
         return maybe none
-    var m as map of string to string is map of string to string
+    var m as map of string, string is map of string, string
     var p as int is 0
     calling json_skip_ws with json, (sigil of p)
     if p >= dl:
@@ -2646,10 +2646,10 @@ weave parse_json with json as string into maybe map of string to string:
 ## ```pengu
 ## calling cipher.stringify_json with my_map
 ## ```
-weave stringify_json with data as map of string to string into maybe string:
-    var parts as list of string is list of string
+weave stringify_json with data as map of string, string into maybe string:
+    var parts as vector of string is vector of string
     calling parts.push with r"{"
-    var key_list as list of string is calling _sorted_keys with data
+    var key_list as vector of string is calling _sorted_keys with data
     var i as int is 0
     while i < key_list.len:
         var key as string is key_list at i
@@ -2679,12 +2679,12 @@ weave stringify_json with data as map of string to string into maybe string:
 ## ```pengu
 ## calling cipher.pretty_json with my_map, 4
 ## ```
-weave pretty_json with data as map of string to string, indent as int is 2 into maybe string:
-    var key_list as list of string is calling _sorted_keys with data
+weave pretty_json with data as map of string, string, indent as int is 2 into maybe string:
+    var key_list as vector of string is calling _sorted_keys with data
     if key_list.len == 0:
         return some r"{}"
     var pad as string is calling _spaces with indent
-    var parts as list of string is list of string
+    var parts as vector of string is vector of string
     calling parts.push with "{\n"
     var i as int is 0
     while i < key_list.len:
@@ -2753,11 +2753,11 @@ weave stringify_value with value as string into maybe string:
 ## ```pengu
 ## var xs as maybe list of string is calling cipher.parse_json_array with "[1, 2]"
 ## ```
-weave parse_json_array with json as string into maybe list of string:
+weave parse_json_array with json as string into maybe vector of string:
     var dl as int is json length
     if dl == 0:
         return maybe none
-    var items as list of string is list of string
+    var items as vector of string is vector of string
     var p as int is 0
     calling json_skip_ws with json, (sigil of p)
     if p >= dl:
@@ -2804,8 +2804,8 @@ weave parse_json_array with json as string into maybe list of string:
 ## ```pengu
 ## calling cipher.stringify_json_array with my_list
 ## ```
-weave stringify_json_array with items as list of string into maybe string:
-    var parts as list of string is list of string
+weave stringify_json_array with items as vector of string into maybe string:
+    var parts as vector of string is vector of string
     calling parts.push with "["
     var i as int is 0
     while i < items.len:
@@ -2828,7 +2828,7 @@ weave stringify_json_array with items as list of string into maybe string:
 ## ## Retorno
 ## `some list` (owned) or `none` when the file cannot be read or is not a JSON
 ## array.
-weave read_json_array_file with path as string into maybe list of string:
+weave read_json_array_file with path as string into maybe vector of string:
     var content as maybe string is calling archivum.read_file with path
     if c as string is content:
         return calling parse_json_array with c
@@ -2843,7 +2843,7 @@ weave read_json_array_file with path as string into maybe list of string:
 ## An owned sorted list of keys; release it with `banish`. `pengu_map_keys_string`
 ## returns them in hash order, which changes from run to run; every serializer in
 ## this module sorts them so its output is deterministic.
-weave _sorted_keys with m as map of string to string into list of string:
+weave _sorted_keys with m as map of string, string into vector of string:
     return calling _sorted_map_keys with m
 
 ## Returns `n` spaces.
@@ -2856,7 +2856,7 @@ weave _sorted_keys with m as map of string to string into list of string:
 weave _spaces with n as int into string:
     if n <= 0:
         return ""
-    var parts as list of string is list of string with capacity n
+    var parts as vector of string is vector of string with capacity n
     var i as int is 0
     while i < n:
         calling parts.push with " "
@@ -2905,7 +2905,7 @@ weave parse_json_value with json as string into maybe CipherJsonValue:
 ## ## Retorno
 ## `some map` (owned; release with `banish`) or `none` when the document is not
 ## an object or is malformed.
-weave parse_json_to_map with json as string into maybe map of string to CipherJsonValue:
+weave parse_json_to_map with json as string into maybe map of string, CipherJsonValue:
     var parsed as maybe CipherJsonValue is calling parse_json_value with json
     if v as CipherJsonValue is parsed:
         if calling json_value_is_object with v:
@@ -2920,7 +2920,7 @@ weave parse_json_to_map with json as string into maybe map of string to CipherJs
 ## ## Retorno
 ## `some list` (owned; release with `banish`) or `none` when the document is not
 ## an array or is malformed.
-weave parse_json_to_list with json as string into maybe list of CipherJsonValue:
+weave parse_json_to_list with json as string into maybe vector of CipherJsonValue:
     var parsed as maybe CipherJsonValue is calling parse_json_value with json
     if v as CipherJsonValue is parsed:
         if calling json_value_is_array with v:
@@ -2951,8 +2951,8 @@ weave _jv_kind with v as CipherJsonValue into int:
 ##
 ## ## Retorno
 ## A new map sharing the child `CipherJsonValue`s; release it with `banish`.
-weave _copy_value_map with m as map of string to CipherJsonValue into map of string to CipherJsonValue:
-    var out as map of string to CipherJsonValue is map of string to CipherJsonValue
+weave _copy_value_map with m as map of string, CipherJsonValue into map of string, CipherJsonValue:
+    var out as map of string, CipherJsonValue is map of string, CipherJsonValue
     for k in m:
         calling out.put with k, (m at k)
     return out
@@ -2964,8 +2964,8 @@ weave _copy_value_map with m as map of string to CipherJsonValue into map of str
 ##
 ## ## Retorno
 ## A new list sharing the child `CipherJsonValue`s; release it with `banish`.
-weave _copy_value_list with xs as list of CipherJsonValue into list of CipherJsonValue:
-    var out as list of CipherJsonValue is list of CipherJsonValue with capacity xs.len
+weave _copy_value_list with xs as vector of CipherJsonValue into vector of CipherJsonValue:
+    var out as vector of CipherJsonValue is vector of CipherJsonValue with capacity xs.len
     for x in xs:
         calling out.push with x
     return out
@@ -2977,10 +2977,10 @@ weave _copy_value_list with xs as list of CipherJsonValue into list of CipherJso
 ##
 ## ## Retorno
 ## A new map; release it with `banish`.
-weave _jv_pairs_of with v as CipherJsonValue into map of string to CipherJsonValue:
+weave _jv_pairs_of with v as CipherJsonValue into map of string, CipherJsonValue:
     return judge v:
         when CipherJsonValue.JvObject with node -> calling _copy_value_map with node.pairs
-        else -> map of string to CipherJsonValue
+        else -> map of string, CipherJsonValue
 
 ## Array payload of `v` as a fresh mutable list (empty for other kinds).
 ##
@@ -2989,10 +2989,10 @@ weave _jv_pairs_of with v as CipherJsonValue into map of string to CipherJsonVal
 ##
 ## ## Retorno
 ## A new list; release it with `banish`.
-weave _jv_items_of with v as CipherJsonValue into list of CipherJsonValue:
+weave _jv_items_of with v as CipherJsonValue into vector of CipherJsonValue:
     return judge v:
         when CipherJsonValue.JvArray with node -> calling _copy_value_list with node.items
-        else -> list of CipherJsonValue
+        else -> vector of CipherJsonValue
 
 ## Typed empty `maybe int` (a bare `maybe none` inside a `judge` arm has no type
 ## context and is rejected with E0014).
@@ -3089,9 +3089,9 @@ weave _stringify_value with v as CipherJsonValue, pretty as bool, level as int, 
             when CipherJsonValue.JvString with value -> calling _quote with (calling json_escape with value)
             else -> "\"\""
     if kind == 5:
-        var items as list of CipherJsonValue is calling _jv_items_of with v
+        var items as vector of CipherJsonValue is calling _jv_items_of with v
         return calling _stringify_items with items, pretty, level, indent
-    var pairs as map of string to CipherJsonValue is calling _jv_pairs_of with v
+    var pairs as map of string, CipherJsonValue is calling _jv_pairs_of with v
     return calling _stringify_pairs with pairs, pretty, level, indent
 
 ## Collects the keys of `m` into a fresh list sorted by ascending bytes.
@@ -3102,8 +3102,8 @@ weave _stringify_value with v as CipherJsonValue, pretty as bool, level as int, 
 ## ## Retorno
 ## An owned sorted list of keys; release it with `banish`. Every serializer in
 ## this module routes through here so its member order is deterministic.
-weave _sorted_map_keys shard V with m as map of string to V into list of string:
-    var ks as list of string is list of string
+weave _sorted_map_keys shard V with m as map of string, V into vector of string:
+    var ks as vector of string is vector of string
     for k in m:
         calling ks.push with k
     var i as int is 1
@@ -3128,10 +3128,10 @@ weave _sorted_map_keys shard V with m as map of string to V into list of string:
 ##
 ## ## Retorno
 ## An owned JSON array; release it with `banish`.
-weave _stringify_items with items as list of CipherJsonValue, pretty as bool, level as int, indent as int into string:
+weave _stringify_items with items as vector of CipherJsonValue, pretty as bool, level as int, indent as int into string:
     if items.len == 0:
         return "[]"
-    var parts as list of string is list of string
+    var parts as vector of string is vector of string
     calling parts.push with "["
     var i as int is 0
     while i < items.len:
@@ -3156,11 +3156,11 @@ weave _stringify_items with items as list of CipherJsonValue, pretty as bool, le
 ##
 ## ## Retorno
 ## An owned JSON object with sorted keys; release it with `banish`.
-weave _stringify_pairs with pairs as map of string to CipherJsonValue, pretty as bool, level as int, indent as int into string:
-    var ks as list of string is calling _sorted_map_keys with pairs
+weave _stringify_pairs with pairs as map of string, CipherJsonValue, pretty as bool, level as int, indent as int into string:
+    var ks as vector of string is calling _sorted_map_keys with pairs
     if ks.len == 0:
         return r"{}"
-    var parts as list of string is list of string
+    var parts as vector of string is vector of string
     calling parts.push with r"{"
     var i as int is 0
     while i < ks.len:
@@ -3355,7 +3355,7 @@ weave json_value_len with v as CipherJsonValue into int:
 ##
 ## ## Retorno
 ## `some list` (owned; release with `banish`) or `none` when `v` is not an array.
-weave json_value_items with v as CipherJsonValue into maybe list of CipherJsonValue:
+weave json_value_items with v as CipherJsonValue into maybe vector of CipherJsonValue:
     if (calling _jv_kind with v) != 5:
         return maybe none
     return some (calling _jv_items_of with v)
@@ -3367,7 +3367,7 @@ weave json_value_items with v as CipherJsonValue into maybe list of CipherJsonVa
 ##
 ## ## Retorno
 ## `some map` (owned; release with `banish`) or `none` when `v` is not an object.
-weave json_value_pairs with v as CipherJsonValue into maybe map of string to CipherJsonValue:
+weave json_value_pairs with v as CipherJsonValue into maybe map of string, CipherJsonValue:
     if (calling _jv_kind with v) != 6:
         return maybe none
     return some (calling _jv_pairs_of with v)
@@ -3388,7 +3388,7 @@ weave json_value_pairs with v as CipherJsonValue into maybe map of string to Cip
 weave json_value_get with v as CipherJsonValue, key as string into maybe CipherJsonValue:
     if (calling _jv_kind with v) != 6:
         return maybe none
-    var pairs as map of string to CipherJsonValue is calling _jv_pairs_of with v
+    var pairs as map of string, CipherJsonValue is calling _jv_pairs_of with v
     if key in pairs:
         return some (pairs at key)
     return maybe none
@@ -3409,7 +3409,7 @@ weave json_value_get with v as CipherJsonValue, key as string into maybe CipherJ
 weave json_value_at with v as CipherJsonValue, idx as int into maybe CipherJsonValue:
     if (calling _jv_kind with v) != 5:
         return maybe none
-    var items as list of CipherJsonValue is calling _jv_items_of with v
+    var items as vector of CipherJsonValue is calling _jv_items_of with v
     var real as int is idx
     if real < 0:
         set real is real + items.len
@@ -3528,7 +3528,7 @@ weave json_value_as_string with v as CipherJsonValue into maybe string:
 ## ## Retorno
 ## `some raw` (owned) or `none`. The value is the raw JSON text stored by
 ## `parse_json`.
-weave json_get with m as map of string to string, key as string into maybe string:
+weave json_get with m as map of string, string, key as string into maybe string:
     if key in m:
         return some (calling m.get with key)
     return maybe none
@@ -3542,7 +3542,7 @@ weave json_get with m as map of string to string, key as string into maybe strin
 ##
 ## ## Retorno
 ## The stored raw text or `default` (owned).
-weave json_get_or with m as map of string to string, key as string, default as string is "" into string:
+weave json_get_or with m as map of string, string, key as string, default as string is "" into string:
     if key in m:
         return calling m.get with key
     return default
@@ -3555,7 +3555,7 @@ weave json_get_or with m as map of string to string, key as string, default as s
 ##
 ## ## Retorno
 ## `true` when the key exists.
-weave json_has with m as map of string to string, key as string into bool:
+weave json_has with m as map of string, string, key as string into bool:
     return key in m
 
 ## Retrieves `key` from `m` and parses it as an integer.
@@ -3567,7 +3567,7 @@ weave json_has with m as map of string to string, key as string into bool:
 ## ## Retorno
 ## `some n` (owned) or `none` when the key is absent or the text is not an integer
 ## that fits an `int`.
-weave json_get_int with m as map of string to string, key as string into maybe int:
+weave json_get_int with m as map of string, string, key as string into maybe int:
     var val as maybe string is calling json_get with m, key
     if v as string is val:
         return calling spark.parse_int with v
@@ -3588,7 +3588,7 @@ weave json_get_int with m as map of string to string, key as string into maybe i
 ## ```pengu
 ## calling cipher.json_get_float with m, "ratio"
 ## ```
-weave json_get_float with m as map of string to string, key as string into maybe float:
+weave json_get_float with m as map of string, string, key as string into maybe float:
     var val as maybe string is calling json_get with m, key
     if v as string is val:
         var p as int is 0
@@ -3607,7 +3607,7 @@ weave json_get_float with m as map of string to string, key as string into maybe
 ##
 ## ## Retorno
 ## `some true`/`some false` for the exact words `true`/`false`, else `none`.
-weave json_get_bool with m as map of string to string, key as string into maybe bool:
+weave json_get_bool with m as map of string, string, key as string into maybe bool:
     var val as maybe string is calling json_get with m, key
     if v as string is val:
         if v == "true":
@@ -3626,7 +3626,7 @@ weave json_get_bool with m as map of string to string, key as string into maybe 
 ## `some raw` (owned) or `none`. Values are stored as JSON raw text: strings
 ## arrive unquoted, numbers/booleans/nested objects as their literal text. Use
 ## `json_kind_of` to tell them apart.
-weave json_get_string with m as map of string to string, key as string into maybe string:
+weave json_get_string with m as map of string, string, key as string into maybe string:
     return calling json_get with m, key
 
 # ----------------------------------------------------------------------------
@@ -3645,9 +3645,9 @@ weave json_get_string with m as map of string to string, key as string into mayb
 ## ```pengu
 ## calling cipher.stringify_json_map_int with counts
 ## ```
-weave stringify_json_map_int with data as map of string to int into string:
-    var ks as list of string is calling _sorted_map_keys with data
-    var parts as list of string is list of string
+weave stringify_json_map_int with data as map of string, int into string:
+    var ks as vector of string is calling _sorted_map_keys with data
+    var parts as vector of string is vector of string
     calling parts.push with r"{"
     var i as int is 0
     while i < ks.len:
@@ -3667,9 +3667,9 @@ weave stringify_json_map_int with data as map of string to int into string:
 ##
 ## ## Retorno
 ## An owned JSON object; release it with `banish`.
-weave stringify_json_map_float with data as map of string to float into string:
-    var ks as list of string is calling _sorted_map_keys with data
-    var parts as list of string is list of string
+weave stringify_json_map_float with data as map of string, float into string:
+    var ks as vector of string is calling _sorted_map_keys with data
+    var parts as vector of string is vector of string
     calling parts.push with r"{"
     var i as int is 0
     while i < ks.len:
@@ -3690,9 +3690,9 @@ weave stringify_json_map_float with data as map of string to float into string:
 ##
 ## ## Retorno
 ## An owned JSON object; release it with `banish`.
-weave stringify_json_map_bool with data as map of string to bool into string:
-    var ks as list of string is calling _sorted_map_keys with data
-    var parts as list of string is list of string
+weave stringify_json_map_bool with data as map of string, bool into string:
+    var ks as vector of string is calling _sorted_map_keys with data
+    var parts as vector of string is vector of string
     calling parts.push with r"{"
     var i as int is 0
     while i < ks.len:
@@ -3721,8 +3721,8 @@ weave stringify_json_map_bool with data as map of string to bool into string:
 ## An owned map with the same members; release it with `banish`. The member
 ## strings are shared (PenguScript strings are immutable), so only the map itself
 ## is duplicated.
-weave json_deep_clone with m as map of string to string into map of string to string:
-    var out as map of string to string is map of string to string
+weave json_deep_clone with m as map of string, string into map of string, string:
+    var out as map of string, string is map of string, string
     for k in m:
         calling out.put with k, (m at k)
     return out
@@ -3735,8 +3735,8 @@ weave json_deep_clone with m as map of string to string into map of string to st
 ##
 ## ## Retorno
 ## An owned map holding every member of `a` and `b`; release it with `banish`.
-weave json_merge with a as map of string to string, b as map of string to string into map of string to string:
-    var out as map of string to string is calling json_deep_clone with a
+weave json_merge with a as map of string, string, b as map of string, string into map of string, string:
+    var out as map of string, string is calling json_deep_clone with a
     for k in b:
         calling out.put with k, (b at k)
     return out
@@ -3752,16 +3752,16 @@ weave json_merge with a as map of string to string, b as map of string to string
 weave json_value_deep_clone with v as CipherJsonValue into CipherJsonValue:
     var kind as int is calling _jv_kind with v
     if kind == 5:
-        var items as list of CipherJsonValue is calling _jv_items_of with v
-        var out as list of CipherJsonValue is list of CipherJsonValue with capacity items.len
+        var items as vector of CipherJsonValue is calling _jv_items_of with v
+        var out as vector of CipherJsonValue is vector of CipherJsonValue with capacity items.len
         for x in items:
             calling out.push with (calling json_value_deep_clone with x)
         var node as JsonArrayNode is with items is out
         var av as CipherJsonValue is with JvArray is with node is node
         return av
     if kind == 6:
-        var pairs as map of string to CipherJsonValue is calling _jv_pairs_of with v
-        var out2 as map of string to CipherJsonValue is map of string to CipherJsonValue
+        var pairs as map of string, CipherJsonValue is calling _jv_pairs_of with v
+        var out2 as map of string, CipherJsonValue is map of string, CipherJsonValue
         for k in pairs:
             calling out2.put with k, (calling json_value_deep_clone with (pairs at k))
         var node2 as JsonObjectNode is with pairs is out2
@@ -3820,8 +3820,8 @@ weave json_value_equal with a as CipherJsonValue, b as CipherJsonValue into bool
                 return x5 == y5
         return false
     if ka == 5:
-        var la as list of CipherJsonValue is calling _jv_items_of with a
-        var lb as list of CipherJsonValue is calling _jv_items_of with b
+        var la as vector of CipherJsonValue is calling _jv_items_of with a
+        var lb as vector of CipherJsonValue is calling _jv_items_of with b
         if la.len != lb.len:
             return false
         var i as int is 0
@@ -3830,8 +3830,8 @@ weave json_value_equal with a as CipherJsonValue, b as CipherJsonValue into bool
                 return false
             set i is i + 1
         return true
-    var ma as map of string to CipherJsonValue is calling _jv_pairs_of with a
-    var mb as map of string to CipherJsonValue is calling _jv_pairs_of with b
+    var ma as map of string, CipherJsonValue is calling _jv_pairs_of with a
+    var mb as map of string, CipherJsonValue is calling _jv_pairs_of with b
     if ma.len != mb.len:
         return false
     for k in ma:
@@ -3853,8 +3853,8 @@ weave json_value_equal with a as CipherJsonValue, b as CipherJsonValue into bool
 weave json_value_merge with a as CipherJsonValue, b as CipherJsonValue into CipherJsonValue:
     if (calling _jv_kind with a) != 6 or (calling _jv_kind with b) != 6:
         return calling json_value_deep_clone with b
-    var out as map of string to CipherJsonValue is calling _jv_pairs_of with a
-    var pb as map of string to CipherJsonValue is calling _jv_pairs_of with b
+    var out as map of string, CipherJsonValue is calling _jv_pairs_of with a
+    var pb as map of string, CipherJsonValue is calling _jv_pairs_of with b
     for k in pb:
         calling out.put with k, (pb at k)
     var node as JsonObjectNode is with pairs is out
@@ -3878,14 +3878,14 @@ weave json_value_merge with a as CipherJsonValue, b as CipherJsonValue into Ciph
 weave json_merge_patch with a as CipherJsonValue, b as CipherJsonValue into CipherJsonValue:
     if (calling _jv_kind with b) != 6:
         return b
-    var out as map of string to CipherJsonValue is map of string to CipherJsonValue
+    var out as map of string, CipherJsonValue is map of string, CipherJsonValue
     if (calling _jv_kind with a) == 6:
         set out is calling _jv_pairs_of with a
-    var pb as map of string to CipherJsonValue is calling _jv_pairs_of with b
+    var pb as map of string, CipherJsonValue is calling _jv_pairs_of with b
     for k in pb:
         var bv as CipherJsonValue is pb at k
         if calling json_value_is_null with bv:
-            var kept as map of string to CipherJsonValue is map of string to CipherJsonValue
+            var kept as map of string, CipherJsonValue is map of string, CipherJsonValue
             for k2 in out:
                 if k2 != k:
                     calling kept.put with k2, (out at k2)
@@ -3907,26 +3907,26 @@ weave json_merge_patch with a as CipherJsonValue, b as CipherJsonValue into Ciph
 ## ## Retorno
 ## An owned list of segments (`["users", "0", "name"]`); release it with
 ## `banish`. Dots and `[n]` groups both separate segments.
-weave _parse_path_segments with path as string into list of string:
-    var segs as list of string is list of string
+weave _parse_path_segments with path as string into vector of string:
+    var segs as vector of string is vector of string
     var sl as int is path length
     if sl == 0:
         return segs
-    var cur as list of string is list of string
+    var cur as vector of string is vector of string
     var i as int is 0
     while i < sl:
         var ch as string is path at i
         if ch == ".":
             if cur.len > 0:
                 calling segs.push with (calling _concat_parts with cur)
-                set cur is list of string
+                set cur is vector of string
             set i is i + 1
         else if ch == "[":
             if cur.len > 0:
                 calling segs.push with (calling _concat_parts with cur)
-                set cur is list of string
+                set cur is vector of string
             set i is i + 1
-            var digits as list of string is list of string
+            var digits as vector of string is vector of string
             while i < sl:
                 if (path at i) == "]":
                     break
@@ -3966,8 +3966,8 @@ weave _value_from_raw with raw as string into CipherJsonValue:
 ## ## Retorno
 ## An owned object value; release it with `banish`. Members that look like JSON
 ## literals become typed values; the rest become strings.
-weave _value_from_map with m as map of string to string into CipherJsonValue:
-    var pairs as map of string to CipherJsonValue is map of string to CipherJsonValue
+weave _value_from_map with m as map of string, string into CipherJsonValue:
+    var pairs as map of string, CipherJsonValue is map of string, CipherJsonValue
     for k in m:
         calling pairs.put with k, (calling _value_from_raw with (m at k))
     var node as JsonObjectNode is with pairs is pairs
@@ -3990,8 +3990,8 @@ weave _value_from_map with m as map of string to string into CipherJsonValue:
 ## ```pengu
 ## calling cipher.json_path with m, "users[0].name"
 ## ```
-weave json_path with m as map of string to string, path as string into maybe string:
-    var segs as list of string is calling _parse_path_segments with path
+weave json_path with m as map of string, string, path as string into maybe string:
+    var segs as vector of string is calling _parse_path_segments with path
     if segs.len == 0:
         return maybe none
     var cur as CipherJsonValue is calling _value_from_map with m
@@ -4032,7 +4032,7 @@ weave json_path with m as map of string to string, path as string into maybe str
 ## ## Retorno
 ## `some map` (owned) or `none` when the path is missing or the target is not a
 ## JSON object.
-weave json_parse_at with m as map of string to string, path as string into maybe map of string to string:
+weave json_parse_at with m as map of string, string, path as string into maybe map of string, string:
     var val as maybe string is calling json_path with m, path
     if v as string is val:
         return calling parse_json with v
@@ -4082,13 +4082,13 @@ weave _segment_index with seg as string, n as int, allow_end as bool into int:
 ## ## Retorno
 ## `some segments` (owned; release with `banish`) or `none` when the pointer does
 ## not start with `/`. `~1` becomes `/` and `~0` becomes `~`.
-weave _pointer_segments with pointer as string into maybe list of string:
-    var segs as list of string is list of string
+weave _pointer_segments with pointer as string into maybe vector of string:
+    var segs as vector of string is vector of string
     if (pointer length) == 0:
         return some segs
     if (pointer at 0) != "/":
         return maybe none
-    var raw as list of string is calling pointer.split with "/"
+    var raw as vector of string is calling pointer.split with "/"
     var i as int is 1
     while i < raw.len:
         var seg as string is raw at i
@@ -4112,8 +4112,8 @@ weave _pointer_segments with pointer as string into maybe list of string:
 ## calling cipher.json_pointer_get with v, "/users/0/name"
 ## ```
 weave json_pointer_get with v as CipherJsonValue, pointer as string into maybe CipherJsonValue:
-    var segs as maybe list of string is calling _pointer_segments with pointer
-    if s as list of string is segs:
+    var segs as maybe vector of string is calling _pointer_segments with pointer
+    if s as vector of string is segs:
         return calling _jv_get with v, s, 0
     return maybe none
 
@@ -4126,7 +4126,7 @@ weave json_pointer_get with v as CipherJsonValue, pointer as string into maybe C
 ##
 ## ## Retorno
 ## `some value` or `none`.
-weave _jv_get with v as CipherJsonValue, segs as list of string, i as int into maybe CipherJsonValue:
+weave _jv_get with v as CipherJsonValue, segs as vector of string, i as int into maybe CipherJsonValue:
     if i >= segs.len:
         return some v
     var seg as string is segs at i
@@ -4158,13 +4158,13 @@ weave _jv_get with v as CipherJsonValue, segs as list of string, i as int into m
 ##
 ## ## Retorno
 ## `some patched document` (owned) or `none` when the path does not resolve.
-weave _jv_put with root as CipherJsonValue, segs as list of string, i as int, value as CipherJsonValue, replace_only as bool into maybe CipherJsonValue:
+weave _jv_put with root as CipherJsonValue, segs as vector of string, i as int, value as CipherJsonValue, replace_only as bool into maybe CipherJsonValue:
     if i >= segs.len:
         return some value
     var seg as string is segs at i
     var kind as int is calling _jv_kind with root
     if kind == 6:
-        var pairs as map of string to CipherJsonValue is calling _jv_pairs_of with root
+        var pairs as map of string, CipherJsonValue is calling _jv_pairs_of with root
         if seg in pairs:
             if i == (segs.len - 1):
                 calling pairs.put with seg, value
@@ -4184,14 +4184,14 @@ weave _jv_put with root as CipherJsonValue, segs as list of string, i as int, va
         var ovalue as CipherJsonValue is with JvObject is with node is onode
         return some ovalue
     if kind == 5:
-        var items as list of CipherJsonValue is calling _jv_items_of with root
+        var items as vector of CipherJsonValue is calling _jv_items_of with root
         var n as int is items.len
         var pos as int is calling _segment_index with seg, n, (not replace_only)
         if pos < 0:
             return maybe none
         if i == (segs.len - 1):
             if not replace_only:
-                var out as list of CipherJsonValue is list of CipherJsonValue with capacity n + 1
+                var out as vector of CipherJsonValue is vector of CipherJsonValue with capacity n + 1
                 var k as int is 0
                 while k < n:
                     if k == pos:
@@ -4226,17 +4226,17 @@ weave _jv_put with root as CipherJsonValue, segs as list of string, i as int, va
 ##
 ## ## Retorno
 ## `some patched document` (owned) or `none` when the path does not resolve.
-weave _jv_remove with root as CipherJsonValue, segs as list of string, i as int into maybe CipherJsonValue:
+weave _jv_remove with root as CipherJsonValue, segs as vector of string, i as int into maybe CipherJsonValue:
     if i >= segs.len:
         return maybe none
     var seg as string is segs at i
     var kind as int is calling _jv_kind with root
     if kind == 6:
-        var pairs as map of string to CipherJsonValue is calling _jv_pairs_of with root
+        var pairs as map of string, CipherJsonValue is calling _jv_pairs_of with root
         if not (seg in pairs):
             return maybe none
         if i == (segs.len - 1):
-            var out as map of string to CipherJsonValue is map of string to CipherJsonValue
+            var out as map of string, CipherJsonValue is map of string, CipherJsonValue
             for k in pairs:
                 if k != seg:
                     calling out.put with k, (pairs at k)
@@ -4252,13 +4252,13 @@ weave _jv_remove with root as CipherJsonValue, segs as list of string, i as int 
         var ovalue2 as CipherJsonValue is with JvObject is with node is onode2
         return some ovalue2
     if kind == 5:
-        var items as list of CipherJsonValue is calling _jv_items_of with root
+        var items as vector of CipherJsonValue is calling _jv_items_of with root
         var n as int is items.len
         var pos as int is calling _segment_index with seg, n, false
         if pos < 0:
             return maybe none
         if i == (segs.len - 1):
-            var out2 as list of CipherJsonValue is list of CipherJsonValue with capacity n
+            var out2 as vector of CipherJsonValue is vector of CipherJsonValue with capacity n
             var k2 as int is 0
             while k2 < n:
                 if k2 != pos:
@@ -4309,7 +4309,7 @@ weave _op_field with op as CipherJsonValue, name as string into maybe string:
 weave json_patch with v as CipherJsonValue, patch as CipherJsonValue into result of CipherJsonValue to string:
     if (calling _jv_kind with patch) != 5:
         return calling err_of with "json_patch: patch must be an array of operations"
-    var ops as list of CipherJsonValue is calling _jv_items_of with patch
+    var ops as vector of CipherJsonValue is calling _jv_items_of with patch
     return calling _json_patch_ops with v, ops, 0
 
 ## Applies the operations of a patch document in order (private, recursive).
@@ -4321,7 +4321,7 @@ weave json_patch with v as CipherJsonValue, patch as CipherJsonValue into result
 ##
 ## ## Retorno
 ## `ok patched` or `err message`.
-weave _json_patch_ops with root as CipherJsonValue, ops as list of CipherJsonValue, i as int into result of CipherJsonValue to string:
+weave _json_patch_ops with root as CipherJsonValue, ops as vector of CipherJsonValue, i as int into result of CipherJsonValue to string:
     if i >= ops.len:
         return calling ok_of with root
     var op as CipherJsonValue is ops at i
@@ -4331,8 +4331,8 @@ weave _json_patch_ops with root as CipherJsonValue, ops as list of CipherJsonVal
     var path_text as maybe string is calling _op_field with op, "path"
     if os as string is opname:
         if ps as string is path_text:
-            var segs as maybe list of string is calling _pointer_segments with ps
-            if sg as list of string is segs:
+            var segs as maybe vector of string is calling _pointer_segments with ps
+            if sg as vector of string is segs:
                 if os == "test":
                     var want as maybe CipherJsonValue is calling json_value_get with op, "value"
                     if wv as CipherJsonValue is want:
@@ -4358,8 +4358,8 @@ weave _json_patch_ops with root as CipherJsonValue, ops as list of CipherJsonVal
                 if os == "copy" or os == "move":
                     var from as maybe string is calling _op_field with op, "from"
                     if fs as string is from:
-                        var fsegs as maybe list of string is calling _pointer_segments with fs
-                        if fg as list of string is fsegs:
+                        var fsegs as maybe vector of string is calling _pointer_segments with fs
+                        if fg as vector of string is fsegs:
                             var src as maybe CipherJsonValue is calling _jv_get with root, fg, 0
                             if sv as CipherJsonValue is src:
                                 var cloned as CipherJsonValue is calling json_value_deep_clone with sv
@@ -4422,7 +4422,7 @@ weave is_valid_json_value with v as string into bool:
 ## ## Retorno
 ## `some map` (owned) or `none` when the file cannot be read or is not a valid
 ## JSON object.
-weave read_json_file with path as string into maybe map of string to string:
+weave read_json_file with path as string into maybe map of string, string:
     var content as maybe string is calling archivum.read_file with path
     if c as string is content:
         return calling parse_json with c
@@ -4436,7 +4436,7 @@ weave read_json_file with path as string into maybe map of string to string:
 ##
 ## ## Retorno
 ## `true` when the write succeeded.
-weave write_json_file with path as string, data as map of string to string into bool:
+weave write_json_file with path as string, data as map of string, string into bool:
     var json as maybe string is calling stringify_json with data
     if j as string is json:
         return calling archivum.write_file with path, j
@@ -4451,7 +4451,7 @@ weave write_json_file with path as string, data as map of string to string into 
 ##
 ## ## Retorno
 ## `true` when the write succeeded.
-weave write_json_file_pretty with path as string, data as map of string to string, indent as int is 2 into bool:
+weave write_json_file_pretty with path as string, data as map of string, string, indent as int is 2 into bool:
     var json as maybe string is calling pretty_json with data, indent
     if j as string is json:
         return calling archivum.write_file with path, j
@@ -4507,7 +4507,7 @@ test "CIPHER_VERSION is the frozen 2.1.0 contract":
     calling _expect_eq_string with CIPHER_VERSION, "2.14.0", "version literal"
 
 test "BUG-C1: Base64 encodes a long input without quadratic blow-up":
-    var parts as list of string is list of string with capacity 4096
+    var parts as vector of string is vector of string with capacity 4096
     var i as int is 0
     while i < 4096:
         calling parts.push with "0123456789abcdef"
@@ -4523,7 +4523,7 @@ test "BUG-C1: Base64 encodes a long input without quadratic blow-up":
         calling spark.panic with "cipher: base64 roundtrip failed"
 
 test "BUG-C1: Hex and Base32 encode long inputs linearly":
-    var parts as list of string is list of string with capacity 2048
+    var parts as vector of string is vector of string with capacity 2048
     var i as int is 0
     while i < 2048:
         calling parts.push with "abcdefghijklmnop"
@@ -4649,8 +4649,8 @@ test "BUG-C8: parse_json keeps the full braces of a nested object":
     var cb as string is r"}"
     var q as string is calling _quote_char
     var doc as string is "{ob}{q}a{q}: {ob}{q}b{q}: 1{cb}{cb}"
-    var m as maybe map of string to string is calling parse_json with doc
-    if mv as map of string to string is m:
+    var m as maybe map of string, string is calling parse_json with doc
+    if mv as map of string, string is m:
         var inner as string is calling mv.get with "a"
         calling _expect_eq_string with inner, "{ob}{q}b{q}: 1{cb}", "nested raw value"
         calling _expect_true with (calling json_is_literal with inner), "nested value is a literal"
@@ -4658,7 +4658,7 @@ test "BUG-C8: parse_json keeps the full braces of a nested object":
         calling spark.panic with "cipher: nested parse failed"
 
 test "BUG-C24: stringify_json sorts keys deterministically":
-    var m as map of string to string is map of string to string
+    var m as map of string, string is map of string, string
     calling m.put with "b", "2"
     calling m.put with "a", "1"
     calling m.put with "c", "3"
@@ -4667,7 +4667,7 @@ test "BUG-C24: stringify_json sorts keys deterministically":
 
 test "stringify_json emits raw literals and escapes strings":
     var q as string is calling _quote_char
-    var m as map of string to string is map of string to string
+    var m as map of string, string is map of string, string
     calling m.put with "n", "42"
     calling m.put with "s", "a b"
     var out as maybe string is calling stringify_json with m
@@ -4684,8 +4684,8 @@ test "BUG-C9: json_get_float bounds the exponent":
     var ob as string is r"{"
     var cb as string is r"}"
     var doc as string is "{ob}{q}a{q}: 1e1000000{cb}"
-    var m as maybe map of string to string is calling parse_json with doc
-    if mv as map of string to string is m:
+    var m as maybe map of string, string is calling parse_json with doc
+    if mv as map of string, string is m:
         var f as maybe float is calling json_get_float with mv, "a"
         if fv as float is f:
             calling _expect_true with (fv > 1000000.0), "saturates instead of looping"
@@ -4699,8 +4699,8 @@ test "json_get_float parses ordinary numbers":
     var ob as string is r"{"
     var cb as string is r"}"
     var doc as string is "{ob}{q}a{q}: -2.5e2{cb}"
-    var m as maybe map of string to string is calling parse_json with doc
-    if mv as map of string to string is m:
+    var m as maybe map of string, string is calling parse_json with doc
+    if mv as map of string, string is m:
         var f as maybe float is calling json_get_float with mv, "a"
         if fv as float is f:
             calling _expect_true with (fv < -249.0 and fv > -251.0), "value"
@@ -4780,8 +4780,8 @@ test "stringify_json_value_pretty indents nested members":
 
 test "json_value_as_* coerce across kinds":
     var doc as string is calling _dq with r"[42, 4.5, ^7^, true, null]"
-    var v as maybe list of CipherJsonValue is calling parse_json_to_list with doc
-    if xs as list of CipherJsonValue is v:
+    var v as maybe vector of CipherJsonValue is calling parse_json_to_list with doc
+    if xs as vector of CipherJsonValue is v:
         calling _expect_eq_int with (calling json_value_as_int with (xs at 0)).value, 42, "int"
         calling _expect_eq_int with (calling json_value_as_int with (xs at 1)).value, 4, "float to int"
         calling _expect_eq_int with (calling json_value_as_int with (xs at 2)).value, 7, "string to int"
@@ -4806,7 +4806,7 @@ test "BUG-C23: json_path walks arrays and keeps nested braces":
     var cb as string is r"}"
     var inner as string is "{ob}{q}b{q}: 1{cb}"
     var arr as string is "[{ob}{q}b{q}: 1{cb},{ob}{q}b{q}: 2{cb}]"
-    var m as map of string to string is map of string to string
+    var m as map of string, string is map of string, string
     calling m.put with "users", arr
     calling m.put with "top", inner
     calling _expect_some_string with (calling json_path with m, "users[1].b"), "2", "array index"
@@ -4945,10 +4945,10 @@ test "string enchantments delegate to the module functions":
     calling _expect_eq_string with (calling hi.to_base58), "8wr", "to_base58"
 
 test "typed map serializers emit sorted JSON":
-    var ints as map of string to int is map of string to int
+    var ints as map of string, int is map of string, int
     calling ints.put with "b", 2
     calling ints.put with "a", 1
     calling _expect_eq_string with (calling stringify_json_map_int with ints), (calling _dq with r"{^a^:1,^b^:2}"), "ints"
-    var bools as map of string to bool is map of string to bool
+    var bools as map of string, bool is map of string, bool
     calling bools.put with "z", true
     calling _expect_eq_string with (calling stringify_json_map_bool with bools), (calling _dq with r"{^z^:true}"), "bools"

@@ -179,13 +179,13 @@ rune Diagnostic derive Nexus, Par, Imago:
     ## The headline message (no trailing period required).
     message as string
     ## Positional annotations. At most one should be primary.
-    labels as list of Label
+    labels as vector of Label
     ## An optional `help:` suggestion.
     help as maybe string
     ## An optional `note:` explanation.
     note as maybe string
     ## "See also" diagnostics.
-    related as list of Diagnostic
+    related as vector of Diagnostic
 
 ## Render options.
 rune RenderOptions derive Par:
@@ -212,7 +212,7 @@ rune RenderOptions derive Par:
 ## nested diagnostics and the copied source texts.
 rune DiagnosticBag derive Nexus:
     ## The diagnostics in insertion order.
-    items as list of Diagnostic
+    items as vector of Diagnostic
     ## Number of `Error` diagnostics (kept in sync by `add`).
     error_count as int
     ## Number of `Warning` diagnostics.
@@ -222,7 +222,7 @@ rune DiagnosticBag derive Nexus:
     ## Number of `Hint` diagnostics.
     hint_count as int
     ## Registered source texts, keyed by logical path.
-    _sources as map of string to string
+    _sources as map of string, string
 
 # ----------------------------------------------------------------------------
 # Private C bridges
@@ -429,8 +429,8 @@ weave label with span as Span, message as string, primary as bool into Label:
 ##
 ## ## Retorno
 ## A one-element `list of Label`.
-weave labels with one as Label into list of Label:
-    var out as list of Label is list of Label
+weave labels with one as Label into vector of Label:
+    var out as vector of Label is vector of Label
     calling out.push with one
     return out
 
@@ -438,15 +438,15 @@ weave labels with one as Label into list of Label:
 ##
 ## ## Retorno
 ## A `list of Label` with no elements.
-weave no_labels into list of Label:
-    return list of Label
+weave no_labels into vector of Label:
+    return vector of Label
 
 ## Builds an empty related list.
 ##
 ## ## Retorno
 ## An empty `list of Diagnostic`.
-weave no_related into list of Diagnostic:
-    return list of Diagnostic
+weave no_related into vector of Diagnostic:
+    return vector of Diagnostic
 
 ## Builds a diagnostic.
 ##
@@ -466,7 +466,7 @@ weave no_related into list of Diagnostic:
 ## ```pengu
 ## var d as Diagnostic is calling diagnostic.diagnostic with diagnostic.Severity.Warning, "lint/no-shadow", "shadows an outer binding", (calling diagnostic.labels with (calling diagnostic.label with s, "shadowed here", true)), (maybe none), (maybe none), (calling diagnostic.no_related)
 ## ```
-weave diagnostic with severity as Severity, code as string, message as string, labels_list as list of Label, help as maybe string, note as maybe string, related as list of Diagnostic into Diagnostic:
+weave diagnostic with severity as Severity, code as string, message as string, labels_list as vector of Label, help as maybe string, note as maybe string, related as vector of Diagnostic into Diagnostic:
     var code_copy as string is "{code}"
     var msg_copy as string is "{message}"
     return with severity is severity, code is code_copy, message is msg_copy, labels is labels_list, help is help, note is note, related is related
@@ -481,7 +481,7 @@ weave diagnostic with severity as Severity, code as string, message as string, l
 ##
 ## ## Memoria
 ## Releases each diagnostic recursively, then the list buffer.
-weave free_diagnostics with items as list of Diagnostic into void:
+weave free_diagnostics with items as vector of Diagnostic into void:
     var i as int is 0
     while i < items.len:
         banish items at i
@@ -545,7 +545,7 @@ enchanting DiagnosticBag:
     ## ## Memoria
     ## O(1); release it with `banish`.
     weave ritual new into DiagnosticBag:
-        return with items is list of Diagnostic, error_count is 0, warning_count is 0, info_count is 0, hint_count is 0, _sources is map of string to string
+        return with items is vector of Diagnostic, error_count is 0, warning_count is 0, info_count is 0, hint_count is 0, _sources is map of string, string
 
     ## Adds a diagnostic, taking ownership of it.
     ##
@@ -572,7 +572,7 @@ enchanting DiagnosticBag:
     ##
     ## ## Parámetros
     ## - `ds`: diagnostics. Element ownership transfers.
-    weave extend with ds as list of Diagnostic into void:
+    weave extend with ds as vector of Diagnostic into void:
         for d in ds:
             calling self.add with d
         calling ds.clear
@@ -676,8 +676,8 @@ enchanting DiagnosticBag:
     ##
     ## ## Retorno
     ## An owned `list of Diagnostic`; release it with `free_diagnostics`.
-    weave errors_only into list of Diagnostic:
-        var out as list of Diagnostic is list of Diagnostic
+    weave errors_only into vector of Diagnostic:
+        var out as vector of Diagnostic is vector of Diagnostic
         for d in self->items:
             if d.severity == Severity.Error:
                 calling out.push with (calling _diagnostic_clone with d)
@@ -687,8 +687,8 @@ enchanting DiagnosticBag:
     ##
     ## ## Retorno
     ## An owned `list of Diagnostic`; release it with `free_diagnostics`.
-    weave warnings_and_errors into list of Diagnostic:
-        var out as list of Diagnostic is list of Diagnostic
+    weave warnings_and_errors into vector of Diagnostic:
+        var out as vector of Diagnostic is vector of Diagnostic
         for d in self->items:
             if d.severity == Severity.Error or d.severity == Severity.Warning:
                 calling out.push with (calling _diagnostic_clone with d)
@@ -705,7 +705,7 @@ enchanting DiagnosticBag:
             banish self->items at i
             set i is i + 1
         calling self->items.clear
-        var smap as map of string to string is self->_sources
+        var smap as map of string, string is self->_sources
         for k in smap:
             var v as string is smap at k
             banish k
@@ -721,7 +721,7 @@ enchanting DiagnosticBag:
     ## ## Parámetros
     ## - `file`: logical path. Borrowed.
     weave has_source with file as string into bool:
-        var smap as map of string to string is self->_sources
+        var smap as map of string, string is self->_sources
         return calling smap.contains with file
 
     ## The registered source text as an owned copy.
@@ -732,7 +732,7 @@ enchanting DiagnosticBag:
     ## ## Retorno
     ## `some text` (an owned copy; release it with `banish`) or `none`.
     weave source_of with file as string into maybe string:
-        var smap as map of string to string is self->_sources
+        var smap as map of string, string is self->_sources
         if calling smap.contains with file:
             var borrowed as string is smap at file
             var text_copy as string is "{borrowed}"
@@ -819,7 +819,7 @@ weave _visual_width with line as string, start_byte as int, end_byte as int, tab
 ## ## Parámetros
 ## - `xs`: strings to scan. Borrowed.
 ## - `needle`: the value to find. Borrowed.
-weave _has_string with xs as list of string, needle as string into bool:
+weave _has_string with xs as vector of string, needle as string into bool:
     for x in xs:
         if x == needle:
             return true
@@ -867,7 +867,7 @@ weave _marker_row with sb as ref to StringBuilder, gutter as int, line_text as s
 ## - `opts`: render options.
 ## - `color`: effective colour flag (only used by the caller's header).
 ## - `sb`: destination builder. Mutated.
-weave _render_group with bag as ref to DiagnosticBag, group as list of Label, opts as RenderOptions, color as bool, sb as ref to StringBuilder into void:
+weave _render_group with bag as ref to DiagnosticBag, group as vector of Label, opts as RenderOptions, color as bool, sb as ref to StringBuilder into void:
     if group.len == 0:
         return
     var head_label as Label is group at 0
@@ -883,7 +883,7 @@ weave _render_group with bag as ref to DiagnosticBag, group as list of Label, op
     calling sb.append_int with head_label.span.start_col
     calling sb.append_char with (10 to char)
 
-    var smap as map of string to string is bag->_sources
+    var smap as map of string, string is bag->_sources
     if not calling smap.contains with file:
         # No source text: print the labels as plain positions. This is the
         # documented behaviour for remote/position-only diagnostics.
@@ -984,10 +984,10 @@ weave _render_one with bag as ref to DiagnosticBag, d as Diagnostic, opts as Ren
                 calling sb.append with lb.message
             calling sb.append_char with (10 to char)
     else:
-        var seen as list of string is list of string
+        var seen as vector of string is vector of string
         for probe in d.labels:
             if not calling _has_string with seen, probe.span.file:
-                var group as list of Label is list of Label
+                var group as vector of Label is vector of Label
                 for other in d.labels:
                     if calling _diagnostic_streq with other.span.file, probe.span.file:
                         calling group.push with other
@@ -1201,7 +1201,7 @@ weave _lsp_range_u16 with text as string, span as Span into JsonValue:
     return o
 
 ## Diagnóstico LSP con posiciones UTF-16.
-weave _lsp_diagnostic_u16 with sources as map of string to string, d as Diagnostic into JsonValue:
+weave _lsp_diagnostic_u16 with sources as map of string, string, d as Diagnostic into JsonValue:
     var o as JsonValue is calling JsonValue.empty_object
     var main_span as Span is calling _main_span with d
     var txt as string is ""

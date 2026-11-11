@@ -92,7 +92,7 @@ when wasm:
         if not d.is_ok:
             return calling err_of with d.error
         defer calling free with (sigil of d.value)
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var s as result of js.JsValue to js.JsError is calling js.string with selector
         if not s.is_ok:
@@ -114,7 +114,7 @@ when wasm:
         if not d.is_ok:
             return calling err_of with d.error
         defer calling free with (sigil of d.value)
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var s as result of js.JsValue to js.JsError is calling js.string with selector
         if not s.is_ok:
@@ -131,12 +131,12 @@ when wasm:
 
     ## `document.querySelectorAll(selector)`. The list and every element are
     ## owned; free each element and `banish` the list.
-    weave query_all with selector as string into result of list of Element to js.JsError:
+    weave query_all with selector as string into result of vector of Element to js.JsError:
         var d as result of Element to js.JsError is calling document
         if not d.is_ok:
             return calling err_of with d.error
         defer calling free with (sigil of d.value)
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var s as result of js.JsValue to js.JsError is calling js.string with selector
         if not s.is_ok:
@@ -150,7 +150,7 @@ when wasm:
         var total as result of int to js.JsError is calling js.length with r.value
         if not total.is_ok:
             return calling err_of with total.error
-        var out as list of Element is list of Element
+        var out as vector of Element is vector of Element
         var i as int is 0
         while i < total.value:
             var item as result of js.JsValue to js.JsError is calling js.get_index with r.value, i
@@ -168,7 +168,7 @@ when wasm:
         if not d.is_ok:
             return calling err_of with d.error
         defer calling free with (sigil of d.value)
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var s as result of js.JsValue to js.JsError is calling js.string with tag
         if not s.is_ok:
@@ -186,7 +186,7 @@ when wasm:
         if not d.is_ok:
             return calling err_of with d.error
         defer calling free with (sigil of d.value)
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var s as result of js.JsValue to js.JsError is calling js.string with text
         if not s.is_ok:
@@ -206,7 +206,7 @@ when wasm:
 
     ## `element.cloneNode(true)`.
     weave clone with e as Element into result of Element to js.JsError:
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var t as result of js.JsValue to js.JsError is calling js.from_int with 1
         if not t.is_ok:
@@ -244,7 +244,7 @@ when wasm:
 
     ## `element.getAttribute(name)`, or `none` when absent.
     weave get_attr with e as Element, name as string into result of maybe string to js.JsError:
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var n as result of js.JsValue to js.JsError is calling js.string with name
         if not n.is_ok:
@@ -267,7 +267,7 @@ when wasm:
         if calling _is_url_attr with name:
             if not (calling security.is_safe_url with value):
                 return calling err_of with (calling _security_error with "unsafe URL in attribute '{name}'")
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var n as result of js.JsValue to js.JsError is calling js.string with name
         var v as result of js.JsValue to js.JsError is calling js.string with value
@@ -290,7 +290,7 @@ when wasm:
 
     ## Sets an attribute without the URL policy. Trusted data only.
     weave set_attr_unsafe with e as Element, name as string, value as string into result of bool to js.JsError:
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var n as result of js.JsValue to js.JsError is calling js.string with name
         var v as result of js.JsValue to js.JsError is calling js.string with value
@@ -341,7 +341,7 @@ when wasm:
         if not c.is_ok:
             return calling err_of with c.error
         defer calling js.release with c.value
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var n as result of js.JsValue to js.JsError is calling js.string with name
         if not n.is_ok:
@@ -369,7 +369,7 @@ when wasm:
         if not s.is_ok:
             return calling err_of with s.error
         defer calling js.release with s.value
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var n as result of js.JsValue to js.JsError is calling js.string with name
         if not n.is_ok:
@@ -393,7 +393,7 @@ when wasm:
         if not s.is_ok:
             return calling err_of with s.error
         defer calling js.release with s.value
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var n as result of js.JsValue to js.JsError is calling js.string with name
         var v as result of js.JsValue to js.JsError is calling js.string with value
@@ -423,8 +423,8 @@ when wasm:
         return calling set_attr with e, "data-{name}", value
 
     ## `element.getAttributeNames()`. The list and every string are owned.
-    weave attribute_names with e as Element into result of list of string to js.JsError:
-        var args as list of js.JsValue is list of js.JsValue
+    weave attribute_names with e as Element into result of vector of string to js.JsError:
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var r as result of js.JsValue to js.JsError is calling js.call_method with e._v, "getAttributeNames", args
         if not r.is_ok:
@@ -433,7 +433,7 @@ when wasm:
         var total as result of int to js.JsError is calling js.length with r.value
         if not total.is_ok:
             return calling err_of with total.error
-        var out as list of string is list of string
+        var out as vector of string is vector of string
         var i as int is 0
         while i < total.value:
             var item as result of js.JsValue to js.JsError is calling js.get_index with r.value, i
@@ -451,7 +451,7 @@ when wasm:
 
     ## `parent.insertBefore(child, reference)`. `reference = none` appends.
     weave insert_before with parent as Element, child as Element, reference as maybe Element into result of bool to js.JsError:
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         calling args.push with child._v
         if reference is present:
@@ -470,7 +470,7 @@ when wasm:
         if not d.is_ok:
             return calling err_of with d.error
         defer calling free with (sigil of d.value)
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var r as result of js.JsValue to js.JsError is calling js.call_method with d.value._v, "createDocumentFragment", args
         if not r.is_ok:
@@ -483,7 +483,7 @@ when wasm:
         if not d.is_ok:
             return calling err_of with d.error
         defer calling free with (sigil of d.value)
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var s as result of js.JsValue to js.JsError is calling js.string with text
         if not s.is_ok:
@@ -516,7 +516,7 @@ when wasm:
         return calling ok_of with (some (calling _from with v.value))
 
     ## `element.children` as an owned list.
-    weave children with e as Element into result of list of Element to js.JsError:
+    weave children with e as Element into result of vector of Element to js.JsError:
         var v as result of js.JsValue to js.JsError is calling js.get with e._v, "children"
         if not v.is_ok:
             return calling err_of with v.error
@@ -524,7 +524,7 @@ when wasm:
         var total as result of int to js.JsError is calling js.length with v.value
         if not total.is_ok:
             return calling err_of with total.error
-        var out as list of Element is list of Element
+        var out as vector of Element is vector of Element
         var i as int is 0
         while i < total.value:
             var item as result of js.JsValue to js.JsError is calling js.get_index with v.value, i
@@ -538,7 +538,7 @@ when wasm:
 
     ## `element.closest(selector)`, or `none`.
     weave closest with e as Element, selector as string into result of maybe Element to js.JsError:
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var s as result of js.JsValue to js.JsError is calling js.string with selector
         if not s.is_ok:
@@ -554,8 +554,8 @@ when wasm:
         return calling ok_of with (some (calling _from with r.value))
 
     ## `root.querySelectorAll(selector)` scoped to a subtree.
-    weave query_all_under with root as Element, selector as string into result of list of Element to js.JsError:
-        var args as list of js.JsValue is list of js.JsValue
+    weave query_all_under with root as Element, selector as string into result of vector of Element to js.JsError:
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var s as result of js.JsValue to js.JsError is calling js.string with selector
         if not s.is_ok:
@@ -569,7 +569,7 @@ when wasm:
         var total as result of int to js.JsError is calling js.length with r.value
         if not total.is_ok:
             return calling err_of with total.error
-        var out as list of Element is list of Element
+        var out as vector of Element is vector of Element
         var i as int is 0
         while i < total.value:
             var item as result of js.JsValue to js.JsError is calling js.get_index with r.value, i
@@ -583,7 +583,7 @@ when wasm:
 
     ## `element.matches(selector)`.
     weave matches with e as Element, selector as string into result of bool to js.JsError:
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var s as result of js.JsValue to js.JsError is calling js.string with selector
         if not s.is_ok:
@@ -602,7 +602,7 @@ when wasm:
 
     ## `parent.appendChild(child)`.
     weave append with parent as Element, child as Element into result of bool to js.JsError:
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         calling args.push with child._v
         var r as result of js.JsValue to js.JsError is calling js.call_method with parent._v, "appendChild", args
@@ -613,7 +613,7 @@ when wasm:
 
     ## `parent.prepend(child)`.
     weave prepend with parent as Element, child as Element into result of bool to js.JsError:
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         calling args.push with child._v
         var r as result of js.JsValue to js.JsError is calling js.call_method with parent._v, "prepend", args
@@ -628,7 +628,7 @@ when wasm:
 
     ## `element.replaceWith(other)`.
     weave replace_with with e as Element, other as Element into result of bool to js.JsError:
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         calling args.push with other._v
         var r as result of js.JsValue to js.JsError is calling js.call_method with e._v, "replaceWith", args
@@ -647,7 +647,7 @@ when wasm:
 
     ## Removes the listener and releases it.
     weave off with l as ref to Listener into result of bool to js.JsError:
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var ev as result of js.JsValue to js.JsError is calling js.string with l->_event
         if not ev.is_ok:
@@ -715,7 +715,7 @@ when wasm:
 
     ## `element.getBoundingClientRect()`.
     weave rect with e as Element into result of Rect to js.JsError:
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var r as result of js.JsValue to js.JsError is calling js.call_method with e._v, "getBoundingClientRect", args
         if not r.is_ok:
@@ -763,7 +763,7 @@ when wasm:
         if not ctor.is_ok:
             return calling err_of with ctor.error
         defer calling js.release with ctor.value
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         calling args.push with e._v
         return calling js.new with ctor.value, args
@@ -831,7 +831,7 @@ when wasm:
 
     ## Calls a method with no arguments and discards its result.
     weave _call_void with e as Element, method as string into result of bool to js.JsError:
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var r as result of js.JsValue to js.JsError is calling js.call_method with e._v, method, args
         if not r.is_ok:
@@ -844,7 +844,7 @@ when wasm:
         var s as result of js.JsValue to js.JsError is calling js.string with text
         if not s.is_ok:
             return calling err_of with s.error
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         calling args.push with s.value
         var r as result of js.JsValue to js.JsError is calling js.call_method with e._v, method, args
@@ -859,7 +859,7 @@ when wasm:
         var s as result of js.JsValue to js.JsError is calling js.string with text
         if not s.is_ok:
             return calling err_of with s.error
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         calling args.push with s.value
         var r as result of js.JsValue to js.JsError is calling js.call_method with e._v, method, args
@@ -875,7 +875,7 @@ when wasm:
         var s as result of js.JsValue to js.JsError is calling js.string with text
         if not s.is_ok:
             return calling err_of with s.error
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         calling args.push with s.value
         var r as result of js.JsValue to js.JsError is calling js.call_method with target, method, args
@@ -891,7 +891,7 @@ when wasm:
         var s as result of js.JsValue to js.JsError is calling js.string with text
         if not s.is_ok:
             return calling err_of with s.error
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         calling args.push with s.value
         var r as result of js.JsValue to js.JsError is calling js.call_method with target, method, args
@@ -932,7 +932,7 @@ when wasm:
             calling js.free_callback with cbv.value
             calling js.release with kept.value
             return calling err_of with ev.error
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         calling args.push with ev.value
         calling args.push with cbv.value._value
@@ -973,7 +973,7 @@ when wasm:
         return calling ok_of with (with _element is kept.value, _event is "{event_name}", _callback is cbv.value)
 
     ## Frees every element in a list (the list buffer is freed by the caller).
-    weave _free_elements with items as list of Element into void:
+    weave _free_elements with items as vector of Element into void:
         var i as int is 0
         while i < items.len:
             var e as Element is items at i
@@ -1015,7 +1015,7 @@ when not wasm:
         return calling err_of with (calling js.last_error)
     weave query_required with selector as string into result of Element to js.JsError:
         return calling err_of with (calling js.last_error)
-    weave query_all with selector as string into result of list of Element to js.JsError:
+    weave query_all with selector as string into result of vector of Element to js.JsError:
         return calling err_of with (calling js.last_error)
     weave create with tag as string into result of Element to js.JsError:
         return calling err_of with (calling js.last_error)
@@ -1031,11 +1031,11 @@ when not wasm:
         return calling err_of with (calling js.last_error)
     weave parent with e as Element into result of maybe Element to js.JsError:
         return calling err_of with (calling js.last_error)
-    weave children with e as Element into result of list of Element to js.JsError:
+    weave children with e as Element into result of vector of Element to js.JsError:
         return calling err_of with (calling js.last_error)
     weave closest with e as Element, selector as string into result of maybe Element to js.JsError:
         return calling err_of with (calling js.last_error)
-    weave query_all_under with root as Element, selector as string into result of list of Element to js.JsError:
+    weave query_all_under with root as Element, selector as string into result of vector of Element to js.JsError:
         return calling err_of with (calling js.last_error)
     weave matches with e as Element, selector as string into result of bool to js.JsError:
         return calling err_of with (calling js.last_error)
@@ -1053,7 +1053,7 @@ when not wasm:
         return calling err_of with (calling js.last_error)
     weave get_attr with e as Element, name as string into result of maybe string to js.JsError:
         return calling err_of with (calling js.last_error)
-    weave attribute_names with e as Element into result of list of string to js.JsError:
+    weave attribute_names with e as Element into result of vector of string to js.JsError:
         return calling err_of with (calling js.last_error)
     weave set_attr with e as Element, name as string, value as string into result of bool to js.JsError:
         return calling err_of with (calling js.last_error)

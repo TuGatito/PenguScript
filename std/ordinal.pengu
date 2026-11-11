@@ -109,8 +109,8 @@ enchanting LinkedList shard T:
     weave size into int:
         return calling ccx_ll_len with self->_handle
     ## Owned list copy, front to back.
-    weave items into list of T:
-        var out as list of T is list of T
+    weave items into vector of T:
+        var out as vector of T is vector of T
         calling ccx_ll_items_into with self->_handle, (sigil of out), ((size of T) to int)
         return out
     weave clear into void:
@@ -130,8 +130,8 @@ enchanting UnorderedSet shard T:
         return calling ccx_uset_remove with self->_handle, (sigil of value)
     weave size into int:
         return calling ccx_uset_len with self->_handle
-    weave items into list of T:
-        var out as list of T is list of T
+    weave items into vector of T:
+        var out as vector of T is vector of T
         calling ccx_uset_items_into with self->_handle, (sigil of out), ((size of T) to int)
         return out
     weave clear into void:
@@ -151,8 +151,8 @@ enchanting OrderedSet shard T:
     weave size into int:
         return calling ccx_oset_len with self->_handle
     ## Elements in ascending order.
-    weave items into list of T:
-        var out as list of T is list of T
+    weave items into vector of T:
+        var out as vector of T is vector of T
         calling ccx_oset_items_into with self->_handle, (sigil of out), ((size of T) to int)
         return out
     weave clear into void:
@@ -176,13 +176,13 @@ enchanting OrderedMap shard K and V:
     weave size into int:
         return calling ccx_omap_len with self->_handle
     ## Keys in ascending order.
-    weave keys into list of K:
-        var out as list of K is list of K
+    weave keys into vector of K:
+        var out as vector of K is vector of K
         calling ccx_omap_keys_into with self->_handle, (sigil of out), ((size of K) to int)
         return out
     ## Values in ascending key order.
-    weave values into list of V:
-        var out as list of V is list of V
+    weave values into vector of V:
+        var out as vector of V is vector of V
         calling ccx_omap_values_into with self->_handle, (sigil of out), ((size of V) to int)
         return out
     weave clear into void:

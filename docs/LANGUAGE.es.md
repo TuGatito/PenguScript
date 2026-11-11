@@ -230,6 +230,19 @@ parámetros, campos y elementos — nunca termina una sentencia.
 | Rango | `0 to 10` | rango entero — solo en `for`, `in` y comprensiones, no es un tipo escribible |
 | Nulo | `null` | cualquier puntero, `opaque` o `maybe T` |
 
+Desde F2 el compilador acepta también las grafías del dialecto C++
+(`docs/LANGUAGECPP.es.md`) para estos tipos, y son las preferidas:
+
+| Actual | Dialecto C++ |
+| --- | --- |
+| `list of T` | `vector of T` |
+| `slice of T` | `span of T` |
+| `map of K to V` | `map of K, V` |
+
+Las dos formas producen el mismo AST y el mismo código; `psc migrate` reescribe
+un árbol completo a la forma nueva. `umap`/`set`/`uset` **no** están aceptados
+todavía: necesitan semántica nueva y llegan en una fase posterior.
+
 Escapes en strings normales: `\n \t \r \\ \" \' \0 \xNN \u{...}`. La
 interpolación toma una expresión: `"{name} v{version}"`; `{{` y `}}` producen
 llaves literales. Un `:` dentro de las llaves selecciona un formato `printf`:

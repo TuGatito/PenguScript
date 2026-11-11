@@ -236,7 +236,7 @@ weave module_doc with path as string into string:
         banish t
         return ""
     var text as string is t.value
-    var lines as list of string is calling text.split with "\n"
+    var lines as vector of string is calling text.split with "\n"
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb
     var any as bool is false
@@ -289,7 +289,7 @@ weave render_file with path as string, rel as string, title as string, p as ref 
     var mid as int is calling semprog.module_id with p, path
     if mid < 0:
         return calling sb.finish
-    var ids as list of int is list of int
+    var ids as vector of int is vector of int
     var i as int is 0
     while i < p->symbols.symbols.len:
         var si as sym.SemaSymbol is (p->symbols.symbols at i)
@@ -309,7 +309,7 @@ weave render_file with path as string, rel as string, title as string, p as ref 
                 set ids at (b + 1) is tmp
             set b is b + 1
         set a is a + 1
-    var seen_names as map of string to bool is map of string to bool
+    var seen_names as map of string, bool is map of string, bool
     var k as int is 0
     while k < ids.len:
         var sid as int is (ids at k)
@@ -376,16 +376,16 @@ weave doc_name with rel as string, sep as char into string:
 ##
 ## ## Memoria
 ## Libera ParseResult.
-weave run_doc with args as list of string into int:
-    var vf as list of string is list of string
+weave run_doc with args as vector of string into int:
+    var vf as vector of string is vector of string
     calling vf.push with "--output"
     calling vf.push with "--entry"
     calling vf.push with "--config"
-    var sf as list of string is list of string
+    var sf as vector of string is vector of string
     calling sf.push with "--html"
     calling sf.push with "--include-std"
     calling sf.push with "--help"
-    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, vector of string
     if not pr.ok:
         var e as string is pr.error
         calling spark.eprintln with e
@@ -459,9 +459,9 @@ weave run_doc with args as list of string into int:
     var sopt0 as sopts.SemaOptions is calling sopts.default_options with (calling copy with root)
     var sr0 as sema_api.SemaResult is calling sema_api.check_file with entry_path, sopt0
     var src as string is "{root}/{man.src_dir}"
-    var found as list of string is calling archivum.find_files with src, true
+    var found as vector of string is calling archivum.find_files with src, true
     if want_std:
-        var sfound as list of string is calling archivum.find_files with std_dir, true
+        var sfound as vector of string is calling archivum.find_files with std_dir, true
         for sf in sfound:
             if calling ends_with with sf, ".pengu" and not calling ends_with with sf, ".d.pengu":
                 calling found.push with (calling copy with sf)

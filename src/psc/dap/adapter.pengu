@@ -51,12 +51,12 @@ rune Adapter:
     source as string
     gdb_path as string
     printers as string
-    bp_ids as list of int
-    bp_sources as list of string
-    frame_levels as list of int
-    frame_files as list of string
-    frame_lines as list of int
-    frame_funcs as list of string
+    bp_ids as vector of int
+    bp_sources as vector of string
+    frame_levels as vector of int
+    frame_files as vector of string
+    frame_lines as vector of int
+    frame_funcs as vector of string
     last_file as string
     last_line as int
     step_mode as bool
@@ -306,7 +306,7 @@ weave stream_text with line as string into string:
 weave handle_mi_async with a as ref to Adapter, line as string into void:
     var cls as string is calling mi.result_class with line
     if cls == "stopped":
-        var fs as list of mi.MiField is calling mi.parse_fields with line
+        var fs as vector of mi.MiField is calling mi.parse_fields with line
         var reason as string is calling mi.field with (sigil of fs), "reason"
         var bno as string is calling mi.field with (sigil of fs), "bkptno"
         var frame as string is calling mi.field with (sigil of fs), "frame"
@@ -340,7 +340,7 @@ weave handle_mi_async with a as ref to Adapter, line as string into void:
         calling add_field with (sigil of body), (sigil of f), "threadId", "1"
         calling add_field with (sigil of body), (sigil of f), "allThreadsStopped", "true"
         if frame length > 0:
-            var ff as list of mi.MiField is calling mi.parse_fields with frame
+            var ff as vector of mi.MiField is calling mi.parse_fields with frame
             var file as string is calling mi.field with (sigil of ff), "fullname"
             if file length == 0:
                 banish file
@@ -496,7 +496,7 @@ weave do_launch with a as ref to Adapter, seq as int, req as json.JsonValue into
         banish printers
         set printers is ""
     if not (calling compass.cp_is_abs with prog):
-        var parts as list of string is list of string
+        var parts as vector of string is vector of string
         calling parts.push with (calling npool.copy_string with cwd)
         calling parts.push with (calling npool.copy_string with prog)
         var ap as string is calling compass.cp_join with parts
@@ -509,7 +509,7 @@ weave do_launch with a as ref to Adapter, seq as int, req as json.JsonValue into
     set a->gdb_path is gpath
     set a->printers is printers
     set a->stop_on_entry is calling req_bool with args, "stopOnEntry", false
-    var argv as list of string is list of string
+    var argv as vector of string is vector of string
     calling argv.push with gpath
     calling argv.push with "-q"
     calling argv.push with "-i=mi2"
@@ -518,10 +518,10 @@ weave do_launch with a as ref to Adapter, seq as int, req as json.JsonValue into
     var am as maybe json.JsonValue is calling args.get with "args"
     if am.is_present:
         var av as json.JsonValue is am.value
-        var aa as maybe list of json.JsonValue is calling av.as_array
+        var aa as maybe vector of json.JsonValue is calling av.as_array
         banish av
         if aa.is_present:
-            var items as list of json.JsonValue is aa.value
+            var items as vector of json.JsonValue is aa.value
             for it in items:
                 var s as maybe string is calling it.as_string
                 if s.is_present:
@@ -560,7 +560,7 @@ weave do_launch with a as ref to Adapter, seq as int, req as json.JsonValue into
     banish r
     banish cdcmd
     if a->printers length == 0:
-        var dparts as list of string is list of string
+        var dparts as vector of string is vector of string
         calling dparts.push with (calling npool.copy_string with a->cwd)
         calling dparts.push with (calling npool.copy_string with "tools/pengu_printers.py")
         var dp as string is calling compass.cp_join with dparts
@@ -585,11 +585,11 @@ weave do_configuration_done with a as ref to Adapter, seq as int into void:
     calling send_response with a, seq, "configurationDone", ""
     if a->stop_on_entry:
         var r as string is calling mi_cmd with a, "-break-insert -t pengu_main"
-        var fs as list of mi.MiField is calling mi.parse_fields with r
+        var fs as vector of mi.MiField is calling mi.parse_fields with r
         var bk as string is calling mi.field with (sigil of fs), "bkpt"
         banish fs
         if bk length > 0:
-            var bf as list of mi.MiField is calling mi.parse_fields with bk
+            var bf as vector of mi.MiField is calling mi.parse_fields with bk
             var bn as string is calling mi.field with (sigil of bf), "number"
             banish bf
             if bn length > 0:
@@ -620,14 +620,14 @@ weave do_set_breakpoints with a as ref to Adapter, seq as int, req as json.JsonV
     if calling compass.cp_is_abs with sp:
         set abs is calling npool.copy_string with sp
     else:
-        var parts as list of string is list of string
+        var parts as vector of string is vector of string
         calling parts.push with (calling npool.copy_string with a->cwd)
         calling parts.push with (calling npool.copy_string with sp)
         set abs is calling compass.cp_join with parts
         banish parts
     banish sp
-    var keep_ids as list of int is list of int
-    var keep_src as list of string is list of string
+    var keep_ids as vector of int is vector of int
+    var keep_src as vector of string is vector of string
     var i as int is 0
     while i < a->bp_ids.len:
         var id as int is a->bp_ids at i
@@ -658,10 +658,10 @@ weave do_set_breakpoints with a as ref to Adapter, seq as int, req as json.JsonV
     var first as bool is true
     if bps.is_present:
         var bv as json.JsonValue is bps.value
-        var ba as maybe list of json.JsonValue is calling bv.as_array
+        var ba as maybe vector of json.JsonValue is calling bv.as_array
         banish bv
         if ba.is_present:
-            var items as list of json.JsonValue is ba.value
+            var items as vector of json.JsonValue is ba.value
             var idx as int is 0
             while idx < items.len:
                 var item as json.JsonValue is items at idx
@@ -694,12 +694,12 @@ weave do_set_breakpoints with a as ref to Adapter, seq as int, req as json.JsonV
                     banish esc
                     var resp as string is calling mi_cmd with a, cmd
                     banish cmd
-                    var fs as list of mi.MiField is calling mi.parse_fields with resp
+                    var fs as vector of mi.MiField is calling mi.parse_fields with resp
                     var bk as string is calling mi.field with (sigil of fs), "bkpt"
                     banish fs
                     var bid as int is 0
                     if bk length > 0:
-                        var bf as list of mi.MiField is calling mi.parse_fields with bk
+                        var bf as vector of mi.MiField is calling mi.parse_fields with bk
                         var bn as string is calling mi.field with (sigil of bf), "number"
                         if bn length > 0:
                             var pm as maybe int is calling spark.parse_int with bn
@@ -788,11 +788,11 @@ weave do_pause with a as ref to Adapter, seq as int into void:
 
 weave do_stack_trace with a as ref to Adapter, seq as int into void:
     var r as string is calling mi_cmd with a, "-stack-list-frames"
-    var fs as list of mi.MiField is calling mi.parse_fields with r
+    var fs as vector of mi.MiField is calling mi.parse_fields with r
     var stack as string is calling mi.field with (sigil of fs), "stack"
     banish fs
     banish r
-    var objs as list of string is calling mi.split_objects with stack
+    var objs as vector of string is calling mi.split_objects with stack
     banish stack
     calling a->frame_levels.clear
     calling a->frame_files.clear
@@ -804,7 +804,7 @@ weave do_stack_trace with a as ref to Adapter, seq as int into void:
     var first as bool is true
     for obj in objs:
         var inner as string is calling scrolls.substring with obj, 1, (obj length - 1)
-        var ff as list of mi.MiField is calling mi.parse_fields with inner
+        var ff as vector of mi.MiField is calling mi.parse_fields with inner
         banish inner
         var file as string is calling mi.field with (sigil of ff), "fullname"
         if file length == 0:
@@ -824,7 +824,7 @@ weave do_stack_trace with a as ref to Adapter, seq as int into void:
             banish level
         else:
             if not (calling compass.cp_is_abs with file):
-                var parts as list of string is list of string
+                var parts as vector of string is vector of string
                 calling parts.push with (calling npool.copy_string with a->cwd)
                 calling parts.push with (calling npool.copy_string with file)
                 var jf as string is calling compass.cp_join with parts
@@ -934,11 +934,11 @@ weave do_variables with a as ref to Adapter, seq as int, req as json.JsonValue i
     var cmd as string is "-stack-list-variables --simple-values"
     var r as string is calling mi_cmd with a, cmd
     banish cmd
-    var fs as list of mi.MiField is calling mi.parse_fields with r
+    var fs as vector of mi.MiField is calling mi.parse_fields with r
     var vars as string is calling mi.field with (sigil of fs), "variables"
     banish fs
     banish r
-    var objs as list of string is calling mi.split_objects with vars
+    var objs as vector of string is calling mi.split_objects with vars
     banish vars
     var out as StringBuilder is calling StringBuilder.new
     defer banish out
@@ -946,7 +946,7 @@ weave do_variables with a as ref to Adapter, seq as int, req as json.JsonValue i
     var first as bool is true
     for obj in objs:
         var inner as string is calling scrolls.substring with obj, 1, (obj length - 1)
-        var ff as list of mi.MiField is calling mi.parse_fields with inner
+        var ff as vector of mi.MiField is calling mi.parse_fields with inner
         banish inner
         var name as string is calling mi.field with (sigil of ff), "name"
         var value as string is calling mi.field with (sigil of ff), "value"
@@ -1016,7 +1016,7 @@ weave do_evaluate with a as ref to Adapter, seq as int, req as json.JsonValue in
     banish esc
     var r as string is calling mi_cmd with a, cmd
     banish cmd
-    var fs as list of mi.MiField is calling mi.parse_fields with r
+    var fs as vector of mi.MiField is calling mi.parse_fields with r
     banish r
     var value as string is calling mi.field with (sigil of fs), "value"
     banish fs
@@ -1099,9 +1099,9 @@ weave handle_dap with a as ref to Adapter, body as string into void:
     banish cmd
 
 ## Bucle principal del adapter.
-weave run_debug_adapter with args as list of string into int:
+weave run_debug_adapter with args as vector of string into int:
     var q as filum.ChanString is calling filum.chan_string with 1024
-    var a as Adapter is with q is q, tr is (calling lsp.stdio), seq is 0, gdb_in is -1, gdb_out is -1, gdb_err is -1, gdb_pid is 0, mi_started is false, launched is false, running is false, terminated is false, stop_on_entry is false, entry_bp is 0, program is "", cwd is "", source is "", gdb_path is "", printers is "", bp_ids is (list of int), bp_sources is (list of string), last_file is "", last_line is 0, step_mode is false, step_line is 0, step_tries is 0, frame_levels is (list of int), frame_files is (list of string), frame_lines is (list of int), frame_funcs is (list of string)
+    var a as Adapter is with q is q, tr is (calling lsp.stdio), seq is 0, gdb_in is -1, gdb_out is -1, gdb_err is -1, gdb_pid is 0, mi_started is false, launched is false, running is false, terminated is false, stop_on_entry is false, entry_bp is 0, program is "", cwd is "", source is "", gdb_path is "", printers is "", bp_ids is (vector of int), bp_sources is (vector of string), last_file is "", last_line is 0, step_mode is false, step_line is 0, step_tries is 0, frame_levels is (vector of int), frame_files is (vector of string), frame_lines is (vector of int), frame_funcs is (vector of string)
     var dap_th as filum.Thread is calling filum.start with dap_reader, (sigil of a.q)
     while not a.terminated:
         var m as maybe string is calling a.q.recv

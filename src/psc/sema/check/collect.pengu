@@ -119,7 +119,7 @@ weave add_derived_at with s as ref to state.SemaState, info_idx as int, cid as i
             return
         set hi is hi + 1
     var pos as int is info.derived_first + info.derived_count
-    var out as list of int is list of int
+    var out as vector of int is vector of int
     var i as int is 0
     var done as bool is false
     while i < s->types->derived.len:
@@ -822,7 +822,7 @@ weave tag_decl with s as ref to state.SemaState, id as int, node as int into voi
             set li is li - 1
         banish gapt
         banish gap
-    var docs as list of string is list of string
+    var docs as vector of string is vector of string
     while li >= 0 and li < (calling s->src.line_count):
         var line as string is calling s->src.line_text with (li + 1)
         var tr as string is calling trim_text with line
@@ -898,15 +898,15 @@ weave collect_record with s as ref to state.SemaState, node as int, sk as sym.Se
     # instanciar un nominal anidado y añadir SUS campos a la tabla global.
     # Si reserváramos el rango antes de convertir, el rango de este rune
     # incluiría los campos del nominal anidado (bug de layout).
-    var pending_fields as list of types.SemaField is list of types.SemaField
+    var pending_fields as vector of types.SemaField is vector of types.SemaField
     defer banish pending_fields
-    var embed_names as list of int is list of int
+    var embed_names as vector of int is vector of int
     defer banish embed_names
-    var embed_nodes as list of int is list of int
+    var embed_nodes as vector of int is vector of int
     defer banish embed_nodes
-    var embed_explicit as list of bool is list of bool
+    var embed_explicit as vector of bool is vector of bool
     defer banish embed_explicit
-    var own_names as list of int is list of int
+    var own_names as vector of int is vector of int
     defer banish own_names
     var i as int is 0
     var n as int is calling astutil.child_count with s->ast, node
@@ -1082,7 +1082,7 @@ weave lint_embed_shadows with s as ref to state.SemaState, info_idx as int into 
             while j < info.fields_count:
                 var g as types.SemaField is (s->types->fields at (info.fields_first + j))
                 if (g.flags & types.FIELD_EMBED) == 0 and g.decl_node >= 0:
-                    var path as list of int is list of int
+                    var path as vector of int is vector of int
                     var r as int is calling embeds.route_into with s->types, f.type, g.name, (sigil of path), 0
                     banish path
                     if r == embeds.ROUTE_FOUND:
@@ -1361,9 +1361,9 @@ weave collect_omen with s as ref to state.SemaState, node as int into void:
     # Igual que en `collect_record`: primero se convierten todos los payloads
     # (pueden instanciar nominales anidados y añadir campos/variantes), y sólo
     # después se reservan los rangos contiguos de este omen.
-    var pending_variants as list of types.SemaVariant is list of types.SemaVariant
-    var pending_payloads as list of types.SemaField is list of types.SemaField
-    var used_values as list of int is list of int
+    var pending_variants as vector of types.SemaVariant is vector of types.SemaVariant
+    var pending_payloads as vector of types.SemaField is vector of types.SemaField
+    var used_values as vector of int is vector of int
     defer banish used_values
     var next_val as int is 0
     defer banish pending_variants
@@ -1837,7 +1837,7 @@ weave collect_params with s as ref to state.SemaState, pnode as int, out as ref 
     # Los params se acumulan aparte: convertir un tipo función (`as weave ...`)
     # añade sus propios params a `fn_params`, así que empujarlos al vuelo
     # rompería la contigüidad del rango [first, first+count).
-    var tmp as list of types.SemaFnParam is list of types.SemaFnParam
+    var tmp as vector of types.SemaFnParam is vector of types.SemaFnParam
     defer banish tmp
     var seen_default as bool is false
     var seen_many as bool is false

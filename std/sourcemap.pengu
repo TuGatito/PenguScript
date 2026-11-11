@@ -101,7 +101,7 @@ rune SourceSpan derive Par:
 ## both through `derive Nexus`.
 rune SourceMap derive Nexus:
     _source as string
-    _line_starts as list of int
+    _line_starts as vector of int
 
 # ----------------------------------------------------------------------------
 # Private C bridges
@@ -159,7 +159,7 @@ enchanting SourceMap:
     ## ```
     weave ritual from_source with src as string into SourceMap:
         var owned_source as string is calling _sourcemap_copy with src
-        var starts as list of int is list of int
+        var starts as vector of int is vector of int
         calling starts.push with 0
         var n as int is src length
         var raw as ref to frozen byte is bytes of src

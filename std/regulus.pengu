@@ -401,8 +401,8 @@ enchanting Regex:
     ##
     ## ## Memoria
     ## Allocates one list; `banish` releases it.
-    weave matches with s as string into list of Match:
-        var out as list of Match is list of Match
+    weave matches with s as string into vector of Match:
+        var out as vector of Match is vector of Match
         var offset as int is 0
         var n as int is s length
         while offset <= n:
@@ -479,8 +479,8 @@ enchanting Regex:
     ## var parts as list of string is calling rx.split with "a b  c"
     ## # ["a", "b", "c"] for pattern "\s+"
     ## ```
-    weave split with s as string into list of string:
-        var out as list of string is list of string
+    weave split with s as string into vector of string:
+        var out as vector of string is vector of string
         var last as int is 0
         var offset as int is 0
         var n as int is s length

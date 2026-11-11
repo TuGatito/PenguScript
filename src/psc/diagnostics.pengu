@@ -184,7 +184,7 @@ weave diag_span with src as ref to psource.SourceFile, s as pspan.ByteSpan into 
 weave emit_error with bag as ref to diag.DiagnosticBag, src as ref to psource.SourceFile, code as string, message as string, s as pspan.ByteSpan, help as string, note as string into void:
     var sp as diag.Span is calling diag_span with src, s
     var lb as diag.Label is calling diag.label with sp, "", true
-    var labels_list as list of diag.Label is calling diag.labels with lb
+    var labels_list as vector of diag.Label is calling diag.labels with lb
     var h as maybe string is maybe none
     if help length > 0:
         var hc as string is "{help}"
@@ -203,7 +203,7 @@ weave emit_error with bag as ref to diag.DiagnosticBag, src as ref to psource.So
 weave emit_warning with bag as ref to diag.DiagnosticBag, src as ref to psource.SourceFile, code as string, message as string, s as pspan.ByteSpan, help as string into void:
     var sp as diag.Span is calling diag_span with src, s
     var lb as diag.Label is calling diag.label with sp, "", true
-    var labels_list as list of diag.Label is calling diag.labels with lb
+    var labels_list as vector of diag.Label is calling diag.labels with lb
     var h as maybe string is maybe none
     if help length > 0:
         var hc as string is "{help}"
@@ -218,7 +218,7 @@ weave emit_warning with bag as ref to diag.DiagnosticBag, src as ref to psource.
 weave emit_info with bag as ref to diag.DiagnosticBag, src as ref to psource.SourceFile, code as string, message as string, s as pspan.ByteSpan, help as string into void:
     var sp as diag.Span is calling diag_span with src, s
     var lb as diag.Label is calling diag.label with sp, "", true
-    var labels_list as list of diag.Label is calling diag.labels with lb
+    var labels_list as vector of diag.Label is calling diag.labels with lb
     var h as maybe string is maybe none
     if help length > 0:
         var hc as string is "{help}"

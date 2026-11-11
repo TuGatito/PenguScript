@@ -32,12 +32,12 @@ weave copy with s as string into string:
 ##
 ## ## Memoria
 ## Libera opciones/resultado.
-weave run_time with args as list of string into int:
-    var vf as list of string is list of string
+weave run_time with args as vector of string into int:
+    var vf as vector of string is vector of string
     calling vf.push with "--cc"
-    var sf as list of string is list of string
+    var sf as vector of string is vector of string
     calling sf.push with "--json"
-    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, vector of string
     if not pr.ok:
         var e as string is pr.error
         calling spark.eprintln with e
@@ -52,7 +52,7 @@ weave run_time with args as list of string into int:
         calling cliargs.free_parse_result with (sigil of pr)
         return 2
     var script as string is calling copy with (pr.args.positionals at 0)
-    var child as list of string is list of string
+    var child as vector of string is vector of string
     var ai as int is 1
     while ai < pr.args.positionals.len:
         calling child.push with (calling copy with (pr.args.positionals at ai))
@@ -84,7 +84,7 @@ weave run_time with args as list of string into int:
         return 1
     var art as string is r.artifact
     var t2 as float is calling chronicle.monotonic
-    var targv as list of string is list of string
+    var targv as vector of string is vector of string
     calling targv.push with (calling copy with art)
     for tc in child:
         calling targv.push with tc

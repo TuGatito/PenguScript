@@ -62,7 +62,7 @@ weave check_legacy with base as string into int:
 
 ## Resuelve, instala y escribe lock.
 weave sync with base as string, lib_dir as string, write_lock as bool, trusted as bool, exe as string, run_build as bool, force as bool into int:
-    var deps as list of pman.Dependency is calling pman.load with base
+    var deps as vector of pman.Dependency is calling pman.load with base
     if deps.len == 0:
         var lp as string is "{base}/pengu.lock"
         var ign as bool is calling archivum.delete_file with lp
@@ -90,7 +90,7 @@ weave sync with base as string, lib_dir as string, write_lock as bool, trusted a
                     calling spark.eprintln with sk
                     banish sk
     if write_lock:
-        var lk as plock.Lock is with target is "x86_64-unknown-linux-gnu", packages is list of plock.Package
+        var lk as plock.Lock is with target is "x86_64-unknown-linux-gnu", packages is vector of plock.Package
         for p in g.packages:
             calling lk.packages.push with p
         var ok as bool is calling plock.write with base, lk
@@ -106,7 +106,7 @@ weave sync with base as string, lib_dir as string, write_lock as bool, trusted a
 
 ## Lee una dependencia del manifiesto.
 weave dep_by_name with base as string, name as string into pman.Dependency:
-    var ds as list of pman.Dependency is calling pman.load with base
+    var ds as vector of pman.Dependency is calling pman.load with base
     var i as int is 0
     while i < ds.len:
         if (ds at i).name == name:
@@ -119,18 +119,18 @@ weave dep_by_name with base as string, name as string into pman.Dependency:
     return with name is "", kind is "", source is "", branch is "", tag is "", constraint is "*"
 
 ## `psc add`.
-weave run_add with args as list of string into int:
-    var vf as list of string is list of string
+weave run_add with args as vector of string into int:
+    var vf as vector of string is vector of string
     calling vf.push with "--name"
     calling vf.push with "--branch"
     calling vf.push with "--tag"
     calling vf.push with "--version"
-    var sf as list of string is list of string
+    var sf as vector of string is vector of string
     calling sf.push with "--no-build"
     calling sf.push with "--rebuild"
     calling sf.push with "--trust"
     calling sf.push with "--help"
-    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, vector of string
     for v in vf:
         banish v
     banish vf
@@ -382,11 +382,11 @@ weave ends_with with s as string, p as string into bool:
     return true
 
 ## `psc remove`.
-weave run_remove with args as list of string into int:
-    var sf as list of string is list of string
+weave run_remove with args as vector of string into int:
+    var sf as vector of string is vector of string
     calling sf.push with "--keep-files"
     calling sf.push with "--help"
-    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, list of string, sf, list of string
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vector of string, sf, vector of string
     if not pr.ok or pr.args.positionals.len == 0:
         calling spark.eprintln with "Usage: psc remove NAME [--keep-files]"
         calling cliargs.free_parse_result with (sigil of pr)
@@ -419,12 +419,12 @@ weave run_remove with args as list of string into int:
     return code
 
 ## `psc update`.
-weave run_update with args as list of string into int:
-    var sf as list of string is list of string
+weave run_update with args as vector of string into int:
+    var sf as vector of string is vector of string
     calling sf.push with "--trust"
     calling sf.push with "--no-build"
     calling sf.push with "--help"
-    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, list of string, sf, list of string
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vector of string, sf, vector of string
     if not pr.ok:
         calling cliargs.free_parse_result with (sigil of pr)
         return 2
@@ -447,14 +447,14 @@ weave run_update with args as list of string into int:
     return code
 
 ## `psc upgrade`.
-weave run_upgrade with args as list of string into int:
-    var vf as list of string is list of string
+weave run_upgrade with args as vector of string into int:
+    var vf as vector of string is vector of string
     calling vf.push with "--version"
     calling vf.push with "--branch"
-    var sf as list of string is list of string
+    var sf as vector of string is vector of string
     calling sf.push with "--trust"
     calling sf.push with "--help"
-    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, vector of string
     if not pr.ok or pr.args.positionals.len == 0:
         calling spark.eprintln with "Usage: psc upgrade NAME [--version=V] [--branch=B]"
         calling cliargs.free_parse_result with (sigil of pr)
@@ -503,11 +503,11 @@ weave run_upgrade with args as list of string into int:
     return code
 
 ## `psc verify`.
-weave run_verify with args as list of string into int:
-    var sf as list of string is list of string
+weave run_verify with args as vector of string into int:
+    var sf as vector of string is vector of string
     calling sf.push with "--verbose"
     calling sf.push with "--help"
-    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, list of string, sf, list of string
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vector of string, sf, vector of string
     if not pr.ok:
         calling cliargs.free_parse_result with (sigil of pr)
         return 2
@@ -559,7 +559,7 @@ weave run_verify with args as list of string into int:
                 banish mc2
                 set bad is bad + 1
         banish dir
-    var mdeps as list of pman.Dependency is calling pman.load with base
+    var mdeps as vector of pman.Dependency is calling pman.load with base
     for d in mdeps:
         var in_lock as bool is false
         for p in lm.value.packages:
@@ -593,11 +593,11 @@ weave run_verify with args as list of string into int:
     return 0
 
 ## `psc vendor`.
-weave run_vendor with args as list of string into int:
-    var sf as list of string is list of string
+weave run_vendor with args as vector of string into int:
+    var sf as vector of string is vector of string
     calling sf.push with "--verbose"
     calling sf.push with "--help"
-    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, list of string, sf, list of string
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vector of string, sf, vector of string
     if not pr.ok:
         calling cliargs.free_parse_result with (sigil of pr)
         return 2
@@ -628,7 +628,7 @@ weave run_vendor with args as list of string into int:
         banish lm0
     else:
         banish lm0
-        var ds as list of pman.Dependency is calling pman.load with base
+        var ds as vector of pman.Dependency is calling pman.load with base
         for d in ds:
             var src as string is "{base}/{ld}/{d.name}"
             if calling archivum.is_dir with src:

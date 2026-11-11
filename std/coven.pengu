@@ -193,7 +193,7 @@ return pengu_string_copy(s);
 ## `pengu_banish_string` is a no-op for a borrowed key (`is_owned == 0`) and
 ## frees a copied one (`is_owned == 1`), so a set that mixes `add` and
 ## `add_owned` releases each element exactly once.
-antiquus _coven_release_string_set with m as ref to map of string to int into void:
+antiquus _coven_release_string_set with m as ref to map of string, int into void:
     r"""
 if (!m) return;
 PenguList keys = pengu_map_keys_string(m);
@@ -207,7 +207,7 @@ pengu_banish_map(m);
 """
 
 ## Frees every key the map owns, leaving the map's entries in place.
-antiquus _coven_free_owned_keys with m as ref to map of string to int into void:
+antiquus _coven_free_owned_keys with m as ref to map of string, int into void:
     r"""
 if (!m) return;
 PenguList keys = pengu_map_keys_string(m);
@@ -231,7 +231,7 @@ pengu_banish_list(&keys);
 ## map* to mean "the set owns this copy", which is the invariant
 ## `_coven_free_owned_keys` and `_coven_remove_string_key` rely on. The caller's
 ## own `PenguString` is untouched: only the map's private header is rewritten.
-antiquus _coven_put_borrowed with m as ref to map of string to int, item as string into void:
+antiquus _coven_put_borrowed with m as ref to map of string, int, item as string into void:
     r"""
 if (!m) return;
 PenguString borrowed = item;
@@ -246,7 +246,7 @@ pengu_map_put(m, &borrowed, &one);
 ## The owned buffer must be captured *before* `pengu_map_remove` frees the entry
 ## holding the pointer to it, and the removal itself has to hash the caller's
 ## still-intact `item` rather than the key that is being released.
-antiquus _coven_remove_string_key with m as ref to map of string to int, item as string into bool:
+antiquus _coven_remove_string_key with m as ref to map of string, int, item as string into bool:
     r"""
 if (!m) return false;
 PenguString owned = pengu_string_from_cstr("");
@@ -289,7 +289,7 @@ return removed;
 ## `add_owned` or `clone_owned` with `release`. A set received as a parameter is
 ## borrowed and never released by these methods.
 rune SetString:
-    items as map of string to int
+    items as map of string, int
 
 ## A set of unique `int` elements with the same behaviour as `SetString`.
 ## Values are stored directly as the `int` map key (no per-element string),
@@ -311,7 +311,7 @@ rune SetString:
 ## The rune owns its backing map. Release it with `banish s.items`; a set
 ## received as a parameter is borrowed and never released by these methods.
 rune SetInt:
-    items as map of int to int
+    items as map of int, int
 
 ## A generic set of unique `T` elements, backed by `map of T to int`.
 ##
@@ -349,7 +349,7 @@ rune SetInt:
 ## `SetString.clone_owned` when a set of strings must own its elements, or copy
 ## each element yourself before inserting it.
 rune Set shard T:
-    items as map of T to int
+    items as map of T, int
 
 # ----------------------------------------------------------------------------
 # Pre-existing constructors (kept verbatim for backward compatibility)
@@ -369,7 +369,7 @@ rune Set shard T:
 ## calling s.add with "a"
 ## ```
 weave new_set_string into SetString:
-    var m as map of string to int is map of string to int
+    var m as map of string, int is map of string, int
     return with items is m
 
 ## Builds a new, empty `SetInt` ready to receive `add` calls.
@@ -386,7 +386,7 @@ weave new_set_string into SetString:
 ## calling s.add with 1
 ## ```
 weave new_set_int into SetInt:
-    var m as map of int to int is map of int to int
+    var m as map of int, int is map of int, int
     return with items is m
 
 # ----------------------------------------------------------------------------
@@ -438,7 +438,7 @@ weave ritual empty_set_int into SetInt:
 ## var xs as list of string is ["a", "a", "b"]
 ## var s as SetString is calling from_list_string with xs
 ## ```
-weave ritual from_list_string with items as list of string into SetString:
+weave ritual from_list_string with items as vector of string into SetString:
     var s as SetString is calling new_set_string
     var n as int is calling items.len
     var i as int is 0
@@ -461,7 +461,7 @@ weave ritual from_list_string with items as list of string into SetString:
 ## var xs as list of int is [1, 1, 2]
 ## var s as SetInt is calling from_list_int with xs
 ## ```
-weave ritual from_list_int with items as list of int into SetInt:
+weave ritual from_list_int with items as vector of int into SetInt:
     var s as SetInt is calling new_set_int
     var n as int is calling items.len
     var i as int is 0
@@ -508,7 +508,7 @@ enchanting SetString:
     ## var xs as list of string is ["a", "b"]
     ## var s as SetString is calling SetString.from_items with xs
     ## ```
-    weave ritual from_items with items as list of string into SetString:
+    weave ritual from_items with items as vector of string into SetString:
         return calling from_list_string with items
 
     # ------------------------------------------------------------------------
@@ -997,8 +997,8 @@ enchanting SetString:
     ## calling s.add with "x"
     ## var xs as list of string is calling s.to_list
     ## ```
-    weave to_list into list of string:
-        var result as list of string is list of string
+    weave to_list into vector of string:
+        var result as vector of string is vector of string
         for k in self->items:
             calling result.push with k
         return result
@@ -1118,7 +1118,7 @@ enchanting SetInt:
     ## var xs as list of int is [1, 2]
     ## var s as SetInt is calling SetInt.from_items with xs
     ## ```
-    weave ritual from_items with items as list of int into SetInt:
+    weave ritual from_items with items as vector of int into SetInt:
         return calling from_list_int with items
 
     # ------------------------------------------------------------------------
@@ -1454,8 +1454,8 @@ enchanting SetInt:
     ## calling s.add with 7
     ## var xs as list of int is calling s.to_list_int
     ## ```
-    weave to_list_int into list of int:
-        var result as list of int is list of int
+    weave to_list_int into vector of int:
+        var result as vector of int is vector of int
         for k in self->items:
             calling result.push with k
         return result
@@ -1720,7 +1720,7 @@ enchanting Set shard T:
     ## ```
     weave union with other as Set of T into Set of T:
         var result as Set of T with:
-            set .items is map of T to int
+            set .items is map of T, int
         for k in self->items:
             calling result.items.put with k, 1
         for k in other.items:
@@ -1746,7 +1746,7 @@ enchanting Set shard T:
     ## ```
     weave intersect with other as Set of T into Set of T:
         var result as Set of T with:
-            set .items is map of T to int
+            set .items is map of T, int
         for k in self->items:
             if calling other.items.contains with k:
                 calling result.items.put with k, 1
@@ -1770,7 +1770,7 @@ enchanting Set shard T:
     ## ```
     weave difference with other as Set of T into Set of T:
         var result as Set of T with:
-            set .items is map of T to int
+            set .items is map of T, int
         for k in self->items:
             if (calling other.items.contains with k) == false:
                 calling result.items.put with k, 1
@@ -1795,7 +1795,7 @@ enchanting Set shard T:
     ## ```
     weave symmetric_difference with other as Set of T into Set of T:
         var result as Set of T with:
-            set .items is map of T to int
+            set .items is map of T, int
         for k in self->items:
             if (calling other.items.contains with k) == false:
                 calling result.items.put with k, 1
@@ -1912,7 +1912,7 @@ enchanting Set shard T:
     ## ```
     weave clone into Set of T:
         var result as Set of T with:
-            set .items is map of T to int
+            set .items is map of T, int
         for k in self->items:
             calling result.items.put with k, 1
         return result
@@ -1933,8 +1933,8 @@ enchanting Set shard T:
     ## calling s.add with 1
     ## var xs as list of int is calling s.to_list
     ## ```
-    weave to_list into list of T:
-        var out as list of T is list of T
+    weave to_list into vector of T:
+        var out as vector of T is vector of T
         for k in self->items:
             calling out.push with k
         return out
@@ -1963,7 +1963,7 @@ enchanting Set shard T:
 ## ```
 weave make_set shard T into Set of T:
     var s as Set of T with:
-        set .items is map of T to int
+        set .items is map of T, int
     return s
 
 ## Builds a `Set of T` from a list of `T`, automatically deduplicating items.
@@ -1981,9 +1981,9 @@ weave make_set shard T into Set of T:
 ## var xs as list of int is [1, 1, 2]
 ## var s as Set of int is calling from_items_set of int with xs
 ## ```
-weave from_items_set shard T with items as list of T into Set of T:
+weave from_items_set shard T with items as vector of T into Set of T:
     var s as Set of T with:
-        set .items is map of T to int
+        set .items is map of T, int
     for x in items:
         calling s.items.put with x, 1
     return s
@@ -2012,7 +2012,7 @@ weave from_items_set shard T with items as list of T into Set of T:
 ## ```
 weave ritual new_int_set into Set of int:
     var s as Set of int with:
-        set .items is map of int to int
+        set .items is map of int, int
     return s
 
 ## Creates an empty `Set of string`.
@@ -2030,7 +2030,7 @@ weave ritual new_int_set into Set of int:
 ## ```
 weave ritual new_string_set into Set of string:
     var s as Set of string with:
-        set .items is map of string to int
+        set .items is map of string, int
     return s
 
 ## Creates an empty `Set of float`.
@@ -2048,7 +2048,7 @@ weave ritual new_string_set into Set of string:
 ## ```
 weave ritual new_float_set into Set of float:
     var s as Set of float with:
-        set .items is map of float to int
+        set .items is map of float, int
     return s
 
 ## Creates an empty `Set of bool`.
@@ -2066,7 +2066,7 @@ weave ritual new_float_set into Set of float:
 ## ```
 weave ritual new_bool_set into Set of bool:
     var s as Set of bool with:
-        set .items is map of bool to int
+        set .items is map of bool, int
     return s
 
 ## Creates an empty `Set of char`.
@@ -2084,7 +2084,7 @@ weave ritual new_bool_set into Set of bool:
 ## ```
 weave ritual new_char_set into Set of char:
     var s as Set of char with:
-        set .items is map of char to int
+        set .items is map of char, int
     return s
 
 ## Creates an empty `Set of i64`.
@@ -2105,7 +2105,7 @@ weave ritual new_char_set into Set of char:
 ## ```
 weave ritual new_i64_set into Set of i64:
     var s as Set of i64 with:
-        set .items is map of i64 to int
+        set .items is map of i64, int
     return s
 
 ## Creates an empty `Set of u64`.
@@ -2123,7 +2123,7 @@ weave ritual new_i64_set into Set of i64:
 ## ```
 weave ritual new_u64_set into Set of u64:
     var s as Set of u64 with:
-        set .items is map of u64 to int
+        set .items is map of u64, int
     return s
 
 ## Creates an empty `Set of usize`.
@@ -2141,7 +2141,7 @@ weave ritual new_u64_set into Set of u64:
 ## ```
 weave ritual new_usize_set into Set of usize:
     var s as Set of usize with:
-        set .items is map of usize to int
+        set .items is map of usize, int
     return s
 
 ## Creates an empty `Set of isize`.
@@ -2159,7 +2159,7 @@ weave ritual new_usize_set into Set of usize:
 ## ```
 weave ritual new_isize_set into Set of isize:
     var s as Set of isize with:
-        set .items is map of isize to int
+        set .items is map of isize, int
     return s
 
 # ----------------------------------------------------------------------------
@@ -2230,12 +2230,12 @@ test "make_set of float builds an empty set":
     banish s.items
 
 test "from_items_set deduplicates for int and string":
-    var ints as list of int is list of int
+    var ints as vector of int is vector of int
     calling ints.push with 4
     calling ints.push with 4
     calling ints.push with 5
     var si as Set of int is calling from_items_set of int with ints
-    var names as list of string is list of string
+    var names as vector of string is vector of string
     calling names.push with "a"
     calling names.push with "a"
     var ss as Set of string is calling from_items_set of string with names
@@ -2387,7 +2387,7 @@ test "set_string.to_list lists every element":
     var s as SetString is calling new_set_string
     calling s.add with "a"
     calling s.add with "b"
-    var xs as list of string is calling s.to_list
+    var xs as vector of string is calling s.to_list
     calling _expect_coven_eq_int with (calling xs.len), 2, "to_list len"
     banish xs
     banish s.items
@@ -2429,7 +2429,7 @@ test "set_string.filter_length_ge keeps long elements":
 test "empty_set_string and from_list_string deduplicate":
     var e as SetString is calling empty_set_string
     calling _expect_coven with (calling e.is_empty), "empty_set_string"
-    var xs as list of string is list of string
+    var xs as vector of string is vector of string
     calling xs.push with "a"
     calling xs.push with "a"
     calling xs.push with "b"
@@ -2440,7 +2440,7 @@ test "empty_set_string and from_list_string deduplicate":
     banish xs
 
 test "set_string.from_items builds a set from a list":
-    var xs as list of string is list of string
+    var xs as vector of string is vector of string
     calling xs.push with "p"
     calling xs.push with "q"
     var s as SetString is calling SetString.from_items with xs
@@ -2558,7 +2558,7 @@ test "set_int.to_list_int and sum_ints":
     var s as SetInt is calling new_set_int
     calling s.add with 2
     calling s.add with 3
-    var xs as list of int is calling s.to_list_int
+    var xs as vector of int is calling s.to_list_int
     var total as int is calling s.sum_ints
     calling _expect_coven_eq_int with (calling xs.len), 2, "to_list_int len"
     calling _expect_coven_eq_int with total, 5, "sum_ints"
@@ -2592,7 +2592,7 @@ test "set_int.to_set_string roundtrips":
 test "empty_set_int and from_list_int":
     var e as SetInt is calling empty_set_int
     calling _expect_coven with (calling e.is_empty), "empty_set_int"
-    var xs as list of int is list of int
+    var xs as vector of int is vector of int
     calling xs.push with 4
     calling xs.push with 4
     calling xs.push with 5
@@ -2603,7 +2603,7 @@ test "empty_set_int and from_list_int":
     banish xs
 
 test "set_int.from_items builds a set from a list":
-    var xs as list of int is list of int
+    var xs as vector of int is vector of int
     calling xs.push with 8
     calling xs.push with 9
     var s as SetInt is calling SetInt.from_items with xs
@@ -2675,7 +2675,7 @@ test "generic set of string stores and lists strings":
     var s as Set of string is calling new_string_set
     calling s.add with "alpha"
     calling s.add with "alpha"
-    var out as list of string is calling s.to_list
+    var out as vector of string is calling s.to_list
     calling _expect_coven_eq_int with (calling s.len), 1, "string set len"
     calling _expect_coven_eq_int with (calling out.len), 1, "string to_list len"
     calling _expect_coven_eq_string with (out at 0), "alpha", "string element"
@@ -2767,13 +2767,13 @@ test "generic set of usize supports set algebra":
     banish b.items
 
 test "from_items_set of isize round-trips through to_list":
-    var xs as list of isize is list of isize
+    var xs as vector of isize is vector of isize
     calling xs.push with -5
     calling xs.push with -5
     calling xs.push with 7
     var s as Set of isize is calling from_items_set of isize with xs
     calling _expect_coven_eq_int with (calling s.len), 2, "isize from_items len"
-    var out as list of isize is calling s.to_list
+    var out as vector of isize is calling s.to_list
     calling _expect_coven_eq_int with (calling out.len), 2, "isize to_list len"
     var back as Set of isize is calling from_items_set of isize with out
     calling _expect_coven with (calling back.equals with s), "isize round-trip"

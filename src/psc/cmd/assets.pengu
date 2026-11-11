@@ -61,7 +61,7 @@ weave find_root with start as string into string:
 ##
 ## ## Memoria
 ## O(patrones).
-weave excluded with patterns as list of string, name as string into bool:
+weave excluded with patterns as vector of string, name as string into bool:
     for p in patterns:
         if p == name:
             return true
@@ -163,14 +163,14 @@ weave cstr with sb as ref to StringBuilder, s as string into void:
 ##
 ## ## Memoria
 ## Libera temporales.
-weave run_assets with args as list of string into int:
-    var vf as list of string is list of string
+weave run_assets with args as vector of string into int:
+    var vf as vector of string is vector of string
     calling vf.push with "--target"
-    var sf as list of string is list of string
+    var sf as vector of string is vector of string
     calling sf.push with "--list"
     calling sf.push with "--force"
     calling sf.push with "--help"
-    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, vector of string
     if not pr.ok:
         var e as string is pr.error
         calling spark.eprintln with e
@@ -225,8 +225,8 @@ weave run_assets with args as list of string into int:
         banish root
         calling cliargs.free_parse_result with (sigil of pr)
         return 1
-    var files as list of string is calling archivum.find_files with adir, true
-    var names as list of string is list of string
+    var files as vector of string is calling archivum.find_files with adir, true
+    var names as vector of string is vector of string
     for f in files:
         var relm as maybe string is calling compass.cp_relative_to with f, adir
         if relm.is_present:

@@ -22,11 +22,11 @@ rune CgNames:
     ## Tabla de tipos prestada.
     types as ref to types.SemaTypeTable
     ## Tipo -> `NameId` C.
-    type_names as map of int to int
+    type_names as map of int, int
     ## Símbolo -> `NameId` C.
-    symbol_names as map of int to int
+    symbol_names as map of int, int
     ## Sustitución de type params (`NameId -> TypeId`) de la función actual.
-    subst as map of int to int
+    subst as map of int, int
     ## Familia del backend (`"c"` o `"cpp"`): decide el mangling de nombres
     ## que chocan con palabras reservadas del target.
     family as string
@@ -36,7 +36,7 @@ rune CgNames:
 ## ## Memoria
 ## Asigna los mapas; liberar con `free`.
 weave new_names with names as ref to npool.NamePool, types as ref to types.SemaTypeTable, family as string into CgNames:
-    return with names is names, types is types, type_names is map of int to int, symbol_names is map of int to int, subst is map of int to int, family is family
+    return with names is names, types is types, type_names is map of int, int, symbol_names is map of int, int, subst is map of int, int, family is family
 
 ## Libera la tabla.
 ##

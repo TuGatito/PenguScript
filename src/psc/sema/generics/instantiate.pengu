@@ -22,7 +22,7 @@ insignia sema_generic_instantiate_
 ##
 ## ## Memoria
 ## Devuelve string owned.
-weave instance_key with template as int, args as list of int into string:
+weave instance_key with template as int, args as vector of int into string:
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb
     calling sb.append_int with template
@@ -37,7 +37,7 @@ weave instance_key with template as int, args as list of int into string:
 ##
 ## ## Memoria
 ## Devuelve string owned.
-weave instance_c_name with t as ref to types.SemaTypeTable, template as int, args as list of int into string:
+weave instance_c_name with t as ref to types.SemaTypeTable, template as int, args as vector of int into string:
     var tinfo as types.SemaNominalInfo is (t->nominal_infos at (calling types.at with t, template).a)
     var base as string is calling npool.text with t->names, tinfo.c_name
     var sb as StringBuilder is calling StringBuilder.new
@@ -55,7 +55,7 @@ weave instance_c_name with t as ref to types.SemaTypeTable, template as int, arg
 ##
 ## ## Memoria
 ## Puede crear nuevos `TypeId` internados; no posee strings.
-weave subst_type with t as ref to types.SemaTypeTable, id as int, subst as ref to map of int to int into int:
+weave subst_type with t as ref to types.SemaTypeTable, id as int, subst as ref to map of int, int into int:
     if id <= 0:
         return id
     var ty as tk.SemaType is calling types.at with t, id
@@ -84,7 +84,7 @@ weave subst_type with t as ref to types.SemaTypeTable, id as int, subst as ref t
     if ty.kind == tk.SemaTypeKind.TkResult:
         return calling types.result_of with t, (calling subst_type with t, ty.a, subst), (calling subst_type with t, ty.b, subst)
     if ty.kind == tk.SemaTypeKind.TkTuple:
-        var ids as list of int is list of int
+        var ids as vector of int is vector of int
         var i as int is 0
         while i < ty.count:
             calling ids.push with (calling subst_type with t, (t->type_children at (ty.first + i)), subst)
@@ -149,7 +149,7 @@ weave has_param with t as ref to types.SemaTypeTable, id as int into bool:
 ##
 ## ## Memoria
 ## Puede crear tipos/instancias internados; no posee strings.
-weave subst_deep with s as ref to symbols.SemaSymbols, id as int, subst as map of int to int into int:
+weave subst_deep with s as ref to symbols.SemaSymbols, id as int, subst as map of int, int into int:
     if id <= 0 or subst.len == 0:
         return id
     var t as ref to types.SemaTypeTable is s->types
@@ -161,7 +161,7 @@ weave subst_deep with s as ref to symbols.SemaSymbols, id as int, subst as map o
     var ii as int is calling symbols.instance_for_type with s, id
     if ii >= 0:
         var inst as sym.SemaInstance is (s->instances at ii)
-        var nargs as list of int is list of int
+        var nargs as vector of int is vector of int
         defer banish nargs
         var changed as bool is false
         var ai as int is 0
@@ -198,7 +198,7 @@ weave subst_deep with s as ref to symbols.SemaSymbols, id as int, subst as map o
     if ty.kind == tk.SemaTypeKind.TkResult:
         return calling types.result_of with t, (calling subst_deep with s, ty.a, subst), (calling subst_deep with s, ty.b, subst)
     if ty.kind == tk.SemaTypeKind.TkTuple:
-        var ids as list of int is list of int
+        var ids as vector of int is vector of int
         defer banish ids
         var i as int is 0
         while i < ty.count:
@@ -256,7 +256,7 @@ weave type_mentions_param with s as ref to symbols.SemaSymbols, id as int, name 
 ##
 ## ## Memoria
 ## Escribe en `subst` (prestado); no posee strings.
-weave unify_param with s as ref to symbols.SemaSymbols, formal as int, actual as int, subst as ref to map of int to int into void:
+weave unify_param with s as ref to symbols.SemaSymbols, formal as int, actual as int, subst as ref to map of int, int into void:
     if formal <= 0 or actual <= 0:
         return
     if formal == actual:
@@ -315,7 +315,7 @@ weave unify_param with s as ref to symbols.SemaSymbols, formal as int, actual as
 ##
 ## ## Memoria
 ## Puede crear tipos internados; devuelve el retorno sustituido.
-weave instantiate_return with s as ref to symbols.SemaSymbols, info as types.SemaFnInfo, recv_template as int, recv_actual as int, arg_types as list of int into int:
+weave instantiate_return with s as ref to symbols.SemaSymbols, info as types.SemaFnInfo, recv_template as int, recv_actual as int, arg_types as vector of int into int:
     var t as ref to types.SemaTypeTable is s->types
     var hasp as bool is calling has_param with t, info.return_type
     var pi as int is 0
@@ -326,7 +326,7 @@ weave instantiate_return with s as ref to symbols.SemaSymbols, info as types.Sem
         set pi is pi + 1
     if not hasp:
         return info.return_type
-    var subst as map of int to int is map of int to int
+    var subst as map of int, int is map of int, int
     if recv_template > 0 and recv_actual > 0:
         calling unify_param with s, recv_template, recv_actual, (sigil of subst)
     var ai as int is 0
@@ -367,7 +367,7 @@ weave instance_symbol_kind with k as tk.SemaNominalKind into sym.SemaSymbolKind:
 ##
 ## ## Memoria
 ## Añade `SemaNominalInfo`, campos, variantes, `SemaInstance` y args.
-weave instantiate_nominal with s as ref to symbols.SemaSymbols, template as int, args as list of int into int:
+weave instantiate_nominal with s as ref to symbols.SemaSymbols, template as int, args as vector of int into int:
     if template <= 0:
         return -1
     var t as ref to types.SemaTypeTable is s->types
@@ -394,7 +394,7 @@ weave instantiate_nominal with s as ref to symbols.SemaSymbols, template as int,
     calling t->nominal_infos.push with info
 
     # Sustitución T -> args (necesaria para el target de alias/seal).
-    var subst as map of int to int is map of int to int
+    var subst as map of int, int is map of int, int
     var ti as int is 0
     while ti < args.len and ti < tinfo.tparams_count:
         var tp as types.SemaTypeParamInfo is (t->tparams at (tinfo.tparams_first + ti))
@@ -421,9 +421,9 @@ weave instantiate_nominal with s as ref to symbols.SemaSymbols, template as int,
     # Campos concretos. `subst_deep` (no `subst_type`) sustituye también los
     # argumentos anidados de un nominal genérico (`Inner of A`), y se usa una
     # lista temporal para que las instancias anidadas no contaminen el rango.
-    var pending_fields as list of types.SemaField is list of types.SemaField
-    var pending_variants as list of types.SemaVariant is list of types.SemaVariant
-    var pending_payloads as list of types.SemaField is list of types.SemaField
+    var pending_fields as vector of types.SemaField is vector of types.SemaField
+    var pending_variants as vector of types.SemaVariant is vector of types.SemaVariant
+    var pending_payloads as vector of types.SemaField is vector of types.SemaField
     defer banish pending_fields
     defer banish pending_variants
     defer banish pending_payloads

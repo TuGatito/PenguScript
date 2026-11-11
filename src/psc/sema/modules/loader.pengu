@@ -79,11 +79,11 @@ rune SemaModule:
     ## Scope global del módulo (`-1` hasta que el programa lo cree).
     scope as int
     ## `nodo de declaración -> TypeId` para la predeclaración.
-    type_ids as map of int to int
+    type_ids as map of int, int
     ## Módulo padre si este es un binding `.d.pengu` (`-1` si no).
     companion_for as int
     ## Interpolaciones de literales string, ya parseadas e inferidas.
-    interps as list of SemaInterp
+    interps as vector of SemaInterp
 
 ## Libera un módulo.
 ##
@@ -145,7 +145,7 @@ weave load_text with path as string, display as string, text as string, bag as r
     var popt as pstate.PsParseOptions is calling pstate.ps_default_parse_options
     var parse as pstate.PsParseResult is calling papi.ps_parse_file with (sigil of src), bag, (sigil of lex), popt
     var notes as ann.SemaAnnotations is calling ann.new_annotations with (sigil of parse.ast)
-    return with path is owned_path, canonical_path is owned_canon, source is src, source_text is owned_text, lex is lex, parse is parse, ok is (readable and parse.ok), id is -1, is_entry is is_entry, is_std is is_std, insignia is -1, insignia_pos is -1, depth is depth, annotations is notes, scope is -1, type_ids is map of int to int, companion_for is -1, interps is list of SemaInterp
+    return with path is owned_path, canonical_path is owned_canon, source is src, source_text is owned_text, lex is lex, parse is parse, ok is (readable and parse.ok), id is -1, is_entry is is_entry, is_std is is_std, insignia is -1, insignia_pos is -1, depth is depth, annotations is notes, scope is -1, type_ids is map of int, int, companion_for is -1, interps is vector of SemaInterp
 
 ## Módulo vacío para una lectura fallida.
 ##

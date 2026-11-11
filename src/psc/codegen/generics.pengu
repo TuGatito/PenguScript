@@ -29,7 +29,7 @@ insignia psc_codegen_generics_
 ##
 ## ## Memoria
 ## O(funciones).
-weave find_spec with c as ref to context.CgContext, sid as int, args as list of int into int:
+weave find_spec with c as ref to context.CgContext, sid as int, args as vector of int into int:
     var i as int is 0
     while i < c->catalog.functions.len:
         var f as catalog.CgFunction is (c->catalog.functions at i)
@@ -75,7 +75,7 @@ weave spec_self_value with c as ref to context.CgContext, base as catalog.CgFunc
 ##
 ## ## Memoria
 ## Añade al catálogo; no posee strings.
-weave add_spec with c as ref to context.CgContext, base_idx as int, args as list of int into int:
+weave add_spec with c as ref to context.CgContext, base_idx as int, args as vector of int into int:
     var base as catalog.CgFunction is (c->catalog.functions at base_idx)
     var ex as int is calling find_spec with c, base.symbol, args
     if ex >= 0:
@@ -90,12 +90,12 @@ weave add_spec with c as ref to context.CgContext, base_idx as int, args as list
     banish bname
     var cid as int is calling npool.intern with (sigil of c->program->names), cname
     banish cname
-    var tps as list of int is list of int
+    var tps as vector of int is vector of int
     var i as int is 0
     while i < base.tparams.len:
         calling tps.push with (base.tparams at i)
         set i is i + 1
-    var sargs as list of int is list of int
+    var sargs as vector of int is vector of int
     set i is 0
     while i < args.len:
         calling sargs.push with (args at i)
@@ -108,7 +108,7 @@ weave add_spec with c as ref to context.CgContext, base_idx as int, args as list
     if base.is_method and base.recv_type > 0 and base.tparams.len == args.len and args.len > 0:
         var rtty as tk.SemaType is calling types.at with (sigil of c->program->types), rtv
         if rtty.kind == tk.SemaTypeKind.TkTypeParam:
-            var tsub as map of int to int is map of int to int
+            var tsub as map of int, int is map of int, int
             defer banish tsub
             var ti as int is 0
             while ti < base.tparams.len:
@@ -129,7 +129,7 @@ weave add_spec with c as ref to context.CgContext, base_idx as int, args as list
 ##
 ## ## Memoria
 ## No asigna; usa el mapa prestado.
-weave unify with c as ref to context.CgContext, formal as int, actual as int, subst as ref to map of int to int into void:
+weave unify with c as ref to context.CgContext, formal as int, actual as int, subst as ref to map of int, int into void:
     if formal <= 0 or actual <= 0:
         return
     var ft as tk.SemaType is calling types.at with (sigil of c->program->types), formal
@@ -187,12 +187,12 @@ weave unify with c as ref to context.CgContext, formal as int, actual as int, su
 ##
 ## ## Memoria
 ## Devuelve una lista owned; vacía si no se puede inferir.
-weave infer_from_actual with c as ref to context.CgContext, base_idx as int, actuals as list of int into list of int:
-    var out as list of int is list of int
+weave infer_from_actual with c as ref to context.CgContext, base_idx as int, actuals as vector of int into vector of int:
+    var out as vector of int is vector of int
     var bf as catalog.CgFunction is (c->catalog.functions at base_idx)
     if not bf.is_generic or bf.tparams.len == 0:
         return out
-    var subst as map of int to int is map of int to int
+    var subst as map of int, int is map of int, int
     var sv as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), bf.symbol
     var ft as tk.SemaType is calling types.at with (sigil of c->program->types), sv.type
     if ft.kind != tk.SemaTypeKind.TkFn:
@@ -261,7 +261,7 @@ weave scan with c as ref to context.CgContext, m as loader.SemaModule, node as i
                         var qf as catalog.CgFunction is (c->catalog.functions at qfi)
                         var qfn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), qf.c_name)
                         if qfn == qexp and not qf.is_method and qf.is_generic:
-                            var qact as list of int is list of int
+                            var qact as vector of int is vector of int
                             var qargs as int is calling astutil.node_child with ast, node, 2
                             if qargs >= 0:
                                 var qan as int is calling astutil.child_count with ast, qargs
@@ -277,7 +277,7 @@ weave scan with c as ref to context.CgContext, m as loader.SemaModule, node as i
                                             if qaty > 0:
                                                 calling qact.push with qaty
                                     set qai is qai + 1
-                            var qinf as list of int is calling infer_from_actual with c, qfi, qact
+                            var qinf as vector of int is calling infer_from_actual with c, qfi, qact
                             if qinf.len == qf.tparams.len and qinf.len > 0:
                                 var qsi as int is calling add_spec with c, qfi, qinf
                             banish qinf
@@ -318,7 +318,7 @@ weave scan with c as ref to context.CgContext, m as loader.SemaModule, node as i
                                         set rtg is gty0.a
                                     set gty0 is calling types.at with (sigil of c->program->types), rtg
                                     set gguard is gguard + 1
-                                var gargs0 as list of int is list of int
+                                var gargs0 as vector of int is vector of int
                                 calling gargs0.push with rtg
                                 var gspec0 as int is calling add_spec with c, abi, gargs0
                                 banish gargs0
@@ -329,7 +329,7 @@ weave scan with c as ref to context.CgContext, m as loader.SemaModule, node as i
                     if bf.is_generic:
                         var is_explicit as bool is gargs >= 0 and (calling astutil.kind_of with ast, gargs) == pskind.NodeKind.NdGenericArgs
                         if is_explicit:
-                            var args as list of int is list of int
+                            var args as vector of int is vector of int
                             var ai as int is 0
                             var an as int is calling astutil.child_count with ast, gargs
                             while ai < an:
@@ -345,7 +345,7 @@ weave scan with c as ref to context.CgContext, m as loader.SemaModule, node as i
                         else:
                             var bmod as loader.SemaModule is (c->program->modules at bf.module)
                             if not (bmod.is_std or ((bmod.path length) >= 4 and (bmod.path at 0 to 4) == "std/")):
-                                var actuals as list of int is list of int
+                                var actuals as vector of int is vector of int
                                 var argn as int is calling astutil.node_child with ast, node, 2
                                 if argn >= 0:
                                     var ac as int is calling astutil.child_count with ast, argn
@@ -361,7 +361,7 @@ weave scan with c as ref to context.CgContext, m as loader.SemaModule, node as i
                                                 if aty2 > 0:
                                                     calling actuals.push with aty2
                                         set a2 is a2 + 1
-                                var inf as list of int is calling infer_from_actual with c, bi, actuals
+                                var inf as vector of int is calling infer_from_actual with c, bi, actuals
                                 if inf.len == bf.tparams.len and inf.len > 0:
                                     var ig2 as int is calling add_spec with c, bi, inf
                                 banish inf
@@ -438,8 +438,8 @@ weave collect_type_instances with c as ref to context.CgContext into void:
 ##
 ## ## Memoria
 ## Devuelve una lista owned.
-weave type_args_of with c as ref to context.CgContext, id as int into list of int:
-    var out as list of int is list of int
+weave type_args_of with c as ref to context.CgContext, id as int into vector of int:
+    var out as vector of int is vector of int
     if id <= 0:
         return out
     var t as tk.SemaType is calling types.at with (sigil of c->program->types), id
@@ -499,12 +499,12 @@ weave container_kind with c as ref to context.CgContext, id as int into int:
 ##
 ## ## Memoria
 ## Devuelve una lista owned.
-weave spec_args_for with c as ref to context.CgContext, base_idx as int, recv_id as int into list of int:
-    var out as list of int is list of int
+weave spec_args_for with c as ref to context.CgContext, base_idx as int, recv_id as int into vector of int:
+    var out as vector of int is vector of int
     var bf as catalog.CgFunction is (c->catalog.functions at base_idx)
     if not bf.is_generic or bf.tparams.len == 0:
         return out
-    var subst as map of int to int is map of int to int
+    var subst as map of int, int is map of int, int
     calling unify with c, bf.recv_type, recv_id, (sigil of subst)
     var ti as int is 0
     while ti < bf.tparams.len:
@@ -514,7 +514,7 @@ weave spec_args_for with c as ref to context.CgContext, base_idx as int, recv_id
         else:
             banish subst
             banish out
-            return list of int
+            return vector of int
         set ti is ti + 1
     banish subst
     return out
@@ -531,12 +531,12 @@ weave call_arg_type with c as ref to context.CgContext, node as int into int:
 
 ## Argumentos de una especialización de método: parámetros del receptor más
 ## los `shard` propios del método, inferidos de los argumentos de la llamada.
-weave spec_args_for_call with c as ref to context.CgContext, base_idx as int, recv_id as int, node as int into list of int:
-    var out as list of int is list of int
+weave spec_args_for_call with c as ref to context.CgContext, base_idx as int, recv_id as int, node as int into vector of int:
+    var out as vector of int is vector of int
     var bf as catalog.CgFunction is (c->catalog.functions at base_idx)
     if not bf.is_generic or bf.tparams.len == 0:
         return out
-    var subst as map of int to int is map of int to int
+    var subst as map of int, int is map of int, int
     defer banish subst
     calling unify with c, bf.recv_type, recv_id, (sigil of subst)
     var missing as int is 0
@@ -606,7 +606,7 @@ weave spec_args_for_call with c as ref to context.CgContext, base_idx as int, re
             calling out.push with (calling subst.get with tp)
         else:
             banish out
-            return list of int
+            return vector of int
         set ti2 is ti2 + 1
     return out
 
@@ -620,7 +620,7 @@ weave find_generic_method with c as ref to context.CgContext, name as int, recv_
         if f.is_method and f.is_generic and not f.is_spec and f.name == name:
             var fk as int is calling container_kind with c, f.recv_type
             if fk == rk:
-                var cand as list of int is calling spec_args_for with c, i, recv_id
+                var cand as vector of int is calling spec_args_for with c, i, recv_id
                 if cand.len == f.tparams.len and cand.len > 0:
                     banish cand
                     return i
@@ -638,7 +638,7 @@ weave ensure_method_spec with c as ref to context.CgContext, base_idx as int, re
     var bf as catalog.CgFunction is (c->catalog.functions at base_idx)
     if not bf.is_generic or bf.tparams.len == 0:
         return base_idx
-    var args as list of int is calling spec_args_for_call with c, base_idx, recv_id, node
+    var args as vector of int is calling spec_args_for_call with c, base_idx, recv_id, node
     if args.len != bf.tparams.len or args.len == 0:
         banish args
         return base_idx
@@ -652,7 +652,7 @@ weave ensure_method_spec with c as ref to context.CgContext, base_idx as int, re
 ##
 ## ## Memoria
 ## Añade una `CgFunction`; no posee strings.
-weave add_method_spec with c as ref to context.CgContext, base_idx as int, recv_type as int, args as list of int into int:
+weave add_method_spec with c as ref to context.CgContext, base_idx as int, recv_type as int, args as vector of int into int:
     var base as catalog.CgFunction is (c->catalog.functions at base_idx)
     var ex as int is calling find_spec with c, base.symbol, args
     if ex >= 0:
@@ -684,12 +684,12 @@ weave add_method_spec with c as ref to context.CgContext, base_idx as int, recv_
     banish bname
     var cid as int is calling npool.intern with (sigil of c->program->names), cname
     banish cname
-    var tps as list of int is list of int
+    var tps as vector of int is vector of int
     var i as int is 0
     while i < base.tparams.len:
         calling tps.push with (base.tparams at i)
         set i is i + 1
-    var sargs as list of int is list of int
+    var sargs as vector of int is vector of int
     set i is 0
     while i < args.len:
         calling sargs.push with (args at i)
@@ -704,7 +704,7 @@ weave add_method_spec with c as ref to context.CgContext, base_idx as int, recv_
         if is_nom and rtty.a >= 0 and rtty.a < c->program->types.nominal_infos.len:
             var rinfo as types.SemaNominalInfo is (c->program->types.nominal_infos at rtty.a)
             if rinfo.tparams_count > 0 and args.len >= rinfo.tparams_count:
-                var racc as list of int is list of int
+                var racc as vector of int is vector of int
                 defer banish racc
                 var ri as int is 0
                 while ri < rinfo.tparams_count:
@@ -743,7 +743,7 @@ weave receiver_type_of with c as ref to context.CgContext, f as catalog.CgFuncti
     var rinfo as types.SemaNominalInfo is (c->program->types.nominal_infos at rtty.a)
     if rinfo.tparams_count <= 0 or f.spec_args.len < rinfo.tparams_count:
         return rtv
-    var acc as list of int is list of int
+    var acc as vector of int is vector of int
     defer banish acc
     var i as int is 0
     while i < rinfo.tparams_count:
@@ -758,7 +758,7 @@ weave receiver_type_of with c as ref to context.CgContext, f as catalog.CgFuncti
 ##
 ## ## Memoria
 ## O(args).
-weave all_concrete with c as ref to context.CgContext, args as list of int into bool:
+weave all_concrete with c as ref to context.CgContext, args as vector of int into bool:
     var i as int is 0
     while i < args.len:
         var t as tk.SemaType is calling types.at with (sigil of c->program->types), (args at i)
@@ -766,7 +766,7 @@ weave all_concrete with c as ref to context.CgContext, args as list of int into 
             return false
         if t.kind == tk.SemaTypeKind.TkRef or t.kind == tk.SemaTypeKind.TkFrozen or t.kind == tk.SemaTypeKind.TkList or t.kind == tk.SemaTypeKind.TkMaybe or t.kind == tk.SemaTypeKind.TkMap or t.kind == tk.SemaTypeKind.TkResult:
             # Los args anidados con T no se especializan en esta pasada.
-            var nested as list of int is calling type_args_of with c, (args at i)
+            var nested as vector of int is calling type_args_of with c, (args at i)
             var ok as bool is calling all_concrete with c, nested
             banish nested
             if not ok:
@@ -784,7 +784,7 @@ weave collect_method_instances with c as ref to context.CgContext into void:
     var ii as int is 0
     while ii < inst_count:
         var inst as sym.SemaInstance is (c->program->symbols.instances at ii)
-        var args as list of int is list of int
+        var args as vector of int is vector of int
         var ai as int is 0
         while ai < inst.args_count:
             calling args.push with (c->program->symbols.instance_args at (inst.args_first + ai))
@@ -802,7 +802,7 @@ weave collect_method_instances with c as ref to context.CgContext into void:
     var ti as int is 0
     var type_count as int is c->program->types.types.len
     while ti < type_count:
-        var args2 as list of int is calling type_args_of with c, ti
+        var args2 as vector of int is calling type_args_of with c, ti
         var orig2 as tk.SemaType is calling types.at with (sigil of c->program->types), ti
         if (orig2.kind == tk.SemaTypeKind.TkRef or orig2.kind == tk.SemaTypeKind.TkFrozen):
             banish args2
@@ -859,7 +859,7 @@ weave subst_codegen with c as ref to context.CgContext, id as int into int:
 weave subst_spec_type_of with c as ref to context.CgContext, f as catalog.CgFunction, id as int into int:
     if id <= 0 or f.spec_args.len == 0 or f.tparams.len == 0:
         return id
-    var m as map of int to int is map of int to int
+    var m as map of int, int is map of int, int
     defer banish m
     var i as int is 0
     while i < f.tparams.len and i < f.spec_args.len:
@@ -980,7 +980,7 @@ weave scan_refs_node with c as ref to context.CgContext, mid as int, ast as ref 
             var sid as int is calling ann.symbol_of with (sigil of m.annotations), target
             if sid >= 0 and (calling c->catalog.by_symbol.has with sid):
                 var base_idx as int is calling c->catalog.by_symbol.get with sid
-                var args as list of int is list of int
+                var args as vector of int is vector of int
                 defer banish args
                 var cnt as int is calling astutil.child_count with ast, gargs
                 var i as int is 0

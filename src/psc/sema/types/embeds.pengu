@@ -97,7 +97,7 @@ weave is_embed_field with t as ref to table.SemaTypeTable, ty as int, idx as int
 ##
 ## ## Memoria
 ## O(embeds × profundidad); las listas temporales se liberan aquí.
-weave route_into with t as ref to table.SemaTypeTable, ty as int, nid as int, path as ref to list of int, depth as int into int:
+weave route_into with t as ref to table.SemaTypeTable, ty as int, nid as int, path as ref to vector of int, depth as int into int:
     if depth > 32:
         return ROUTE_NONE
     if (calling own_field_index with t, ty, nid) >= 0:
@@ -110,13 +110,13 @@ weave route_into with t as ref to table.SemaTypeTable, ty as int, nid as int, pa
         return ROUTE_NONE
     var info as table.SemaNominalInfo is (t->nominal_infos at st.a)
     var hits as int is 0
-    var hit_path as list of int is list of int
+    var hit_path as vector of int is vector of int
     defer banish hit_path
     var i as int is 0
     while i < info.fields_count:
         var f as table.SemaField is (t->fields at (info.fields_first + i))
         if (f.flags & table.FIELD_EMBED) != 0:
-            var sub as list of int is list of int
+            var sub as vector of int is vector of int
             var r as int is calling route_into with t, f.type, nid, (sigil of sub), depth + 1
             if r == ROUTE_AMBIGUOUS:
                 banish sub
@@ -145,7 +145,7 @@ weave route_into with t as ref to table.SemaTypeTable, ty as int, nid as int, pa
 ##
 ## ## Memoria
 ## No asigna.
-weave field_type_via with t as ref to table.SemaTypeTable, ty as int, nid as int, path as ref to list of int into int:
+weave field_type_via with t as ref to table.SemaTypeTable, ty as int, nid as int, path as ref to vector of int into int:
     var cur as int is ty
     var i as int is 0
     while i < path->len:
@@ -164,7 +164,7 @@ weave field_type_via with t as ref to table.SemaTypeTable, ty as int, nid as int
 ## ## Memoria
 ## Asigna una ruta temporal.
 weave field_type_at with t as ref to table.SemaTypeTable, ty as int, nid as int into int:
-    var path as list of int is list of int
+    var path as vector of int is vector of int
     defer banish path
     var r as int is calling route_into with t, ty, nid, (sigil of path), 0
     if r != ROUTE_FOUND:
@@ -177,7 +177,7 @@ weave field_type_at with t as ref to table.SemaTypeTable, ty as int, nid as int 
 ## ## Memoria
 ## Asigna una ruta temporal.
 weave field_module with t as ref to table.SemaTypeTable, ty as int, nid as int into int:
-    var path as list of int is list of int
+    var path as vector of int is vector of int
     defer banish path
     var r as int is calling route_into with t, ty, nid, (sigil of path), 0
     if r != ROUTE_FOUND:
@@ -203,7 +203,7 @@ weave field_module with t as ref to table.SemaTypeTable, ty as int, nid as int i
 ## ## Memoria
 ## Asigna una ruta temporal.
 weave field_is_public with t as ref to table.SemaTypeTable, ty as int, nid as int into bool:
-    var path as list of int is list of int
+    var path as vector of int is vector of int
     defer banish path
     var r as int is calling route_into with t, ty, nid, (sigil of path), 0
     if r != ROUTE_FOUND:

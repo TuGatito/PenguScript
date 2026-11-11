@@ -104,6 +104,8 @@ weave patom_parse_primary with p as ref to PsParser into int:
             return calling patom_empty with p, NodeKind.NdSelfRef
         if calling ps_check_word with p, "list":
             return calling patom_parse_list_init with p
+        if calling ps_check_word with p, "vector":
+            return calling patom_parse_list_init with p
         if calling ps_check_word with p, "map":
             return calling patom_parse_map_init with p
         if calling ps_check_word with p, "array":
@@ -317,7 +319,7 @@ weave patom_parse_map_init with p as ref to PsParser into int:
     calling ps_begin_children with p
     var key as int is calling ptypes.ptype_parse_type with p
     calling ps_add_child with p, key
-    var ignored3 as Token is calling ps_expect_kw with p, KwTo, "'to'"
+    var ignored3 as Token is calling ptypes.ptype_expect_map_sep with p
     var val as int is calling ptypes.ptype_parse_type with p
     calling ps_add_child with p, val
     return calling ps_finish_node with p, NodeKind.NdMapInitExpr, start, (calling ps_previous_end with p), 0

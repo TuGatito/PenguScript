@@ -113,7 +113,7 @@ weave convert with ctx as ref to TypeCtx, node as int into int:
                 banish parsed
         return calling types.array_of with ctx->types, elem, size
     if kind == pskind.NodeKind.NdTupleType:
-        var ids as list of int is list of int
+        var ids as vector of int is vector of int
         defer banish ids
         var i as int is 0
         var n as int is calling astutil.child_count with ctx->ast, node
@@ -215,7 +215,7 @@ weave convert_custom with ctx as ref to TypeCtx, node as int into int:
         banish msg
         return 0
     # Argumentos genéricos: `Box of int` / `Map of string to int`.
-    var args as list of int is list of int
+    var args as vector of int is vector of int
     var i as int is 1
     var n as int is calling astutil.child_count with ctx->ast, node
     while i < n:

@@ -204,9 +204,9 @@ omen JsonValue derive Nexus, Par, Imago:
     ## A string.
     Str with value as string
     ## An array.
-    Arr with items as list of JsonValue
+    Arr with items as vector of JsonValue
     ## An object.
-    Obj with entries as list of JsonEntry
+    Obj with entries as vector of JsonEntry
 
 ## One member of a JSON object, in insertion order.
 ##
@@ -545,7 +545,7 @@ memset(v, 0, sizeof *v);
 ##
 ## ## Memoria
 ## Allocates one owned buffer; release it with `banish`.
-antiquus _json_bytes_to_string with s as slice of byte into string:
+antiquus _json_bytes_to_string with s as span of byte into string:
     r"""
 if (s.len <= 0 || !s.data) return pengu_string_from_cstr("");
 return pengu_string_owned(s.data, s.len);
@@ -562,7 +562,7 @@ return pengu_string_owned(s.data, s.len);
 ## ## Memoria
 ## On duplicate, frees the replaced value and the new key; on insert, the list
 ## takes ownership of both.
-antiquus _json_obj_put with entries as ref to list of JsonEntry, key as string, value as JsonValue into void:
+antiquus _json_obj_put with entries as ref to vector of JsonEntry, key as string, value as JsonValue into void:
     r"""
 PenguList *l = entries;
 JsonEntry *es = (JsonEntry *)l->data;
@@ -643,7 +643,7 @@ return pengu_string_from_cstr("");
 ##
 ## ## Memoria
 ## Frees the box allocation only.
-antiquus _json_drop_maybe_values with m as ref to maybe list of JsonValue into void:
+antiquus _json_drop_maybe_values with m as ref to maybe vector of JsonValue into void:
     r"""
 if (m && m->value) { free(m->value); m->value = NULL; }
 if (m) m->is_present = false;
@@ -656,7 +656,7 @@ if (m) m->is_present = false;
 ##
 ## ## Memoria
 ## Frees the box allocation only.
-antiquus _json_drop_maybe_entries with m as ref to maybe list of JsonEntry into void:
+antiquus _json_drop_maybe_entries with m as ref to maybe vector of JsonEntry into void:
     r"""
 if (m && m->value) { free(m->value); m->value = NULL; }
 if (m) m->is_present = false;
@@ -850,7 +850,7 @@ return s;
 ##
 ## ## Memoria
 ## Borrows the arena block; valid until the arena is reset or freed.
-antiquus _json_arena_list with p as ref to JsonValue, n as int into list of JsonValue:
+antiquus _json_arena_list with p as ref to JsonValue, n as int into vector of JsonValue:
     r"""
 PenguList l;
 l.data = p;
@@ -867,7 +867,7 @@ return l;
 ##
 ## ## Memoria
 ## Borrows the arena block; valid until the arena is reset or freed.
-antiquus _json_arena_entries with p as ref to JsonEntry, n as int into list of JsonEntry:
+antiquus _json_arena_entries with p as ref to JsonEntry, n as int into vector of JsonEntry:
     r"""
 PenguList l;
 l.data = p;
@@ -1000,7 +1000,7 @@ weave _append_u4 with sb as ref to StringBuilder, cp as int into void:
 ##     calling json.free_values with items.value
 ##     banish items
 ## ```
-weave free_values with items as list of JsonValue into void:
+weave free_values with items as vector of JsonValue into void:
     var i as int is 0
     while i < items.len:
         var v as JsonValue is items at i
@@ -1018,7 +1018,7 @@ weave free_values with items as list of JsonValue into void:
 ##
 ## ## Memoria
 ## Banishes each entry (its key and value), then the list buffer.
-weave free_entries with entries as list of JsonEntry into void:
+weave free_entries with entries as vector of JsonEntry into void:
     var i as int is 0
     while i < entries.len:
         var e as JsonEntry is entries at i
@@ -1038,7 +1038,7 @@ weave free_entries with entries as list of JsonEntry into void:
 ##
 ## ## Memoria
 ## Banishes each string copy, then the list buffer.
-weave free_strings with items as list of string into void:
+weave free_strings with items as vector of string into void:
     var i as int is 0
     while i < items.len:
         var s as string is items at i
@@ -1178,14 +1178,14 @@ enchanting JsonValue:
     ## ## Retorno
     ## `JsonValue.Arr` with a fresh empty list.
     weave ritual empty_array into JsonValue:
-        return with Arr is list of JsonValue
+        return with Arr is vector of JsonValue
 
     ## Constructs an empty object.
     ##
     ## ## Retorno
     ## `JsonValue.Obj` with a fresh empty entry list.
     weave ritual empty_object into JsonValue:
-        return with Obj is list of JsonEntry
+        return with Obj is vector of JsonEntry
 
 # ----------------------------------------------------------------------------
 # Module-level constructor aliases
@@ -1267,8 +1267,8 @@ weave empty_object into JsonValue:
 ##
 ## ## Complejidad
 ## O(total size of the elements).
-weave _clone_values with items as list of JsonValue into list of JsonValue:
-    var out as list of JsonValue is list of JsonValue with capacity items.len
+weave _clone_values with items as vector of JsonValue into vector of JsonValue:
+    var out as vector of JsonValue is vector of JsonValue with capacity items.len
     for item in items:
         calling out.push with (calling _json_clone_value with item)
     return out
@@ -1281,8 +1281,8 @@ weave _clone_values with items as list of JsonValue into list of JsonValue:
 ## ## Retorno
 ## A new list whose entries are independent deep copies. Release it with
 ## `free_entries`.
-weave _clone_entries with entries as list of JsonEntry into list of JsonEntry:
-    var out as list of JsonEntry is list of JsonEntry with capacity entries.len
+weave _clone_entries with entries as vector of JsonEntry into vector of JsonEntry:
+    var out as vector of JsonEntry is vector of JsonEntry with capacity entries.len
     for e in entries:
         var value_copy as JsonValue is calling _json_clone_value with e.value
         var key_copy as string is "{e.key}"
@@ -1454,8 +1454,8 @@ enchanting JsonValue:
     ##
     ## ## Retorno
     ## `some items` (deep copy; release it with `free_values`) or `none`.
-    weave as_array into maybe list of JsonValue:
-        var out as maybe list of JsonValue is maybe none
+    weave as_array into maybe vector of JsonValue:
+        var out as maybe vector of JsonValue is maybe none
         var ignored as int is judge (essence of self):
             when Arr with items ->
                 set out is some (calling _clone_values with items)
@@ -1468,8 +1468,8 @@ enchanting JsonValue:
     ##
     ## ## Retorno
     ## `some entries` (deep copy; release it with `free_entries`) or `none`.
-    weave as_object into maybe list of JsonEntry:
-        var out as maybe list of JsonEntry is maybe none
+    weave as_object into maybe vector of JsonEntry:
+        var out as maybe vector of JsonEntry is maybe none
         var ignored as int is judge (essence of self):
             when Obj with entries ->
                 set out is some (calling _clone_entries with entries)
@@ -1577,8 +1577,8 @@ enchanting JsonValue:
     ## ## Retorno
     ## A `list of string` (release it with `free_strings`); empty for a
     ## non-object.
-    weave keys into list of string:
-        var out as list of string is list of string
+    weave keys into vector of string:
+        var out as vector of string is vector of string
         var ignored as int is judge (essence of self):
             when Obj with entries ->
                 for e in entries:
@@ -1593,8 +1593,8 @@ enchanting JsonValue:
     ## ## Retorno
     ## A `list of JsonValue` (release it with `free_values`); empty for a
     ## non-object.
-    weave values into list of JsonValue:
-        var out as list of JsonValue is list of JsonValue
+    weave values into vector of JsonValue:
+        var out as vector of JsonValue is vector of JsonValue
         var ignored as int is judge (essence of self):
             when Obj with entries ->
                 for e in entries:
@@ -1609,8 +1609,8 @@ enchanting JsonValue:
     ## ## Retorno
     ## A `list of JsonEntry` (release it with `free_entries`); empty for a
     ## non-object.
-    weave entries into list of JsonEntry:
-        var out as list of JsonEntry is list of JsonEntry
+    weave entries into vector of JsonEntry:
+        var out as vector of JsonEntry is vector of JsonEntry
         var ignored as int is judge (essence of self):
             when Obj with entries ->
                 for e in entries:
@@ -1707,8 +1707,8 @@ enchanting JsonValue:
     ## ## Retorno
     ## A `list of JsonValue`; empty when nothing matches. Release it with
     ## `free_values`.
-    weave find_key with key as string into list of JsonValue:
-        var out as list of JsonValue is list of JsonValue
+    weave find_key with key as string into vector of JsonValue:
+        var out as vector of JsonValue is vector of JsonValue
         var root as JsonValue is essence of self
         set out is calling _find_key_into with root, key, out
         return out
@@ -2032,8 +2032,8 @@ weave _numeric_eq with a as JsonValue, b as JsonValue into bool:
 ## - `v`: the subtree to scan. Borrowed.
 ## - `key`: the member name to look for. Borrowed.
 ## - `out`: accumulator. Appends owned deep copies.
-weave _find_key_into with v as JsonValue, key as string, out as list of JsonValue into list of JsonValue:
-    var acc as list of JsonValue is out
+weave _find_key_into with v as JsonValue, key as string, out as vector of JsonValue into vector of JsonValue:
+    var acc as vector of JsonValue is out
     var ignored as int is judge v:
         when Obj with entries ->
             for e in entries:
@@ -2516,7 +2516,7 @@ enchanting Parser:
     ## ## Retorno
     ## `JsonValue.Arr`, or `JsonValue.Null` with `failed` set.
     weave parse_array into JsonValue:
-        var items as list of JsonValue is list of JsonValue
+        var items as vector of JsonValue is vector of JsonValue
         calling self.advance
         set self->depth is self->depth + 1
         if self->depth > self->opts.max_depth:
@@ -2580,7 +2580,7 @@ enchanting Parser:
     ## ## Retorno
     ## `JsonValue.Obj`, or `JsonValue.Null` with `failed` set.
     weave parse_object into JsonValue:
-        var entries as list of JsonEntry is list of JsonEntry
+        var entries as vector of JsonEntry is vector of JsonEntry
         calling self.advance
         set self->depth is self->depth + 1
         if self->depth > self->opts.max_depth:
@@ -2728,7 +2728,7 @@ weave parse_with with s as string, opts as ParseOptions into result of JsonValue
 ##
 ## ## Retorno
 ## `ok value`, or `err JsonError`.
-weave parse_bytes with s as slice of byte into result of JsonValue to JsonError:
+weave parse_bytes with s as span of byte into result of JsonValue to JsonError:
     var owned as string is calling _json_bytes_to_string with s
     var r as result of JsonValue to JsonError is calling parse_with with owned, (calling default_parse_options)
     banish owned
@@ -2772,7 +2772,7 @@ weave validate with s as string into result of void to JsonError:
 ##
 ## ## Retorno
 ## `ok 0`, or `err JsonError`.
-weave validate_bytes with s as slice of byte into result of void to JsonError:
+weave validate_bytes with s as span of byte into result of void to JsonError:
     var owned as string is calling _json_bytes_to_string with s
     var r as result of void to JsonError is calling validate with owned
     banish owned
@@ -2836,7 +2836,7 @@ weave _json_to_arena with v as JsonValue, a as ref to arena.Arena into JsonValue
             0
         when Arr with items ->
             var count as int is items.len
-            var lst as list of JsonValue is list of JsonValue
+            var lst as vector of JsonValue is vector of JsonValue
             var i as int is 0
             while i < count:
                 let src is items at i
@@ -2856,7 +2856,7 @@ weave _json_to_arena with v as JsonValue, a as ref to arena.Arena into JsonValue
                 var av as JsonValue is calling _json_to_arena with e.value, a
                 set edst at j is with key is kview, value is av
                 set j is j + 1
-            var elst as list of JsonEntry is calling _json_arena_entries with edst, ecount
+            var elst as vector of JsonEntry is calling _json_arena_entries with edst, ecount
             set out is with Obj is elst
             0
     return out
@@ -3078,8 +3078,8 @@ weave _write_colon with sb as ref to StringBuilder, opts as SerializeOptions int
 ##
 ## ## Retorno
 ## A new `list of JsonEntry` in byte-wise key order.
-weave _sorted_entries with entries as list of JsonEntry into list of JsonEntry:
-    var out as list of JsonEntry is list of JsonEntry with capacity entries.len
+weave _sorted_entries with entries as vector of JsonEntry into vector of JsonEntry:
+    var out as vector of JsonEntry is vector of JsonEntry with capacity entries.len
     for e in entries:
         calling out.push with e
     var i as int is 1
@@ -3151,8 +3151,8 @@ weave _write_value with v as JsonValue, opts as SerializeOptions, sb as ref to b
             if entries.len == 0:
                 calling sb.append with r"{}"
             else:
-                var source as list of JsonEntry is entries
-                var sorted as list of JsonEntry is list of JsonEntry
+                var source as vector of JsonEntry is entries
+                var sorted as vector of JsonEntry is vector of JsonEntry
                 if opts.sort_keys:
                     set sorted is calling _sorted_entries with entries
                     set source is sorted
@@ -3389,8 +3389,8 @@ weave _schema_type_matches with v as JsonValue, name as string into bool:
 ##
 ## ## Retorno
 ## The same accumulator, with one owned string appended.
-weave _schema_push with out as list of string, path as string, detail as string into list of string:
-    var acc as list of string is out
+weave _schema_push with out as vector of string, path as string, detail as string into vector of string:
+    var acc as vector of string is out
     var msg as string is "{path}: {detail}"
     calling acc.push with msg
     return acc
@@ -3405,8 +3405,8 @@ weave _schema_push with out as list of string, path as string, detail as string 
 ##
 ## ## Retorno
 ## The accumulator, with zero or more owned messages appended.
-weave _schema_check with v as JsonValue, schema as JsonValue, path as string, out as list of string into list of string:
-    var acc as list of string is out
+weave _schema_check with v as JsonValue, schema as JsonValue, path as string, out as vector of string into vector of string:
+    var acc as vector of string is out
     if not calling schema.is_object:
         return acc
 
@@ -3421,7 +3421,7 @@ weave _schema_check with v as JsonValue, schema as JsonValue, path as string, ou
                 set ok is calling _schema_type_matches with v, tn.value
             banish tn
         else if calling typev.is_array:
-            var items as maybe list of JsonValue is calling typev.as_array
+            var items as maybe vector of JsonValue is calling typev.as_array
             if items.is_present:
                 for t in items.value:
                     if calling t.is_string:
@@ -3450,7 +3450,7 @@ weave _schema_check with v as JsonValue, schema as JsonValue, path as string, ou
     if ev.is_present:
         var evalue as JsonValue is ev.value
         if calling evalue.is_array:
-            var members as maybe list of JsonValue is calling evalue.as_array
+            var members as maybe vector of JsonValue is calling evalue.as_array
             var match as bool is false
             if members.is_present:
                 for m in members.value:
@@ -3540,7 +3540,7 @@ weave _schema_check with v as JsonValue, schema as JsonValue, path as string, ou
             if preg.is_present:
                 var reqv as JsonValue is preg.value
                 if calling reqv.is_array:
-                    var reqs as maybe list of JsonValue is calling reqv.as_array
+                    var reqs as maybe vector of JsonValue is calling reqv.as_array
                     if reqs.is_present:
                         for r in reqs.value:
                             var rname as maybe string is calling r.as_string
@@ -3553,7 +3553,7 @@ weave _schema_check with v as JsonValue, schema as JsonValue, path as string, ou
                     calling _json_drop_maybe_values with (sigil of reqs)
                 banish reqv
             calling _json_drop_maybe with (sigil of preg)
-            var pents as maybe list of JsonEntry is calling propv.as_object
+            var pents as maybe vector of JsonEntry is calling propv.as_object
             if pents.is_present:
                 for pe in pents.value:
                     var sub as maybe JsonValue is calling v.get with pe.key
@@ -3572,8 +3572,8 @@ weave _schema_check with v as JsonValue, schema as JsonValue, path as string, ou
                 if calling ap.is_bool:
                     var allow as maybe bool is calling ap.as_bool
                     if allow.is_present and not allow.value:
-                        var names as list of string is calling propv.keys
-                        var entries as maybe list of JsonEntry is calling v.as_object
+                        var names as vector of string is calling propv.keys
+                        var entries as maybe vector of JsonEntry is calling v.as_object
                         if entries.is_present:
                             for ve in entries.value:
                                 var known as bool is false
@@ -3597,13 +3597,13 @@ weave _schema_check with v as JsonValue, schema as JsonValue, path as string, ou
     var itemsv as maybe JsonValue is calling schema.get with "items"
     if itemsv.is_present and calling v.is_array:
         var item_schema as JsonValue is itemsv.value
-        var elems as maybe list of JsonValue is calling v.as_array
+        var elems as maybe vector of JsonValue is calling v.as_array
         if elems.is_present:
             var idx as int is 0
             for el in elems.value:
                 var child2 as string is "{path}[{idx}]"
                 if calling item_schema.is_array:
-                    var tuple as maybe list of JsonValue is calling item_schema.as_array
+                    var tuple as maybe vector of JsonValue is calling item_schema.as_array
                     if tuple.is_present and idx < tuple.value.len:
                         set acc is calling _schema_check with el, (tuple.value at idx), child2, acc
                     calling _json_drop_maybe_values with (sigil of tuple)
@@ -3630,8 +3630,8 @@ weave _schema_check with v as JsonValue, schema as JsonValue, path as string, ou
 ##
 ## ## Retorno
 ## The accumulator, with one message when the combinator fails.
-weave _schema_combinator with v as JsonValue, schema as JsonValue, keyword as string, path as string, out as list of string into list of string:
-    var acc as list of string is out
+weave _schema_combinator with v as JsonValue, schema as JsonValue, keyword as string, path as string, out as vector of string into vector of string:
+    var acc as vector of string is out
     var kv as maybe JsonValue is calling schema.get with keyword
     if not kv.is_present:
         calling _json_drop_maybe with (sigil of kv)
@@ -3641,14 +3641,14 @@ weave _schema_combinator with v as JsonValue, schema as JsonValue, keyword as st
     if not calling branchv.is_array:
         banish branchv
         return acc
-    var branches as maybe list of JsonValue is calling branchv.as_array
+    var branches as maybe vector of JsonValue is calling branchv.as_array
     banish branchv
     if not branches.is_present:
         calling _json_drop_maybe_values with (sigil of branches)
         return acc
     var matched as int is 0
     for b in branches.value:
-        var tmp as list of string is list of string
+        var tmp as vector of string is vector of string
         set tmp is calling _schema_check with v, b, path, tmp
         if tmp.len == 0:
             set matched is matched + 1
@@ -3691,6 +3691,6 @@ weave _schema_combinator with v as JsonValue, schema as JsonValue, keyword as st
 ##     calling spark.println with (errs at 0)
 ## calling json.free_strings with errs
 ## ```
-weave validate_schema with v as JsonValue, schema as JsonValue into list of string:
-    var out as list of string is list of string
+weave validate_schema with v as JsonValue, schema as JsonValue into vector of string:
+    var out as vector of string is vector of string
     return calling _schema_check with v, schema, "$", out

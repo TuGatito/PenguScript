@@ -39,7 +39,7 @@ insignia cg_jsongen_
 ## ## Memoria
 ## Recursivo; no posee recursos.
 weave mark_json_types with c as ref to context.CgContext, r as ref to dce.CgReach into void:
-    var seen as map of int to int is map of int to int
+    var seen as map of int, int is map of int, int
     defer banish seen
     var i as int is 0
     while i < c->program->types.json_type_ids.len:
@@ -52,7 +52,7 @@ weave mark_json_types with c as ref to context.CgContext, r as ref to dce.CgReac
 ##
 ## ## Memoria
 ## Recursivo; no posee recursos.
-weave mark_closure with c as ref to context.CgContext, ty as int, r as ref to dce.CgReach, seen as ref to map of int to int into void:
+weave mark_closure with c as ref to context.CgContext, ty as int, r as ref to dce.CgReach, seen as ref to map of int, int into void:
     if calling seen.has with ty:
         return
     calling seen.put with ty, ty
@@ -73,7 +73,7 @@ weave mark_closure with c as ref to context.CgContext, ty as int, r as ref to dc
 ##
 ## ## Memoria
 ## Recursivo; no posee recursos.
-weave mark_nested with c as ref to context.CgContext, ty as int, r as ref to dce.CgReach, seen as ref to map of int to int into void:
+weave mark_nested with c as ref to context.CgContext, ty as int, r as ref to dce.CgReach, seen as ref to map of int, int into void:
     var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
     if t.kind == tk.SemaTypeKind.TkList or t.kind == tk.SemaTypeKind.TkMaybe:
         calling mark_nested with c, t.a, r, seen
@@ -95,7 +95,7 @@ weave mark_nested with c as ref to context.CgContext, ty as int, r as ref to dce
 ## ## Memoria
 ## Presta el contexto; libera las listas temporales.
 weave emit_prototypes with c as ref to context.CgContext, r as ref to dce.CgReach into void:
-    var live as list of int is list of int
+    var live as vector of int is vector of int
     defer banish live
     var i as int is 0
     while i < c->program->types.json_type_ids.len:
@@ -113,7 +113,7 @@ weave emit_prototypes with c as ref to context.CgContext, r as ref to dce.CgReac
 ## ## Memoria
 ## Presta el contexto; libera las listas temporales.
 weave emit_bodies with c as ref to context.CgContext, r as ref to dce.CgReach into void:
-    var live as list of int is list of int
+    var live as vector of int is vector of int
     defer banish live
     var i as int is 0
     while i < c->program->types.json_type_ids.len:
@@ -171,7 +171,7 @@ weave register_one with c as ref to context.CgContext, ty as int, mod as int, mn
         return
     var cid as int is calling npool.intern with (sigil of c->program->names), cname
     var idx as int is c->catalog.functions.len
-    var f as catalog.CgFunction is with name is nid, symbol is sid, node is -1, module is mod, is_declare is false, is_antiquus is false, is_method is true, recv_type is ty, self_value is false, is_ritual is ritual, tparams is list of int, spec_args is list of int, is_generic is false, is_spec is false, is_main is false, is_generated is true, c_name is cid
+    var f as catalog.CgFunction is with name is nid, symbol is sid, node is -1, module is mod, is_declare is false, is_antiquus is false, is_method is true, recv_type is ty, self_value is false, is_ritual is ritual, tparams is vector of int, spec_args is vector of int, is_generic is false, is_spec is false, is_main is false, is_generated is true, c_name is cid
     calling c->catalog.functions.push with f
     calling c->catalog.by_symbol.put with sid, idx
     if not (calling c->catalog.by_name.has with nid):
@@ -507,9 +507,9 @@ weave emit_read_field with c as ref to context.CgContext, fidx as int, slot as i
     defer banish fn
     calling eline with c, "if (pengu_json_key_eq(_key, \"{jc}\")) {"
     calling ein with c
-    var ftys as list of int is list of int
+    var ftys as vector of int is vector of int
     defer banish ftys
-    var fexprs as list of string is list of string
+    var fexprs as vector of string is vector of string
     defer banish fexprs
     calling ftys.push with -1
     calling fexprs.push with "pengu_banish_string(&_key);"
@@ -689,7 +689,7 @@ weave write_base with c as ref to context.CgContext, ty as int, ptr as string in
 ##
 ## ## Memoria
 ## Strings temporales liberados.
-weave read_value with c as ref to context.CgContext, ty as int, lvalue as string, label as string, d as int, ftys as ref to list of int, fexprs as ref to list of string into void:
+weave read_value with c as ref to context.CgContext, ty as int, lvalue as string, label as string, d as int, ftys as ref to vector of int, fexprs as ref to vector of string into void:
     var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
     if t.kind == tk.SemaTypeKind.TkBase:
         calling read_base with c, ty, lvalue, label, d, ftys, fexprs
@@ -722,7 +722,7 @@ weave read_value with c as ref to context.CgContext, ty as int, lvalue as string
 ##
 ## ## Memoria
 ## Strings temporales liberados.
-weave read_base with c as ref to context.CgContext, ty as int, lvalue as string, label as string, d as int, ftys as ref to list of int, fexprs as ref to list of string into void:
+weave read_base with c as ref to context.CgContext, ty as int, lvalue as string, label as string, d as int, ftys as ref to vector of int, fexprs as ref to vector of string into void:
     var nm as string is calling base_name with c, ty
     defer banish nm
     if nm == "string":
@@ -800,7 +800,7 @@ weave read_base with c as ref to context.CgContext, ty as int, lvalue as string,
 ##
 ## ## Memoria
 ## Strings temporales liberados.
-weave read_list with c as ref to context.CgContext, ty as int, lvalue as string, label as string, d as int, ftys as ref to list of int, fexprs as ref to list of string into void:
+weave read_list with c as ref to context.CgContext, ty as int, lvalue as string, label as string, d as int, ftys as ref to vector of int, fexprs as ref to vector of string into void:
     var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
     var sfx as string is calling next_sfx with c
     defer banish sfx
@@ -858,7 +858,7 @@ weave read_list with c as ref to context.CgContext, ty as int, lvalue as string,
 ##
 ## ## Memoria
 ## Strings temporales liberados.
-weave read_maybe with c as ref to context.CgContext, ty as int, lvalue as string, label as string, d as int, ftys as ref to list of int, fexprs as ref to list of string into void:
+weave read_maybe with c as ref to context.CgContext, ty as int, lvalue as string, label as string, d as int, ftys as ref to vector of int, fexprs as ref to vector of string into void:
     var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
     var sfx as string is calling next_sfx with c
     defer banish sfx
@@ -902,7 +902,7 @@ weave read_maybe with c as ref to context.CgContext, ty as int, lvalue as string
 ##
 ## ## Memoria
 ## Strings temporales liberados.
-weave read_map with c as ref to context.CgContext, ty as int, lvalue as string, label as string, d as int, ftys as ref to list of int, fexprs as ref to list of string into void:
+weave read_map with c as ref to context.CgContext, ty as int, lvalue as string, label as string, d as int, ftys as ref to vector of int, fexprs as ref to vector of string into void:
     var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
     var sfx as string is calling next_sfx with c
     defer banish sfx
@@ -978,7 +978,7 @@ weave read_map with c as ref to context.CgContext, ty as int, lvalue as string, 
 ##
 ## ## Memoria
 ## Strings temporales liberados.
-weave read_omen with c as ref to context.CgContext, ty as int, lvalue as string, d as int, ftys as ref to list of int, fexprs as ref to list of string into void:
+weave read_omen with c as ref to context.CgContext, ty as int, lvalue as string, d as int, ftys as ref to vector of int, fexprs as ref to vector of string into void:
     var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
     var sfx as string is calling next_sfx with c
     defer banish sfx
@@ -1030,7 +1030,7 @@ weave read_omen with c as ref to context.CgContext, ty as int, lvalue as string,
 ##
 ## ## Memoria
 ## Emite llamadas de liberación.
-weave emit_fail with c as ref to context.CgContext, ftys as ref to list of int, fexprs as ref to list of string into void:
+weave emit_fail with c as ref to context.CgContext, ftys as ref to vector of int, fexprs as ref to vector of string into void:
     var i as int is (ftys->len) - 1
     while i >= 0:
         var ty as int is (ftys at i)

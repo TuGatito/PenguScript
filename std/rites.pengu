@@ -122,7 +122,7 @@ declare pengu_c_get_argv with idx as int into string
 
 # C bridge returning a new list of string with one copy per program argument,
 # from index 0 (program name) upward.
-declare pengu_c_get_args into list of string
+declare pengu_c_get_args into vector of string
 
 # C bridge returning the current process id (int).
 declare pengu_c_getpid into int
@@ -143,11 +143,11 @@ declare pengu_c_exit with code as int into void
 
 # C bridge that runs `cmd` plus each `args` entry (space-joined) through the
 # platform shell (system()) and returns the raw status it reports.
-declare pengu_c_exec with cmd as string , args as list of string into int
+declare pengu_c_exec with cmd as string , args as vector of string into int
 
 # C bridge that launches `cmd` with `args`; currently shares the same
 # implementation as exec (a blocking system() call).
-declare pengu_c_spawn with cmd as string , args as list of string into int
+declare pengu_c_spawn with cmd as string , args as vector of string into int
 
 # C bridge returning the OS family name ("Windows", "Darwin", "Linux" or
 # "Unknown") as a string.
@@ -161,7 +161,7 @@ declare pengu_c_hostname into string
 
 # C bridge returning a new list of string holding the names of all currently
 # set environment variables.
-declare pengu_c_get_env_keys into list of string
+declare pengu_c_get_env_keys into vector of string
 
 # External file check declaration to avoid circular import with std.archivum.
 declare pengu_c_archivum_is_file with path as string into bool
@@ -506,7 +506,7 @@ return code;
 ## banish r.out
 ## banish r.err
 ## ```
-weave run_capture_all with cmd as string , args as list of string into ProcessResult:
+weave run_capture_all with cmd as string , args as vector of string into ProcessResult:
     let line as string is calling _rites_build_cmdline with cmd , args
     defer banish line
     var out as string is ""
@@ -623,7 +623,7 @@ weave unsetenv with name as string into bool:
 ## ```pengu
 ## let keys as list of string is calling rites.get_env_keys
 ## ```
-weave get_env_keys into list of string:
+weave get_env_keys into vector of string:
     return calling pengu_c_get_env_keys
 
 # ----------------------------------------------------------------------------
@@ -758,9 +758,9 @@ weave getenv_bool with name as string into maybe bool:
 ## ```pengu
 ## let env as map of string to string is calling rites.get_env_map
 ## ```
-weave get_env_map into map of string to string:
-    var res as map of string to string is map of string to string
-    let keys_snapshot as list of string is calling get_env_keys
+weave get_env_map into map of string, string:
+    var res as map of string, string is map of string, string
+    let keys_snapshot as vector of string is calling get_env_keys
     for k in keys_snapshot:
         let v_opt as maybe string is calling getenv with k
         if v_opt is present:
@@ -784,7 +784,7 @@ weave get_env_map into map of string to string:
 ## calling m.put with "APP_MODE", "debug"
 ## calling rites.set_env_map with m
 ## ```
-weave set_env_map with m as map of string to string into int:
+weave set_env_map with m as map of string, string into int:
     var count_v as int is 0
     for k in m:
         let v as string is m at k
@@ -813,7 +813,7 @@ weave set_env_map with m as map of string to string into int:
 ## let removed as int is calling rites.clear_env
 ## ```
 weave clear_env into int:
-    let keys_snapshot as list of string is calling get_env_keys
+    let keys_snapshot as vector of string is calling get_env_keys
     var count_n as int is 0
     for k in keys_snapshot:
         let ok as bool is calling unsetenv with k
@@ -974,7 +974,7 @@ weave get_argv with idx as int into string:
 ## ```pengu
 ## let argv as list of string is calling rites.get_args
 ## ```
-weave get_args into list of string:
+weave get_args into vector of string:
     return calling pengu_c_get_args
 
 ## Returns the argument at index `idx`, or `default` if `idx` is out of range.
@@ -1018,9 +1018,9 @@ weave arg_at_or with idx as int , default as string is "" into string:
 ## ```pengu
 ## let flags as map of string to string is calling rites.parse_flags
 ## ```
-weave parse_flags into map of string to string:
-    var res as map of string to string is map of string to string
-    let args as list of string is calling get_args
+weave parse_flags into map of string, string:
+    var res as map of string, string is map of string, string
+    let args as vector of string is calling get_args
     let n as int is calling args.len
     var i as int is 1
     while i < n:
@@ -1061,7 +1061,7 @@ weave parse_flags into map of string to string:
 ##     calling spark.println with "verbose mode"
 ## ```
 weave has_flag with name as string into bool:
-    let flags as map of string to string is calling parse_flags
+    let flags as map of string, string is calling parse_flags
     return calling flags.contains with name
 
 ## Returns the value of flag `--name` if passed, or maybe none.
@@ -1081,7 +1081,7 @@ weave has_flag with name as string into bool:
 ## let out as maybe string is calling rites.get_flag_value with "output"
 ## ```
 weave get_flag_value with name as string into maybe string:
-    let flags as map of string to string is calling parse_flags
+    let flags as map of string, string is calling parse_flags
     if calling flags.contains with name:
         return some (flags at name)
     return maybe none
@@ -1650,8 +1650,8 @@ weave is_linux into bool:
 ## ```pengu
 ## let hits as list of string is calling rites.which_all with "sh"
 ## ```
-weave which_all with cmd as string into list of string:
-    var res as list of string is list of string
+weave which_all with cmd as string into vector of string:
+    var res as vector of string is vector of string
     let path_var as maybe string is calling getenv with "PATH"
     if path_var is not present:
         return res
@@ -1664,7 +1664,7 @@ weave which_all with cmd as string into list of string:
     when os == "windows":
         set sep is ";"
 
-    var dirs as list of string is list of string
+    var dirs as vector of string is vector of string
     var start as int is 0
     var i as int is 0
     while i < plen:
@@ -1679,7 +1679,7 @@ weave which_all with cmd as string into list of string:
     for d in dirs:
         when os == "windows":
             let candidate as string is "{d}\\{cmd}"
-            let exts as list of string is list of string
+            let exts as vector of string is vector of string
             calling exts.push with ""
             calling exts.push with ".exe"
             calling exts.push with ".bat"
@@ -1711,7 +1711,7 @@ weave which_all with cmd as string into list of string:
 ## let sh as maybe string is calling rites.which with "sh"
 ## ```
 weave which with cmd as string into maybe string:
-    let matches_list as list of string is calling which_all with cmd
+    let matches_list as vector of string is calling which_all with cmd
     if (calling matches_list.len) > 0:
         return some (matches_list at 0)
     return maybe none
@@ -1759,7 +1759,7 @@ weave exit with code as int into void:
 ## ```pengu
 ## calling rites.exec with "echo", ["hello"]
 ## ```
-weave exec with cmd as string , args as list of string into int:
+weave exec with cmd as string , args as vector of string into int:
     return calling pengu_c_exec with cmd , args
 
 ## Launches `cmd` with `args` and blocks until it finishes. Shares exec's
@@ -1782,7 +1782,7 @@ weave exec with cmd as string , args as list of string into int:
 ## ```pengu
 ## calling rites.spawn with "echo", ["hello"]
 ## ```
-weave spawn with cmd as string , args as list of string into int:
+weave spawn with cmd as string , args as vector of string into int:
     return calling pengu_c_spawn with cmd , args
 
 ## Runs `cmd` with `args` and returns true if the command succeeded.
@@ -1802,7 +1802,7 @@ weave spawn with cmd as string , args as list of string into int:
 ## if calling rites.exec_ok with "true", []:
 ##     calling spark.println with "ok"
 ## ```
-weave exec_ok with cmd as string , args as list of string into bool:
+weave exec_ok with cmd as string , args as vector of string into bool:
     return (calling exec with cmd , args) == 0
 
 ## Runs `cmd` with `args` and panics if the command fails.
@@ -1825,7 +1825,7 @@ weave exec_ok with cmd as string , args as list of string into bool:
 ## ```pengu
 ## calling rites.exec_or_panic with "make", ["all"]
 ## ```
-weave exec_or_panic with cmd as string , args as list of string into void:
+weave exec_or_panic with cmd as string , args as vector of string into void:
     let status as int is calling exec with cmd , args
     if status != 0:
         calling spark.panic with "Command execution failed with status: {(status to string)}"
@@ -1850,7 +1850,7 @@ weave exec_or_panic with cmd as string , args as list of string into void:
 ## calling rites.run_shell with "echo hello"
 ## ```
 weave run_shell with cmdline as string into int:
-    let empty_args as list of string is list of string
+    let empty_args as vector of string is vector of string
     return calling pengu_c_exec with cmdline , empty_args
 
 ## Escapes string `s` for safe inclusion as a command line argument.
@@ -1926,7 +1926,7 @@ weave shell_escape with s as string into string:
 ## ```pengu
 ## let out as maybe string is calling rites.run_capture with "sh", ["-c", "echo hi"]
 ## ```
-weave run_capture with cmd as string , args as list of string into maybe string:
+weave run_capture with cmd as string , args as vector of string into maybe string:
     let line as string is calling _rites_build_cmdline with cmd , args
     defer banish line
     var err as string is ""
@@ -1954,7 +1954,7 @@ weave run_capture with cmd as string , args as list of string into maybe string:
 ## ```pengu
 ## let r as result of string to string is calling rites.run_capture_result with "sh", ["-c", "exit 3"]
 ## ```
-weave run_capture_result with cmd as string , args as list of string into result of string to string:
+weave run_capture_result with cmd as string , args as vector of string into result of string to string:
     let line as string is calling _rites_build_cmdline with cmd , args
     defer banish line
     var err as string is ""
@@ -1987,7 +1987,7 @@ weave run_capture_result with cmd as string , args as list of string into result
 ## ```pengu
 ## let lines as maybe list of string is calling rites.run_capture_lines with "printf", ["a\nb\n"]
 ## ```
-weave run_capture_lines with cmd as string , args as list of string into maybe list of string:
+weave run_capture_lines with cmd as string , args as vector of string into maybe vector of string:
     let line as string is calling _rites_build_cmdline with cmd , args
     defer banish line
     var err as string is ""
@@ -1996,7 +1996,7 @@ weave run_capture_lines with cmd as string , args as list of string into maybe l
     if (err length) > 0:
         return maybe none
     if out is not present:
-        return some (list of string)
+        return some (vector of string)
     return some (calling _rites_split_lines with out.value)
 
 ## Runs `cmd` with `args`, capturing its standard error output.
@@ -2021,7 +2021,7 @@ weave run_capture_lines with cmd as string , args as list of string into maybe l
 ## ```pengu
 ## let err as maybe string is calling rites.run_capture_stderr with "sh", ["-c", "echo oops >&2"]
 ## ```
-weave run_capture_stderr with cmd as string , args as list of string into maybe string:
+weave run_capture_stderr with cmd as string , args as vector of string into maybe string:
     when os == "windows":
         return calling run_capture with cmd , args
     else:
@@ -2088,7 +2088,7 @@ weave current_user into maybe string:
 # ----------------------------------------------------------------------------
 
 ## Builds the shell command line `cmd arg1 arg2 ...` with every element escaped.
-weave _rites_build_cmdline with cmd as string , args as list of string into string:
+weave _rites_build_cmdline with cmd as string , args as vector of string into string:
     var line as string is calling shell_escape with cmd
     for a in args:
         set line is "{line} {(calling shell_escape with a)}"
@@ -2106,8 +2106,8 @@ weave _rites_shell_capture with cmdline as string , err as ref to string into ma
     return some captured
 
 ## Splits `s` on newlines, dropping a single trailing empty entry.
-weave _rites_split_lines with s as string into list of string:
-    var res as list of string is list of string
+weave _rites_split_lines with s as string into vector of string:
+    var res as vector of string is vector of string
     let n as int is s length
     if n == 0:
         return res
@@ -2284,7 +2284,7 @@ test "env_substitute matches expand_env":
     calling _rites_unsetenv with name
 
 test "get_args and get_argc agree":
-    let args as list of string is calling get_args
+    let args as vector of string is calling get_args
     let argc as int is calling get_argc
     calling _rites_expect_int with (calling args.len), argc, "argc"
     calling _rites_expect_true with (argc >= 1), "at least one"
@@ -2316,7 +2316,7 @@ test "which finds sh or skips":
 test "which_all returns sh when which does":
     let sh as maybe string is calling which with "sh"
     if sh is present:
-        let all as list of string is calling which_all with "sh"
+        let all as vector of string is calling which_all with "sh"
         calling _rites_expect_true with ((calling all.len) >= 1), "which_all size"
 
 test "which returns none for a name that cannot exist":
@@ -2326,7 +2326,7 @@ test "which returns none for a name that cannot exist":
 test "run_capture of sh -c echo returns stdout":
     let sh as maybe string is calling which with "sh"
     if sh is present:
-        let args as list of string is ["-c", "echo hi"]
+        let args as vector of string is ["-c", "echo hi"]
         let out as maybe string is calling run_capture with "sh", args
         calling _rites_expect_true with (out is present), "capture present"
         calling _rites_expect_str with out.value, "hi\n", "capture text"
@@ -2334,8 +2334,8 @@ test "run_capture of sh -c echo returns stdout":
 test "run_capture_lines splits stdout into lines":
     let sh as maybe string is calling which with "sh"
     if sh is present:
-        let args as list of string is ["-c", "printf 'a\\nb\\n'"]
-        let lines as maybe list of string is calling run_capture_lines with "sh", args
+        let args as vector of string is ["-c", "printf 'a\\nb\\n'"]
+        let lines as maybe vector of string is calling run_capture_lines with "sh", args
         calling _rites_expect_true with (lines is present), "lines present"
         calling _rites_expect_int with (lines.value length), 2, "lines count"
         calling _rites_expect_str with (lines.value at 0), "a", "line 0"
@@ -2344,22 +2344,22 @@ test "run_capture_lines splits stdout into lines":
 test "run_capture_lines of empty stdout is an empty list":
     let sh as maybe string is calling which with "sh"
     if sh is present:
-        let args as list of string is ["-c", "true"]
-        let lines as maybe list of string is calling run_capture_lines with "sh", args
+        let args as vector of string is ["-c", "true"]
+        let lines as maybe vector of string is calling run_capture_lines with "sh", args
         calling _rites_expect_true with (lines is present), "empty lines present"
         calling _rites_expect_int with (lines.value length), 0, "empty lines count"
 
 test "run_capture returns none on a non-zero exit":
     let sh as maybe string is calling which with "sh"
     if sh is present:
-        let args as list of string is ["-c", "exit 3"]
+        let args as vector of string is ["-c", "exit 3"]
         let out as maybe string is calling run_capture with "sh", args
         calling _rites_expect_true with (out is not present), "capture failure"
 
 test "run_capture_result reports the exit code":
     let sh as maybe string is calling which with "sh"
     if sh is present:
-        let args as list of string is ["-c", "exit 7"]
+        let args as vector of string is ["-c", "exit 7"]
         let r as result of string to string is calling run_capture_result with "sh", args
         calling _rites_expect_true with not r.is_ok, "result is err"
         let msg as string is r.error
@@ -2370,7 +2370,7 @@ test "run_capture_result reports the exit code":
 test "run_capture_result is ok on success":
     let sh as maybe string is calling which with "sh"
     if sh is present:
-        let args as list of string is ["-c", "echo ok"]
+        let args as vector of string is ["-c", "echo ok"]
         let r as result of string to string is calling run_capture_result with "sh", args
         calling _rites_expect_true with r.is_ok, "result is ok"
         calling _rites_expect_str with r.value, "ok\n", "result value"
@@ -2378,7 +2378,7 @@ test "run_capture_result is ok on success":
 test "run_capture_stderr captures only stderr":
     let sh as maybe string is calling which with "sh"
     if sh is present:
-        let args as list of string is ["-c", "echo oops >&2"]
+        let args as vector of string is ["-c", "echo oops >&2"]
         let err as maybe string is calling run_capture_stderr with "sh", args
         calling _rites_expect_true with (err is present), "stderr present"
         calling _rites_expect_str with err.value, "oops\n", "stderr text"
@@ -2457,7 +2457,7 @@ test "home_dir is either present or absent":
         calling _rites_expect_true with ((home.value length) > 0), "home non-empty"
 
 test "parse_flags ignores positional arguments":
-    let flags as map of string to string is calling parse_flags
+    let flags as map of string, string is calling parse_flags
     let pos as maybe string is calling get_flag_value with "pengu-rites-no-such-flag"
     calling _rites_expect_true with (pos is not present), "no flag"
     calling _rites_expect_true with ((calling flags.contains with "pengu-rites-no-such-flag") == false), "map miss"
@@ -2484,11 +2484,11 @@ test "current_user shape matches the platform":
             calling _rites_expect_true with ((user.value length) > 0), "user non-empty"
 
 test "get_env_keys and get_env_map describe the same environment":
-    let keys as list of string is calling get_env_keys
-    let env as map of string to string is calling get_env_map
+    let keys as vector of string is calling get_env_keys
+    let env as map of string, string is calling get_env_map
     calling _rites_expect_true with ((calling keys.len) >= (calling env.len) - 1), "keys cover the map"
 
 test "set_env_map reports zero for an empty map":
-    let m as map of string to string is map of string to string
+    let m as map of string, string is map of string, string
     let n as int is calling set_env_map with m
     calling _rites_expect_int with n, 0, "empty map"

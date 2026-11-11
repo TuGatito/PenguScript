@@ -103,7 +103,7 @@ weave type_from_ast_subst with c as ref to context.CgContext, m as loader.SemaMo
             if fch >= 0 and (calling astutil.kind_of with ast, fch) == pskind.NodeKind.NdFnParamList:
                 set plist is fch
             set fi is fi + 1
-        var ptys as list of int is list of int
+        var ptys as vector of int is vector of int
         defer banish ptys
         if plist >= 0:
             var pn as int is calling astutil.child_count with ast, plist
@@ -138,7 +138,7 @@ weave type_from_ast_subst with c as ref to context.CgContext, m as loader.SemaMo
                 return calling c->names.subst.get with nid
         if k == pskind.NodeKind.NdCustomType:
             # Nominal aplicado: instancia los argumentos (con sustitución).
-            var args as list of int is list of int
+            var args as vector of int is vector of int
             defer banish args
             var ai as int is 1
             var an as int is calling astutil.child_count with ast, node

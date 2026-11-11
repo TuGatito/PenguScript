@@ -81,7 +81,7 @@ rune TomlEntry:
 ## ## Memoria
 ## On success the caller owns every entry string and the list; release them with
 ## `free_entries`.
-weave parse with text as string into result of list of TomlEntry to string:
+weave parse with text as string into result of vector of TomlEntry to string:
     var doc as ref to void is calling _toml_parse with text
     if doc == null:
         return calling err_of with "out of memory while parsing TOML"
@@ -91,7 +91,7 @@ weave parse with text as string into result of list of TomlEntry to string:
         banish err
         calling _toml_free with doc
         return calling err_of with msg
-    var entries as list of TomlEntry is list of TomlEntry
+    var entries as vector of TomlEntry is vector of TomlEntry
     let count as int is calling _toml_count with doc
     var i as int is 0
     while i < count:
@@ -105,15 +105,15 @@ weave parse with text as string into result of list of TomlEntry to string:
     return calling ok_of with entries
 
 ## Parses the TOML file at `path`.
-weave parse_file with path as string into result of list of TomlEntry to string:
+weave parse_file with path as string into result of vector of TomlEntry to string:
     var data as string is (calling archivum.read_file with path) or:
         return calling err_of with "cannot read TOML file"
-    let result as result of list of TomlEntry to string is calling parse with data
+    let result as result of vector of TomlEntry to string is calling parse with data
     banish data
     return result
 
 ## Releases every string in `entries` and then the list itself.
-weave free_entries with entries as list of TomlEntry into void:
+weave free_entries with entries as vector of TomlEntry into void:
     for e in entries:
         banish e.key
         banish e.value
@@ -124,7 +124,7 @@ weave free_entries with entries as list of TomlEntry into void:
 # ----------------------------------------------------------------------------
 
 ## Returns the index of `key` in `entries`, or `-1`.
-weave find with entries as list of TomlEntry, key as string into int:
+weave find with entries as vector of TomlEntry, key as string into int:
     var i as int is 0
     for e in entries:
         if e.key == key:
@@ -133,14 +133,14 @@ weave find with entries as list of TomlEntry, key as string into int:
     return 0 - 1
 
 ## True when `entries` contains `key`.
-weave has with entries as list of TomlEntry, key as string into bool:
+weave has with entries as vector of TomlEntry, key as string into bool:
     return (calling find with entries, key) >= 0
 
 ## Returns a copy of the scalar value stored at `key` ("" when absent).
 ##
 ## ## Memoria
 ## The result is owned; release it with `banish`.
-weave get with entries as list of TomlEntry, key as string into string:
+weave get with entries as vector of TomlEntry, key as string into string:
     let i as int is calling find with entries, key
     if i < 0:
         return ""
@@ -148,7 +148,7 @@ weave get with entries as list of TomlEntry, key as string into string:
     return calling _toml_copy with value
 
 ## Returns `key` as an int, or `fallback` when absent/unparseable.
-weave get_int with entries as list of TomlEntry, key as string, fallback as int into int:
+weave get_int with entries as vector of TomlEntry, key as string, fallback as int into int:
     let i as int is calling find with entries, key
     if i < 0:
         return fallback
@@ -156,7 +156,7 @@ weave get_int with entries as list of TomlEntry, key as string, fallback as int 
     return calling _toml_to_int with value, fallback
 
 ## Returns `key` as a float, or `fallback` when absent/unparseable.
-weave get_float with entries as list of TomlEntry, key as string, fallback as float into float:
+weave get_float with entries as vector of TomlEntry, key as string, fallback as float into float:
     let i as int is calling find with entries, key
     if i < 0:
         return fallback
@@ -164,7 +164,7 @@ weave get_float with entries as list of TomlEntry, key as string, fallback as fl
     return calling _toml_to_float with value, fallback
 
 ## Returns `key` as a bool, or `fallback` when absent.
-weave get_bool with entries as list of TomlEntry, key as string, fallback as bool into bool:
+weave get_bool with entries as vector of TomlEntry, key as string, fallback as bool into bool:
     let i as int is calling find with entries, key
     if i < 0:
         return fallback
@@ -182,8 +182,8 @@ weave get_bool with entries as list of TomlEntry, key as string, fallback as boo
 ##
 ## ## Memoria
 ## The list and every element are owned; release them with `free_strings`.
-weave get_array with entries as list of TomlEntry, key as string into list of string:
-    var out as list of string is list of string
+weave get_array with entries as vector of TomlEntry, key as string into vector of string:
+    var out as vector of string is vector of string
     var i as int is 0
     while true:
         let sub as string is "{key}[{i}]"
@@ -198,14 +198,14 @@ weave get_array with entries as list of TomlEntry, key as string into list of st
     return out
 
 ## Releases a list of strings returned by `get_array`.
-weave free_strings with values as list of string into void:
+weave free_strings with values as vector of string into void:
     for s in values:
         banish s
     banish values
 
 ## Returns every scalar key that starts with `prefix`.
-weave keys_with_prefix with entries as list of TomlEntry, prefix as string into list of string:
-    var out as list of string is list of string
+weave keys_with_prefix with entries as vector of TomlEntry, prefix as string into vector of string:
+    var out as vector of string is vector of string
     for e in entries:
         if e.kind != TOML_TABLE and e.kind != TOML_ARRAY_TABLE and e.kind != TOML_ARRAY:
             if (e.key length) >= (prefix length):
@@ -222,7 +222,7 @@ weave keys_with_prefix with entries as list of TomlEntry, prefix as string into 
 ## Tables are emitted from their `TOML_TABLE` markers, scalar arrays are grouped
 ## from their `[n]` elements, and values are quoted/escaped according to their
 ## kind.  The result is deterministic (source order).
-weave stringify with entries as list of TomlEntry into string:
+weave stringify with entries as vector of TomlEntry into string:
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb
     var current as string is ""
@@ -285,7 +285,7 @@ weave stringify with entries as list of TomlEntry into string:
             set i is i + 1
     return calling sb.finish
 
-weave _toml_render_array with entries as list of TomlEntry, key as string into string:
+weave _toml_render_array with entries as vector of TomlEntry, key as string into string:
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb
     calling sb.append with "["

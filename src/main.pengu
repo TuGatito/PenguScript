@@ -55,6 +55,7 @@ import psc.cmd.gc as cmd_gc
 import psc.cmd.lsp as cmd_lsp
 import psc.cmd.bind as cmd_bind
 import psc.cmd.fmt as cmd_fmt
+import psc.cmd.migrate as cmd_migrate
 import psc.cmd.doc as cmd_doc
 import psc.cmd.assets as cmd_assets
 import psc.cmd.dev as cmd_dev
@@ -70,7 +71,7 @@ weave copy_path with s as string into string:
 
 ## Punto de entrada.
 weave main into int:
-    var args as list of string is calling rites.get_args
+    var args as vector of string is calling rites.get_args
     var code as int is calling dispatch with args
     var i as int is 0
     while i < args.len:
@@ -84,7 +85,7 @@ weave main into int:
 ##
 ## ## Memoria
 ## No libera `args` (los libera `main`).
-weave dispatch with args as list of string into int:
+weave dispatch with args as vector of string into int:
     if args.len < 2:
         calling print_help
         return 2
@@ -96,7 +97,7 @@ weave dispatch with args as list of string into int:
         else:
             break
     if gstart > 1:
-        var sargs as list of string is list of string
+        var sargs as vector of string is vector of string
         calling sargs.push with (args at 0)
         var gi as int is gstart
         while gi < args.len:
@@ -112,7 +113,7 @@ weave dispatch with args as list of string into int:
     if cmd == "help" or cmd == "--help" or cmd == "-h":
         if cmd == "help" and args.len >= 3:
             var sub as string is args at 2
-            var hargs as list of string is list of string
+            var hargs as vector of string is vector of string
             calling hargs.push with (args at 0)
             calling hargs.push with sub
             calling hargs.push with "--help"
@@ -179,6 +180,8 @@ weave dispatch with args as list of string into int:
         return calling cmd_gc.run_gc with args
     if cmd == "fmt":
         return calling cmd_fmt.run_fmt with args
+    if cmd == "migrate":
+        return calling cmd_migrate.run_migrate with args
     if cmd == "doc":
         return calling cmd_doc.run_doc with args
     if cmd == "assets":
@@ -199,7 +202,7 @@ weave dispatch with args as list of string into int:
 ##
 ## ## Memoria
 ## Libera todo lo que crea antes de volver.
-weave run_lex with args as list of string into int:
+weave run_lex with args as vector of string into int:
     var opts as LexOptions is calling default_lex_options
     var use_stdin as bool is false
     var check_only as bool is false
@@ -290,7 +293,7 @@ weave run_lex with args as list of string into int:
 ##
 ## ## Memoria
 ## Libera todo lo que crea antes de volver.
-weave run_parse with args as list of string into int:
+weave run_parse with args as vector of string into int:
     var lopts as LexOptions is calling default_lex_options
     var popts as PsParseOptions is calling ps_default_parse_options
     var use_stdin as bool is false
@@ -392,7 +395,7 @@ weave run_parse with args as list of string into int:
 ##
 ## ## Memoria
 ## Libera la opción/resultado antes de volver.
-weave run_check with args as list of string into int:
+weave run_check with args as vector of string into int:
     var opts as sopts.SemaOptions is calling sopts.default_options with "."
     var use_stdin as bool is false
     var json_diags as bool is false
@@ -400,8 +403,8 @@ weave run_check with args as list of string into int:
     var force_color as bool is false
     var no_color as bool is false
     var path as string is ""
-    var extra as list of string is list of string
-    var defs as list of string is list of string
+    var extra as vector of string is vector of string
+    var defs as vector of string is vector of string
     var tgt as targetmod.Target is calling targetmod.host
     defer calling targetmod.free with (sigil of tgt)
     var target_given as bool is false
@@ -560,7 +563,7 @@ weave run_check with args as list of string into int:
     var code as int is calling report_check with r2, json_diags, json_u16, force_color, no_color
     var ei as int is 0
     while ei < extra.len:
-        var hargs as list of string is list of string
+        var hargs as vector of string is vector of string
         calling hargs.push with (args at 0)
         calling hargs.push with "check"
         calling hargs.push with (extra at ei)
@@ -576,7 +579,7 @@ weave run_check with args as list of string into int:
 ##
 ## ## Memoria
 ## Libera programa y bundle; las opciones las libera el programa.
-weave run_emit_c with args as list of string into int:
+weave run_emit_c with args as vector of string into int:
     var opts as sopts.SemaOptions is calling sopts.default_options with "."
     var out_path as string is ""
     var split_dir as string is ""
@@ -585,7 +588,7 @@ weave run_emit_c with args as list of string into int:
     var cgp as CgOptions is calling cgopt.default_options with "."
     set cgp.os_name is opts.os_name
     set cgp.arch is opts.arch
-    var defs as list of string is list of string
+    var defs as vector of string is vector of string
     var os_override as string is ""
     var arch_override as string is ""
     var compiler_override as string is ""
@@ -949,6 +952,7 @@ weave print_help into void:
     calling spark.println with "  psc watch SCRIPT"
     calling spark.println with "  psc gc [--all]"
     calling spark.println with "  psc fmt [PATHS] [options]"
+    calling spark.println with "  psc migrate [PATHS] [options]"
     calling spark.println with "  psc doc [--output=DIR]"
     calling spark.println with "  psc assets [--list]"
     calling spark.println with "  psc web bundle [TARGET] [--pwa]"

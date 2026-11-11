@@ -42,11 +42,11 @@ rune SemaProgram:
     ## Diagnósticos.
     diagnostics as diag.DiagnosticBag
     ## Módulos en orden de carga.
-    modules as list of loader.SemaModule
+    modules as vector of loader.SemaModule
     ## `path -> module id`.
-    by_path as map of string to int
+    by_path as map of string, int
     ## Orden topológico (dependencias primero).
-    order as list of int
+    order as vector of int
     ## Módulo entry (`-1` si no).
     root as int
 
@@ -61,9 +61,9 @@ weave new_program with options as sopts.SemaOptions into ref to SemaProgram:
     set p->types is calling types.new_table with (sigil of p->names)
     set p->symbols is calling symbols.new_symbols with (sigil of p->types), (sigil of p->names)
     set p->diagnostics is calling diag_compat.new_diagnostic_bag
-    set p->modules is list of loader.SemaModule
-    set p->by_path is map of string to int
-    set p->order is list of int
+    set p->modules is vector of loader.SemaModule
+    set p->by_path is map of string, int
+    set p->order is vector of int
     set p->root is -1
     return p
 
@@ -137,7 +137,7 @@ weave module_id with p as ref to SemaProgram, path as string into int:
 ##
 ## ## Memoria
 ## Añade módulos; liberar con `free_program`.
-weave discover with p as ref to SemaProgram, path as string, is_entry as bool, depth as int, visiting as ref to list of string, vcount as int into int:
+weave discover with p as ref to SemaProgram, path as string, is_entry as bool, depth as int, visiting as ref to vector of string, vcount as int into int:
     var canon as string is calling canonical_path with p, path
     defer banish canon
     var existing as int is calling module_id with p, canon
@@ -178,9 +178,9 @@ weave discover with p as ref to SemaProgram, path as string, is_entry as bool, d
 ##
 ## ## Memoria
 ## Añade módulos; liberar con `free_program`.
-weave discover_imports_of with p as ref to SemaProgram, m as loader.SemaModule, depth as int, visiting as ref to list of string, vcount as int into void:
-    var imports as list of string is list of string
-    var inodes as list of int is list of int
+weave discover_imports_of with p as ref to SemaProgram, m as loader.SemaModule, depth as int, visiting as ref to vector of string, vcount as int into void:
+    var imports as vector of string is vector of string
+    var inodes as vector of int is vector of int
     calling scan_imports with p, m, (sigil of imports), (sigil of inodes)
     var i as int is 0
     while i < imports.len:
@@ -257,7 +257,7 @@ weave companion_path with path as string into string:
 ##
 ## ## Memoria
 ## O(n).
-weave visiting_has with visiting as ref to list of string, path as string, count as int into bool:
+weave visiting_has with visiting as ref to vector of string, path as string, count as int into bool:
     var i as int is 0
     while i < count:
         if (visiting at i) == path:
@@ -284,7 +284,7 @@ weave path_is_std with path as string into bool:
 ##
 ## ## Memoria
 ## Añade strings/nodos owned a las listas del llamador.
-weave scan_imports with p as ref to SemaProgram, m as loader.SemaModule, out as ref to list of string, nodes as ref to list of int into void:
+weave scan_imports with p as ref to SemaProgram, m as loader.SemaModule, out as ref to vector of string, nodes as ref to vector of int into void:
     var file as int is calling astutil.node_child with (sigil of m.parse.ast), m.parse.root, 0
     if file < 0:
         return

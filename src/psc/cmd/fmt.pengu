@@ -109,7 +109,7 @@ weave load_config with path as string into FmtConfig:
     var t as maybe string is calling archivum.read_text with p
     if t.is_present:
         var ttext as string is t.value
-        var lines as list of string is calling ttext.split with "\n"
+        var lines as vector of string is calling ttext.split with "\n"
         for line in lines:
             var tline as string is line at 0 to (line length)
             var eq as int is 0
@@ -161,7 +161,7 @@ weave load_config with path as string into FmtConfig:
 ##
 ## ## Memoria
 ## O(n).
-weave detect_unit with lines as list of string, fallback as int into int:
+weave detect_unit with lines as vector of string, fallback as int into int:
     var unit as int is 0
     var in_tri as bool is false
     for line in lines:
@@ -198,7 +198,7 @@ weave detect_unit with lines as list of string, fallback as int into int:
 ## ## Memoria
 ## Devuelve string owned.
 weave normalize_code with s as string into string:
-    var chars as list of char is list of char
+    var chars as vector of char is vector of char
     var b as ref to frozen byte is bytes of s
     var i as int is 0
     var in_str as bool is false
@@ -332,7 +332,7 @@ weave indent_line with line as string, source_unit as int, width as int, tabs as
 ## ## Memoria
 ## Devuelve string owned.
 weave format_text with text as string, width as int, tabs as bool, blank_max as int into string:
-    var lines as list of string is calling text.split with "\n"
+    var lines as vector of string is calling text.split with "\n"
     if calling ends_with with text, "\n":
         if lines.len > 0 and (lines at (lines.len - 1)) length == 0:
             var dropped as string is calling lines.pop
@@ -423,18 +423,18 @@ weave write_atomic with path as string, text as string into bool:
 ##
 ## ## Memoria
 ## Libera ParseResult.
-weave run_fmt with args as list of string into int:
-    var vf as list of string is list of string
+weave run_fmt with args as vector of string into int:
+    var vf as vector of string is vector of string
     calling vf.push with "--indent"
     calling vf.push with "--config"
-    var sf as list of string is list of string
+    var sf as vector of string is vector of string
     calling sf.push with "--check"
     calling sf.push with "--diff"
     calling sf.push with "--stdin"
     calling sf.push with "--tabs"
     calling sf.push with "--verbose"
     calling sf.push with "--help"
-    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, vector of string
     if not pr.ok:
         var e as string is pr.error
         calling spark.eprintln with e
@@ -468,9 +468,9 @@ weave run_fmt with args as list of string into int:
     var pi as int is 0
     while pi < pr.args.positionals.len:
         var p as string is (pr.args.positionals at pi)
-        var files as list of string is list of string
+        var files as vector of string is vector of string
         if calling archivum.is_dir with p:
-            var found as list of string is calling archivum.find_files with p, true
+            var found as vector of string is calling archivum.find_files with p, true
             for f in found:
                 if calling ends_with with f, ".pengu":
                     calling files.push with (calling copy with f)
@@ -495,8 +495,8 @@ weave run_fmt with args as list of string into int:
                         var d1 as string is "--- {f}"
                         calling spark.println with d1
                         banish d1
-                        var oldl as list of string is calling original.split with "\n"
-                        var newl as list of string is calling fmt.split with "\n"
+                        var oldl as vector of string is calling original.split with "\n"
+                        var newl as vector of string is calling fmt.split with "\n"
                         var di as int is 0
                         var dn as int is oldl.len
                         if newl.len > dn:

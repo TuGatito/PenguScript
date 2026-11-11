@@ -42,7 +42,7 @@ weave ends_with with s as string, p as string into bool:
 ##
 ## ## Memoria
 ## `out` es prestado; los paths se copian.
-weave collect_paths with script as string, out as list of string into void:
+weave collect_paths with script as string, out as vector of string into void:
     var abs as string is calling compass.cp_absolute with script
     calling out.push with (calling copy with abs)
     var d as string is calling copy with abs
@@ -50,7 +50,7 @@ weave collect_paths with script as string, out as list of string into void:
         var dn as string is calling compass.cp_dirname with abs
         banish d
         set d is dn
-    var files as list of string is calling archivum.find_files with d, true
+    var files as vector of string is calling archivum.find_files with d, true
     for f in files:
         if calling ends_with with f, ".pengu":
             var dup as bool is false
@@ -91,7 +91,7 @@ weave collect_paths with script as string, out as list of string into void:
 ##
 ## ## Memoria
 ## Devuelve string owned.
-weave fingerprint with paths as list of string into string:
+weave fingerprint with paths as vector of string into string:
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb
     for p in paths:
@@ -113,7 +113,7 @@ weave fingerprint with paths as list of string into string:
 ##
 ## ## Memoria
 ## Libera build result/options.
-weave build_and_spawn with script as string, cc as string, child as list of string, verbose as bool into int:
+weave build_and_spawn with script as string, cc as string, child as vector of string, verbose as bool into int:
     var o as driver.BuildOptions is calling driver.default_options
     banish o.target
     set o.target is calling copy with script
@@ -130,7 +130,7 @@ weave build_and_spawn with script as string, cc as string, child as list of stri
         calling driver.free_options with (sigil of o)
         return 0
     var art as string is calling copy with r.artifact
-    var argv as list of string is list of string
+    var argv as vector of string is vector of string
     calling argv.push with art
     for c in child:
         calling argv.push with c
@@ -146,15 +146,15 @@ weave build_and_spawn with script as string, cc as string, child as list of stri
     return pid
 
 ## Implementa `psc watch`.
-weave run_watch with args as list of string into int:
-    var vf as list of string is list of string
+weave run_watch with args as vector of string into int:
+    var vf as vector of string is vector of string
     calling vf.push with "--cc"
     calling vf.push with "--interval"
-    var sf as list of string is list of string
+    var sf as vector of string is vector of string
     calling sf.push with "--once"
     calling sf.push with "--clear"
     calling sf.push with "--help"
-    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, vector of string
     if not pr.ok:
         var e as string is pr.error
         calling spark.eprintln with e
@@ -169,7 +169,7 @@ weave run_watch with args as list of string into int:
         calling cliargs.free_parse_result with (sigil of pr)
         return 2
     var script as string is calling copy with (pr.args.positionals at 0)
-    var child as list of string is list of string
+    var child as vector of string is vector of string
     var ai as int is 1
     while ai < pr.args.positionals.len:
         calling child.push with (calling copy with (pr.args.positionals at ai))
@@ -184,13 +184,13 @@ weave run_watch with args as list of string into int:
         banish pm
     var once as bool is calling cliargs.enabled with (sigil of pr.args), "--once"
     var clear as bool is calling cliargs.enabled with (sigil of pr.args), "--clear"
-    var paths as list of string is list of string
+    var paths as vector of string is vector of string
     calling collect_paths with script, paths
     var fp as string is calling fingerprint with paths
     var pid as int is 0
     var code as int is 0
     if once:
-        var argv as list of string is list of string
+        var argv as vector of string is vector of string
         # build once and wait
         var o as driver.BuildOptions is calling driver.default_options
         banish o.target

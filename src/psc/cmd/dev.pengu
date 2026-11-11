@@ -92,7 +92,7 @@ weave run_case with name as string, cwd as string, compiler as string, repeat as
     if sz.is_present:
         set size is sz.value
     banish sz
-    var argv as list of string is list of string
+    var argv as vector of string is vector of string
     calling argv.push with art
     var wi as int is 0
     while wi < warmup:
@@ -125,16 +125,16 @@ weave run_case with name as string, cwd as string, compiler as string, repeat as
 ##
 ## ## Memoria
 ## Libera ParseResult y filas.
-weave run_benchmark with args as list of string into int:
-    var vf as list of string is list of string
+weave run_benchmark with args as vector of string into int:
+    var vf as vector of string is vector of string
     calling vf.push with "--repeat"
     calling vf.push with "--warmup"
     calling vf.push with "--csv"
     calling vf.push with "--only"
-    var sf as list of string is list of string
+    var sf as vector of string is vector of string
     calling sf.push with "--json"
     calling sf.push with "--help"
-    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, vector of string
     if not pr.ok:
         var e as string is pr.error
         calling spark.eprintln with e
@@ -164,7 +164,7 @@ weave run_benchmark with args as list of string into int:
             set warmup is wm.value
         banish wm
     var only as string is calling cliargs.value with (sigil of pr.args), "--only"
-    var cases as list of string is list of string
+    var cases as vector of string is vector of string
     calling cases.push with "f7_arith"
     calling cases.push with "f7_fib"
     calling cases.push with "hello_world"
@@ -178,7 +178,7 @@ weave run_benchmark with args as list of string into int:
     calling cases.push with "cipher_ops"
     calling cases.push with "loom_ops"
     calling cases.push with "arithmancy_ops"
-    var rows as list of BenchRow is list of BenchRow
+    var rows as vector of BenchRow is vector of BenchRow
     for c in cases:
         if only length == 0 or c == only:
             var row as BenchRow is calling run_case with c, cwd.value, (args at 0), repeat, warmup
@@ -246,11 +246,11 @@ weave run_benchmark with args as list of string into int:
 ##
 ## ## Memoria
 ## Libera ParseResult.
-weave run_selftest with args as list of string into int:
-    var sf as list of string is list of string
+weave run_selftest with args as vector of string into int:
+    var sf as vector of string is vector of string
     calling sf.push with "--smoke"
     calling sf.push with "--help"
-    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, list of string, sf, list of string
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vector of string, sf, vector of string
     if not pr.ok:
         var e as string is pr.error
         calling spark.eprintln with e
@@ -266,7 +266,7 @@ weave run_selftest with args as list of string into int:
         banish py2
         set py2 is calling python_bin with cwd2.value
         banish cwd2
-    var cargs as list of string is list of string
+    var cargs as vector of string is vector of string
     calling cargs.push with "-m"
     calling cargs.push with "pytest"
     var i as int is 0
@@ -277,7 +277,7 @@ weave run_selftest with args as list of string into int:
         if pr.args.positionals.len == 0:
             calling cargs.push with (calling copy with "tests/psc/test_f6_cli.py")
             calling cargs.push with (calling copy with "tests/psc/test_f7_tools.py")
-    var sargv as list of string is list of string
+    var sargv as vector of string is vector of string
     calling sargv.push with (calling copy with py2)
     for sa in cargs:
         calling sargv.push with sa

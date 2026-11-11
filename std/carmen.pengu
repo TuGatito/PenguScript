@@ -165,7 +165,7 @@ return pengu_string_owned(data.data + off, n);
 ##
 ## ## Memory
 ## No allocation; the slice aliases `data`.
-antiquus _carmen_view with data as string, off as int, n as int into slice of byte:
+antiquus _carmen_view with data as string, off as int, n as int into span of byte:
     r"""
 if (!data.data || off < 0 || off > data.len || n < 0 || n > data.len - off)
     return pengu_slice_new("", 1, 0);
@@ -643,7 +643,7 @@ rune CarmenField derive Nexus:
 ## A compiled formula. Compile once, reuse for many records.
 rune Carmen derive Nexus:
     _fmt as string
-    _fields as list of CarmenField
+    _fields as vector of CarmenField
     _size as int
     _order as Endianness
     _native as bool
@@ -674,8 +674,8 @@ enchanting Carmen:
         return k
 
     ## Copies every field, duplicating names.
-    weave fields into list of CarmenField:
-        var out as list of CarmenField is list of CarmenField
+    weave fields into vector of CarmenField:
+        var out as vector of CarmenField is vector of CarmenField
         for f in self->_fields:
             var nm as string is ""
             if f.name != "":
@@ -692,7 +692,7 @@ enchanting Carmen:
 ## ## Complexity
 ## O(len fmt).
 weave seal with fmt as string into result of Carmen to CarmenError:
-    var fields as list of CarmenField is list of CarmenField
+    var fields as vector of CarmenField is vector of CarmenField
     var off as int is 0
     var order as Endianness is Native
     var native as bool is true
@@ -884,12 +884,12 @@ weave calcsize with fmt as string into result of int to CarmenError:
 ##
 ## ## Example
 ## `let fs is calling carmen.layout with "<2sI"` → two fields at offsets 0 and 2
-weave layout with fmt as string into result of list of CarmenField to CarmenError:
+weave layout with fmt as string into result of vector of CarmenField to CarmenError:
     var c as result of Carmen to CarmenError is calling seal with fmt
     if not c.is_ok:
         return calling err_of with c.error
     var h as Carmen is c.value
-    var fs as list of CarmenField is calling h.fields
+    var fs as vector of CarmenField is calling h.fields
     banish h
     return calling ok_of with fs
 
@@ -1326,8 +1326,8 @@ r->ok_val = NULL;
 return out;
 """
 
-weave _decode_all with h as Carmen, data as string into result of list of CarmenValue to CarmenError:
-    var out as list of CarmenValue is list of CarmenValue
+weave _decode_all with h as Carmen, data as string into result of vector of CarmenValue to CarmenError:
+    var out as vector of CarmenValue is vector of CarmenValue
     for f in h._fields:
         if f.index >= 0:
             var r as result of CarmenValue to CarmenError is calling _unpack_field with f, data
@@ -1345,7 +1345,7 @@ weave _decode_all with h as Carmen, data as string into result of list of Carmen
 ##
 ## ## Errors
 ## `ValueCountMismatch`, `ValueKindMismatch`, `ValueOutOfRange`.
-weave pack with fmt as string, values as list of CarmenValue into result of string to CarmenError:
+weave pack with fmt as string, values as vector of CarmenValue into result of string to CarmenError:
     var c as result of Carmen to CarmenError is calling seal with fmt
     if not c.is_ok:
         return calling err_of with c.error
@@ -1375,7 +1375,7 @@ weave pack with fmt as string, values as list of CarmenValue into result of stri
 ##
 ## ## Errors
 ## `BufferTooSmall` when `offset + size` exceeds `capacity`.
-weave pack_into with fmt as string, buffer as ref to byte, capacity as int, offset as int, values as list of CarmenValue into result of int to CarmenError:
+weave pack_into with fmt as string, buffer as ref to byte, capacity as int, offset as int, values as vector of CarmenValue into result of int to CarmenError:
     var packed as result of string to CarmenError is calling pack with fmt, values
     if not packed.is_ok:
         return calling err_of with packed.error
@@ -1393,7 +1393,7 @@ weave pack_into with fmt as string, buffer as ref to byte, capacity as int, offs
 ##
 ## ## Errors
 ## `Truncated` or `TrailingBytes`.
-weave unpack with fmt as string, data as string into result of list of CarmenValue to CarmenError:
+weave unpack with fmt as string, data as string into result of vector of CarmenValue to CarmenError:
     var c as result of Carmen to CarmenError is calling seal with fmt
     if not c.is_ok:
         return calling err_of with c.error
@@ -1405,7 +1405,7 @@ weave unpack with fmt as string, data as string into result of list of CarmenVal
     if data.length > need:
         banish h
         return calling err_of with (with TrailingBytes is with extra is (data.length - need))
-    var out as result of list of CarmenValue to CarmenError is calling _decode_all with h, data
+    var out as result of vector of CarmenValue to CarmenError is calling _decode_all with h, data
     banish h
     return out
 
@@ -1413,7 +1413,7 @@ weave unpack with fmt as string, data as string into result of list of CarmenVal
 ##
 ## ## Errors
 ## `OffsetOutOfRange` or `Truncated`.
-weave unpack_from with fmt as string, data as string, offset as int into result of list of CarmenValue to CarmenError:
+weave unpack_from with fmt as string, data as string, offset as int into result of vector of CarmenValue to CarmenError:
     var c as result of Carmen to CarmenError is calling seal with fmt
     if not c.is_ok:
         return calling err_of with c.error
@@ -1427,7 +1427,7 @@ weave unpack_from with fmt as string, data as string, offset as int into result 
         banish h
         return calling err_of with (calling _truncated with need, have)
     var blob as string is calling _carmen_copy_range with data, offset, need
-    var out as result of list of CarmenValue to CarmenError is calling _decode_all with h, blob
+    var out as result of vector of CarmenValue to CarmenError is calling _decode_all with h, blob
     banish blob
     banish h
     return out
@@ -1680,7 +1680,7 @@ enchanting CarmenWriter:
         calling self.write_varint with zz
 
     ## Appends the record produced by `pack` for `fmt` and `values`.
-    weave write_record with fmt as string, values as list of CarmenValue into result of void to CarmenError:
+    weave write_record with fmt as string, values as vector of CarmenValue into result of void to CarmenError:
         var packed as result of string to CarmenError is calling pack with fmt, values
         if not packed.is_ok:
             return calling err_of with packed.error
@@ -1989,10 +1989,10 @@ enchanting CarmenReader:
         return calling ok_of with acc
 
     ## Consumes `n` bytes and returns a borrowed slice of them.
-    weave view with n as int into result of slice of byte to CarmenError:
+    weave view with n as int into result of span of byte to CarmenError:
         if n < 0 or not calling self.has with n:
             return calling err_of with (calling _truncated with n, calling self.remaining)
-        var s as slice of byte is calling _carmen_view with self->_data, self->_offset, n
+        var s as span of byte is calling _carmen_view with self->_data, self->_offset, n
         set self->_offset is self->_offset + n
         set self->_bit is 0
         return calling ok_of with s
@@ -2043,7 +2043,7 @@ enchanting CarmenReader:
     ## Reads the next record described by `fmt`.
     ##
     ## The cursor advances by `calcsize(fmt)`.
-    weave read_record with fmt as string into result of list of CarmenValue to CarmenError:
+    weave read_record with fmt as string into result of vector of CarmenValue to CarmenError:
         var c as result of Carmen to CarmenError is calling seal with fmt
         if not c.is_ok:
             return calling err_of with c.error
@@ -2054,7 +2054,7 @@ enchanting CarmenReader:
         if not raw.is_ok:
             return calling err_of with raw.error
         var blob as string is raw.value
-        var r as result of list of CarmenValue to CarmenError is calling unpack with fmt, blob
+        var r as result of vector of CarmenValue to CarmenError is calling unpack with fmt, blob
         banish blob
         return r
 
@@ -2169,17 +2169,17 @@ weave describe with fmt as string, data as string into result of string to Carme
 ##
 ## ## Memoria
 ## The map owns the values; release it with `banish`.
-weave unpack_named with fmt as string, data as string into result of map of string to CarmenValue to CarmenError:
-    var u as result of list of CarmenValue to CarmenError is calling unpack with fmt, data
+weave unpack_named with fmt as string, data as string into result of map of string, CarmenValue to CarmenError:
+    var u as result of vector of CarmenValue to CarmenError is calling unpack with fmt, data
     if not u.is_ok:
         return calling err_of with u.error
-    var vals as list of CarmenValue is u.value
+    var vals as vector of CarmenValue is u.value
     var c as result of Carmen to CarmenError is calling seal with fmt
     if not c.is_ok:
         banish vals
         return calling err_of with c.error
     var h as Carmen is c.value
-    var m as map of string to CarmenValue is map of string to CarmenValue
+    var m as map of string, CarmenValue is map of string, CarmenValue
     for f in h._fields:
         if f.index >= 0:
             if f.name.length == 0:
@@ -2196,7 +2196,7 @@ weave unpack_named with fmt as string, data as string into result of map of stri
 ##
 ## ## Errors
 ## `BadFormat` when `calcsize(fmt)` is zero or does not divide the buffer.
-weave iter_unpack with fmt as string, data as string into result of list of list of CarmenValue to CarmenError:
+weave iter_unpack with fmt as string, data as string into result of vector of vector of CarmenValue to CarmenError:
     var c as result of Carmen to CarmenError is calling seal with fmt
     if not c.is_ok:
         return calling err_of with c.error
@@ -2207,11 +2207,11 @@ weave iter_unpack with fmt as string, data as string into result of list of list
         return calling err_of with (with BadFormat is with reason is "record size must be positive", position is 0)
     if data.length % step != 0:
         return calling err_of with (with BadFormat is with reason is "buffer length is not a multiple of the record size", position is 0)
-    var out as list of list of CarmenValue is list of list of CarmenValue
+    var out as vector of vector of CarmenValue is vector of vector of CarmenValue
     var off as int is 0
     while off < data.length:
         var chunk as string is calling _carmen_copy_range with data, off, step
-        var u as result of list of CarmenValue to CarmenError is calling unpack with fmt, chunk
+        var u as result of vector of CarmenValue to CarmenError is calling unpack with fmt, chunk
         banish chunk
         if not u.is_ok:
             banish out

@@ -252,7 +252,7 @@ weave _cp_pair with cp as Codepoint, used as int into (Codepoint, int):
     return cp, used
 
 ## Packs a decoded prefix and its byte length into the tuple a `result` carries.
-weave _prefix_pair with items as list of Codepoint, consumed as int into (list of Codepoint, int):
+weave _prefix_pair with items as vector of Codepoint, consumed as int into (vector of Codepoint, int):
     return items, consumed
 
 # ----------------------------------------------------------------------------
@@ -274,8 +274,8 @@ weave _prefix_pair with items as list of Codepoint, consumed as int into (list o
 ## var cps as list of Codepoint is r.value
 ## banish r
 ## ```
-weave decode with s as string into result of list of Codepoint to LinguaError:
-    var out as list of Codepoint is list of Codepoint
+weave decode with s as string into result of vector of Codepoint to LinguaError:
+    var out as vector of Codepoint is vector of Codepoint
     var offset as int is 0
     var n as int is s length
     while offset < n:
@@ -306,8 +306,8 @@ weave decode with s as string into result of list of Codepoint to LinguaError:
 ## ```pengu
 ## var r as result of (list of Codepoint, int) to LinguaError is calling lingua.decode_prefix with "abc", 2
 ## ```
-weave decode_prefix with s as string, max_codepoints as int into result of (list of Codepoint, int) to LinguaError:
-    var out as list of Codepoint is list of Codepoint
+weave decode_prefix with s as string, max_codepoints as int into result of (vector of Codepoint, int) to LinguaError:
+    var out as vector of Codepoint is vector of Codepoint
     if max_codepoints <= 0:
         return calling ok_of with (calling _prefix_pair with out, 0)
     var offset as int is 0
@@ -341,7 +341,7 @@ weave decode_prefix with s as string, max_codepoints as int into result of (list
 ## calling cps.push with (0x1F600 to Codepoint)
 ## var r as result of string to LinguaError is calling lingua.encode with cps
 ## ```
-weave encode with cps as list of Codepoint into result of string to LinguaError:
+weave encode with cps as vector of Codepoint into result of string to LinguaError:
     var sb as StringBuilder is calling StringBuilder.new
     var i as int is 0
     var buf as array of byte with size 4 is [0, 0, 0, 0]

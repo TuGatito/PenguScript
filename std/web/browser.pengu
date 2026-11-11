@@ -68,7 +68,7 @@ when wasm:
         if not w.is_ok:
             return calling err_of with w.error
         defer calling dom.free with (sigil of w.value)
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var m as result of js.JsValue to js.JsError is calling js.string with message
         if not m.is_ok:
@@ -101,7 +101,7 @@ when wasm:
         if not w.is_ok:
             return calling err_of with w.error
         defer calling dom.free with (sigil of w.value)
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var u as result of js.JsValue to js.JsError is calling js.string with url
         if not u.is_ok:
@@ -137,7 +137,7 @@ when wasm:
         if not loc.is_ok:
             return calling err_of with loc.error
         defer calling js.release with loc.value
-        var q as result of js.JsValue to js.JsError is calling js.call_method with loc.value, "reload", list of js.JsValue
+        var q as result of js.JsValue to js.JsError is calling js.call_method with loc.value, "reload", vector of js.JsValue
         if not q.is_ok:
             return calling err_of with q.error
         calling js.release with q.value
@@ -209,7 +209,7 @@ when wasm:
         if not w.is_ok:
             return calling err_of with w.error
         defer calling dom.free with (sigil of w.value)
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var s as result of js.JsValue to js.JsError is calling js.string with text
         if not s.is_ok:
@@ -220,12 +220,12 @@ when wasm:
         return r
 
     ## Calls `window[method](...numbers)` and discards the result.
-    weave _call_numbers with method as string, values as list of f64 into result of bool to js.JsError:
+    weave _call_numbers with method as string, values as vector of f64 into result of bool to js.JsError:
         var w as result of dom.Element to js.JsError is calling dom.window
         if not w.is_ok:
             return calling err_of with w.error
         defer calling dom.free with (sigil of w.value)
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var i as int is 0
         while i < values.len:
@@ -253,7 +253,7 @@ when wasm:
         return calling dom.on with w.value, event, cb
 
     ## Releases a list of numeric handles.
-    weave _release with args as list of js.JsValue into void:
+    weave _release with args as vector of js.JsValue into void:
         var i as int is 0
         while i < args.len:
             calling js.release with (args at i)

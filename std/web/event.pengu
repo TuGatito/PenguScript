@@ -75,7 +75,7 @@ when wasm:
         defer calling js.release with c.value
         if calling js.is_null with c.value or calling js.is_undefined with c.value:
             return calling ok_of with (maybe none)
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var t as result of js.JsValue to js.JsError is calling js.string with "text"
         if not t.is_ok:
@@ -109,7 +109,7 @@ when wasm:
 
     ## Cancels the browser default for this event.
     weave prevent_default with e as Event into result of bool to js.JsError:
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var r as result of js.JsValue to js.JsError is calling js.call_method with e, "preventDefault", args
         if not r.is_ok:
@@ -119,7 +119,7 @@ when wasm:
 
     ## Stops propagation to ancestors.
     weave stop_propagation with e as Event into result of bool to js.JsError:
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var r as result of js.JsValue to js.JsError is calling js.call_method with e, "stopPropagation", args
         if not r.is_ok:
@@ -129,7 +129,7 @@ when wasm:
 
     ## Stops other listeners on the same element.
     weave stop_immediate with e as Event into result of bool to js.JsError:
-        var args as list of js.JsValue is list of js.JsValue
+        var args as vector of js.JsValue is vector of js.JsValue
         defer banish args
         var r as result of js.JsValue to js.JsError is calling js.call_method with e, "stopImmediatePropagation", args
         if not r.is_ok:

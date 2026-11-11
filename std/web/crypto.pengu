@@ -25,7 +25,7 @@ alias Value as js.JsValue
 const CRYPTO_VERSION as string is "1.1.0"
 
 ## Owned byte buffer returned by `random_bytes`.
-alias Bytes as list of u8
+alias Bytes as vector of u8
 
 when wasm:
 
@@ -40,7 +40,7 @@ when wasm:
         var n as result of int to js.JsError is calling js.length with h.value
         if not n.is_ok:
             return calling err_of with n.error
-        var out as list of u8 is list of u8
+        var out as vector of u8 is vector of u8
         var i as int is 0
         while i < n.value:
             var v as result of js.JsValue to js.JsError is calling js.get_index with h.value, i
@@ -72,7 +72,7 @@ when wasm:
         var n as result of int to js.JsError is calling js.length with h.value
         if not n.is_ok:
             return calling err_of with n.error
-        var raw as list of u8 is list of u8
+        var raw as vector of u8 is vector of u8
         var j as int is 0
         while j < n.value:
             var v as result of js.JsValue to js.JsError is calling js.get_index with h.value, j

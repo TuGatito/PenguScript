@@ -104,7 +104,7 @@ weave check_one with s as ref to state.SemaState, ty as int, info as ref to type
     if (info->flags & types.NIF_SEALED) != 0:
         calling sdiag.node_error with s->bag, s->src, sdiag.CODE_JSON_DERIVE, (calling astutil.start_of with s->ast, dnode), (calling astutil.end_of with s->ast, dnode), "sealed runes cannot derive Json", "Sealed runes hide their representation.", ""
         return
-    var used as map of int to int is map of int to int
+    var used as map of int, int is map of int, int
     var fi as int is 0
     while fi < info->fields_count:
         var fidx as int is info->fields_first + fi
@@ -119,7 +119,7 @@ weave check_one with s as ref to state.SemaState, ty as int, info as ref to type
 ##
 ## ## Memoria
 ## O(1) por campo; libera los textos temporales.
-weave check_field with s as ref to state.SemaState, info as ref to types.SemaNominalInfo, fidx as int, used as ref to map of int to int into void:
+weave check_field with s as ref to state.SemaState, info as ref to types.SemaNominalInfo, fidx as int, used as ref to map of int, int into void:
     var f as types.SemaField is (s->types->fields at fidx)
     var fname as string is calling npool.text with s->names, f.name
     defer banish fname

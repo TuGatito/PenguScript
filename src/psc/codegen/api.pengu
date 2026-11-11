@@ -24,7 +24,7 @@ rune CgResult:
     ## Estadísticas.
     stats as CgStats
     ## IDs de módulos con al menos una función viva (DCE).
-    live_modules as list of int
+    live_modules as vector of int
 
 ## Opciones por defecto (reexportadas para la CLI).
 ##
@@ -39,7 +39,7 @@ weave default_options with base_dir as string into CgOptions:
 ## Devuelve un resultado owned; el programa sigue siendo del llamador.
 weave generate_c with p as ref to program.SemaProgram, o as CgOptions into CgResult:
     var c as context.CgContext is calling context.new_context with p, o
-    var live as list of int is list of int
+    var live as vector of int is vector of int
     var code as string is calling bundle.generate_bundle_c with (sigil of c), (sigil of live)
     var nlines as int is 0
     var b as ref to frozen byte is bytes of code
@@ -78,11 +78,11 @@ rune CgUnitsResult:
     ## Unidad con codecs, runner y main.
     core as string
     ## Una unidad por módulo.
-    units as list of bundle.CgUnit
+    units as vector of bundle.CgUnit
     ## Mensaje de error (owned) cuando `ok` es `false`.
     error as string
     ## IDs de módulos con al menos una función viva (DCE).
-    live_modules as list of int
+    live_modules as vector of int
 
 ## Genera cabecera, core y una unidad C por módulo.
 ##
@@ -90,7 +90,7 @@ rune CgUnitsResult:
 ## Devuelve textos owned; el programa sigue siendo del llamador.
 weave generate_units with p as ref to program.SemaProgram, o as CgOptions into CgUnitsResult:
     var c as context.CgContext is calling context.new_context with p, o
-    var live as list of int is list of int
+    var live as vector of int is vector of int
     var parts as bundle.CgParts is calling bundle.generate_units_c with (sigil of c), (sigil of live)
     var total_errors as int is c.errors + c.catalog.errors
     var emsg as string is ""

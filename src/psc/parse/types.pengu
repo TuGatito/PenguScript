@@ -38,9 +38,13 @@ weave ptype_parse_type with p as ref to PsParser into int:
         return calling ptype_parse_array with p
     if calling ps_check_word with p, "slice":
         return calling ptype_parse_slice with p
+    if calling ps_check_word with p, "span":
+        return calling ptype_parse_slice with p
     if calling ps_check_kw with p, KwMany:
         return calling ptype_parse_many with p
     if calling ps_check_word with p, "list":
+        return calling ptype_parse_list with p
+    if calling ps_check_word with p, "vector":
         return calling ptype_parse_list with p
     if calling ps_check_word with p, "map":
         return calling ptype_parse_map with p
@@ -227,6 +231,19 @@ weave ptype_parse_list with p as ref to PsParser into int:
     calling ps_add_child with p, inner
     return calling ps_finish_node with p, NodeKind.NdListType, start, (calling ps_previous_end with p), 0
 
+## Consume el separador de un `map of K, V`.
+##
+## Acepta la coma del dialecto C++ (`map of string, int`) y el `to` del
+## lenguaje actual (`map of string to int`). Ambos producen el mismo nodo:
+## en F2 el orden `K, V` es la grafía preferida y `to` el alias heredado.
+##
+## ## Memoria
+## No asigna.
+weave ptype_expect_map_sep with p as ref to PsParser into Token:
+    if calling ps_check with p, TokComma:
+        return calling ps_advance with p
+    return calling ps_expect_kw with p, KwTo, "',' or 'to'"
+
 ## Parsea `map of K to V`.
 ##
 ## ## Memoria
@@ -238,7 +255,7 @@ weave ptype_parse_map with p as ref to PsParser into int:
     calling ps_begin_children with p
     var key as int is calling ptype_parse_type_or_param with p
     calling ps_add_child with p, key
-    var ignored3 as Token is calling ps_expect_kw with p, KwTo, "'to'"
+    var ignored3 as Token is calling ptype_expect_map_sep with p
     var val as int is calling ptype_parse_type_or_param with p
     calling ps_add_child with p, val
     return calling ps_finish_node with p, NodeKind.NdMapType, start, (calling ps_previous_end with p), 0

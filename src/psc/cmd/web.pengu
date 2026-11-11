@@ -64,7 +64,7 @@ weave pwa_worker with version as string into string:
 ##
 ## ## Memoria
 ## Libera args propios y manifest.
-weave run with args as list of string into int:
+weave run with args as vector of string into int:
     if args.len < 3 or (args at 2) != "bundle":
         calling print_help
         return 2
@@ -115,7 +115,7 @@ weave run with args as list of string into int:
     var esbuild as string is "{root}/node_modules/.bin/esbuild"
     var ok as bool is false
     if calling archivum.is_file with esbuild:
-        var eargs as list of string is list of string
+        var eargs as vector of string is vector of string
         calling eargs.push with (calling manifest.copy with entry)
         calling eargs.push with (calling manifest.copy with "--bundle")
         calling eargs.push with (calling manifest.copy with "--format=iife")
@@ -130,7 +130,7 @@ weave run with args as list of string into int:
             set j is j + 1
         banish eargs
     else:
-        var eargs as list of string is list of string
+        var eargs as vector of string is vector of string
         calling eargs.push with (calling manifest.copy with "esbuild")
         calling eargs.push with (calling manifest.copy with entry)
         calling eargs.push with (calling manifest.copy with "--bundle")

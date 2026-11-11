@@ -231,42 +231,42 @@ rune SemaTypeTable:
     ## Pool prestado.
     names as ref to npool.NamePool
     ## Registros de tipos; el índice es el `TypeId`.
-    types as list of tk.SemaType
+    types as vector of tk.SemaType
     ## Hijos de tuplas/type args.
-    type_children as list of int
+    type_children as vector of int
     ## Metadatos nominales.
-    nominal_infos as list of SemaNominalInfo
+    nominal_infos as vector of SemaNominalInfo
     ## Firmas de función.
-    fn_infos as list of SemaFnInfo
+    fn_infos as vector of SemaFnInfo
     ## Campos y payloads.
-    fields as list of SemaField
+    fields as vector of SemaField
     ## Variantes de omen.
-    variants as list of SemaVariant
+    variants as vector of SemaVariant
     ## Type params.
-    tparams as list of SemaTypeParamInfo
+    tparams as vector of SemaTypeParamInfo
     ## Bounds: `NameId` de conceptos.
-    bounds as list of int
+    bounds as vector of int
     ## Derivaciones: `NameId` de conceptos.
-    derived as list of int
+    derived as vector of int
     ## Métodos de conceptos.
-    concept_methods as list of SemaConceptMethod
+    concept_methods as vector of SemaConceptMethod
     ## Parámetros de función.
-    fn_params as list of SemaFnParam
+    fn_params as vector of SemaFnParam
     ## Cache `NameId -> TypeId` de parámetros de tipo.
-    tparam_cache as map of int to int
+    tparam_cache as map of int, int
     ## `clave canónica -> TypeId`.
-    intern as map of string to int
+    intern as map of string, int
     ## Copias owned de las claves del mapa (el mapa no libera el buffer de un
     ## key string; esta lista es su dueña).
-    intern_keys as list of string
+    intern_keys as vector of string
     ## Cache de nombres canónicos (`NameId` por `TypeId`; `-1` sin calcular).
-    canonical_cache as list of int
+    canonical_cache as vector of int
     ## Cache de nombres mangled.
-    mangled_cache as list of int
+    mangled_cache as vector of int
     ## Nombre JSON externo por índice de campo (`@json("...")`); ausente si no.
-    json_names as map of int to int
+    json_names as map of int, int
     ## `TypeId` de las runas que derivan `Json`, en orden de declaración.
-    json_type_ids as list of int
+    json_type_ids as vector of int
 
 # ---------------------------------------------------------------------------
 # Creación y liberación
@@ -277,7 +277,7 @@ rune SemaTypeTable:
 ## ## Memoria
 ## Asigna listas/mapa y el pool prestado debe vivir más que la tabla.
 weave new_table with pool as ref to npool.NamePool into SemaTypeTable:
-    var t as SemaTypeTable is with names is pool, json_names is map of int to int, json_type_ids is list of int, types is list of tk.SemaType, type_children is list of int, nominal_infos is list of SemaNominalInfo, fn_infos is list of SemaFnInfo, fields is list of SemaField, variants is list of SemaVariant, tparams is list of SemaTypeParamInfo, bounds is list of int, derived is list of int, concept_methods is list of SemaConceptMethod, fn_params is list of SemaFnParam, tparam_cache is map of int to int, intern is map of string to int, intern_keys is list of string, canonical_cache is list of int, mangled_cache is list of int
+    var t as SemaTypeTable is with names is pool, json_names is map of int, int, json_type_ids is vector of int, types is vector of tk.SemaType, type_children is vector of int, nominal_infos is vector of SemaNominalInfo, fn_infos is vector of SemaFnInfo, fields is vector of SemaField, variants is vector of SemaVariant, tparams is vector of SemaTypeParamInfo, bounds is vector of int, derived is vector of int, concept_methods is vector of SemaConceptMethod, fn_params is vector of SemaFnParam, tparam_cache is map of int, int, intern is map of string, int, intern_keys is vector of string, canonical_cache is vector of int, mangled_cache is vector of int
     calling _add_singleton with (sigil of t), tk.SemaTypeKind.TkError
     calling _add_singleton with (sigil of t), tk.SemaTypeKind.TkAny
     calling _add_singleton with (sigil of t), tk.SemaTypeKind.TkNull
@@ -611,7 +611,7 @@ weave result_of with t as ref to SemaTypeTable, ok as int, err as int into int:
 ##
 ## ## Memoria
 ## Añade los hijos y el tipo; el llamador conserva la lista `ids`.
-weave tuple_of with t as ref to SemaTypeTable, ids as list of int into int:
+weave tuple_of with t as ref to SemaTypeTable, ids as vector of int into int:
     var first as int is t->type_children.len
     var i as int is 0
     while i < ids.len:

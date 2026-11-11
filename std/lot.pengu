@@ -768,8 +768,8 @@ weave rand_sign into int:
 ## ```pengu
 ## var mixed as list of int is calling lot.shuffle with nums
 ## ```
-weave shuffle with items as list of int into list of int:
-    var res as list of int is for x in items then x
+weave shuffle with items as vector of int into vector of int:
+    var res as vector of int is for x in items then x
     var n as int is calling res.len
     var i as int is n - 1
     while i > 0:
@@ -794,8 +794,8 @@ weave shuffle with items as list of int into list of int:
 ## ```pengu
 ## var mixed as list of string is calling lot.shuffle_string with words
 ## ```
-weave shuffle_string with items as list of string into list of string:
-    var res as list of string is for x in items then x
+weave shuffle_string with items as vector of string into vector of string:
+    var res as vector of string is for x in items then x
     var n as int is calling res.len
     var i as int is n - 1
     while i > 0:
@@ -820,7 +820,7 @@ weave shuffle_string with items as list of string into list of string:
 ## ```pengu
 ## var x as maybe int is calling lot.choice with nums
 ## ```
-weave choice with items as list of int into maybe int:
+weave choice with items as vector of int into maybe int:
     var n as int is items.len
     if n <= 0:
         return maybe none
@@ -839,7 +839,7 @@ weave choice with items as list of int into maybe int:
 ## ```pengu
 ## var s as maybe string is calling lot.choice_string with words
 ## ```
-weave choice_string with items as list of string into maybe string:
+weave choice_string with items as vector of string into maybe string:
     var n as int is items.len
     if n <= 0:
         return maybe none
@@ -858,7 +858,7 @@ weave choice_string with items as list of string into maybe string:
 ## ## Nota
 ## The running total is an `i64` and the comparison is done in `float`, so
 ## weights whose sum exceeds `INT_MAX` no longer overflow (2.1.0 fix for B3).
-weave _weighted_index with weights as list of int, count as int into int:
+weave _weighted_index with weights as vector of int, count as int into int:
     var total as i64 is 0
     var i as int is 0
     while i < count:
@@ -894,7 +894,7 @@ weave _weighted_index with weights as list of int, count as int into int:
 ## ```pengu
 ## var pick as maybe int is calling lot.choice_weighted with items, weights
 ## ```
-weave choice_weighted with items as list of int, weights as list of int into maybe int:
+weave choice_weighted with items as vector of int, weights as vector of int into maybe int:
     var n as int is items.len
     if n <= 0 or n != weights.len:
         return maybe none
@@ -917,7 +917,7 @@ weave choice_weighted with items as list of int, weights as list of int into may
 ## ```pengu
 ## var pick as maybe string is calling lot.choice_weighted_string with items, weights
 ## ```
-weave choice_weighted_string with items as list of string, weights as list of int into maybe string:
+weave choice_weighted_string with items as vector of string, weights as vector of int into maybe string:
     var n as int is items.len
     if n <= 0 or n != weights.len:
         return maybe none
@@ -940,15 +940,15 @@ weave choice_weighted_string with items as list of string, weights as list of in
 ## ```pengu
 ## var hand as list of int is calling lot.sample with nums, 3
 ## ```
-weave sample with items as list of int, k as int into list of int:
-    var res as list of int is list of int
+weave sample with items as vector of int, k as int into vector of int:
+    var res as vector of int is vector of int
     var n as int is items.len
     if k <= 0 or n == 0:
         return res
     var take as int is k
     if take > n:
         set take is n
-    var sh as list of int is calling shuffle with items
+    var sh as vector of int is calling shuffle with items
     var i as int is 0
     while i < take:
         calling res.push with (sh at i)
@@ -969,8 +969,8 @@ weave sample with items as list of int, k as int into list of int:
 ## ```pengu
 ## var rolls as list of int is calling lot.sample_with_replacement with nums, 5
 ## ```
-weave sample_with_replacement with items as list of int, k as int into list of int:
-    var res as list of int is list of int
+weave sample_with_replacement with items as vector of int, k as int into vector of int:
+    var res as vector of int is vector of int
     var n as int is items.len
     if k <= 0 or n == 0:
         return res
@@ -993,15 +993,15 @@ weave sample_with_replacement with items as list of int, k as int into list of i
 ## ```pengu
 ## var sub as list of string is calling lot.sample_string with words, 2
 ## ```
-weave sample_string with items as list of string, k as int into list of string:
-    var res as list of string is list of string
+weave sample_string with items as vector of string, k as int into vector of string:
+    var res as vector of string is vector of string
     var n as int is items.len
     if k <= 0 or n == 0:
         return res
     var take as int is k
     if take > n:
         set take is n
-    var sh as list of string is calling shuffle_string with items
+    var sh as vector of string is calling shuffle_string with items
     var i as int is 0
     while i < take:
         calling res.push with (sh at i)
@@ -1021,8 +1021,8 @@ weave sample_string with items as list of string, k as int into list of string:
 ## ```pengu
 ## var order as list of int is calling lot.permutation with 10
 ## ```
-weave permutation with n as int into list of int:
-    var xs as list of int is list of int
+weave permutation with n as int into vector of int:
+    var xs as vector of int is vector of int
     if n <= 0:
         return xs
     var i as int is 0
@@ -1045,8 +1045,8 @@ weave permutation with n as int into list of int:
 ## ```pengu
 ## var rolls as list of int is calling lot.rand_choice_n with dice, 10
 ## ```
-weave rand_choice_n with items as list of int, k as int into list of int:
-    var res as list of int is list of int
+weave rand_choice_n with items as vector of int, k as int into vector of int:
+    var res as vector of int is vector of int
     var n as int is items.len
     if k <= 0 or n == 0:
         return res
@@ -1070,8 +1070,8 @@ weave rand_choice_n with items as list of int, k as int into list of int:
 ## ```pengu
 ## var picks as list of string is calling lot.rand_choice_n_string with words, 4
 ## ```
-weave rand_choice_n_string with items as list of string, k as int into list of string:
-    var res as list of string is list of string
+weave rand_choice_n_string with items as vector of string, k as int into vector of string:
+    var res as vector of string is vector of string
     var n as int is items.len
     if k <= 0 or n == 0:
         return res
@@ -1100,13 +1100,13 @@ weave rand_choice_n_string with items as list of string, k as int into list of s
 ## ```pengu
 ## var picks as list of int is calling lot.rand_sample_weighted with items, weights, 2
 ## ```
-weave rand_sample_weighted with items as list of int, weights as list of int, k as int into list of int:
-    var res as list of int is list of int
+weave rand_sample_weighted with items as vector of int, weights as vector of int, k as int into vector of int:
+    var res as vector of int is vector of int
     var n as int is items.len
     if k <= 0 or n == 0 or n != weights.len:
         return res
-    var pool as list of int is for x in items then x
-    var wts as list of int is for w in weights then w
+    var pool as vector of int is for x in items then x
+    var wts as vector of int is for w in weights then w
     var remaining as int is n
     var take as int is k
     if take > n:
@@ -1137,7 +1137,7 @@ weave rand_sample_weighted with items as list of int, weights as list of int, k 
 ## ```pengu
 ## var pick as maybe string is calling lot.rand_choice_shard with words
 ## ```
-weave rand_choice_shard shard T with items as list of T into maybe T:
+weave rand_choice_shard shard T with items as vector of T into maybe T:
     var n as int is calling items.len
     if n <= 0:
         return maybe none
@@ -1155,8 +1155,8 @@ weave rand_choice_shard shard T with items as list of T into maybe T:
 ## ```pengu
 ## var mixed as list of string is calling lot.rand_shuffle_shard with words
 ## ```
-weave rand_shuffle_shard shard T with items as list of T into list of T:
-    var res as list of T is for x in items then x
+weave rand_shuffle_shard shard T with items as vector of T into vector of T:
+    var res as vector of T is for x in items then x
     var n as int is calling res.len
     var i as int is n - 1
     while i > 0:
@@ -1181,15 +1181,15 @@ weave rand_shuffle_shard shard T with items as list of T into list of T:
 ## ```pengu
 ## var picks as list of string is calling lot.rand_sample_shard with words, 2
 ## ```
-weave rand_sample_shard shard T with items as list of T, k as int into list of T:
-    var res as list of T is list of T
+weave rand_sample_shard shard T with items as vector of T, k as int into vector of T:
+    var res as vector of T is vector of T
     var n as int is calling items.len
     if k <= 0 or n == 0:
         return res
     var take as int is k
     if take > n:
         set take is n
-    var sh as list of T is calling rand_shuffle_shard with items
+    var sh as vector of T is calling rand_shuffle_shard with items
     var i as int is 0
     while i < take:
         calling res.push with (sh at i)
@@ -1208,7 +1208,7 @@ weave rand_sample_shard shard T with items as list of T, k as int into list of T
 ## ```pengu
 ## var order as list of int is calling lot.rand_permutation_shard with nums
 ## ```
-weave rand_permutation_shard shard T with items as list of T into list of T:
+weave rand_permutation_shard shard T with items as vector of T into vector of T:
     return calling rand_shuffle_shard with items
 
 # ----------------------------------------------------------------------------
@@ -1332,7 +1332,7 @@ weave _hex_digit_upper with v as int into string:
 ##
 ## ## Retorno
 ## A new owned `string` of length `2 * len(data)`.
-weave _bytes_hex with data as list of int, upper as bool into string:
+weave _bytes_hex with data as vector of int, upper as bool into string:
     var out as string is ""
     for b in data:
         if upper:
@@ -1359,8 +1359,8 @@ weave _bytes_hex with data as list of int, upper as bool into string:
 ## ```pengu
 ## var raw as list of int is calling lot.rand_bytes with 16
 ## ```
-weave rand_bytes with n as int into list of int:
-    var res as list of int is list of int
+weave rand_bytes with n as int into vector of int:
+    var res as vector of int is vector of int
     if n <= 0:
         return res
     var i as int is 0
@@ -1448,7 +1448,7 @@ weave _b64_char with idx as int into string:
 ##
 ## ## Retorno
 ## A new owned `string` of length `4 * ceil(len / 3)`.
-weave _base64_encode with data as list of int into string:
+weave _base64_encode with data as vector of int into string:
     var out as string is ""
     var n as int is calling data.len
     var i as int is 0
@@ -1502,7 +1502,7 @@ weave rand_base64 with n as int into string:
 ## var id as string is calling lot.rand_uuid4
 ## ```
 weave rand_uuid4 into string:
-    var raw as list of int is calling rand_bytes with 16
+    var raw as vector of int is calling rand_bytes with 16
     set raw at 6 is (((raw at 6) & 15) | 64)
     set raw at 8 is (((raw at 8) & 63) | 128)
     var hex as string is calling _bytes_hex with raw, false
@@ -1605,7 +1605,7 @@ weave _lot_expect_finite with v as float, label as string into void:
         calling spark.panic with "{label}: out of range"
 
 ## Returns the sum of an int list.
-weave _lot_sum with xs as list of int into int:
+weave _lot_sum with xs as vector of int into int:
     var total as int is 0
     for x in xs:
         set total is total + x
@@ -1622,7 +1622,7 @@ weave _lot_has_char with s as string, c as string into bool:
     return false
 
 ## Returns true when every element of `xs` is distinct.
-weave _lot_all_distinct with xs as list of int into bool:
+weave _lot_all_distinct with xs as vector of int into bool:
     var n as int is xs.len
     var i as int is 0
     while i < n:
@@ -1818,31 +1818,31 @@ test "the range aliases agree with their targets":
         set i is i + 1
 
 test "BUG-6: shuffle permutes the list instead of rebuilding it element by element":
-    var xs as list of int is list of int
+    var xs as vector of int is vector of int
     var i as int is 0
     while i < 10:
         calling xs.push with i
         set i is i + 1
-    let mixed as list of int is calling shuffle with xs
+    let mixed as vector of int is calling shuffle with xs
     calling _lot_expect_eq_int with (calling mixed.len), 10, "shuffle keeps length"
     calling _lot_expect_eq_int with (calling _lot_sum with mixed), 45, "shuffle keeps the multiset"
-    let empty as list of int is list of int
-    let empty_mixed as list of int is calling shuffle with empty
+    let empty as vector of int is vector of int
+    let empty_mixed as vector of int is calling shuffle with empty
     calling _lot_expect_eq_int with (calling empty_mixed.len), 0, "empty shuffle"
 
 test "shuffle_string keeps every element of the input":
-    var words as list of string is list of string
+    var words as vector of string is vector of string
     calling words.push with "a"
     calling words.push with "b"
     calling words.push with "c"
-    let mixed as list of string is calling shuffle_string with words
+    let mixed as vector of string is calling shuffle_string with words
     calling _lot_expect_eq_int with (calling mixed.len), 3, "shuffle_string length"
 
 test "BUG-9: choice returns none on an empty list and a member otherwise":
-    let empty as list of int is list of int
+    let empty as vector of int is vector of int
     let none_pick as maybe int is calling choice with empty
     calling _lot_expect with (not (none_pick is present)), "empty choice"
-    var xs as list of int is list of int
+    var xs as vector of int is vector of int
     calling xs.push with 7
     calling xs.push with 8
     var i as int is 0
@@ -1852,15 +1852,15 @@ test "BUG-9: choice returns none on an empty list and a member otherwise":
         if pick is present:
             calling _lot_expect with (pick.value == 7 or pick.value == 8), "choice member"
         set i is i + 1
-    let words as list of string is list of string
+    let words as vector of string is vector of string
     let none_name as maybe string is calling choice_string with words
     calling _lot_expect with (not (none_name is present)), "empty choice_string"
 
 test "BUG-3: weighted choice cannot overflow with huge weights":
-    var items as list of int is list of int
+    var items as vector of int is vector of int
     calling items.push with 0
     calling items.push with 1
-    var weights as list of int is list of int
+    var weights as vector of int is vector of int
     calling weights.push with LOT_INT_MAX
     calling weights.push with LOT_INT_MAX
     var i as int is 0
@@ -1870,28 +1870,28 @@ test "BUG-3: weighted choice cannot overflow with huge weights":
         set i is i + 1
 
 test "choice_weighted rejects empty, mismatched and all-zero inputs":
-    let empty as list of int is list of int
-    let empty_w as list of int is list of int
+    let empty as vector of int is vector of int
+    let empty_w as vector of int is vector of int
     let a as maybe int is calling choice_weighted with empty, empty_w
     calling _lot_expect with (not (a is present)), "empty weighted"
-    var items as list of int is list of int
+    var items as vector of int is vector of int
     calling items.push with 1
     calling items.push with 2
-    var one_w as list of int is list of int
+    var one_w as vector of int is vector of int
     calling one_w.push with 5
     let b as maybe int is calling choice_weighted with items, one_w
     calling _lot_expect with (not (b is present)), "length mismatch"
-    var zero_w as list of int is list of int
+    var zero_w as vector of int is vector of int
     calling zero_w.push with 0
     calling zero_w.push with 0
     let c as maybe int is calling choice_weighted with items, zero_w
     calling _lot_expect with (not (c is present)), "zero weights"
 
 test "choice_weighted only ever returns a positively weighted item":
-    var items as list of int is list of int
+    var items as vector of int is vector of int
     calling items.push with 10
     calling items.push with 20
-    var weights as list of int is list of int
+    var weights as vector of int is vector of int
     calling weights.push with 0
     calling weights.push with 7
     var i as int is 0
@@ -1901,90 +1901,90 @@ test "choice_weighted only ever returns a positively weighted item":
         if pick is present:
             calling _lot_expect_eq_int with pick.value, 20, "zero weight is unreachable"
         set i is i + 1
-    var names as list of string is list of string
+    var names as vector of string is vector of string
     calling names.push with "x"
-    var name_w as list of int is list of int
+    var name_w as vector of int is vector of int
     calling name_w.push with 4
     let chosen as maybe string is calling choice_weighted_string with names, name_w
     calling _lot_expect with (chosen is present), "choice_weighted_string"
 
 test "sample draws distinct elements and clamps k to the pool size":
-    var xs as list of int is list of int
+    var xs as vector of int is vector of int
     var i as int is 0
     while i < 10:
         calling xs.push with i
         set i is i + 1
-    let hand as list of int is calling sample with xs, 5
+    let hand as vector of int is calling sample with xs, 5
     calling _lot_expect_eq_int with (calling hand.len), 5, "sample length"
     calling _lot_expect with (calling _lot_all_distinct with hand), "sample distinct"
-    let all as list of int is calling sample with xs, 99
+    let all as vector of int is calling sample with xs, 99
     calling _lot_expect_eq_int with (calling all.len), 10, "sample clamps k"
-    let none as list of int is calling sample with xs, 0
+    let none as vector of int is calling sample with xs, 0
     calling _lot_expect_eq_int with (calling none.len), 0, "sample k=0"
 
 test "sample_with_replacement returns exactly k draws":
-    var xs as list of int is list of int
+    var xs as vector of int is vector of int
     calling xs.push with 1
     calling xs.push with 2
-    let rolls as list of int is calling sample_with_replacement with xs, 7
+    let rolls as vector of int is calling sample_with_replacement with xs, 7
     calling _lot_expect_eq_int with (calling rolls.len), 7, "with replacement length"
-    var words as list of string is list of string
+    var words as vector of string is vector of string
     calling words.push with "a"
     calling words.push with "b"
-    let names as list of string is calling sample_string with words, 1
+    let names as vector of string is calling sample_string with words, 1
     calling _lot_expect_eq_int with (calling names.len), 1, "sample_string"
-    let order as list of int is calling permutation with 6
+    let order as vector of int is calling permutation with 6
     calling _lot_expect_eq_int with (calling order.len), 6, "permutation length"
-    let zero as list of int is calling permutation with 0
+    let zero as vector of int is calling permutation with 0
     calling _lot_expect_eq_int with (calling zero.len), 0, "permutation of nothing"
 
 test "rand_choice_n draws with replacement and rand_choice_n_string agrees":
-    var xs as list of int is list of int
+    var xs as vector of int is vector of int
     calling xs.push with 3
     calling xs.push with 4
-    let draws as list of int is calling rand_choice_n with xs, 9
+    let draws as vector of int is calling rand_choice_n with xs, 9
     calling _lot_expect_eq_int with (calling draws.len), 9, "rand_choice_n length"
     for d in draws:
         calling _lot_expect with (d == 3 or d == 4), "rand_choice_n member"
-    var words as list of string is list of string
+    var words as vector of string is vector of string
     calling words.push with "a"
-    let names as list of string is calling rand_choice_n_string with words, 4
+    let names as vector of string is calling rand_choice_n_string with words, 4
     calling _lot_expect_eq_int with (calling names.len), 4, "rand_choice_n_string length"
-    let empty as list of int is list of int
-    let none as list of int is calling rand_choice_n with empty, 4
+    let empty as vector of int is vector of int
+    let none as vector of int is calling rand_choice_n with empty, 4
     calling _lot_expect_eq_int with (calling none.len), 0, "empty pool"
 
 test "rand_sample_weighted draws distinct, positively weighted items":
-    var items as list of int is list of int
-    var weights as list of int is list of int
+    var items as vector of int is vector of int
+    var weights as vector of int is vector of int
     var i as int is 0
     while i < 6:
         calling items.push with i
         calling weights.push with (i + 1)
         set i is i + 1
-    let picks as list of int is calling rand_sample_weighted with items, weights, 4
+    let picks as vector of int is calling rand_sample_weighted with items, weights, 4
     calling _lot_expect_eq_int with (calling picks.len), 4, "weighted sample length"
     calling _lot_expect with (calling _lot_all_distinct with picks), "weighted sample distinct"
-    var zero_w as list of int is list of int
+    var zero_w as vector of int is vector of int
     calling zero_w.push with 0
     calling zero_w.push with 0
-    let bad as list of int is calling rand_sample_weighted with items, zero_w, 2
+    let bad as vector of int is calling rand_sample_weighted with items, zero_w, 2
     calling _lot_expect_eq_int with (calling bad.len), 0, "no positive weight"
 
 test "the generic shard helpers work on strings as well as ints":
-    var words as list of string is list of string
+    var words as vector of string is vector of string
     calling words.push with "a"
     calling words.push with "b"
     calling words.push with "c"
     let one as maybe string is calling rand_choice_shard with words
     calling _lot_expect with (one is present), "choice_shard"
-    let mixed as list of string is calling rand_shuffle_shard with words
+    let mixed as vector of string is calling rand_shuffle_shard with words
     calling _lot_expect_eq_int with (calling mixed.len), 3, "shuffle_shard"
-    let picks as list of string is calling rand_sample_shard with words, 2
+    let picks as vector of string is calling rand_sample_shard with words, 2
     calling _lot_expect_eq_int with (calling picks.len), 2, "sample_shard"
-    let perm as list of string is calling rand_permutation_shard with words
+    let perm as vector of string is calling rand_permutation_shard with words
     calling _lot_expect_eq_int with (calling perm.len), 3, "permutation_shard"
-    let empty as list of string is list of string
+    let empty as vector of string is vector of string
     let none as maybe string is calling rand_choice_shard with empty
     calling _lot_expect with (not (none is present)), "empty choice_shard"
 
@@ -2006,7 +2006,7 @@ test "the charset string generators respect their alphabet and length":
     calling _lot_expect_eq_string with blank, "", "empty charset"
 
 test "BUG-4: rand_bytes produces real bytes and rand_bytes_string packs them":
-    let raw as list of int is calling rand_bytes with 32
+    let raw as vector of int is calling rand_bytes with 32
     calling _lot_expect_eq_int with (calling raw.len), 32, "byte count"
     var saw_zero as bool is false
     var saw_high as bool is false
@@ -2018,7 +2018,7 @@ test "BUG-4: rand_bytes produces real bytes and rand_bytes_string packs them":
             set saw_high is true
     let packed as string is calling rand_bytes_string with 16
     calling _lot_expect_eq_int with packed.len, 16, "packed byte count"
-    let none as list of int is calling rand_bytes with 0
+    let none as vector of int is calling rand_bytes with 0
     calling _lot_expect_eq_int with (calling none.len), 0, "zero bytes"
 
 test "rand_bytes_hex hex-encodes real bytes and rand_hex_upper uppercases":

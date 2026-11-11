@@ -43,13 +43,13 @@ import std.toml
 alias YamlEntry as toml.TomlEntry
 
 ## Parses the supported YAML subset.
-weave parse with text as string into result of list of YamlEntry to string:
-    var entries as list of YamlEntry is list of YamlEntry
-    var paths as list of string is list of string
-    var indents as list of int is list of int
+weave parse with text as string into result of vector of YamlEntry to string:
+    var entries as vector of YamlEntry is vector of YamlEntry
+    var paths as vector of string is vector of string
+    var indents as vector of int is vector of int
     calling paths.push with ""
     calling indents.push with 0
-    let lines as list of string is calling text.split_lines
+    let lines as vector of string is calling text.split_lines
     var line_no as int is 0
     for raw in lines:
         set line_no is line_no + 1
@@ -88,7 +88,7 @@ weave parse with text as string into result of list of YamlEntry to string:
                     calling entries.push with (with key is (calling _yaml_copy with full), value is "", kind is toml.TOML_ARRAY)
                     let inner as string is calling value.get_substring with 1, ((value length) - 1)
                     var idx as int is 0
-                    var items as list of string is calling inner.split with ","
+                    var items as vector of string is calling inner.split with ","
                     for item in items:
                         let elem as string is calling _yaml_unquote with item
                         if (elem length) > 0:
@@ -111,22 +111,22 @@ weave parse with text as string into result of list of YamlEntry to string:
     return calling ok_of with entries
 
 ## Parses a YAML file.
-weave parse_file with path as string into result of list of YamlEntry to string:
+weave parse_file with path as string into result of vector of YamlEntry to string:
     var data as string is (calling archivum.read_file with path) or:
         return calling err_of with "cannot read YAML file"
-    let result as result of list of YamlEntry to string is calling parse with data
+    let result as result of vector of YamlEntry to string is calling parse with data
     banish data
     return result
 
 ## Releases every string in `entries` and then the list.
-weave free_entries with entries as list of YamlEntry into void:
+weave free_entries with entries as vector of YamlEntry into void:
     for e in entries:
         banish e.key
         banish e.value
     banish entries
 
 ## Returns the index of `key`, or -1.
-weave find with entries as list of YamlEntry, key as string into int:
+weave find with entries as vector of YamlEntry, key as string into int:
     var i as int is 0
     for e in entries:
         if e.key == key:
@@ -135,21 +135,21 @@ weave find with entries as list of YamlEntry, key as string into int:
     return 0 - 1
 
 ## Returns an owned copy of `key`'s value ("" when absent).
-weave get with entries as list of YamlEntry, key as string into string:
+weave get with entries as vector of YamlEntry, key as string into string:
     let i as int is calling find with entries, key
     if i < 0:
         return ""
     return calling _yaml_copy with (entries at i).value
 
 ## Releases a list of strings returned by an array helper.
-weave free_strings with values as list of string into void:
+weave free_strings with values as vector of string into void:
     for s in values:
         banish s
     banish values
 
 ## Returns every element of `key[0]`, `key[1]`, ... as owned strings.
-weave get_array with entries as list of YamlEntry, key as string into list of string:
-    var out as list of string is list of string
+weave get_array with entries as vector of YamlEntry, key as string into vector of string:
+    var out as vector of string is vector of string
     var i as int is 0
     while true:
         let sub as string is "{key}[{i}]"
@@ -174,7 +174,7 @@ antiquus _yaml_strdup with s as string into string:
 return pengu_string_copy(s);
 """
 
-weave _yaml_free_stack with paths as list of string, indents as list of int into void:
+weave _yaml_free_stack with paths as vector of string, indents as vector of int into void:
     for p in paths:
         banish p
     banish paths

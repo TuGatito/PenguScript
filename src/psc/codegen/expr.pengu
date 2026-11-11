@@ -1994,7 +1994,7 @@ weave generic_ref with c as ref to context.CgContext, node as int, ast as ref to
     if not (calling c->catalog.by_symbol.has with sid):
         return "NULL"
     var base_idx as int is calling c->catalog.by_symbol.get with sid
-    var args as list of int is list of int
+    var args as vector of int is vector of int
     defer banish args
     var n as int is calling astutil.child_count with ast, gargs
     var i as int is 0
@@ -2079,7 +2079,7 @@ weave is_string_type with c as ref to context.CgContext, ty as int into bool:
 ##
 ## ## Memoria
 ## `inits` toma el dueño del texto emitido; `names` recibe una copia.
-weave push_arg with c as ref to context.CgContext, sb as ref to StringBuilder, names as ref to list of string, inits as ref to list of string, anode as int, expected as int into void:
+weave push_arg with c as ref to context.CgContext, sb as ref to StringBuilder, names as ref to vector of string, inits as ref to vector of string, anode as int, expected as int into void:
     var sv as string is ""
     if expected > 0 and expected != types.TYPE_ID_CVARARGS:
         set sv is calling emit_expr_as with c, anode, expected
@@ -2510,7 +2510,7 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
             if fslot >= 0:
                 var qf0 as catalog.CgFunction is (c->catalog.functions at fslot)
                 if qf0.is_generic or qf0.tparams.len > 0:
-                    var qa0 as list of int is list of int
+                    var qa0 as vector of int is vector of int
                     var qargs as int is calling astutil.node_child with ast, node, 2
                     if qargs >= 0:
                         var qan as int is calling astutil.child_count with ast, qargs
@@ -2526,7 +2526,7 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
                                     if qaty > 0:
                                         calling qa0.push with qaty
                             set qai is qai + 1
-                    var qinf as list of int is calling generics.infer_from_actual with c, fslot, qa0
+                    var qinf as vector of int is calling generics.infer_from_actual with c, fslot, qa0
                     if qinf.len == qf0.tparams.len and qinf.len > 0:
                         var qsi as int is calling generics.add_spec with c, fslot, qinf
                         if qsi >= 0:
@@ -2553,7 +2553,7 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
                 set base_i is calling c->catalog.by_name.get with lnid_g
         if base_i >= 0:
             var bf as catalog.CgFunction is (c->catalog.functions at base_i)
-            var args as list of int is list of int
+            var args as vector of int is vector of int
             var ai as int is 0
             var an as int is calling astutil.child_count with ast, gargs
             while ai < an:
@@ -2596,7 +2596,7 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
             # Los argumentos nombrados se alinean con su parámetro; si no, la
             # inferencia de `shard` vería una lista vacía y la llamada quedaría
             # con el nombre base (C no compila).
-            var inf0 as list of int is calling generics.spec_args_for_call with c, fslot, -1, node
+            var inf0 as vector of int is calling generics.spec_args_for_call with c, fslot, -1, node
             if inf0.len == bfg.tparams.len and inf0.len > 0:
                 var si0 as int is calling generics.find_spec with c, bfg.symbol, inf0
                 # El prepass no siempre crea la instancia (p. ej. cuando la
@@ -2624,7 +2624,7 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
             if mrid > 0 and mg.recv_type > 0:
                 var mhost as int is calling cg_nominal_of with c, mrid
                 if mhost > 0:
-                    var mpath as list of int is calling cg_embed_path_soft with c, mhost, mg.recv_type, 0
+                    var mpath as vector of int is calling cg_embed_path_soft with c, mhost, mg.recv_type, 0
                     if mpath.len > 0:
                         var cur2 as int is mhost
                         var pj as int is 0
@@ -3208,8 +3208,8 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
         banish chain_call
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb
-    var tmp_names as list of string is list of string
-    var tmp_inits as list of string is list of string
+    var tmp_names as vector of string is vector of string
+    var tmp_inits as vector of string is vector of string
     calling sb.append with cname
     banish cname
     calling sb.append with "("
@@ -3253,13 +3253,13 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
                 set nfixed is fn_params_count - 1
     # `pos_nodes[i]` es el argumento posicional de la ranura i. Los nombrados
     # van en listas paralelas (ranura, nodo): son pocos y sólo se leen.
-    var pos_nodes as list of int is list of int
+    var pos_nodes as vector of int is vector of int
     defer banish pos_nodes
-    var named_slots as list of int is list of int
+    var named_slots as vector of int is vector of int
     defer banish named_slots
-    var named_nodes as list of int is list of int
+    var named_nodes as vector of int is vector of int
     defer banish named_nodes
-    var extras as list of int is list of int
+    var extras as vector of int is vector of int
     defer banish extras
     var n as int is 0
     if args >= 0:
@@ -4231,8 +4231,8 @@ weave cg_field_type with c as ref to context.CgContext, ty as int, fname as int 
 ##
 ## ## Memoria
 ## Asigna la lista; liberar con `banish`.
-weave cg_field_route with c as ref to context.CgContext, ty as int, fname as int into list of int:
-    var out as list of int is list of int
+weave cg_field_route with c as ref to context.CgContext, ty as int, fname as int into vector of int:
+    var out as vector of int is vector of int
     if ty <= 0:
         return out
     var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
@@ -4246,7 +4246,7 @@ weave cg_field_route with c as ref to context.CgContext, ty as int, fname as int
 ## ## Memoria
 ## Asigna la ruta temporal; no retiene `sb`.
 weave append_embed_path with c as ref to context.CgContext, sb as ref to StringBuilder, ty as int, fname as int, sep as string into void:
-    var path as list of int is calling cg_field_route with c, ty, fname
+    var path as vector of int is calling cg_field_route with c, ty, fname
     defer banish path
     var i as int is 0
     while i < path.len:
@@ -4523,8 +4523,8 @@ weave cg_nominal_of with c as ref to context.CgContext, ty as int into int:
 ##
 ## ## Memoria
 ## Devuelve una lista owned.
-weave cg_embed_path_to with c as ref to context.CgContext, ty as int, target as int, depth as int into list of int:
-    var out as list of int is list of int
+weave cg_embed_path_to with c as ref to context.CgContext, ty as int, target as int, depth as int into vector of int:
+    var out as vector of int is vector of int
     if depth > 32:
         return out
     var nom as int is calling cg_nominal_of with c, ty
@@ -4538,7 +4538,7 @@ weave cg_embed_path_to with c as ref to context.CgContext, ty as int, target as 
     while i < info.fields_count:
         var f as types.SemaField is (c->program->types.fields at (info.fields_first + i))
         if (f.flags & types.FIELD_EMBED) != 0:
-            var inner as list of int is calling cg_embed_path_to with c, f.type, target, depth + 1
+            var inner as vector of int is calling cg_embed_path_to with c, f.type, target, depth + 1
             var found as bool is false
             if (calling cg_nominal_of with c, f.type) == target:
                 set found is true
@@ -4579,11 +4579,11 @@ weave cg_template_of with c as ref to context.CgContext, ty as int into int:
 ##
 ## ## Memoria
 ## Devuelve una lista owned de índices de campo.
-weave cg_embed_path_soft with c as ref to context.CgContext, ty as int, target as int, depth as int into list of int:
-    var out as list of int is list of int
+weave cg_embed_path_soft with c as ref to context.CgContext, ty as int, target as int, depth as int into vector of int:
+    var out as vector of int is vector of int
     if depth > 32:
         return out
-    var exact as list of int is calling cg_embed_path_to with c, ty, target, 0
+    var exact as vector of int is calling cg_embed_path_to with c, ty, target, 0
     if exact.len > 0:
         banish out
         return exact
@@ -4601,10 +4601,10 @@ weave cg_embed_path_soft with c as ref to context.CgContext, ty as int, target a
             var fhom as int is calling cg_nominal_of with c, f.type
             if fhom >= 0 and want >= 0 and (calling cg_template_of with c, f.type) == want:
                 banish out
-                var one as list of int is list of int
+                var one as vector of int is vector of int
                 calling one.push with i
                 return one
-            var inner as list of int is calling cg_embed_path_soft with c, f.type, target, depth + 1
+            var inner as vector of int is calling cg_embed_path_soft with c, f.type, target, depth + 1
             if inner.len > 0:
                 banish out
                 calling inner.push with i
@@ -4654,7 +4654,7 @@ weave ensure_instance_method_spec with c as ref to context.CgContext, base_idx a
         return base_idx
     var bf as catalog.CgFunction is (c->catalog.functions at base_idx)
     if bf.is_method and bf.is_generic and not bf.is_spec and bf.tparams.len > 0:
-        var iargs as list of int is calling generics.type_args_of with c, recv_id
+        var iargs as vector of int is calling generics.type_args_of with c, recv_id
         if iargs.len == bf.tparams.len:
             var sii as int is calling generics.add_method_spec with c, base_idx, recv_id, iargs
             banish iargs
@@ -4679,7 +4679,7 @@ weave cg_promoted_embed_type with c as ref to context.CgContext, recv_node as in
     var host as int is calling cg_nominal_of with c, rt.type_id
     if host <= 0:
         return -1
-    var path as list of int is calling cg_embed_path_soft with c, host, want, 0
+    var path as vector of int is calling cg_embed_path_soft with c, host, want, 0
     defer banish path
     if path.len == 0:
         return -1
@@ -4726,7 +4726,7 @@ weave method_receiver with c as ref to context.CgContext, target as int, ast as 
     if rt.type_id > 0:
         var host as int is calling cg_nominal_of with c, rt.type_id
         if host > 0:
-            var path as list of int is calling cg_embed_path_soft with c, host, recv_type, 0
+            var path as vector of int is calling cg_embed_path_soft with c, host, recv_type, 0
             if path.len > 0:
                 var sb as StringBuilder is calling StringBuilder.new
                 defer banish sb
@@ -4795,7 +4795,7 @@ weave with_embed_path with c as ref to context.CgContext, base as string, base_t
     var wty as int is calling cg_nominal_of with c, want
     if host <= 0 or wty <= 0:
         return calling npool.copy_string with base
-    var path as list of int is calling cg_embed_path_soft with c, host, wty, 0
+    var path as vector of int is calling cg_embed_path_soft with c, host, wty, 0
     if path.len == 0:
         banish path
         return calling npool.copy_string with base
@@ -6067,16 +6067,16 @@ weave omen_init_expr with c as ref to context.CgContext, node as int, ast as ref
 ##
 ## ## Memoria
 ## `path`, `txt` y las listas pasan a ser owned por el llamador.
-weave push_init_entry with c as ref to context.CgContext, ty as int, name_tok as int, val as int, paths as ref to list of list of int, values as ref to list of int, tys as ref to list of int, leafs as ref to list of string into void:
+weave push_init_entry with c as ref to context.CgContext, ty as int, name_tok as int, val as int, paths as ref to vector of vector of int, values as ref to vector of int, tys as ref to vector of int, leafs as ref to vector of string into void:
     var m as loader.SemaModule is (c->program->modules at c->current_module)
     var txt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), name_tok
     var nid as int is calling npool.intern with (sigil of c->program->names), txt
-    var path as list of int is list of int
+    var path as vector of int is vector of int
     var route as int is calling embeds.route_into with (sigil of c->program->types), ty, nid, (sigil of path), 0
     if route != embeds.ROUTE_FOUND:
         # La sema ya emitió el diagnóstico; se emite plano para no romper el C.
         banish path
-        set path is list of int
+        set path is vector of int
     # Tipo del campo final: se recorre el camino hasta el embed que lo declara y
     # allí se busca el campo por nombre.
     var parent as int is ty
@@ -6113,7 +6113,7 @@ weave push_init_entry with c as ref to context.CgContext, ty as int, name_tok as
 ##
 ## ## Memoria
 ## Devuelve string owned; no consume las listas.
-weave grouped_init_body with c as ref to context.CgContext, ty_in as int, paths as list of list of int, values as list of int, tys as list of int, leafs as list of string into string:
+weave grouped_init_body with c as ref to context.CgContext, ty_in as int, paths as vector of vector of int, values as vector of int, tys as vector of int, leafs as vector of string into string:
     # C++ no admite designadores desordenados: recorre la runa en orden de
     # declaracion. C conserva el orden del fuente (embeds primero) para que el
     # bundle emitido siga siendo byte-identico al de la release anterior.
@@ -6125,7 +6125,7 @@ weave grouped_init_body with c as ref to context.CgContext, ty_in as int, paths 
 ##
 ## ## Memoria
 ## Devuelve string owned; no consume las listas.
-weave grouped_init_c with c as ref to context.CgContext, ty_in as int, paths as list of list of int, values as list of int, tys as list of int, leafs as list of string into string:
+weave grouped_init_c with c as ref to context.CgContext, ty_in as int, paths as vector of vector of int, values as vector of int, tys as vector of int, leafs as vector of string into string:
     # Un cuerpo genérico (`Box_grown_inst2`) construye `Box of T`: el tipo hay
     # que sustituirlo antes de nombrarlo en C.
     var ty as int is calling generics.subst_codegen with c, ty_in
@@ -6146,20 +6146,20 @@ weave grouped_init_c with c as ref to context.CgContext, ty_in as int, paths as 
                 var any as bool is false
                 var i as int is 0
                 while i < paths.len:
-                    var p as list of int is (paths at i)
+                    var p as vector of int is (paths at i)
                     if p.len > 0 and (p at 0) == f.name:
                         set any is true
                     set i is i + 1
                 if any:
-                    var sub as list of list of int is list of list of int
-                    var sv as list of int is list of int
-                    var st as list of int is list of int
-                    var sl as list of string is list of string
+                    var sub as vector of vector of int is vector of vector of int
+                    var sv as vector of int is vector of int
+                    var st as vector of int is vector of int
+                    var sl as vector of string is vector of string
                     set i is 0
                     while i < paths.len:
-                        var p2 as list of int is (paths at i)
+                        var p2 as vector of int is (paths at i)
                         if p2.len > 0 and (p2 at 0) == f.name:
-                            var np as list of int is list of int
+                            var np as vector of int is vector of int
                             var j as int is 1
                             while j < p2.len:
                                 calling np.push with (p2 at j)
@@ -6184,7 +6184,7 @@ weave grouped_init_c with c as ref to context.CgContext, ty_in as int, paths as 
             set fi is fi + 1
     var i2 as int is 0
     while i2 < paths.len:
-        var p3 as list of int is (paths at i2)
+        var p3 as vector of int is (paths at i2)
         if p3.len == 0:
             var fn2 as string is (leafs at i2)
             var vty as int is (tys at i2)
@@ -6203,7 +6203,7 @@ weave grouped_init_c with c as ref to context.CgContext, ty_in as int, paths as 
     return calling sb.finish
 
 
-weave grouped_init_decl_order with c as ref to context.CgContext, ty_in as int, paths as list of list of int, values as list of int, tys as list of int, leafs as list of string into string:
+weave grouped_init_decl_order with c as ref to context.CgContext, ty_in as int, paths as vector of vector of int, values as vector of int, tys as vector of int, leafs as vector of string into string:
     # Un cuerpo genérico (`Box_grown_inst2`) construye `Box of T`: el tipo hay
     # que sustituirlo antes de nombrarlo en C.
     var ty as int is calling generics.subst_codegen with c, ty_in
@@ -6220,7 +6220,7 @@ weave grouped_init_decl_order with c as ref to context.CgContext, ty_in as int, 
     else:
         calling sb.append with "({ct}){"
     var first as bool is true
-    var used as list of bool is list of bool
+    var used as vector of bool is vector of bool
     var iu as int is 0
     while iu < paths.len:
         calling used.push with false
@@ -6237,20 +6237,20 @@ weave grouped_init_decl_order with c as ref to context.CgContext, ty_in as int, 
                 var any as bool is false
                 var i as int is 0
                 while i < paths.len:
-                    var p as list of int is (paths at i)
+                    var p as vector of int is (paths at i)
                     if p.len > 0 and (p at 0) == f.name:
                         set any is true
                     set i is i + 1
                 if any:
-                    var sub as list of list of int is list of list of int
-                    var sv as list of int is list of int
-                    var st as list of int is list of int
-                    var sl as list of string is list of string
+                    var sub as vector of vector of int is vector of vector of int
+                    var sv as vector of int is vector of int
+                    var st as vector of int is vector of int
+                    var sl as vector of string is vector of string
                     set i is 0
                     while i < paths.len:
-                        var p2 as list of int is (paths at i)
+                        var p2 as vector of int is (paths at i)
                         if p2.len > 0 and (p2 at 0) == f.name:
-                            var np as list of int is list of int
+                            var np as vector of int is vector of int
                             var j as int is 1
                             while j < p2.len:
                                 calling np.push with (p2 at j)
@@ -6274,7 +6274,7 @@ weave grouped_init_decl_order with c as ref to context.CgContext, ty_in as int, 
             else:
                 var i3 as int is 0
                 while i3 < paths.len:
-                    var p4 as list of int is (paths at i3)
+                    var p4 as vector of int is (paths at i3)
                     if p4.len == 0 and (leafs at i3) == fnm:
                         var av as string is ""
                         var vty as int is (tys at i3)
@@ -6296,7 +6296,7 @@ weave grouped_init_decl_order with c as ref to context.CgContext, ty_in as int, 
     var i2 as int is 0
     while i2 < paths.len:
         if not (used at i2):
-            var p3 as list of int is (paths at i2)
+            var p3 as vector of int is (paths at i2)
             if p3.len == 0:
                 var fn2 as string is (leafs at i2)
                 var vty2 as int is (tys at i2)
@@ -6319,13 +6319,13 @@ weave grouped_init_decl_order with c as ref to context.CgContext, ty_in as int, 
 ## ## Memoria
 ## Strings owned.
 weave with_init_expr with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst, ty as int into string:
-    var paths as list of list of int is list of list of int
+    var paths as vector of vector of int is vector of vector of int
     defer banish paths
-    var values as list of int is list of int
+    var values as vector of int is vector of int
     defer banish values
-    var tys as list of int is list of int
+    var tys as vector of int is vector of int
     defer banish tys
-    var leafs as list of string is list of string
+    var leafs as vector of string is vector of string
     defer banish leafs
     var i as int is 0
     var n as int is calling astutil.child_count with ast, node
@@ -6351,13 +6351,13 @@ weave with_init_expr with c as ref to context.CgContext, node as int, ast as ref
 ## ## Memoria
 ## Strings owned.
 weave indent_init_expr with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst, ty as int into string:
-    var paths as list of list of int is list of list of int
+    var paths as vector of vector of int is vector of vector of int
     defer banish paths
-    var values as list of int is list of int
+    var values as vector of int is vector of int
     defer banish values
-    var tys as list of int is list of int
+    var tys as vector of int is vector of int
     defer banish tys
-    var leafs as list of string is list of string
+    var leafs as vector of string is vector of string
     defer banish leafs
     var entries as int is node
     var i as int is 0
@@ -6385,13 +6385,13 @@ weave struct_init_expr with c as ref to context.CgContext, node as int, ast as r
     var ty as int is wanted
     if ty < 0:
         set ty is calling node_type with c, node
-    var paths as list of list of int is list of list of int
+    var paths as vector of vector of int is vector of vector of int
     defer banish paths
-    var values as list of int is list of int
+    var values as vector of int is vector of int
     defer banish values
-    var tys as list of int is list of int
+    var tys as vector of int is vector of int
     defer banish tys
-    var leafs as list of string is list of string
+    var leafs as vector of string is vector of string
     defer banish leafs
     var i as int is 0
     var n as int is calling astutil.child_count with ast, node

@@ -528,7 +528,7 @@ return pengu_string_substring(s, start, end);
 ##
 ## ## Memoria
 ## Transfers the list to the caller and zeroes the box.
-antiquus _rpc_take_messages with r as ref to result of list of JsonRpcMessage to JsonRpcParseError into list of JsonRpcMessage:
+antiquus _rpc_take_messages with r as ref to result of vector of JsonRpcMessage to JsonRpcParseError into vector of JsonRpcMessage:
     r"""
 if (r && r->is_ok && r->ok_val) {
     PenguList out = *(PenguList *)r->ok_val;
@@ -547,7 +547,7 @@ return pengu_list_new(sizeof(JsonRpcMessage), 0);
 ##
 ## ## Memoria
 ## Transfers the list and frees only the box.
-antiquus _rpc_take_batch_items with r as ref to result of list of JsonRpcBatchItem to JsonRpcParseError into list of JsonRpcBatchItem:
+antiquus _rpc_take_batch_items with r as ref to result of vector of JsonRpcBatchItem to JsonRpcParseError into vector of JsonRpcBatchItem:
     r"""
 if (r && r->is_ok && r->ok_val) {
     PenguList out = *(PenguList *)r->ok_val;
@@ -797,7 +797,7 @@ weave _parse_message_value with root as json.JsonValue into result of JsonRpcMes
 ##
 ## ## Memoria
 ## Banishes each message recursively, then the list buffer.
-weave free_messages with msgs as list of JsonRpcMessage into void:
+weave free_messages with msgs as vector of JsonRpcMessage into void:
     var i as int is 0
     while i < msgs.len:
         banish msgs at i
@@ -818,7 +818,7 @@ weave free_messages with msgs as list of JsonRpcMessage into void:
 ##     var msgs as list of JsonRpcMessage is calling rpc.take_messages with (sigil of r)
 ##     calling rpc.free_messages with msgs
 ## ```
-weave take_messages with r as ref to result of list of JsonRpcMessage to JsonRpcParseError into list of JsonRpcMessage:
+weave take_messages with r as ref to result of vector of JsonRpcMessage to JsonRpcParseError into vector of JsonRpcMessage:
     return calling _rpc_take_messages with r
 
 # ----------------------------------------------------------------------------
@@ -876,7 +876,7 @@ enchanting JsonRpcError:
 ##
 ## ## Memoria
 ## Releases each message/error, then the list buffer.
-weave free_batch_items with items as list of JsonRpcBatchItem into void:
+weave free_batch_items with items as vector of JsonRpcBatchItem into void:
     var i as int is 0
     while i < items.len:
         banish items at i
@@ -890,7 +890,7 @@ weave free_batch_items with items as list of JsonRpcBatchItem into void:
 ##
 ## ## Retorno
 ## An owned list; release it with `free_batch_items`.
-weave take_batch_items with r as ref to result of list of JsonRpcBatchItem to JsonRpcParseError into list of JsonRpcBatchItem:
+weave take_batch_items with r as ref to result of vector of JsonRpcBatchItem to JsonRpcParseError into vector of JsonRpcBatchItem:
     return calling _rpc_take_batch_items with r
 
 ## Decodes a batch element by element, preserving per-element errors.
@@ -905,7 +905,7 @@ weave take_batch_items with r as ref to result of list of JsonRpcBatchItem to Js
 ## ## Retorno
 ## `ok list of JsonRpcBatchItem` (release with `free_batch_items`) or an outer
 ## `err JsonRpcParseError` when the whole array is invalid.
-weave parse_batch_items with s as string into result of list of JsonRpcBatchItem to JsonRpcParseError:
+weave parse_batch_items with s as string into result of vector of JsonRpcBatchItem to JsonRpcParseError:
     var pr as result of json.JsonValue to json.JsonError is calling json.parse with s
     if not pr.is_ok:
         var je as json.JsonError is calling _copy_json_error with pr.error
@@ -922,7 +922,7 @@ weave parse_batch_items with s as string into result of list of JsonRpcBatchItem
         banish pr
         return calling err_of with (calling _parse_error with JsonRpcErrorKind.EmptyBatch, m2, (maybe none))
 
-    var out as list of JsonRpcBatchItem is list of JsonRpcBatchItem
+    var out as vector of JsonRpcBatchItem is vector of JsonRpcBatchItem
     var ignored as int is judge root:
         when Arr with items ->
             for item in items:
@@ -1008,7 +1008,7 @@ weave parse_message with s as string into result of JsonRpcMessage to JsonRpcPar
 ##     calling rpc.free_messages with r.value
 ## banish r
 ## ```
-weave parse_batch with s as string into result of list of JsonRpcMessage to JsonRpcParseError:
+weave parse_batch with s as string into result of vector of JsonRpcMessage to JsonRpcParseError:
     var pr as result of json.JsonValue to json.JsonError is calling json.parse with s
     if not pr.is_ok:
         var je as json.JsonError is calling _copy_json_error with pr.error
@@ -1025,7 +1025,7 @@ weave parse_batch with s as string into result of list of JsonRpcMessage to Json
         banish pr
         return calling err_of with (calling _parse_error with JsonRpcErrorKind.EmptyBatch, m2, (maybe none))
 
-    var out as list of JsonRpcMessage is list of JsonRpcMessage
+    var out as vector of JsonRpcMessage is vector of JsonRpcMessage
     var ignored as int is judge root:
         when Arr with items ->
             for item in items:

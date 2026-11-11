@@ -22,13 +22,13 @@ const FFI_CALL_VERSION as string is "1.0.0"
 rune FfiSignature:
     _sig as opaque
 
-declare ccx_ffi_sig_new with ret as int, args as list of int into opaque
+declare ccx_ffi_sig_new with ret as int, args as vector of int into opaque
 declare ccx_ffi_sig_free with sig as opaque into void
-declare ccx_ffi_call with sig as opaque, fn as ref to void, args as list of ref to void, out as ref to void into bool
+declare ccx_ffi_call with sig as opaque, fn as ref to void, args as vector of ref to void, out as ref to void into bool
 declare ccx_ffi_ret_size with sig as opaque into int
 
 ## Builds a call signature. The result owns the signature on success.
-weave signature with ret as int, args as list of int into result of FfiSignature to string:
+weave signature with ret as int, args as vector of int into result of FfiSignature to string:
     var raw as opaque is calling ccx_ffi_sig_new with ret, args
     if raw == null:
         return calling err_of with "libffi: unsupported signature or allocation failure"
@@ -36,7 +36,7 @@ weave signature with ret as int, args as list of int into result of FfiSignature
 
 ## Calls `fn` with `args` (each element is a pointer to the argument value) and
 ## stores the return value in `out`. The caller owns the signature and output.
-weave call with fn as ref to void, sig as ref to FfiSignature, args as list of ref to void, out as ref to void into bool:
+weave call with fn as ref to void, sig as ref to FfiSignature, args as vector of ref to void, out as ref to void into bool:
     return calling ccx_ffi_call with sig->_sig, fn, args, out
 
 weave ret_size with sig as ref to FfiSignature into int:

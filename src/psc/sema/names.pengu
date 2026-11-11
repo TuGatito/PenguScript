@@ -49,16 +49,16 @@ weave copy_string with s as string into string:
 ## antes de liberar la lista. Usar `free_pool`.
 rune NamePool:
     ## Textos en orden de primera aparición; `NameId` es el índice.
-    strings as list of string
+    strings as vector of string
     ## Índice inverso para no duplicar.
-    ids as map of string to int
+    ids as map of string, int
 
 ## Crea un pool vacío.
 ##
 ## ## Memoria
 ## Asigna la lista y el mapa; liberar con `free_pool`.
 weave new_pool into NamePool:
-    return with strings is list of string, ids is map of string to int
+    return with strings is vector of string, ids is map of string, int
 
 ## Libera todos los nombres y el índice.
 ##

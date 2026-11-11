@@ -19,7 +19,7 @@ weave copy with s as string into string:
 weave is_git with s as string into bool:
     if calling ends_with with s, ".git":
         return true
-    var prefixes as list of string is list of string
+    var prefixes as vector of string is vector of string
     calling prefixes.push with "http://"
     calling prefixes.push with "https://"
     calling prefixes.push with "git://"
@@ -90,7 +90,7 @@ weave copy_local with src as string, dst as string, keep_lib as bool is false in
     var okd as bool is calling archivum.create_dir with dst, true
     if not okd:
         return false
-    var files as list of string is calling archivum.find_files with src, true
+    var files as vector of string is calling archivum.find_files with src, true
     var ok as bool is true
     for f in files:
         var relm as maybe string is calling compass.cp_relative_to with f, src
@@ -116,7 +116,7 @@ weave copy_local with src as string, dst as string, keep_lib as bool is false in
 weave clone_git with src as string, dst as string, ref as string into bool:
     if calling archivum.is_dir with dst:
         var ign as bool is calling archivum.remove_dir with dst, true
-    var args as list of string is list of string
+    var args as vector of string is vector of string
     calling args.push with (calling copy with "git")
     calling args.push with (calling copy with "clone")
     calling args.push with (calling copy with "--quiet")
@@ -135,7 +135,7 @@ weave clone_git with src as string, dst as string, ref as string into bool:
         var rb as ref to frozen byte is bytes of ref
         if ref length == 0 or ((rb at 0) to int) == 45:
             return false
-        var cargs as list of string is list of string
+        var cargs as vector of string is vector of string
         calling cargs.push with (calling copy with "git")
         calling cargs.push with (calling copy with "-C")
         calling cargs.push with (calling copy with dst)
@@ -191,15 +191,15 @@ weave commit with path as string into string:
     return head
 
 ## Tags git (`git ls-remote --tags URL`), sin `^{}`.
-weave tags with src as string into list of string:
-    var out as list of string is list of string
-    var args as list of string is list of string
+weave tags with src as string into vector of string:
+    var out as vector of string is vector of string
+    var args as vector of string is vector of string
     calling args.push with (calling copy with "ls-remote")
     calling args.push with (calling copy with "--tags")
     calling args.push with (calling copy with src)
     var pr as rites.ProcessResult is calling rites.run_capture_all with "git", args
     if pr.code == 0:
-        var lines as list of string is calling pr.out.split with "\n"
+        var lines as vector of string is calling pr.out.split with "\n"
         for line in lines:
             var tab as int is 0
             var b as ref to frozen byte is bytes of line

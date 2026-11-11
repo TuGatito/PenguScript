@@ -107,7 +107,7 @@ weave locate with exe as string into string:
     var pathv as maybe string is calling rites.getenv with "PATH"
     if pathv.is_present:
         var pv as string is calling copy with pathv.value
-        var parts as list of string is calling pv.split with ":"
+        var parts as vector of string is calling pv.split with ":"
         banish pv
         banish pathv.value
         banish pathv
@@ -139,8 +139,8 @@ weave print_help into void:
     calling spark.println with "  --helper-version, --print-helper"
 
 ## Ejecuta un helper con argv y devuelve su exit code.
-weave run_helper with helper as string, args as list of string into int:
-    var argv as list of string is list of string
+weave run_helper with helper as string, args as vector of string into int:
+    var argv as vector of string is vector of string
     calling argv.push with (calling copy with helper)
     for a in args:
         calling argv.push with (calling copy with a)
@@ -151,13 +151,13 @@ weave run_helper with helper as string, args as list of string into int:
     return code
 
 ## Implementa `psc bind`.
-weave run with args as list of string into int:
+weave run with args as vector of string into int:
     if args.len < 2:
         calling print_help
         return 2
     var helper_version as bool is false
     var print_helper as bool is false
-    var forward as list of string is list of string
+    var forward as vector of string is vector of string
     var have_header as bool is false
     var i as int is 2
     while i < args.len:
@@ -259,7 +259,7 @@ weave run with args as list of string into int:
         banish forward
         return 0
     if helper_version:
-        var vargs as list of string is list of string
+        var vargs as vector of string is vector of string
         calling vargs.push with (calling copy with "--version")
         var vcode as int is calling run_helper with helper, vargs
         banish vargs

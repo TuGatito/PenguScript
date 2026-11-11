@@ -78,12 +78,12 @@ weave check_line with as_json as bool, name as string, ok as bool, detail as str
 ##
 ## ## Memoria
 ## Libera ParseResult y Paths.
-weave run_doctor with args as list of string into int:
-    var vf as list of string is list of string
+weave run_doctor with args as vector of string into int:
+    var vf as vector of string is vector of string
     calling vf.push with "--target"
-    var sf as list of string is list of string
+    var sf as vector of string is vector of string
     calling sf.push with "--json"
-    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, vector of string
     if not pr.ok:
         var e as string is pr.error
         calling spark.eprintln with e

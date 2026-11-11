@@ -75,21 +75,21 @@ rune Subcommand:
 rune CommandParser:
     name as string
     description as string
-    positionals as list of Positional
-    options as list of Option
-    flags as list of Flag
-    subcommands as list of Subcommand
-    multi_options as list of MultiOption
+    positionals as vector of Positional
+    options as vector of Option
+    flags as vector of Flag
+    subcommands as vector of Subcommand
+    multi_options as vector of MultiOption
     version as string
 
 ## The outcome of an argument parse run.
 rune ParseResult:
-    values as map of string to string
-    flags as map of string to bool
-    errors as list of string
+    values as map of string, string
+    flags as map of string, bool
+    errors as vector of string
     subcommand as string
-    multi_keys as list of string
-    multi_vals as list of string
+    multi_keys as vector of string
+    multi_vals as vector of string
 
 # ----------------------------------------------------------------------------
 # CommandParser Construction
@@ -101,11 +101,11 @@ rune ParseResult:
 ## Memory: Allocates and returns a fresh CommandParser struct.
 ## Example: var p as CommandParser is calling invoke.new_parser with "git", "VCS tool"
 weave new_parser with name as string , description as string into CommandParser:
-    var p as list of Positional is list of Positional
-    var o as list of Option is list of Option
-    var f as list of Flag is list of Flag
-    var sc as list of Subcommand is list of Subcommand
-    var mo as list of MultiOption is list of MultiOption
+    var p as vector of Positional is vector of Positional
+    var o as vector of Option is vector of Option
+    var f as vector of Flag is vector of Flag
+    var sc as vector of Subcommand is vector of Subcommand
+    var mo as vector of MultiOption is vector of MultiOption
     return with name is name , description is description , positionals is p , options is o , flags is f , subcommands is sc , multi_options is mo , version is ""
 
 # ----------------------------------------------------------------------------
@@ -119,8 +119,8 @@ weave _levenshtein with a as string , b as string into int:
         return lb
     if lb == 0:
         return la
-    var v0 as list of int is list of int
-    var v1 as list of int is list of int
+    var v0 as vector of int is vector of int
+    var v1 as vector of int is vector of int
     var j as int is 0
     while j <= lb:
         calling v0.push with j
@@ -288,12 +288,12 @@ enchanting CommandParser:
         calling spark.println with (calling self.full_help)
 
     ## Internal parsing engine implementing options, flags, positionals, and subcommands.
-    weave parse_impl with argv as list of string , exit_on_help as bool into ParseResult:
-        var vals as map of string to string is map of string to string
-        var flgs as map of string to bool is map of string to bool
-        var errs as list of string is list of string
-        var mkeys as list of string is list of string
-        var mvals as list of string is list of string
+    weave parse_impl with argv as vector of string , exit_on_help as bool into ParseResult:
+        var vals as map of string, string is map of string, string
+        var flgs as map of string, bool is map of string, bool
+        var errs as vector of string is vector of string
+        var mkeys as vector of string is vector of string
+        var mvals as vector of string is vector of string
         var subcmd as string is ""
 
         var pos_idx as int is 0
@@ -556,15 +556,15 @@ enchanting CommandParser:
         return with values is vals , flags is flgs , errors is errs , subcommand is subcmd , multi_keys is mkeys , multi_vals is mvals
 
     ## Parses argv, printing help and exiting process on --help/-h.
-    weave parse with argv as list of string into ParseResult:
+    weave parse with argv as vector of string into ParseResult:
         return calling self.parse_impl with argv , true
 
     ## Parses argv without terminating process on --help/-h or --version.
-    weave parse_no_exit with argv as list of string into ParseResult:
+    weave parse_no_exit with argv as vector of string into ParseResult:
         return calling self.parse_impl with argv , false
 
     ## Parses argv or exits with error code and prints errors on failure.
-    weave parse_or_exit with argv as list of string , error_code as int is 1 into ParseResult:
+    weave parse_or_exit with argv as vector of string , error_code as int is 1 into ParseResult:
         var res as ParseResult is calling self.parse_no_exit with argv
         if calling res.is_err:
             calling spark.eprint_line with (calling res.errors_to_string)
@@ -572,7 +572,7 @@ enchanting CommandParser:
         return res
 
     ## Parses argv or prints errors followed by usage string and exits.
-    weave parse_or_usage with argv as list of string , error_code as int is 2 into ParseResult:
+    weave parse_or_usage with argv as vector of string , error_code as int is 2 into ParseResult:
         var res as ParseResult is calling self.parse_no_exit with argv
         if calling res.is_err:
             calling spark.eprint_line with (calling res.errors_to_string)
@@ -685,8 +685,8 @@ enchanting ParseResult:
         return fallback
 
     ## Returns all values collected for a MultiOption long name.
-    weave get_all with name as string into list of string:
-        var res as list of string is list of string
+    weave get_all with name as string into vector of string:
+        var res as vector of string is vector of string
         var i as int is 0
         while i < self->multi_keys.len:
             if (self->multi_keys at i) == name:
@@ -709,15 +709,15 @@ enchanting ParseResult:
         return self->errors.len > 0
 
     ## Returns a cloned map of all parsed positional and option string values.
-    weave to_map_values into map of string to string:
-        var res as map of string to string is map of string to string
+    weave to_map_values into map of string, string:
+        var res as map of string, string is map of string, string
         for k in self->values:
             calling res.put with k , (calling self->values.get with k)
         return res
 
     ## Returns a cloned map of all parsed flag boolean values.
-    weave to_map_flags into map of string to bool:
-        var res as map of string to bool is map of string to bool
+    weave to_map_flags into map of string, bool:
+        var res as map of string, bool is map of string, bool
         for k in self->flags:
             calling res.put with k , (calling self->flags.get with k)
         return res
