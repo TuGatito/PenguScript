@@ -128,41 +128,13 @@ int32_t consortium_rc_strong(const void* p) {
 
     return (int)pengu_rc_strong((void *)p);
 }
-int32_t consortium_rc_weak(const void* p) {
-
-    return (int)pengu_rc_weak_count((void *)p);
-}
 int32_t consortium_arc_strong(const void* p) {
 
     return (int)pengu_arc_strong((void *)p);
 }
-int32_t consortium_arc_weak(const void* p) {
-
-    return (int)pengu_arc_weak_count((void *)p);
-}
-void* consortium_rc_retain(void* p) {
-
-    return pengu_rc_retain(p);
-}
-void* consortium_rc_weak_new(void* p) {
-
-    return pengu_rc_weak_new(p);
-}
-void* consortium_rc_make_mut(void* p) {
-
-    return pengu_rc_make_mut(p);
-}
 void* consortium_arc_retain(void* p) {
 
     return pengu_arc_clone(p);
-}
-void* consortium_arc_weak_new(void* p) {
-
-    return pengu_arc_weak_new(p);
-}
-void* consortium_arc_make_mut(void* p) {
-
-    return pengu_arc_make_mut(p);
 }
 void spark_pengu_println(PenguString s) {
 
@@ -175,20 +147,10 @@ fputc('\n', stdout);
 void spark_println(PenguString s);
 int32_t pengu_main(void);
 Rc Rc_new_inst104(Node value);
-const Node* Rc_get_inst105(Rc* self);
-PenguMaybe Rc_get_mut_inst106(Rc* self);
-Node* Rc_make_mut_inst107(Rc* self);
 int32_t Rc_strong_count_inst108(Rc* self);
-int32_t Rc_weak_count_inst109(Rc* self);
-WeakRc Rc_downgrade_inst110(Rc* self);
-Rc Rc_clone_inst111(Rc* self);
 Arc Arc_new_inst112(Node value);
 Arc Arc_clone_inst113(Arc* self);
-const Node* Arc_get_inst114(Arc* self);
-Node* Arc_make_mut_inst115(Arc* self);
 int32_t Arc_strong_count_inst116(Arc* self);
-int32_t Arc_weak_count_inst117(Arc* self);
-WeakArc Arc_downgrade_inst118(Arc* self);
 
 
 #line 531 "std/spark.pengu"
@@ -238,53 +200,10 @@ Rc Rc_new_inst104(Node value) {
     return (Rc){.ptr = __extension__(({ int32_t _tm = 0; void* _td; pengu_transmute_copy(&_td, &_tm, sizeof(_td), sizeof(_tm)); _td; }))};
 }
 
-#line 148 "std/consortium.pengu"
-const Node* Rc_get_inst105(Rc* self) {
-    #line 149 "std/consortium.pengu"
-    return ((const Node*)(self->ptr));
-}
-
-#line 152 "std/consortium.pengu"
-PenguMaybe Rc_get_mut_inst106(Rc* self) {
-    #line 153 "std/consortium.pengu"
-    if (((consortium_rc_strong(self->ptr)) == 1) && ((consortium_rc_weak(self->ptr)) == 0)) {
-        #line 154 "std/consortium.pengu"
-        return __extension__(({ Node* _p = (((Node*)(self->ptr))); Node** _h = (Node**)malloc(sizeof(Node*)); if (!_h) abort(); *_h = _p; PenguMaybe _r = pengu_maybe_some(_h); _r; }));
-    }
-    #line 155 "std/consortium.pengu"
-    return pengu_maybe_none();
-}
-
-#line 158 "std/consortium.pengu"
-Node* Rc_make_mut_inst107(Rc* self) {
-    #line 159 "std/consortium.pengu"
-    self->ptr = ((void*)((consortium_rc_make_mut(self->ptr))));
-    #line 160 "std/consortium.pengu"
-    return ((Node*)(self->ptr));
-}
-
 #line 163 "std/consortium.pengu"
 int32_t Rc_strong_count_inst108(Rc* self) {
     #line 164 "std/consortium.pengu"
     return consortium_rc_strong(self->ptr);
-}
-
-#line 167 "std/consortium.pengu"
-int32_t Rc_weak_count_inst109(Rc* self) {
-    #line 168 "std/consortium.pengu"
-    return consortium_rc_weak(self->ptr);
-}
-
-#line 171 "std/consortium.pengu"
-WeakRc Rc_downgrade_inst110(Rc* self) {
-    #line 172 "std/consortium.pengu"
-    return (WeakRc){.ptr = ((void*)((consortium_rc_weak_new(self->ptr))))};
-}
-
-#line 175 "std/consortium.pengu"
-Rc Rc_clone_inst111(Rc* self) {
-    #line 176 "std/consortium.pengu"
-    return (Rc){.ptr = ((void*)((consortium_rc_retain(self->ptr))))};
 }
 
 #line 183 "std/consortium.pengu"
@@ -300,36 +219,10 @@ Arc Arc_clone_inst113(Arc* self) {
     return (Arc){.ptr = ((void*)((consortium_arc_retain(self->ptr))))};
 }
 
-#line 191 "std/consortium.pengu"
-const Node* Arc_get_inst114(Arc* self) {
-    #line 192 "std/consortium.pengu"
-    return ((const Node*)(self->ptr));
-}
-
-#line 195 "std/consortium.pengu"
-Node* Arc_make_mut_inst115(Arc* self) {
-    #line 196 "std/consortium.pengu"
-    self->ptr = ((void*)((consortium_arc_make_mut(self->ptr))));
-    #line 197 "std/consortium.pengu"
-    return ((Node*)(self->ptr));
-}
-
 #line 200 "std/consortium.pengu"
 int32_t Arc_strong_count_inst116(Arc* self) {
     #line 201 "std/consortium.pengu"
     return consortium_arc_strong(self->ptr);
-}
-
-#line 204 "std/consortium.pengu"
-int32_t Arc_weak_count_inst117(Arc* self) {
-    #line 205 "std/consortium.pengu"
-    return consortium_arc_weak(self->ptr);
-}
-
-#line 208 "std/consortium.pengu"
-WeakArc Arc_downgrade_inst118(Arc* self) {
-    #line 209 "std/consortium.pengu"
-    return (WeakArc){.ptr = ((void*)((consortium_arc_weak_new(self->ptr))))};
 }
 
 #line 1 "<psc-runtime>"

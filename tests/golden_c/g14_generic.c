@@ -28,28 +28,17 @@ struct Box__string;
 typedef struct Box__string Box__string;
 
 
-struct Box {
-    void* value;
-};
 struct Box__string {
     PenguString value;
 };
 
 
-static inline void _pengu_clone_Box(Box* out, const Box* v) {
-    (*out) = (*v);
-    ((*out)).value = ((*v)).value;
-}
 static inline void _pengu_clone_Box__string(Box__string* out, const Box__string* v) {
     (*out) = (*v);
     ((*out)).value = pengu_string_share_value(((*v)).value);
 }
 
-static inline void _pengu_cleanup_Box(Box* p);
 static inline void _pengu_cleanup_Box__string(Box__string* p);
-static inline void _pengu_cleanup_Box(Box* p) {
-    (void)p;
-}
 static inline void _pengu_cleanup_Box__string(Box__string* p) {
     (void)p;
     pengu_banish_string(&(p->value));

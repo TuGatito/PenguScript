@@ -211,7 +211,10 @@ weave emit_stmt with c as ref to context.CgContext, node as int into void:
                     defer banish tsb
                     var tct0 as string is calling ctype.c_type with (sigil of c->names), c->return_type
                     defer banish tct0
-                    calling tsb.append with "({tct0}){"
+                    if c->options.family == "cpp":
+                        calling tsb.append with "{tct0}{"
+                    else:
+                        calling tsb.append with "({tct0}){"
                     var ti0 as int is 0
                     while ti0 < rcnt:
                         var te as int is calling astutil.node_child with ast, node, ti0
@@ -433,7 +436,7 @@ weave emit_stmt with c as ref to context.CgContext, node as int into void:
         if blbl >= 0:
             var btxt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), blbl
             defer banish btxt
-            var bc as string is calling context.safe_c_name with btxt
+            var bc as string is calling context.safe_ident with c, btxt
             defer banish bc
             calling emit.line with (sigil of c->emitter), "goto _pengu_label_{bc}_break;"
         else:
@@ -446,7 +449,7 @@ weave emit_stmt with c as ref to context.CgContext, node as int into void:
         if clbl >= 0:
             var ctxt2 as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), clbl
             defer banish ctxt2
-            var cc as string is calling context.safe_c_name with ctxt2
+            var cc as string is calling context.safe_ident with c, ctxt2
             defer banish cc
             calling emit.line with (sigil of c->emitter), "goto _pengu_label_{cc}_continue;"
         else:
@@ -661,7 +664,7 @@ weave emit_for_in with c as ref to context.CgContext, node as int, ast as ref to
     if ntxt == "_":
         set cn is calling emit.temp with (sigil of c->emitter), "_discard"
     else:
-        set cn is calling context.safe_c_name with ntxt
+        set cn is calling context.safe_ident with c, ntxt
     defer banish cn
     # Segundo binding del `for i, item in ...`.
     var nid2 as int is -1
@@ -677,7 +680,7 @@ weave emit_for_in with c as ref to context.CgContext, node as int, ast as ref to
         if ntxt2 == "_":
             set cn2 is calling emit.temp with (sigil of c->emitter), "_discard"
         else:
-            set cn2 is calling context.safe_c_name with ntxt2
+            set cn2 is calling context.safe_ident with c, ntxt2
     var rk as pskind.NodeKind is calling astutil.kind_of with ast, range
     if rk == pskind.NodeKind.NdToExpr:
         var lo as int is calling astutil.node_child with ast, range, 0
@@ -978,7 +981,7 @@ weave emit_if_binding with c as ref to context.CgContext, node as int, cond_node
     var ntxt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), name_tok
     defer banish ntxt
     var nid as int is calling npool.intern with (sigil of c->program->names), ntxt
-    var cn as string is calling context.safe_c_name with ntxt
+    var cn as string is calling context.safe_ident with c, ntxt
     defer banish cn
     var ty as int is calling type_from_ast with c, m, type_node
     var ct as string is calling ctype.c_type with (sigil of c->names), ty
@@ -1242,7 +1245,7 @@ weave loop_label_c with c as ref to context.CgContext, ast as ref to psast.PsAst
     var m as loader.SemaModule is (c->program->modules at c->current_module)
     var txt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), lt
     defer banish txt
-    return calling context.safe_c_name with txt
+    return calling context.safe_ident with c, txt
 
 ## Declara usadas las etiquetas `break`/`continue` de un loop etiquetado.
 ##
@@ -1893,7 +1896,7 @@ weave emit_local with c as ref to context.CgContext, node as int, ast as ref to 
         set ty is calling generics.subst_codegen with c, ty
     var ct as string is calling ctype.c_type with (sigil of c->names), ty
     defer banish ct
-    var cn as string is calling context.safe_c_name with txt
+    var cn as string is calling context.safe_ident with c, txt
     defer banish cn
     var cdecl as string is calling ctype.declare with ct, cn
     defer banish cdecl

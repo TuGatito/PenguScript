@@ -90,15 +90,6 @@ struct SpawnBox3__A__B__C;
 typedef struct SpawnBox3__A__B__C SpawnBox3__A__B__C;
 
 
-struct Pair {
-    void* first;
-    void* second;
-};
-struct Triple {
-    void* first;
-    void* second;
-    void* third;
-};
 struct MaybeInt {
     bool is_present;
     int32_t value;
@@ -169,23 +160,8 @@ struct ThreadError {
     int32_t code;
     int32_t sys_code;
 };
-struct SpawnBox {
-    void (*fn)(void*);
-    void* arg;
-};
 struct SpawnBox0 {
     void (*fn)(void);
-};
-struct SpawnBox2 {
-    void (*fn)(void*, void*);
-    void* a0;
-    void* a1;
-};
-struct SpawnBox3 {
-    void (*fn)(void*, void*, void*);
-    void* a0;
-    void* a1;
-    void* a2;
 };
 struct Tls {
     void* _ptr;
@@ -234,17 +210,6 @@ struct SpawnBox3__A__B__C {
 #define oracle_ORACLE_VERSION pengu_string_from_cstr_len("2.14.0", 6)
 #define filum_FILUM_VERSION pengu_string_from_cstr_len("3.1.0", 5)
 
-static inline void _pengu_clone_Pair(Pair* out, const Pair* v) {
-    (*out) = (*v);
-    ((*out)).first = ((*v)).first;
-    ((*out)).second = ((*v)).second;
-}
-static inline void _pengu_clone_Triple(Triple* out, const Triple* v) {
-    (*out) = (*v);
-    ((*out)).first = ((*v)).first;
-    ((*out)).second = ((*v)).second;
-    ((*out)).third = ((*v)).third;
-}
 static inline void _pengu_clone_MaybeInt(MaybeInt* out, const MaybeInt* v) {
     (*out) = (*v);
     ((*out)).is_present = ((*v)).is_present;
@@ -332,27 +297,9 @@ static inline void _pengu_clone_ThreadError(ThreadError* out, const ThreadError*
     ((*out)).code = ((*v)).code;
     ((*out)).sys_code = ((*v)).sys_code;
 }
-static inline void _pengu_clone_SpawnBox(SpawnBox* out, const SpawnBox* v) {
-    (*out) = (*v);
-    ((*out)).fn = ((*v)).fn;
-    ((*out)).arg = ((*v)).arg;
-}
 static inline void _pengu_clone_SpawnBox0(SpawnBox0* out, const SpawnBox0* v) {
     (*out) = (*v);
     ((*out)).fn = ((*v)).fn;
-}
-static inline void _pengu_clone_SpawnBox2(SpawnBox2* out, const SpawnBox2* v) {
-    (*out) = (*v);
-    ((*out)).fn = ((*v)).fn;
-    ((*out)).a0 = ((*v)).a0;
-    ((*out)).a1 = ((*v)).a1;
-}
-static inline void _pengu_clone_SpawnBox3(SpawnBox3* out, const SpawnBox3* v) {
-    (*out) = (*v);
-    ((*out)).fn = ((*v)).fn;
-    ((*out)).a0 = ((*v)).a0;
-    ((*out)).a1 = ((*v)).a1;
-    ((*out)).a2 = ((*v)).a2;
 }
 static inline void _pengu_clone_Tls(Tls* out, const Tls* v) {
     (*out) = (*v);
@@ -406,8 +353,6 @@ static inline void _pengu_clone_SpawnBox3__A__B__C(SpawnBox3__A__B__C* out, cons
     ((*out)).a2 = ((*v)).a2;
 }
 
-static inline void _pengu_cleanup_Pair(Pair* p);
-static inline void _pengu_cleanup_Triple(Triple* p);
 static inline void _pengu_cleanup_MaybeInt(MaybeInt* p);
 static inline void _pengu_cleanup_MaybeFloat(MaybeFloat* p);
 static inline void _pengu_cleanup_MaybeString(MaybeString* p);
@@ -425,10 +370,7 @@ static inline void _pengu_cleanup_ChanFloat(ChanFloat* p);
 static inline void _pengu_cleanup_ChanBool(ChanBool* p);
 static inline void _pengu_cleanup_Thread(Thread* p);
 static inline void _pengu_cleanup_ThreadError(ThreadError* p);
-static inline void _pengu_cleanup_SpawnBox(SpawnBox* p);
 static inline void _pengu_cleanup_SpawnBox0(SpawnBox0* p);
-static inline void _pengu_cleanup_SpawnBox2(SpawnBox2* p);
-static inline void _pengu_cleanup_SpawnBox3(SpawnBox3* p);
 static inline void _pengu_cleanup_Tls(Tls* p);
 static inline void _pengu_cleanup_Pool(Pool* p);
 static inline void _pengu_cleanup_Blob(Blob* p);
@@ -439,12 +381,6 @@ static inline void _pengu_cleanup_Pair__list_int__list_string(Pair__list_int__li
 static inline void _pengu_cleanup_SpawnBox__A(SpawnBox__A* p);
 static inline void _pengu_cleanup_SpawnBox2__A__B(SpawnBox2__A__B* p);
 static inline void _pengu_cleanup_SpawnBox3__A__B__C(SpawnBox3__A__B__C* p);
-static inline void _pengu_cleanup_Pair(Pair* p) {
-    (void)p;
-}
-static inline void _pengu_cleanup_Triple(Triple* p) {
-    (void)p;
-}
 static inline void _pengu_cleanup_MaybeInt(MaybeInt* p) {
     (void)p;
 }
@@ -500,16 +436,7 @@ static inline void _pengu_cleanup_Thread(Thread* p) {
 static inline void _pengu_cleanup_ThreadError(ThreadError* p) {
     (void)p;
 }
-static inline void _pengu_cleanup_SpawnBox(SpawnBox* p) {
-    (void)p;
-}
 static inline void _pengu_cleanup_SpawnBox0(SpawnBox0* p) {
-    (void)p;
-}
-static inline void _pengu_cleanup_SpawnBox2(SpawnBox2* p) {
-    (void)p;
-}
-static inline void _pengu_cleanup_SpawnBox3(SpawnBox3* p) {
     (void)p;
 }
 static inline void _pengu_cleanup_Tls(Tls* p) {

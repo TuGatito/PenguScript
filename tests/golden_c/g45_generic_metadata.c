@@ -28,32 +28,19 @@ struct Pac__int;
 typedef struct Pac__int Pac__int;
 
 
-struct Pac {
-    void* a;
-    int32_t b;
-} __attribute__((packed));
 struct Pac__int {
     int32_t a;
     int32_t b;
 } __attribute__((packed));
 
 
-static inline void _pengu_clone_Pac(Pac* out, const Pac* v) {
-    (*out) = (*v);
-    ((*out)).a = ((*v)).a;
-    ((*out)).b = ((*v)).b;
-}
 static inline void _pengu_clone_Pac__int(Pac__int* out, const Pac__int* v) {
     (*out) = (*v);
     ((*out)).a = ((*v)).a;
     ((*out)).b = ((*v)).b;
 }
 
-static inline void _pengu_cleanup_Pac(Pac* p);
 static inline void _pengu_cleanup_Pac__int(Pac__int* p);
-static inline void _pengu_cleanup_Pac(Pac* p) {
-    (void)p;
-}
 static inline void _pengu_cleanup_Pac__int(Pac__int* p) {
     (void)p;
 }

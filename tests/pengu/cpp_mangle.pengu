@@ -3,6 +3,7 @@
 ## Cubre la tabla C++20 que usa el backend `--backend=cpp` (F0.2 de la
 ## migración): colisión → sufijo `_p`, y las keywords de C siguen colisionando.
 import std.spark
+import std.builder
 import psc.codegen.keywords as kw
 
 ## Compara y reporta.
@@ -55,6 +56,10 @@ weave check_cpp into int:
         return 1
     if (calling check with (calling kw.mangle_ident with "vec", "cpp"), "vec", "vec") != 0:
         return 1
+    if (calling check with (calling kw.mangle_ident with "start", "cpp"), "start", "start") != 0:
+        return 1
+    if (calling check with (calling kw.mangle_ident with "istart", "cpp"), "istart", "istart") != 0:
+        return 1
     return 0
 
 ## Casos del dialecto C: el comportamiento actual no cambia.
@@ -76,7 +81,24 @@ weave check_c into int:
         return 1
     return 0
 
+## Casos con vistas (slices) como las que produce el lexer.
+weave check_slices into int:
+    var src as string is "xxstart"
+    var sl as string is src at 2 to 7
+    if (calling check with (calling kw.mangle_ident with sl, "cpp"), "start", "slice start") != 0:
+        banish sl
+        return 1
+    banish sl
+    var sb as StringBuilder is calling StringBuilder.new
+    var out as string is calling sb.finish
+    if out != "":
+        banish out
+        return 1
+    return 0
+
 weave main into int:
+    if calling check_slices != 0:
+        return 1
     if calling check_cpp != 0:
         return 1
     if calling check_c != 0:

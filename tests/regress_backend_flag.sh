@@ -4,8 +4,9 @@
 # F0.1 añade la familia de backend al driver sin cambiar la salida:
 #   - `--backend=c` (o `--backend c`) se acepta y emite exactamente lo mismo
 #     que sin bandera (byte a byte);
-#   - `--backend=cpp` se rechaza con exit 2 y un mensaje que dice que llega en
-#     F1 (no se acepta en silencio para no mentir sobre el target);
+#   - `emit-c --backend=cpp` es el preview del dialecto C++ (F0.3): emite;
+#     `build`/`run` todavía rechazan `cpp` con exit 2 porque el enlazado C++
+#     no existe hasta F1;
 #   - un valor desconocido se rechaza con exit 2;
 #   - `--help` documenta la bandera.
 set -euo pipefail
@@ -52,8 +53,9 @@ expect_reject() {
   esac
 }
 
-expect_reject "emit-c --backend=cpp" "not implemented yet" \
-  "$PSC" emit-c "$WORK/main.pengu" --backend=cpp
+# `emit-c --backend=cpp` es el preview del dialecto (F0.3): acepta y emite.
+"$PSC" emit-c "$WORK/main.pengu" --backend=cpp --out="$WORK/cpp.c" >/dev/null
+[ -s "$WORK/cpp.c" ] || fail "emit-c --backend=cpp did not write a bundle"
 expect_reject "emit-c --backend=bogus" "must be 'c' or 'cpp'" \
   "$PSC" emit-c "$WORK/main.pengu" --backend=bogus
 expect_reject "build --backend=bogus" "must be 'c' or 'cpp'" \

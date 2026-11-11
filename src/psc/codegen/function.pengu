@@ -120,7 +120,7 @@ weave signature_spec with c as ref to context.CgContext, f as catalog.CgFunction
                     else:
                         set pct is calling tast.c_type_ast with c, m, pty
                     var pname as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), pt
-                    var psafe as string is calling context.safe_c_name with pname
+                    var psafe as string is calling context.safe_ident with c, pname
                     if calling has_fn_slot with pct:
                         var pnamed as string is calling name_fn_declarator with pct, psafe
                         calling sb.append with pnamed
@@ -308,7 +308,7 @@ weave signature with c as ref to context.CgContext, f as catalog.CgFunction into
                 calling sb.append with ", "
             var p as types.SemaFnParam is (c->program->types.fn_params at (info.params_first + i))
             var pn as string is calling pname_for with c, f, i
-            var pnsafe as string is calling context.safe_c_name with pn
+            var pnsafe as string is calling context.safe_ident with c, pn
             var pct as string is calling ctype.c_type with (sigil of c->names), p.type
             var pcb as ref to frozen byte is bytes of pct
             var pci as int is 0

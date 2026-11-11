@@ -3,6 +3,7 @@
 ## F3 guarda nombres lógicos; F4 decide el nombre C final. Esta tabla cachea
 ## tipos/símbolos y evita que dos módulos emitan el mismo identificador.
 
+import psc.codegen.keywords as keywords
 import psc.sema.names as npool
 import psc.sema.types.kind as tk
 import psc.sema.types.table as types
@@ -26,13 +27,16 @@ rune CgNames:
     symbol_names as map of int to int
     ## Sustitución de type params (`NameId -> TypeId`) de la función actual.
     subst as map of int to int
+    ## Familia del backend (`"c"` o `"cpp"`): decide el mangling de nombres
+    ## que chocan con palabras reservadas del target.
+    family as string
 
 ## Crea la tabla.
 ##
 ## ## Memoria
 ## Asigna los mapas; liberar con `free`.
-weave new_names with names as ref to npool.NamePool, types as ref to types.SemaTypeTable into CgNames:
-    return with names is names, types is types, type_names is map of int to int, symbol_names is map of int to int, subst is map of int to int
+weave new_names with names as ref to npool.NamePool, types as ref to types.SemaTypeTable, family as string into CgNames:
+    return with names is names, types is types, type_names is map of int to int, symbol_names is map of int to int, subst is map of int to int, family is family
 
 ## Libera la tabla.
 ##
@@ -43,6 +47,16 @@ weave names_free with n as ref to CgNames into void:
     banish n->symbol_names
     banish n->subst
 
+## Texto final de un `NameId` según la familia.
+##
+## ## Memoria
+## Devuelve string owned; liberar con `banish`.
+weave emit_text with n as ref to CgNames, nid as int into string:
+    if n->family != "cpp":
+        return calling npool.copy_string with (calling npool.text with n->names, nid)
+    var txt as string is calling npool.text with n->names, nid
+    return calling keywords.mangle_ident with txt, "cpp"
+
 ## Nombre C de un tipo nominal.
 ##
 ## ## Memoria
@@ -50,7 +64,7 @@ weave names_free with n as ref to CgNames into void:
 weave type_name with n as ref to CgNames, id as int into string:
     if calling n->type_names.has with id:
         var nid0 as int is calling n->type_names.get with id
-        return calling npool.copy_string with (calling npool.text with n->names, nid0)
+        return calling emit_text with n, nid0
     var ty as tk.SemaType is calling types.at with n->types, id
     var nid as int is -1
     if ty.kind == tk.SemaTypeKind.TkRune or ty.kind == tk.SemaTypeKind.TkEcho or ty.kind == tk.SemaTypeKind.TkOmen or ty.kind == tk.SemaTypeKind.TkAlias or ty.kind == tk.SemaTypeKind.TkSeal or ty.kind == tk.SemaTypeKind.TkConcept:
@@ -65,7 +79,7 @@ weave type_name with n as ref to CgNames, id as int into string:
     if nid < 0:
         return "void*"
     calling n->type_names.put with id, nid
-    return calling npool.copy_string with (calling npool.text with n->names, nid)
+    return calling emit_text with n, nid
 
 ## Nombre C final de un símbolo.
 ##
@@ -74,12 +88,12 @@ weave type_name with n as ref to CgNames, id as int into string:
 weave symbol_name with n as ref to CgNames, s as sym.SemaSymbol into string:
     if calling n->symbol_names.has with s.name:
         var sid0 as int is calling n->symbol_names.get with s.name
-        return calling npool.copy_string with (calling npool.text with n->names, sid0)
+        return calling emit_text with n, sid0
     var nid as int is s.c_name
     if nid < 0:
         set nid is s.name
     calling n->symbol_names.put with s.name, nid
-    return calling npool.copy_string with (calling npool.text with n->names, nid)
+    return calling emit_text with n, nid
 
 ## Nombre C de una función; `main` se renombra a `pengu_main`.
 ##
@@ -99,4 +113,4 @@ weave function_name with n as ref to CgNames, s as sym.SemaSymbol into string:
 weave local_name with n as ref to CgNames, nid as int into string:
     if nid < 0:
         return "_unused"
-    return calling npool.copy_string with (calling npool.text with n->names, nid)
+    return calling emit_text with n, nid

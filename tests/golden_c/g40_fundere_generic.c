@@ -30,9 +30,6 @@ struct Box__int;
 typedef struct Box__int Box__int;
 
 
-struct Box {
-    void* value;
-};
 struct Box__int {
     int32_t value;
 };
@@ -44,10 +41,6 @@ struct Holder {
 #define spark_SPARK_VERSION pengu_string_from_cstr_len("0.8.0-spark", 11)
 #define spark_STD_VERSION pengu_string_from_cstr_len("0.14.1", 6)
 
-static inline void _pengu_clone_Box(Box* out, const Box* v) {
-    (*out) = (*v);
-    ((*out)).value = ((*v)).value;
-}
 static inline void _pengu_clone_Holder(Holder* out, const Holder* v) {
     (*out) = (*v);
     ((*out)).box = ((*v)).box;
@@ -59,12 +52,8 @@ static inline void _pengu_clone_Box__int(Box__int* out, const Box__int* v) {
     ((*out)).value = ((*v)).value;
 }
 
-static inline void _pengu_cleanup_Box(Box* p);
 static inline void _pengu_cleanup_Holder(Holder* p);
 static inline void _pengu_cleanup_Box__int(Box__int* p);
-static inline void _pengu_cleanup_Box(Box* p) {
-    (void)p;
-}
 static inline void _pengu_cleanup_Holder(Holder* p) {
     (void)p;
     _pengu_cleanup_Box__int(&(p->box));

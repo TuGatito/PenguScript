@@ -108,6 +108,23 @@
 #define PENGU_ABI_VERSION 4
 
 /*
+ * Atomic counters for `Arc`/`WeakArc`.  C11 spells them `_Atomic int32_t`; C++
+ * has no such spelling, so a C++ translation unit (the C++ backend's gate in
+ * `tests/cpp_backend/`) sees `std::atomic<int32_t>` instead.  Both are 4-byte,
+ * trivially copyable, standard-layout scalars on every ABI the runtime supports,
+ * so the layout of `PenguArcHdr` is identical in C and C++.
+ *
+ * The runtime library itself is always compiled as C: this only makes the
+ * header includable from C++ without a `-D_Atomic=` hack.
+ */
+#if defined(__cplusplus)
+#  include <atomic>
+#  define PENGU_ATOMIC_INT32 ::std::atomic<int32_t>
+#else
+#  define PENGU_ATOMIC_INT32 _Atomic int32_t
+#endif
+
+/*
  * `align of T` in PenguScript. C11 `_Alignof` is exact; GCC/Clang keep working
  * under `-std=c99`; the last resort is `sizeof(T)`, which is conservative but
  * never smaller than the real alignment.
@@ -5953,8 +5970,8 @@ static inline void pengu_string_append(PenguString *dst, PenguString v)
   } PenguRcHdr;
 
   typedef struct PenguArcHdr {
-    _Atomic int32_t strong;
-    _Atomic int32_t weak;
+    PENGU_ATOMIC_INT32 strong;
+    PENGU_ATOMIC_INT32 weak;
     uint32_t magic;
     uint32_t pad;
     void (*drop)(void *);

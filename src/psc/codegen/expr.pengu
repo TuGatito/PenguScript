@@ -334,6 +334,19 @@ weave emit_expr with c as ref to context.CgContext, node as int into string:
                 if btx.kind == tk.SemaTypeKind.TkArray:
                     var asb0 as StringBuilder is calling StringBuilder.new
                     defer banish asb0
+                    if c->options.family == "cpp":
+                        # C++ exige los designadores en orden de declaracion:
+                        # PenguSlice es { data, len, elem_size }.
+                        calling asb0.append with "PenguSlice{.data = (void*)(&("
+                        calling asb0.append with bs0
+                        calling asb0.append with ")[0]), .len = (int)(("
+                        calling asb0.append with hit
+                        calling asb0.append with ") - ("
+                        calling asb0.append with lot
+                        calling asb0.append with ")), .elem_size = sizeof("
+                        calling asb0.append with bs0
+                        calling asb0.append with "[0])}"
+                        return calling asb0.finish
                     calling asb0.append with "(PenguSlice){.data = (void*)(&("
                     calling asb0.append with bs0
                     calling asb0.append with ")[0]), .elem_size = sizeof("
@@ -932,7 +945,7 @@ weave for_comp_expr with c as ref to context.CgContext, node as int, ast as ref 
     if ntxt == "_":
         set cname is calling emit.temp with (sigil of c->emitter), "_comp_x"
     else:
-        set cname is calling context.safe_c_name with ntxt
+        set cname is calling context.safe_ident with c, ntxt
     defer banish cname
     var nid as int is calling npool.intern with (sigil of c->program->names), ntxt
     var col_type as int is calling node_type with c, col
@@ -1479,7 +1492,24 @@ weave emit_expr_as with c as ref to context.CgContext, node as int, expected as 
             calling zsb2.append with "}"
             banish zel
             return calling zsb2.finish
-    return calling emit_expr with c, node
+    var vfin as string is calling emit_expr with c, node
+    # C++ no convierte `void*` a `T*` implicitamente: `return
+    # pengu_memoria_alloc(...)` en un `ref to T` necesita el cast.
+    if c->options.family == "cpp" and expected >= 0:
+        var et0 as tk.SemaType is calling types.at with (sigil of c->program->types), expected
+        if et0.kind == tk.SemaTypeKind.TkRef:
+            var ctsb as StringBuilder is calling StringBuilder.new
+            defer banish ctsb
+            var ects as string is calling ctype.c_type with (sigil of c->names), expected
+            defer banish ects
+            calling ctsb.append with "("
+            calling ctsb.append with ects
+            calling ctsb.append with ")("
+            calling ctsb.append with vfin
+            calling ctsb.append with ")"
+            banish vfin
+            return calling ctsb.finish
+    return vfin
 
 ## Emite una operación binaria.
 ##
@@ -3505,7 +3535,10 @@ weave if_expr_expected with c as ref to context.CgContext, node as int, ast as r
     defer banish sb
     calling sb.append with "__extension__(({ "
     calling sb.append with ct
-    calling sb.append with r" _pif = {0}; if ("
+    if c->options.family == "cpp":
+        calling sb.append with " _pif = {{}}; if ("
+    else:
+        calling sb.append with r" _pif = {0}; if ("
     calling sb.append with cv
     calling sb.append with ") { _pif = "
     calling sb.append with tv
@@ -3557,7 +3590,10 @@ weave if_stmt_value with c as ref to context.CgContext, node as int, ast as ref 
     calling sb.append with ct
     calling sb.append with " "
     calling sb.append with tmp
-    calling sb.append with " = {0}; if ("
+    if c->options.family == "cpp":
+        calling sb.append with " = {{}}; if ("
+    else:
+        calling sb.append with r" = {0}; if ("
     calling sb.append with cv
     calling sb.append with ") { "
     calling sb.append with tmp
@@ -3652,7 +3688,10 @@ weave judge_expr_c with c as ref to context.CgContext, node as int, ast as ref t
             calling sbn.append with rct0
             calling sbn.append with " "
             calling sbn.append with jr0
-            calling sbn.append with r" = {0}; bool "
+            if c->options.family == "cpp":
+                calling sbn.append with " = {{}}; bool "
+            else:
+                calling sbn.append with r" = {0}; bool "
             calling sbn.append with jm0
             calling sbn.append with " = false; "
             var gi0 as int is 0
@@ -3725,7 +3764,10 @@ weave judge_expr_c with c as ref to context.CgContext, node as int, ast as ref t
         calling sbn.append with rct0
         calling sbn.append with " "
         calling sbn.append with jr0
-        calling sbn.append with r" = {0}; switch ("
+        if c->options.family == "cpp":
+            calling sbn.append with " = {{}}; switch ("
+        else:
+            calling sbn.append with r" = {0}; switch ("
         calling sbn.append with jt0
         calling sbn.append with ") "
         calling sbn.append with r"{"
@@ -5742,14 +5784,26 @@ weave omen_variant_literal with c as ref to context.CgContext, ty as int, vname 
     defer banish vtext
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb
-    calling sb.append with "("
+    # C: literal compuesto `(E){...}`. C++ no tiene literales compuestos y no
+    # admite `.data.V = ...` (designador a traves de union), asi que usa
+    # `E{...}` y `.data = {.V = ...}`.
+    var cpp as bool is c->options.family == "cpp"
+    if not cpp:
+        calling sb.append with "("
     calling sb.append with ct
-    calling sb.append with "){.tag = "
+    if not cpp:
+        calling sb.append with ")"
+    calling sb.append with "{.tag = "
     calling sb.append with vn
     if calling omen_variant_has_payload with c, ty, vname:
-        calling sb.append with ", .data."
-        calling sb.append with vtext
-        calling sb.append with " = {0}"
+        if cpp:
+            calling sb.append with ", .data = {."
+            calling sb.append with vtext
+            calling sb.append with " = {0}}"
+        else:
+            calling sb.append with ", .data."
+            calling sb.append with vtext
+            calling sb.append with " = {0}"
     calling sb.append with "}"
     return calling sb.finish
 
@@ -5869,7 +5923,11 @@ weave omen_init_expr with c as ref to context.CgContext, node as int, ast as ref
     defer banish ct
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb
-    calling sb.append with "({ct}){.tag = "
+    var cpp as bool is c->options.family == "cpp"
+    if cpp:
+        calling sb.append with "{ct}{.tag = "
+    else:
+        calling sb.append with "({ct}){.tag = "
     var fi as int is calling astutil.node_child with ast, node, 0
     if fi < 0:
         calling sb.append with "0}"
@@ -5885,7 +5943,10 @@ weave omen_init_expr with c as ref to context.CgContext, node as int, ast as ref
     if (calling omen_first_payload with c, ty, vnid2) < 0:
         calling sb.append with "{ct}_{vn}}"
         return calling sb.finish
-    calling sb.append with "{ct}_{vn}, .data.{vn} = {"
+    if cpp:
+        calling sb.append with "{ct}_{vn}, .data = {.{vn} = {"
+    else:
+        calling sb.append with "{ct}_{vn}, .data.{vn} = {"
     var i as int is 0
     var n as int is calling astutil.child_count with ast, node
     while i < n:
@@ -5929,6 +5990,8 @@ weave omen_init_expr with c as ref to context.CgContext, node as int, ast as ref
     # Dos appends: en una interpolacion `}}` es una llave literal, asi que
     # `"}}"` emitia una sola y el literal compuesto quedaba sin cerrar.
     calling sb.append with "}"
+    if cpp:
+        calling sb.append with "}"
     calling sb.append with "}"
     return calling sb.finish
 
@@ -5991,6 +6054,18 @@ weave push_init_entry with c as ref to context.CgContext, ty as int, name_tok as
 ## ## Memoria
 ## Devuelve string owned; no consume las listas.
 weave grouped_init_body with c as ref to context.CgContext, ty_in as int, paths as list of list of int, values as list of int, tys as list of int, leafs as list of string into string:
+    # C++ no admite designadores desordenados: recorre la runa en orden de
+    # declaracion. C conserva el orden del fuente (embeds primero) para que el
+    # bundle emitido siga siendo byte-identico al de la release anterior.
+    if c->options.family == "cpp":
+        return calling grouped_init_decl_order with c, ty_in, paths, values, tys, leafs
+    return calling grouped_init_c with c, ty_in, paths, values, tys, leafs
+
+## Cuerpo de un inicializador con el orden del fuente (backend C).
+##
+## ## Memoria
+## Devuelve string owned; no consume las listas.
+weave grouped_init_c with c as ref to context.CgContext, ty_in as int, paths as list of list of int, values as list of int, tys as list of int, leafs as list of string into string:
     # Un cuerpo genérico (`Box_grown_inst2`) construye `Box of T`: el tipo hay
     # que sustituirlo antes de nombrarlo en C.
     var ty as int is calling generics.subst_codegen with c, ty_in
@@ -6063,6 +6138,118 @@ weave grouped_init_body with c as ref to context.CgContext, ty_in as int, paths 
             calling sb.append with ".{fn2} = {av}"
             set first is false
             banish av
+        set i2 is i2 + 1
+    calling sb.append with "}"
+    return calling sb.finish
+
+
+weave grouped_init_decl_order with c as ref to context.CgContext, ty_in as int, paths as list of list of int, values as list of int, tys as list of int, leafs as list of string into string:
+    # Un cuerpo genérico (`Box_grown_inst2`) construye `Box of T`: el tipo hay
+    # que sustituirlo antes de nombrarlo en C.
+    var ty as int is calling generics.subst_codegen with c, ty_in
+    var ct as string is calling ctype.c_type with (sigil of c->names), ty
+    defer banish ct
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    # C++ exige los designadores en orden de declaracion y no tiene literales
+    # compuestos: `T{...}` en vez de `(T){...}`, y los campos se emiten
+    # recorriendo la runa en orden, no en el orden del fuente.
+    var cpp as bool is c->options.family == "cpp"
+    if cpp:
+        calling sb.append with "{ct}{"
+    else:
+        calling sb.append with "({ct}){"
+    var first as bool is true
+    var used as list of bool is list of bool
+    var iu as int is 0
+    while iu < paths.len:
+        calling used.push with false
+        set iu is iu + 1
+    var ut as int is calling embeds.unwrap with (sigil of c->program->types), ty
+    var tt as tk.SemaType is calling types.at with (sigil of c->program->types), ut
+    if tt.kind == tk.SemaTypeKind.TkRune or tt.kind == tk.SemaTypeKind.TkEcho:
+        var info as types.SemaNominalInfo is (c->program->types.nominal_infos at tt.a)
+        var fi as int is 0
+        while fi < info.fields_count:
+            var f as types.SemaField is (c->program->types.fields at (info.fields_first + fi))
+            var fnm as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), f.name)
+            if (f.flags & types.FIELD_EMBED) != 0:
+                var any as bool is false
+                var i as int is 0
+                while i < paths.len:
+                    var p as list of int is (paths at i)
+                    if p.len > 0 and (p at 0) == f.name:
+                        set any is true
+                    set i is i + 1
+                if any:
+                    var sub as list of list of int is list of list of int
+                    var sv as list of int is list of int
+                    var st as list of int is list of int
+                    var sl as list of string is list of string
+                    set i is 0
+                    while i < paths.len:
+                        var p2 as list of int is (paths at i)
+                        if p2.len > 0 and (p2 at 0) == f.name:
+                            var np as list of int is list of int
+                            var j as int is 1
+                            while j < p2.len:
+                                calling np.push with (p2 at j)
+                                set j is j + 1
+                            calling sub.push with np
+                            calling sv.push with (values at i)
+                            calling st.push with (tys at i)
+                            calling sl.push with (leafs at i)
+                            set used at i is true
+                        set i is i + 1
+                    var inner as string is calling grouped_init_decl_order with c, f.type, sub, sv, st, sl
+                    if not first:
+                        calling sb.append with ", "
+                    calling sb.append with ".{fnm} = {inner}"
+                    set first is false
+                    banish inner
+                    banish sub
+                    banish sv
+                    banish st
+                    banish sl
+            else:
+                var i3 as int is 0
+                while i3 < paths.len:
+                    var p4 as list of int is (paths at i3)
+                    if p4.len == 0 and (leafs at i3) == fnm:
+                        var av as string is ""
+                        var vty as int is (tys at i3)
+                        if vty > 0:
+                            set av is calling emit_expr_as with c, (values at i3), vty
+                        else:
+                            set av is calling emit_expr with c, (values at i3)
+                        if not first:
+                            calling sb.append with ", "
+                        calling sb.append with ".{fnm} = {av}"
+                        set first is false
+                        banish av
+                        set used at i3 is true
+                    set i3 is i3 + 1
+            banish fnm
+            set fi is fi + 1
+    # Entradas cuyo campo no se reconocio por nombre: al final, para no perder
+    # el valor (la sema ya emitio el diagnostico).
+    var i2 as int is 0
+    while i2 < paths.len:
+        if not (used at i2):
+            var p3 as list of int is (paths at i2)
+            if p3.len == 0:
+                var fn2 as string is (leafs at i2)
+                var vty2 as int is (tys at i2)
+                var av2 as string is ""
+                if vty2 > 0:
+                    set av2 is calling emit_expr_as with c, (values at i2), vty2
+                else:
+                    set av2 is calling emit_expr with c, (values at i2)
+                if not first:
+                    calling sb.append with ", "
+                calling sb.append with ".{fn2} = {av2}"
+                set first is false
+                banish av2
         set i2 is i2 + 1
     calling sb.append with "}"
     return calling sb.finish

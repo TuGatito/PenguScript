@@ -71,7 +71,7 @@ weave emit_tuple with c as ref to context.CgContext, id as int into void:
 ## Strings temporales liberados.
 weave emit_const with c as ref to context.CgContext, k as catalog.CgConst into void:
     var raw as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), k.c_name)
-    var cname as string is calling context.safe_c_name with raw
+    var cname as string is calling context.safe_ident with c, raw
     banish raw
     defer banish cname
     var text as string is ""
