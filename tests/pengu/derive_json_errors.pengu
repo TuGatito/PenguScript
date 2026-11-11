@@ -5,7 +5,7 @@ import std.scrolls
 rune Item derive Json:
     name as string
     count as u8
-    tags as list of string
+    tags as vector of string
 
 omen Kind:
     Alpha

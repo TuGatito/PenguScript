@@ -5,7 +5,7 @@
 ## cambio de lowering en `codegen/drop.pengu` se ve aquí.
 import std.spark
 
-rune Label derive Nexus:
+rune Label:
     name as string
     weight as int
 
@@ -23,10 +23,10 @@ weave pick with good as bool into result of string to string:
 weave main into int:
     var s as string is "a" + "b"
     banish s
-    var xs as list of int is list of int
+    var xs as vector of int is vector of int
     calling xs.push with 1
     banish xs
-    var m as map of string to int is map of string to int
+    var m as map of string, int is map of string, int
     calling m.put with "k", 1
     banish m
     var mb as maybe string is some ("x" + "y")

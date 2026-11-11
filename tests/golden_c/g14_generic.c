@@ -44,6 +44,23 @@ static inline void _pengu_cleanup_Box__string(Box__string* p) {
     pengu_banish_string(&(p->value));
 }
 
+static inline bool _pengu_eqv_44(const void* a, const void* b);
+static inline bool _pengu_eqv_19(const void* a, const void* b);
+static inline bool _pengu_eq_Box__string(const Box__string* a, const Box__string* b);
+static inline bool _pengu_eqv_44(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Box__string(&((*((const Box__string*)a))), &((*((const Box__string*)b))));
+}
+static inline bool _pengu_eqv_19(const void* a, const void* b) {
+    (void)a; (void)b;
+    return pengu_string_equal((*((const PenguString*)a)), (*((const PenguString*)b)));
+}
+static inline bool _pengu_eq_Box__string(const Box__string* a, const Box__string* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return pengu_string_equal(a->value, b->value);
+}
+
 
 
 

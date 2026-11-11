@@ -1,7 +1,7 @@
 # `fundere` + embed `Nexus` (sin `Drop`): el host es copiable y `banish` lo
 # limpia; el cleanup compuesto no debe filtrar (ASan/LSan).
 
-rune Tag derive Nexus:
+rune Tag:
     label as string
 
 rune Entry fundere Tag:

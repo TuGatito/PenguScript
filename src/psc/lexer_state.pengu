@@ -30,7 +30,7 @@ import psc.token as pstoken
 import psc.diagnostics as psdiag
 
 ## Opciones de lexación.
-rune LexOptions derive Par, Nexus:
+rune LexOptions:
     ## Guardar comentarios como trivia.
     keep_comments as bool
     ## Emitir tokens `TokIndent`/`TokDedent` (además de `TokNewline`).
@@ -64,7 +64,7 @@ omen CommentKind:
 ##
 ## ## Memoria
 ## Valor puro: solo offsets y flags.
-rune Comment derive Par:
+rune Comment:
     ## Tipo de comentario.
     kind as CommentKind
     ## Offset inclusivo del `#`.
@@ -89,7 +89,7 @@ omen StringPartKind:
 ##
 ## ## Memoria
 ## Valor puro.
-rune StringPart derive Par:
+rune StringPart:
     ## Tipo.
     kind as StringPartKind
     ## Offset absoluto inclusivo.
@@ -105,7 +105,7 @@ rune StringPart derive Par:
 ##
 ## ## Memoria
 ## Valor puro.
-rune StringInfo derive Par:
+rune StringInfo:
     ## El literal es `r"..."` o `r"""..."""`.
     is_raw as bool
     ## El literal usa `"""`.
@@ -127,7 +127,7 @@ rune StringInfo derive Par:
 ##
 ## ## Memoria
 ## Valor puro.
-rune CharInfo derive Par:
+rune CharInfo:
     ## Offset del contenido (sin comillas).
     content_start as int
     ## Offset del byte siguiente al contenido.
@@ -141,7 +141,7 @@ rune CharInfo derive Par:
 ##
 ## ## Memoria
 ## Valor puro.
-rune AntiquusInfo derive Par:
+rune AntiquusInfo:
     ## Offset del primer byte del cuerpo (sin comillas).
     body_start as int
     ## Offset del byte siguiente al cuerpo.
@@ -157,7 +157,7 @@ rune AntiquusInfo derive Par:
 ##
 ## ## Memoria
 ## `banish result` libera las listas. Todos los elementos son POD.
-rune LexResult derive Nexus:
+rune LexResult:
     ## Tokens significativos, incluidos `Newline`/`Indent`/`Dedent`/`Eof`.
     tokens as vector of Token
     ## Comentarios capturados.

@@ -120,7 +120,7 @@ const REGULUS_MAX_CHAR_CLASS_BYTES as int is 40
 ## Owns `_pattern` and the compiled block behind `_compiled`. `banish regex`
 ## releases both through the derived `Nexus`. A `Regex` is immutable after
 ## compilation, so it can be shared by reference between functions.
-rune Regex derive Nexus:
+rune Regex:
     ## The pattern text, as passed to `compile`.
     _pattern as string
     ## The compiled program. `re_compile_dynamic` allocated one block; the
@@ -133,7 +133,7 @@ rune Regex derive Nexus:
 ## `start` and `end` are byte offsets, not codepoint indices. For ASCII patterns
 ## and text the distinction does not matter; for multibyte text, feed them to
 ## `std.lingua` when a codepoint range is needed.
-rune Match derive Par:
+rune Match:
     ## Byte offset of the first matched byte (inclusive).
     start as int
     ## Byte offset just past the last matched byte (exclusive).

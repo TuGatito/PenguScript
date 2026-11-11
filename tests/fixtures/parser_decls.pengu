@@ -6,10 +6,10 @@ insignia demo_
 
 const LIMIT as int is 10
 
-alias Numbers shard T as list of T
+alias Numbers shard T as vector of T
 seal Ratio as float
 
-rune Point cyclus derive Par:
+rune Point cyclus:
     x as int
     y as int
     next as ref to Point

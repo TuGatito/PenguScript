@@ -140,7 +140,7 @@ weave main into int:
     else:
         calling spark.println with "LOCATION BAD"
 
-    var sp as result of list of url.Param to js.JsError is calling location.search_params
+    var sp as result of vector of url.Param to js.JsError is calling location.search_params
     if sp.is_ok and sp.value.len == 1:
         calling spark.println with "LOCATION PARAMS OK"
         calling url.free_params with sp.value
@@ -169,7 +169,7 @@ weave main into int:
     else:
         calling spark.println with "UUID BAD"
 
-    var route as maybe list of url.Param is calling router.match with "/users/:id/files/*", "/users/42/files/a/b"
+    var route as maybe vector of url.Param is calling router.match with "/users/:id/files/*", "/users/42/files/a/b"
     if route is present and route.value.len == 2:
         calling spark.println with "ROUTER OK"
         calling router.free_params with route.value

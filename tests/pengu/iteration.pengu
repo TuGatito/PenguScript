@@ -7,13 +7,13 @@ rune Pair:
     left as int
     right as int
 
-weave sum_list with xs as list of int into int:
+weave sum_list with xs as vector of int into int:
     var t as int is 0
     for x in xs:
         set t is t + x
     return t
 
-weave sum_list_comp with xs as list of int into int:
+weave sum_list_comp with xs as vector of int into int:
     var t as int is 0
     for x in for v in xs then v:
         set t is t + x
@@ -21,9 +21,9 @@ weave sum_list_comp with xs as list of int into int:
 
 weave main into int:
     # list
-    var empty as list of int is list of int
-    var one as list of int is [7]
-    var many as list of int is [1, 2, 3]
+    var empty as vector of int is vector of int
+    var one as vector of int is [7]
+    var many as vector of int is [1, 2, 3]
     if (calling sum_list with empty) != 0:
         return 1
     if (calling sum_list with one) != 7:
@@ -52,7 +52,7 @@ weave main into int:
         return 6
 
     # slice
-    var sl as slice of int is arr at 0 to 3
+    var sl as span of int is arr at 0 to 3
     var stot as int is 0
     for x in sl:
         set stot is stot + x
@@ -90,7 +90,7 @@ weave main into int:
         return 12
 
     # map: clave y valor
-    var m as map of string to int is {"a": 1, "b": 2, "c": 3}
+    var m as map of string, int is {"a": 1, "b": 2, "c": 3}
     var msum as int is 0
     var keys as int is 0
     for k, v in m:

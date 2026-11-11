@@ -52,7 +52,7 @@ weave main into int:
     banish broken
 
     # Query strings: both sides encoded, keys sorted byte-wise, no leading '?'.
-    var params as map of string to string is map of string to string
+    var params as map of string, string is map of string, string
     calling params.put with "b", "2"
     calling params.put with "a", "1 2"
     calling params.put with "c", "x&y"
@@ -60,7 +60,7 @@ weave main into int:
     calling eq_s with query, "a=1%202&b=2&c=x%26y", "sorted encoded query"
     banish query
 
-    var empty as map of string to string is map of string to string
+    var empty as map of string, string is map of string, string
     var no_query as string is calling petitio.build_query_string with empty
     calling eq_i with (no_query length), 0, "empty query"
     banish no_query

@@ -45,6 +45,23 @@ static inline void _pengu_cleanup_Pac__int(Pac__int* p) {
     (void)p;
 }
 
+static inline bool _pengu_eqv_39(const void* a, const void* b);
+static inline bool _pengu_eqv_6(const void* a, const void* b);
+static inline bool _pengu_eq_Pac__int(const Pac__int* a, const Pac__int* b);
+static inline bool _pengu_eqv_39(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Pac__int(&((*((const Pac__int*)a))), &((*((const Pac__int*)b))));
+}
+static inline bool _pengu_eqv_6(const void* a, const void* b) {
+    (void)a; (void)b;
+    return (((*((const int32_t*)a))) == ((*((const int32_t*)b))));
+}
+static inline bool _pengu_eq_Pac__int(const Pac__int* a, const Pac__int* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->a) == (b->a)) && ((a->b) == (b->b));
+}
+
 
 
 

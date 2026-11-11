@@ -372,7 +372,7 @@ weave main into int:
     if not lenr.is_ok or lenr.value != 1:
         calling spark.println with "storage length mismatch"
         return 1
-    var keys as result of list of string to js.JsError is calling storage.local_keys
+    var keys as result of vector of string to js.JsError is calling storage.local_keys
     if not keys.is_ok or keys.value.len != 1 or (keys.value at 0) != "k":
         calling spark.println with "storage keys mismatch"
         return 1
@@ -402,7 +402,7 @@ weave main into int:
         calling spark.println with "storage clear failed"
         return 1
     calling storage.local_remove with "k"
-    var rnd as result of list of u8 to js.JsError is calling crypto.random_bytes with 16
+    var rnd as result of vector of u8 to js.JsError is calling crypto.random_bytes with 16
     if not rnd.is_ok or rnd.value.len != 16:
         calling spark.println with "crypto random_bytes failed"
         return 1

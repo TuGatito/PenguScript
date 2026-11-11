@@ -1,6 +1,6 @@
 # Cada string empujado se libera; la lista libera su buffer.
 weave main into int:
-    var xs as list of string is list of string
+    var xs as vector of string is vector of string
     calling xs.push with "a"
     calling xs.push with "b"
     calling xs.push with "c"

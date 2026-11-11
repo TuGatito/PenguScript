@@ -5,8 +5,8 @@ import std.spark
 ## solo para el que muta, y el original no cambia.
 
 weave list_paths into int:
-    var a as list of int is [1]
-    var b as list of int is a
+    var a as vector of int is [1]
+    var b as vector of int is a
     if not (calling a.is_shared):
         return 1
     if (calling a.ref_count) != 2:
@@ -27,8 +27,8 @@ weave list_paths into int:
     return 0
 
 weave list_make_unique into int:
-    var a as list of int is [1]
-    var b as list of int is a
+    var a as vector of int is [1]
+    var b as vector of int is a
     calling b.make_unique
     if calling b.is_shared:
         return 1
@@ -40,9 +40,9 @@ weave list_make_unique into int:
     return 0
 
 weave map_paths into int:
-    var m as map of string to int is map of string to int
+    var m as map of string, int is map of string, int
     calling m.put with "k", 1
-    var n as map of string to int is m
+    var n as map of string, int is m
     if (calling m.len) != 1:
         return 1
     calling n.put with "j", 2
@@ -55,8 +55,8 @@ weave map_paths into int:
     return 0
 
 weave nested into int:
-    var a as list of list of int is [[1, 2]]
-    var b as list of list of int is a
+    var a as vector of vector of int is [[1, 2]]
+    var b as vector of vector of int is a
     calling b.push with [3]
     if (calling a.len) != 1:
         return 1

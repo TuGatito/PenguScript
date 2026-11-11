@@ -88,7 +88,7 @@ weave main into int:
 
     # --- split returns borrowed views into the receiver. ------------------
     let csv as string is "a,b,c"
-    var parts as list of string is calling csv.split with ","
+    var parts as vector of string is calling csv.split with ","
     if parts.len != 3:
         banish parts
         return calling fail with "split length"

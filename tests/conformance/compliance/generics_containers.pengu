@@ -3,9 +3,9 @@ import std.spark
 import std.atlas
 
 ## Cuenta cuántas claves cumplen `pred`.
-weave count_matching shard K and V with m as map of K to V, pred as weave with v as V into bool into int:
+weave count_matching shard K and V with m as map of K, V, pred as weave with v as V into bool into int:
     var n as int is 0
-    var ks as list of K is calling m.keys
+    var ks as vector of K is calling m.keys
     for k in ks:
         if calling pred with (calling m.get_or with k, (calling m.get with k)):
             set n is n + 1
@@ -15,7 +15,7 @@ weave positive with v as int into bool:
     return v > 0
 
 weave main into int:
-    var m as map of string to int is map of string to int
+    var m as map of string, int is map of string, int
     calling m.put with "a", 1
     calling m.put with "b", -2
     calling m.put with "c", 5

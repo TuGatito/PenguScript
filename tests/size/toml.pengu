@@ -3,7 +3,7 @@ import std.spark
 import std.toml
 
 weave main into int:
-    var entries as result of list of TomlEntry to string is calling toml.parse with "a = 1\nb = \"x\"\n"
+    var entries as result of vector of TomlEntry to string is calling toml.parse with "a = 1\nb = \"x\"\n"
     if entries.is_ok:
         calling println with calling spark.str_int with (calling toml.get_int with entries.value, "a", 0)
     banish entries

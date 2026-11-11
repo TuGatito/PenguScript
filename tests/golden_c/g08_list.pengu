@@ -1,6 +1,6 @@
 ## Golden: lista, push, recorrido y liberación.
 weave main into int:
-    var xs as list of int is [1, 2, 3]
+    var xs as vector of int is [1, 2, 3]
     calling xs.push with 4
     var total as int is 0
     for x in xs:

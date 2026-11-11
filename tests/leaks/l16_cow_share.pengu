@@ -4,14 +4,14 @@ import std.spark
 ## los dos bindings. Bajo ASan/LSan no debe quedar nada vivo.
 
 weave main into int:
-    var a as list of int is [1, 2, 3]
-    var b as list of int is a
-    var c as list of int is b
+    var a as vector of int is [1, 2, 3]
+    var b as vector of int is a
+    var c as vector of int is b
     calling c.push with 4
     calling b.push with 5
-    var m as map of string to int is map of string to int
+    var m as map of string, int is map of string, int
     calling m.put with "a", 1
-    var n as map of string to int is m
+    var n as map of string, int is m
     calling n.put with "b", 2
     var t as string is "texto"
     var u as string is t

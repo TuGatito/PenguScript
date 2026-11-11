@@ -13,7 +13,7 @@ import psc.ast.kind as pskind
 import psc.parse.state as psstate
 import psc.parse.api as psapi
 
-rune ParseFixture derive Nexus:
+rune ParseFixture:
     src as SourceFile
     bag as DiagnosticBag
     kw as KeywordTable

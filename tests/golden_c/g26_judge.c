@@ -32,6 +32,18 @@ static inline void _pengu_clone_State(State* out, const State* v) {
 }
 
 
+static inline bool _pengu_eqv_36(const void* a, const void* b);
+static inline bool _pengu_eq_State(const State* a, const State* b);
+static inline bool _pengu_eqv_36(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_State(&((*((const State*)a))), &((*((const State*)b))));
+}
+static inline bool _pengu_eq_State(const State* a, const State* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return (*a) == (*b);
+}
+
 
 
 

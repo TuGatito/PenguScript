@@ -36,9 +36,9 @@ weave main into int:
         banish sb
         var jr as result of json.JsonValue to json.JsonError is calling json.parse with raw
         banish jr
-        var tr as result of list of toml.TomlEntry to string is calling toml.parse with raw
+        var tr as result of vector of toml.TomlEntry to string is calling toml.parse with raw
         banish tr
-        var yr as result of list of yaml.YamlEntry to string is calling yaml.parse with raw
+        var yr as result of vector of yaml.YamlEntry to string is calling yaml.parse with raw
         banish yr
         var mr as result of bool to regulus.RegexError is calling regulus.is_match with "[a-z]+", raw
         banish mr

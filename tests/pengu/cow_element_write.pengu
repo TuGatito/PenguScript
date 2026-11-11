@@ -5,8 +5,8 @@
 import std.spark
 
 weave list_int into int:
-    var a as list of int is [1, 2, 3]
-    var b as list of int is a
+    var a as vector of int is [1, 2, 3]
+    var b as vector of int is a
     set b at 0 is 9
     if (a at 0) != 1:
         banish a
@@ -30,8 +30,8 @@ weave list_int into int:
 # modelo de propiedad de contenedores (P6/P7) retenga al leer.
 
 weave list_string into int:
-    var a as list of string is ["uno", "dos"]
-    var b as list of string is a
+    var a as vector of string is ["uno", "dos"]
+    var b as vector of string is a
     set b at 1 is ("tres" + "!")
     if (a at 1) != "dos":
         banish a

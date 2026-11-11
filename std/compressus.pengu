@@ -202,7 +202,7 @@ omen CompressionFormat:
 ## ## Memoria
 ## Derives `Nexus`, so releasing a `result` that carries an error releases the
 ## `reason` string. `message` returns an owned description; `banish` it.
-omen CompressError derive Nexus:
+omen CompressError:
     ## The caller passed something no format can represent: a NUL byte in a
     ## gzip filename, an empty filename, `CompressionFormat.Auto` to a
     ## compressor, or an input whose compressed/decompressed output would

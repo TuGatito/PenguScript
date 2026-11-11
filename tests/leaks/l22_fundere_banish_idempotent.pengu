@@ -1,7 +1,7 @@
 # R3: banishear el embed y luego el host no fuga ni libera dos veces.
 import std.filum
 
-rune GameObj derive Nexus:
+rune GameObj:
     label as string
 
 rune Enemy fundere GameObj:

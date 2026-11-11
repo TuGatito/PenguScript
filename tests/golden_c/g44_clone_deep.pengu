@@ -1,8 +1,8 @@
 import std.filum
 
-rune Blob derive Nexus:
+rune Blob:
     name as string
-    values as list of int
+    values as vector of int
 
 antiquus clone_blob with b as Blob into Blob:
     r"""

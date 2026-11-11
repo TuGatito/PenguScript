@@ -124,7 +124,7 @@ const DIAGNOSTIC_ANSI_HINT as string is "\x1b[1;36m"
 ##
 ## ## Memoria
 ## Owns `file`; `banish span` releases it.
-rune Span derive Nexus, Par, Imago:
+rune Span:
     ## Logical path of the file (`""` for a position without a file).
     file as string
     ## 1-indexed first line.
@@ -155,7 +155,7 @@ omen Severity:
 ##
 ## ## Memoria
 ## Owns its `span` (and therefore the file path) and its `message`.
-rune Label derive Nexus, Par, Imago:
+rune Label:
     ## The marked range.
     span as Span
     ## The text printed next to the marker.
@@ -171,7 +171,7 @@ rune Label derive Nexus, Par, Imago:
 ##
 ## ## Memoria
 ## Owns every field; `banish d` releases the labels, messages and related list.
-rune Diagnostic derive Nexus, Par, Imago:
+rune Diagnostic:
     ## The severity.
     severity as Severity
     ## A stable code such as `"E0005"` or `"my-lint-rule"`; `""` for no code.
@@ -188,7 +188,7 @@ rune Diagnostic derive Nexus, Par, Imago:
     related as vector of Diagnostic
 
 ## Render options.
-rune RenderOptions derive Par:
+rune RenderOptions:
     ## Request ANSI colour (still subject to `NO_COLOR` and TTY detection).
     color as bool
     ## Lines of context around the marked lines (default `2`).
@@ -210,7 +210,7 @@ rune RenderOptions derive Par:
 ## ## Memoria
 ## Owns `items` and `_sources`. `banish bag` releases everything, including the
 ## nested diagnostics and the copied source texts.
-rune DiagnosticBag derive Nexus:
+rune DiagnosticBag:
     ## The diagnostics in insertion order.
     items as vector of Diagnostic
     ## Number of `Error` diagnostics (kept in sync by `add`).

@@ -13,7 +13,7 @@ import psc.sema.names as npool
 insignia psc_dap_mi_
 
 ## Campo `clave=valor` de un registro MI.
-rune MiField derive Nexus:
+rune MiField:
     key as string
     value as string
 

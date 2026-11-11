@@ -1164,17 +1164,30 @@ weave collect_derives with s as ref to state.SemaState, node as int, ty as int, 
                         var dty2 as tk.SemaType is calling types.at with s->types, did
                         var dname as string is calling npool.text with s->names, dty2.name
                         if dname == "Json":
+                            # JSON sale de alcance en F5: hasta entonces el
+                            # codec derivado sigue siendo la única forma de
+                            # serializar, así que se conserva.
                             set wants_json is true
-                        if dname == "Drop":
+                            calling types.add_derived with s->types, did
+                            set dcount is dcount + 1
+                        else if dname == "Drop":
+                            # `derive Drop` se sustituye por `born mirror` (o por
+                            # `weave die` sin copia) en F2.3, que llega justo
+                            # después: se conserva para no dejar la semántica
+                            # move-only sin lowering entre medias.
                             set wants_drop is true
                             var dinfo0 as types.SemaNominalInfo is (s->types->nominal_infos at info_idx)
                             if dinfo0.kind != tk.SemaNominalKind.NkRune:
                                 calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, dt), (calling astutil.end_of with s->ast, dt), "concept 'Drop' can only be derived by a rune", "Declare the type with 'rune' or drop the concept.", ""
-                        if dname == "Real":
-                            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, dt), (calling astutil.end_of with s->ast, dt), "concept 'Real' cannot be derived", "Implement Real explicitly or derive Nexus/Par/Ordo.", ""
-                        else:
                             calling types.add_derived with s->types, did
                             set dcount is dcount + 1
+                        else:
+                            # `Par`, `Ordo`, `Nexus`, `Imago`, `Vinculum` y
+                            # `Donum` ya no aportan nada: sus efectos son
+                            # implícitos. Retirados en F2 (ver
+                            # docs/LANGUAGECPP.es.md, apéndice D.1).
+                            var help as string is "'==' and '<=>' are automatic (Par/Ordo), every rune owns and releases its fields (Nexus), copying is the default (Imago), and hashing is 'bind T with Vinculum' plus 'weave hash'. Remove the concept from the clause."
+                            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, dt), (calling astutil.end_of with s->ast, dt), "concept '{dname}' is retired in the C++ dialect", help, ""
                 set dj is dj + 1
         set di is di + 1
     var dinfo as types.SemaNominalInfo is (s->types->nominal_infos at info_idx)

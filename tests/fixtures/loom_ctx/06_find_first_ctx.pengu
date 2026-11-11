@@ -6,7 +6,7 @@ weave above with limit as ref to int, x as int into bool:
 
 weave main into int:
     var limit as int is 2
-    var xs as list of int is [1, 3, 4]
+    var xs as vector of int is [1, 3, 4]
     var found as maybe int is calling loom.find_first_ctx with xs, (sigil of limit), above
     if value as int is found:
         calling spark.println with "{value}"

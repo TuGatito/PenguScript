@@ -49,7 +49,7 @@ weave main into int:
     set arr at 2 is 3
     if (calling sum with arr) != 6:
         return 4
-    var sl as slice of int is arr at 0 to 3
+    var sl as span of int is arr at 0 to 3
     if (calling sum with sl) != 6:
         return 5
     if (calling join with ",") != "":
@@ -58,7 +58,7 @@ weave main into int:
         return 7
     if (calling first with 7, 8, 9) != 7:
         return 8
-    var names as list of string is list of string
+    var names as vector of string is vector of string
     calling names.push with "x"
     calling names.push with "y"
     if (calling join with "+", names at 0 to 2) != "x+y":

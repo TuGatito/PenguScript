@@ -119,7 +119,7 @@ import std.spark
 ##     set .first is 1
 ##     set .second is "one"
 ## ```
-rune Pair shard A and B derive Par, Vinculum, Imago, Nexus:
+rune Pair shard A and B:
     first as A
     second as B
 
@@ -132,7 +132,7 @@ rune Pair shard A and B derive Par, Vinculum, Imago, Nexus:
 ##
 ## ## Retorno
 ## A value rune deriving `Par`, `Vinculum`, `Imago` and `Nexus`, like `Pair`.
-rune Triple shard A and B and C derive Par, Vinculum, Imago, Nexus:
+rune Triple shard A and B and C:
     first as A
     second as B
     third as C

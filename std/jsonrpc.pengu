@@ -94,7 +94,7 @@ const INTERNAL_ERROR as int is -32603
 ##
 ## ## Memoria
 ## `String` owns its text; `banish id` releases it.
-omen JsonRpcId derive Nexus, Par, Imago:
+omen JsonRpcId:
     ## An integer id (`i64`; JSON-RPC numbers are integers here).
     Number with value as i64
     ## A string id.
@@ -104,7 +104,7 @@ omen JsonRpcId derive Nexus, Par, Imago:
 ##
 ## ## Memoria
 ## Owns `message` and `data`; `banish err` releases both.
-rune JsonRpcError derive Nexus, Par, Imago:
+rune JsonRpcError:
     ## A numeric error code. The five standard codes are constants above.
     code as int
     ## A short human-readable description.
@@ -122,7 +122,7 @@ rune JsonRpcError derive Nexus, Par, Imago:
 ##
 ## ## Memoria
 ## Owns every payload; `banish msg` releases the whole message.
-omen JsonRpcMessage derive Nexus, Par, Imago:
+omen JsonRpcMessage:
     ## A call that expects a response.
     RpcRequest with id as JsonRpcId, method as string, params as maybe json.JsonValue
     ## A call that expects no response.
@@ -166,7 +166,7 @@ omen JsonRpcErrorKind:
 ##
 ## ## Memoria
 ## Owns `message` and `json_error`; `banish e` releases both.
-rune JsonRpcParseError derive Nexus, Par, Imago:
+rune JsonRpcParseError:
     ## The structural error category.
     kind as JsonRpcErrorKind
     ## A human-readable explanation.
@@ -181,7 +181,7 @@ rune JsonRpcParseError derive Nexus, Par, Imago:
 ##
 ## ## Memoria
 ## Owns either payload; `banish item` releases it.
-rune JsonRpcBatchItem derive Nexus, Par:
+rune JsonRpcBatchItem:
     ## The decoded message, when the element was valid.
     message as maybe JsonRpcMessage
     ## Why the element was rejected, when it was not.
@@ -195,7 +195,7 @@ rune JsonRpcBatchItem derive Nexus, Par:
 ##
 ## ## Memoria
 ## Owns `message`; `banish frame` releases it.
-rune FramedDecode derive Nexus, Par:
+rune FramedDecode:
     ## The decoded message, or `none` for an incomplete frame.
     message as maybe JsonRpcMessage
     ## Number of bytes consumed from the input buffer.

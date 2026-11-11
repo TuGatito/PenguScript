@@ -42,7 +42,7 @@ weave range_member into int:
     return inside
 
 weave range_comp into int:
-    var doubled as list of int is for i in 0 to 4 then i * 2
+    var doubled as vector of int is for i in 0 to 4 then i * 2
     return doubled.len * 100 + (doubled at 3)
 
 weave main into int:

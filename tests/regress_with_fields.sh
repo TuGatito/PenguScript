@@ -12,7 +12,7 @@ esac
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 
 cat >"$tmp/bad_field.pengu" <<'PENGU'
-rune P derive Nexus:
+rune P:
     x as int
 weave main into int:
     var a as P is with z is 1
@@ -26,7 +26,7 @@ printf '%s' "$out" | grep -q "parenthesized" \
   || { echo "FAIL: falta la ayuda de paréntesis"; echo "$out"; exit 1; }
 
 cat >"$tmp/dup_field.pengu" <<'PENGU'
-rune P derive Nexus:
+rune P:
     x as int
     y as int
 weave main into int:
@@ -40,9 +40,9 @@ printf '%s' "$out" | grep -q "initialized twice" \
 
 cat >"$tmp/nested.pengu" <<'PENGU'
 import std.spark
-rune P derive Nexus:
+rune P:
     x as int
-rune Q derive Nexus:
+rune Q:
     p as P
     y as int
 weave main into int:

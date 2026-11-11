@@ -86,7 +86,7 @@ const BUILDER_DEFAULT_CAPACITY as int is 64
 ## ## Memoria
 ## The builder owns `_data`. Release the whole builder with `banish` (or
 ## `defer banish`); `finish` transfers the buffer away and resets the builder.
-rune StringBuilder derive Nexus:
+rune StringBuilder:
     _data as string
     _len as int
     _cap as int

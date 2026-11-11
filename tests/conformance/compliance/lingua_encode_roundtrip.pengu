@@ -6,9 +6,9 @@ import std.ward
 import std.lingua
 
 weave roundtrip with original as string into void:
-    var decoded as result of list of Codepoint to LinguaError is calling lingua.decode with original
+    var decoded as result of vector of Codepoint to LinguaError is calling lingua.decode with original
     calling ward.assert_true with decoded.is_ok
-    var cps as list of Codepoint is decoded.value
+    var cps as vector of Codepoint is decoded.value
     var encoded as result of string to LinguaError is calling lingua.encode with cps
     calling ward.assert_true with encoded.is_ok
     var text as string is encoded.value
@@ -24,7 +24,7 @@ weave main into int:
     calling roundtrip with "😀"
     calling roundtrip with "año 😀 日本語"
 
-    var empty as list of Codepoint is list of Codepoint
+    var empty as vector of Codepoint is vector of Codepoint
     var empty_encoded as result of string to LinguaError is calling lingua.encode with empty
     calling ward.assert_true with empty_encoded.is_ok
     var empty_text as string is empty_encoded.value

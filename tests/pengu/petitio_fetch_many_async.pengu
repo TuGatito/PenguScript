@@ -24,12 +24,12 @@ weave server with loop as ref to reactor.EventLoop, srv as ref to net.Socket int
 
 weave client with loop as ref to reactor.EventLoop, port as ref to int into void:
     var url as string is "http://127.0.0.1:39022/"
-    var reqs as list of petitio.Request is list of petitio.Request
+    var reqs as vector of petitio.Request is vector of petitio.Request
     var a as petitio.Request is calling petitio.build_request with "GET", url
     var b as petitio.Request is calling petitio.build_request with "GET", url
     calling reqs.push with a
     calling reqs.push with b
-    var out as list of result of petitio.Response to petitio.HttpError is calling petitio.fetch_many_async with loop, reqs
+    var out as vector of result of petitio.Response to petitio.HttpError is calling petitio.fetch_many_async with loop, reqs
     var i as int is 0
     while i < out.len:
         var r as result of petitio.Response to petitio.HttpError is out at i

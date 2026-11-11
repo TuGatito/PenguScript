@@ -34,6 +34,18 @@ static inline void _pengu_clone_Color(Color* out, const Color* v) {
 }
 
 
+static inline bool _pengu_eqv_106(const void* a, const void* b);
+static inline bool _pengu_eq_Color(const Color* a, const Color* b);
+static inline bool _pengu_eqv_106(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Color(&((*((const Color*)a))), &((*((const Color*)b))));
+}
+static inline bool _pengu_eq_Color(const Color* a, const Color* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return (*a) == (*b);
+}
+
 
 void spark_pengu_println(PenguString s) {
 

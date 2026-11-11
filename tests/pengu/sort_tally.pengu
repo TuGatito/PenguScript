@@ -3,13 +3,13 @@ import std.tally
 import std.spark
 
 weave check_int into void:
-    var xs as list of int is [3, 1, 2, 2]
-    let up as list of int is calling tally.sort_int_asc with xs
+    var xs as vector of int is [3, 1, 2, 2]
+    let up as vector of int is calling tally.sort_int_asc with xs
     let a as bool is (up at 0) == 1
     let b as bool is (up at 3) == 3
     calling spark.assert_msg with a, "int asc first"
     calling spark.assert_msg with b, "int asc last"
-    let down as list of int is calling tally.sort_int_desc with xs
+    let down as vector of int is calling tally.sort_int_desc with xs
     let c as bool is (down at 0) == 3
     let d as bool is (down at 3) == 1
     calling spark.assert_msg with c, "int desc first"
@@ -20,26 +20,26 @@ weave check_int into void:
     calling spark.assert_msg with sorted, "is_sorted_int_asc"
 
 weave check_float into void:
-    var xs as list of float is [3.5, -1.5, 4.5]
-    let up as list of float is calling tally.sort_float_asc with xs
+    var xs as vector of float is [3.5, -1.5, 4.5]
+    let up as vector of float is calling tally.sort_float_asc with xs
     let a as bool is (up at 0) < -1.0
     calling spark.assert_msg with a, "float asc first"
-    let down as list of float is calling tally.sort_float_desc with xs
+    let down as vector of float is calling tally.sort_float_desc with xs
     let b as bool is (down at 0) > 4.0
     calling spark.assert_msg with b, "float desc first"
 
 weave check_f64 into void:
-    var xs as list of f64 is [2.5, -1.5, 4.5]
-    let up as list of f64 is calling tally.sort_f64_asc with xs
+    var xs as vector of f64 is [2.5, -1.5, 4.5]
+    let up as vector of f64 is calling tally.sort_f64_asc with xs
     let a as bool is (up at 0) < -1.0
     calling spark.assert_msg with a, "f64 asc first"
 
 weave check_string into void:
-    var xs as list of string is ["c", "a", "b"]
-    let up as list of string is calling tally.sort_string_asc with xs
+    var xs as vector of string is ["c", "a", "b"]
+    let up as vector of string is calling tally.sort_string_asc with xs
     let a as bool is (up at 0) == "a"
     calling spark.assert_msg with a, "string asc first"
-    let down as list of string is calling tally.sort_string_desc with xs
+    let down as vector of string is calling tally.sort_string_desc with xs
     let b as bool is (down at 0) == "c"
     calling spark.assert_msg with b, "string desc first"
     let unsorted as bool is calling tally.is_sorted_string_asc with xs
@@ -49,12 +49,12 @@ weave check_string into void:
     calling spark.assert_msg with dsorted, "strings desc sorted"
 
 weave check_large into void:
-    var xs as list of int is list of int
+    var xs as vector of int is vector of int
     var i as int is 0
     while i < 5000:
         calling xs.push with ((i * 37) % 5000)
         set i is i + 1
-    let up as list of int is calling tally.sort_int_asc with xs
+    let up as vector of int is calling tally.sort_int_asc with xs
     let a as bool is calling tally.is_sorted_int_asc with up
     calling spark.assert_msg with a, "5000 sorted"
     let b as bool is (up at 0) == 0

@@ -30,7 +30,7 @@ import psc.parse.diagnostics as pdiag
 insignia psc_parse_state_
 
 ## Opciones de parseo.
-rune PsParseOptions derive Par, Nexus:
+rune PsParseOptions:
     ## Profundidad máxima de expresiones/tipos/bloques.
     max_depth as int
     ## Número máximo de diagnósticos antes de parar.
@@ -129,7 +129,7 @@ rune PsParser:
 ## ## Memoria
 ## `banish result` libera `ast`. El llamador conserva `SourceFile` y
 ## `LexResult` (el AST los referencia por índice).
-rune PsParseResult derive Nexus:
+rune PsParseResult:
     ## `true` si el parser no emitió ningún error.
     ok as bool
     ## Id del nodo raíz.

@@ -21,7 +21,7 @@ weave main into int:
     calling ward.assert_eq_int with found.end, 6
     banish first
 
-    var all as list of Match is calling rx.matches with "abc123def456"
+    var all as vector of Match is calling rx.matches with "abc123def456"
     calling ward.assert_eq_int with all.len, 2
     var m0 as Match is all at 0
     var m1 as Match is all at 1

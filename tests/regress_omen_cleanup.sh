@@ -12,7 +12,7 @@ esac
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 cat >"$tmp/omen_cleanup.pengu" <<'PENGU'
 import std.spark
-omen Shape derive Nexus, Par:
+omen Shape:
     Empty
     Named with name as string
     Item with tags as list of string

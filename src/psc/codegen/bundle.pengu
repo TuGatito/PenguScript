@@ -14,6 +14,7 @@ import psc.codegen.emit as emit
 import psc.codegen.origin as origin
 import psc.codegen.function as funcgen
 import psc.codegen.decl_types as ctypes
+import psc.codegen.eq as eqgen
 import psc.sema.names as npool
 import psc.codegen.dce as dce
 import psc.codegen.jsongen as jsongen
@@ -330,6 +331,23 @@ weave generate_bundle_c with c as ref to context.CgContext, live_out as ref to v
             calling ctypes.emit_cleanup with c, tc
         set i is i + 1
     calling emit.blank with (sigil of c->emitter)
+    # Igualdad estructural (`==` campo a campo). Se recolectan primero los tipos
+    # alcanzables (un `vector of B` dentro de `A` necesita el comparador de `B`
+    # aunque `B` se declare después) y luego se emiten prototipos y cuerpos.
+    set i is 0
+    while i < c->catalog.types.len:
+        var tq as catalog.CgType is (c->catalog.types at i)
+        if (not (calling type_prunable with c, (sigil of reach), tq.type_id) or calling dce.type_live with (sigil of reach), tq.type_id) and not (calling ctypes.is_generic_template with c, tq):
+            calling eqgen.collect_eq with c, tq.type_id
+        set i is i + 1
+    calling eqgen.emit_decls with c
+    calling eqgen.emit_elem_bodies with c
+    set i is 0
+    while i < c->eq_ids.len:
+        calling eqgen.emit_body with c, (c->eq_ids at i)
+        set i is i + 1
+    if c->eq_ids.len > 0:
+        calling emit.blank with (sigil of c->emitter)
     # Codecs JSON (`derive Json`).
     calling jsongen.emit_all with c, (sigil of reach)
     calling emit.blank with (sigil of c->emitter)

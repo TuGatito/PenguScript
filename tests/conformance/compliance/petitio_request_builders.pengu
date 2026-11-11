@@ -60,7 +60,7 @@ weave main into int:
     banish parsed
 
     # A form body overrides it and installs the form content type.
-    var fields as map of string to string is map of string to string
+    var fields as map of string, string is map of string, string
     calling fields.put with "a", "1 2"
     calling fields.put with "b", "x&y"
     calling req.form_body with fields

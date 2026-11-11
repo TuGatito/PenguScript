@@ -2189,7 +2189,7 @@ weave _expect_coven_eq_bool with actual as bool, expected as bool, label as stri
 # --- Tests ---
 
 ## Test-only value type used to exercise `Set of T` with a user `rune`.
-rune _TestPlayer derive Par, Vinculum:
+rune _TestPlayer:
     id as int
 
 # The generic module functions `make_set of T` / `from_items_set of T` are the

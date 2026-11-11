@@ -32,7 +32,7 @@ insignia psc_parse_api_
 ##
 ## ## Memoria
 ## `banish result` libera `source`, `lex`, `diagnostics` y `ast`.
-rune InterpParseResult derive Nexus:
+rune InterpParseResult:
     ## Fuente sintético `<interp>`.
     source as SourceFile
     ## Tokens de la expresión.

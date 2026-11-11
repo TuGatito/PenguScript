@@ -32,6 +32,18 @@ static inline void _pengu_clone_Phase(Phase* out, const Phase* v) {
 }
 
 
+static inline bool _pengu_eqv_36(const void* a, const void* b);
+static inline bool _pengu_eq_Phase(const Phase* a, const Phase* b);
+static inline bool _pengu_eqv_36(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Phase(&((*((const Phase*)a))), &((*((const Phase*)b))));
+}
+static inline bool _pengu_eq_Phase(const Phase* a, const Phase* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return (*a) == (*b);
+}
+
 
 
 

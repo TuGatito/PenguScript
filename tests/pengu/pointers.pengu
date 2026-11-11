@@ -7,7 +7,7 @@ weave bump with p as ref to int into void:
 weave inc with n as int into int:
     return n + 1
 
-weave first with xs as list of int into ref to int:
+weave first with xs as vector of int into ref to int:
     return sigil of (xs at 0)
 
 weave static_ref into ref to int:
@@ -68,13 +68,13 @@ weave main into int:
         return 12
 
     ## A slice built from an array is writable.
-    var s as slice of int is with data is sigil of (a at 0), len is 3, elem_size is size of int
+    var s as span of int is with data is sigil of (a at 0), len is 3, elem_size is size of int
     set s at 2 is 30
     if (a at 2) != 30:
         return 13
 
     ## Taking the address of a list element yields a real element pointer.
-    var xs as list of int is list of int
+    var xs as vector of int is vector of int
     calling xs.push with 4
     calling xs.push with 5
     var lp as ref to int is sigil of (xs at 1)
@@ -112,7 +112,7 @@ weave main into int:
         return 19
 
     ## Heap-owned list storage is safe to borrow from a parameter.
-    var xs2 as list of int is list of int
+    var xs2 as vector of int is vector of int
     calling xs2.push with 77
     if essence of (calling first with xs2) != 77:
         return 20

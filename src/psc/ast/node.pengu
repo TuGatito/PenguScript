@@ -31,7 +31,7 @@ insignia psc_ast_node_
 ##
 ## ## Memoria
 ## Valor puro: no tiene heap.
-rune PsNode derive Par:
+rune PsNode:
     ## Regla de stage0 que representa.
     kind as NodeKind
     ## Offset inclusivo del primer byte.
@@ -49,7 +49,7 @@ rune PsNode derive Par:
 ##
 ## ## Memoria
 ## Valor puro.
-rune PsLoopLabel derive Par:
+rune PsLoopLabel:
     ## Id del nodo `for_*`/`while`.
     node as int
     ## Índice del token de la etiqueta.
@@ -59,7 +59,7 @@ rune PsLoopLabel derive Par:
 ##
 ## ## Memoria
 ## `banish ast` libera las tres listas.
-rune PsAst derive Nexus:
+rune PsAst:
     ## Nodos en orden de creación (post-orden).
     nodes as vector of PsNode
     ## Hijos codificados como enteros.

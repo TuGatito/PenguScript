@@ -6,11 +6,11 @@ enchanting Box shard T:
     weave get into T:
         return self.value
 
-weave first shard T with xs as list of T into T:
+weave first shard T with xs as vector of T into T:
     return xs at 0
 
 weave main into int:
-    var xs as list of int is [4, 5, 6]
+    var xs as vector of int is [4, 5, 6]
     calling print with "{calling first with xs}\n"
     var b as Box of string is with value is "in"
     calling print with b.value

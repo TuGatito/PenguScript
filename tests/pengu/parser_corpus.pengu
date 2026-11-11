@@ -17,7 +17,7 @@ weave is_pengu with path as string into bool:
     return (path at (n - 6) to n) == ".pengu"
 
 weave check_dir with root as string into int:
-    var files as list of string is calling archivum.list_files_recursive with root
+    var files as vector of string is calling archivum.list_files_recursive with root
     var bad as int is 0
     var total as int is 0
     var nodes as int is 0

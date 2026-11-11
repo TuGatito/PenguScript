@@ -18,7 +18,7 @@ weave main into int:
     var schema_r as result of JsonValue to json.JsonError is calling json.parse with r"""{"type":"object","required":["name","age"],"properties":{"name":{"type":"string"},"age":{"type":"integer","minimum":0}},"additionalProperties":false}"""
     var value_r as result of JsonValue to json.JsonError is calling json.parse with r"""{"name":"pengu","age":3}"""
     if schema_r.is_ok and value_r.is_ok:
-        var errors as list of string is calling json.validate_schema with value_r.value, schema_r.value
+        var errors as vector of string is calling json.validate_schema with value_r.value, schema_r.value
         calling eq_i with errors.len, 0, "valid schema"
         calling json.free_strings with errors
     else:
@@ -28,7 +28,7 @@ weave main into int:
     var bad_r as result of JsonValue to json.JsonError is calling json.parse with r"""{"age":"x","extra":1}"""
     var schema2 as result of JsonValue to json.JsonError is calling json.parse with r"""{"type":"object","required":["name"],"properties":{"name":{"type":"string"},"age":{"type":"integer"}},"additionalProperties":false}"""
     if bad_r.is_ok and schema2.is_ok:
-        var errors2 as list of string is calling json.validate_schema with bad_r.value, schema2.value
+        var errors2 as vector of string is calling json.validate_schema with bad_r.value, schema2.value
         if errors2.len < 2:
             calling spark.println with "FAIL expected at least 2 schema errors, got {errors2.len}"
         calling json.free_strings with errors2

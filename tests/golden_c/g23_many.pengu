@@ -12,7 +12,7 @@ weave main into int:
     set arr at 0 is 5
     set arr at 1 is 6
     set arr at 2 is 7
-    var sl as slice of int is arr at 0 to 3
+    var sl as span of int is arr at 0 to 3
     calling print with "{calling total}\\n"
     calling print with "{calling total with 1, 2, 3}\\n"
     calling print with "{calling total with arr}\\n"

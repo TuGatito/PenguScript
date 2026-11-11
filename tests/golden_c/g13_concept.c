@@ -42,6 +42,23 @@ static inline void _pengu_cleanup_Dog(Dog* p) {
     pengu_banish_string(&(p->name));
 }
 
+static inline bool _pengu_eqv_37(const void* a, const void* b);
+static inline bool _pengu_eqv_19(const void* a, const void* b);
+static inline bool _pengu_eq_Dog(const Dog* a, const Dog* b);
+static inline bool _pengu_eqv_37(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Dog(&((*((const Dog*)a))), &((*((const Dog*)b))));
+}
+static inline bool _pengu_eqv_19(const void* a, const void* b) {
+    (void)a; (void)b;
+    return pengu_string_equal((*((const PenguString*)a)), (*((const PenguString*)b)));
+}
+static inline bool _pengu_eq_Dog(const Dog* a, const Dog* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return pengu_string_equal(a->name, b->name);
+}
+
 
 
 

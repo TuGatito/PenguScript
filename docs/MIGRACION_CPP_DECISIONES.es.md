@@ -2,8 +2,8 @@
 
 > **Estado (2026-11-10):** F0 y F1 completadas. El `psc` emite un bundle C++ que compila en ISO C++20 estricto con g++ y clang++, enlaza con el runtime C, se auto-hospeda (`psc build --backend=cpp`, 32 s) y pasa 895/895 tests; `psc test . --backend=cpp` compila además **toda** la std como C++ (895/895). Los gates viven en `tests/cpp_backend/run.sh` (`--link`, `--stage0`), en el paso de CI de la suite C++ y en `tests/regress_backend_flag.sh`.
 
-**Fecha:** 2026-11-10
-**Estado:** firmadas el 2026-11-10.
+**Fecha:** 2026-11-10 (F2.2: 2026-11-11)
+**Estado:** firmadas el 2026-11-10. F2.2 completado: `==`/`!=` estructurales, `banish` sin `derive Nexus` y retirada de `derive` (salvo `Json`, hasta F5, y `Drop`, hasta F2.3).
 **Contexto:** `scratch/INFORME_MIGRACION_CPP.es.md` §14 y §15 (mediciones), `docs/LANGUAGECPP.es.md` (dialecto objetivo).
 **Regla de la casa:** cualquier decisión de este documento puede revisarse con datos nuevos, pero no se revisa por preferencia: se revisa si cambia una de las condiciones de revisión indicadas.
 

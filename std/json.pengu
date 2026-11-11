@@ -157,7 +157,7 @@ omen JsonErrorKind:
 ##
 ## ## Memoria
 ## Owns `message`; `banish err` releases it (derived `Nexus`).
-rune JsonError derive Nexus, Par:
+rune JsonError:
     ## The failure category.
     kind as JsonErrorKind
     ## A human-readable explanation, without the position prefix.
@@ -192,7 +192,7 @@ rune JsonError derive Nexus, Par:
 ## ## Memoria
 ## A `JsonValue` owns every string and list below it. `banish v` releases the
 ## whole tree because the derived `Nexus` recurses through the two lists.
-omen JsonValue derive Nexus, Par, Imago:
+omen JsonValue:
     ## The JSON `null`.
     Null
     ## A boolean.
@@ -212,7 +212,7 @@ omen JsonValue derive Nexus, Par, Imago:
 ##
 ## ## Memoria
 ## Owns `key` and `value`; `banish entry` releases both.
-rune JsonEntry derive Nexus, Par, Imago:
+rune JsonEntry:
     ## The member name, unescaped and decoded.
     key as string
     ## The member value.
@@ -223,7 +223,7 @@ rune JsonEntry derive Nexus, Par, Imago:
 # ----------------------------------------------------------------------------
 
 ## Knobs for `parse_with`, `validate` and `parse_in_arena`.
-rune ParseOptions derive Par:
+rune ParseOptions:
     ## Accept `NaN`, `Infinity` and `-Infinity` (default `false`).
     allow_non_standard as bool
     ## Maximum nesting depth (default `1000`).
@@ -251,7 +251,7 @@ weave default_parse_options into ParseOptions:
     return with allow_non_standard is false, max_depth is JSON_MAX_DEPTH, allow_comments is false, allow_trailing_commas is false, strict is true
 
 ## Knobs for `stringify_with` and `write_to_builder`.
-rune SerializeOptions derive Par:
+rune SerializeOptions:
     ## Spaces per nesting level; `0` (default) emits compact JSON.
     indent as int
     ## Sort object keys with a byte-wise comparison (default `false`).

@@ -36,6 +36,7 @@ import psc.codegen.catalog as catalog
 import psc.codegen.type_ast as tast
 import psc.codegen.generics as generics
 import psc.codegen.drop as drop
+import psc.codegen.eq as eqgen
 
 insignia psc_codegen_expr_
 
@@ -1597,9 +1598,14 @@ weave binary_expr with c as ref to context.CgContext, node as int, ast as ref to
         if lt0 >= 0:
             var lt1x as tk.SemaType is calling types.at with (sigil of c->program->types), lt0
             if lt1x.kind == tk.SemaTypeKind.TkRune or lt1x.kind == tk.SemaTypeKind.TkEcho or (lt1x.kind == tk.SemaTypeKind.TkOmen and calling omen_has_layout with c, lt0):
+                # Igualdad estructural campo a campo (`_pengu_eq_T`): comparar
+                # bytes compararía las direcciones de los campos string/lista.
+                var eqe as string is calling eqgen.eq_expr with c, lt0, "({l})", "({r})"
                 if op == "==":
-                    return "(memcmp(&({l}), &({r}), sizeof({l})) == 0)"
-                return "(memcmp(&({l}), &({r}), sizeof({l})) != 0)"
+                    return eqe
+                var nege as string is "(!{eqe})"
+                banish eqe
+                return nege
     if op == "+":
         var ln1 as int is calling astutil.node_child with ast, node, 0
         var rn1 as int is calling astutil.node_child with ast, node, 1

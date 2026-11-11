@@ -2856,6 +2856,129 @@ static inline void pengu_string_append(PenguString *dst, PenguString v)
     return pengu_cc_map_remove(m, k);
   }
 
+  /* =========================================================================
+   * 8b. Structural Equality (ABI 4, F2.2)
+   *
+   * `a == b` sobre runas, ecos, omens y contenedores compara **contenidos**:
+   * el backend emite un comparador por tipo (`_pengu_eq_<T>`, campo a campo)
+   * y estos ayudantes le dan el recorrido de los contenedores. Un comparador
+   * nunca es NULL: hasta los escalares llevan su `_pengu_eqv_<tipo>`.
+   * ========================================================================= */
+
+  /** @brief Comparador de dos elementos por dirección. */
+  typedef bool (*PenguEqFn)(const void *a, const void *b);
+
+  /** @brief Igualdad de un rango de `len` elementos contiguos. */
+  static inline bool pengu_array_equal(const void *a, const void *b, int len,
+                                       size_t elem_size, PenguEqFn eq)
+  {
+    int i;
+    if (a == b)
+      return true;
+    if (!a || !b)
+      return false;
+    for (i = 0; i < len; i++)
+    {
+      const void *x = (const char *)a + (size_t)i * elem_size;
+      const void *y = (const char *)b + (size_t)i * elem_size;
+      if (!eq(x, y))
+        return false;
+    }
+    return true;
+  }
+
+  /** @brief Igualdad estructural de dos listas. */
+  static inline bool pengu_list_equal(const PenguList *a, const PenguList *b, PenguEqFn eq)
+  {
+    if (a == b)
+      return true;
+    if (!a || !b || a->len != b->len)
+      return false;
+    return pengu_array_equal(a->data, b->data, a->len, a->elem_size, eq);
+  }
+
+  /** @brief Igualdad estructural de dos vistas (`span`). */
+  static inline bool pengu_slice_equal(const PenguSlice *a, const PenguSlice *b, PenguEqFn eq)
+  {
+    if (a == b)
+      return true;
+    if (!a || !b || a->len != b->len || a->elem_size != b->elem_size)
+      return false;
+    return pengu_array_equal(a->data, b->data, a->len, a->elem_size, eq);
+  }
+
+  /** @brief Igualdad de dos `maybe`: misma presencia y mismo payload. */
+  static inline bool pengu_maybe_equal(const PenguMaybe *a, const PenguMaybe *b, PenguEqFn eq)
+  {
+    if (a == b)
+      return true;
+    if (!a || !b || a->is_present != b->is_present)
+      return false;
+    if (!a->is_present)
+      return true;
+    return eq(a->value, b->value);
+  }
+
+  /** @brief Igualdad de dos `result`: mismo caso y mismo payload. */
+  static inline bool pengu_result_equal(const PenguResult *a, const PenguResult *b,
+                                        PenguEqFn ok_eq, PenguEqFn err_eq)
+  {
+    if (a == b)
+      return true;
+    if (!a || !b || a->is_ok != b->is_ok)
+      return false;
+    if (a->is_ok)
+      return ok_eq(a->ok_val, b->ok_val);
+    return err_eq(a->err_val, b->err_val);
+  }
+
+  /**
+   * @brief Busca una entrada por **contenido** de clave (sin hash).
+   *
+   * Recorre el mapa con el iterador y compara con `keq`: así funciona con
+   * claves `string`, donde el hash de bytes del `PenguString` no sirve.
+   */
+  static inline void *pengu_map_find_eq(const PenguMap *m, const void *key, PenguEqFn keq)
+  {
+    PenguMapIter it;
+    if (!m || !key)
+      return NULL;
+    it = pengu_map_iter_begin(m);
+    while (pengu_map_iter_valid(&it))
+    {
+      if (keq(pengu_map_iter_key(&it), key))
+        return pengu_map_iter_value(&it);
+      pengu_map_iter_advance(&it);
+    }
+    return NULL;
+  }
+
+  /** @brief Igualdad estructural de dos mapas: mismo número de pares y los
+   *         mismos pares (clave y valor comparados por contenido). */
+  static inline bool pengu_map_equal(const PenguMap *a, const PenguMap *b,
+                                     PenguEqFn keq, PenguEqFn veq)
+  {
+    PenguMapIter it;
+    if (a == b)
+      return true;
+    if (!a || !b || a->len != b->len)
+      return false;
+    if (a->len == 0)
+      return true;
+    it = pengu_map_iter_begin(a);
+    while (pengu_map_iter_valid(&it))
+    {
+      const void *k = pengu_map_iter_key(&it);
+      void *w = pengu_map_find_eq(b, k, keq);
+      if (w == NULL)
+        return false;
+      if (!veq(pengu_map_iter_value(&it), w))
+        return false;
+      pengu_map_iter_advance(&it);
+    }
+    return true;
+  }
+
 /* =========================================================================
  * 9. Fixed-Size Array Macro
  * ========================================================================= */

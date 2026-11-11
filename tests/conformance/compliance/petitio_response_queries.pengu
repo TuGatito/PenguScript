@@ -24,13 +24,13 @@ weave check_message with e as ref to HttpError, want as string, name as string i
     banish msg
 
 weave make_response with status as int, body as string, extra_header as string into Response:
-    var headers as map of string to string is map of string to string
+    var headers as map of string, string is map of string, string
     calling headers.put with "content-type", "application/json"
     if (extra_header length) > 0:
         calling headers.put with "x-flag", extra_header
-    var cookies as map of string to string is map of string to string
+    var cookies as map of string, string is map of string, string
     calling cookies.put with "sid", "abc"
-    var cleared as list of string is list of string
+    var cleared as vector of string is vector of string
     var response as Response is:
         status is status
         headers is headers

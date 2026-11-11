@@ -166,7 +166,7 @@ const PETITIO_BINARY_CONTENT_TYPE as string is "application/octet-stream"
 ## ## Memoria
 ## Variants that carry a `string` own it (`HttpError derive Nexus`): extract the
 ## error from a result and `banish` it to release the message.
-omen HttpError derive Nexus:
+omen HttpError:
     ## DNS failure, a refused/reset connection, or a transfer interrupted
     ## mid-flight.
     ConnectionFailed with reason as string
@@ -232,7 +232,7 @@ enchanting HttpError:
 ## ## Memoria
 ## Owns all four strings; `banish part` releases them. A `Request` owns its
 ## parts, so `banish req` releases them through the derived `Nexus`.
-rune FormPart derive Nexus:
+rune FormPart:
     ## The form field name.
     name as string
     ## The part contents, byte-exact (a file's bytes or a text value).
@@ -287,7 +287,7 @@ omen AuthMode:
 ## ## Memoria
 ## `Request derive Nexus` releases `url`, `body`, `method`, every header key and
 ## value, the auth/proxy strings and every `FormPart` in `parts`.
-rune Request derive Nexus:
+rune Request:
     ## The HTTP method, upper-case (`"GET"`, `"POST"`, …). Custom verbs are
     ## allowed as long as they are RFC 7230 tokens.
     method as string
@@ -338,7 +338,7 @@ rune Request derive Nexus:
 ## ## Memoria
 ## `Response derive Nexus` releases `body`, `url`, every header key/value and
 ## every cookie key/value, plus the private list of cleared cookie names.
-rune Response derive Nexus:
+rune Response:
     ## The final HTTP status code (after redirects). `0` when no response line
     ## was received.
     status as int
@@ -374,7 +374,7 @@ rune Response derive Nexus:
 ##
 ## ## Memoria
 ## `Session derive Nexus` releases both maps and every string inside them.
-rune Session derive Nexus:
+rune Session:
     ## Headers applied to every request that does not set the same name.
     _default_headers as map of string, string
     ## Cookies applied to every request and updated from every response.
@@ -384,7 +384,7 @@ rune Session derive Nexus:
 ##
 ## ## Memoria
 ## Owns every field; `banish parts` releases them.
-rune UrlParts derive Nexus:
+rune UrlParts:
     ## The scheme, as written (`"http"` or `"https"`).
     scheme as string
     ## `user:password`, or `""` when the URL carries no user info.

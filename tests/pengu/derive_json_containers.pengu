@@ -12,11 +12,11 @@ omen Grade:
     C
 
 rune Bag derive Json:
-    names as list of string
-    matrix as list of list of int
+    names as vector of string
+    matrix as vector of vector of int
     nick as maybe string
     absent as maybe int
-    scores as map of string to f64
+    scores as map of string, f64
     inner as Inner
     grade as Grade
 
@@ -27,7 +27,7 @@ weave obj with body as string into string:
 
 weave main into int:
     var inner as Inner is with n is 3, label is "tri"
-    var scores as map of string to f64 is map of string to f64
+    var scores as map of string, f64 is map of string, f64
     calling scores.put with "b", 2.5
     calling scores.put with "a", 1.5
     var b as Bag is with names is ["uno", "dos"], matrix is [[1, 2], [3]], nick is (some "nick"), absent is (maybe none), scores is (scores), inner is (inner), grade is (Grade.B)
@@ -45,7 +45,7 @@ weave main into int:
         return 4
     if v.matrix length != 2:
         return 5
-    var row as list of int is v.matrix at 1
+    var row as vector of int is v.matrix at 1
     if (row at 0) != 3:
         return 6
     if not v.nick.is_present:

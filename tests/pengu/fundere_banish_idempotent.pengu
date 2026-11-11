@@ -2,7 +2,7 @@
 # handle a cero, asi que el cleanup compuesto no lo vuelve a liberar (R3).
 import std.filum
 
-rune GameObj derive Nexus:
+rune GameObj:
     label as string
 
 rune Enemy fundere GameObj:

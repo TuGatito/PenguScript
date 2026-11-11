@@ -17,7 +17,7 @@
 ##
 ## ## Memoria
 ## Valor puro: no tiene heap.
-rune ByteSpan derive Par:
+rune ByteSpan:
     ## Offset inclusivo del primer byte.
     start as int
     ## Offset exclusivo del byte siguiente al último.

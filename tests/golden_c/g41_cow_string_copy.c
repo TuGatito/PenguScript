@@ -44,6 +44,23 @@ static inline void _pengu_cleanup_Holder(Holder* p) {
     pengu_banish_string(&(p->name));
 }
 
+static inline bool _pengu_eqv_106(const void* a, const void* b);
+static inline bool _pengu_eqv_19(const void* a, const void* b);
+static inline bool _pengu_eq_Holder(const Holder* a, const Holder* b);
+static inline bool _pengu_eqv_106(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Holder(&((*((const Holder*)a))), &((*((const Holder*)b))));
+}
+static inline bool _pengu_eqv_19(const void* a, const void* b) {
+    (void)a; (void)b;
+    return pengu_string_equal((*((const PenguString*)a)), (*((const PenguString*)b)));
+}
+static inline bool _pengu_eq_Holder(const Holder* a, const Holder* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return pengu_string_equal(a->name, b->name);
+}
+
 
 void spark_pengu_println(PenguString s) {
 

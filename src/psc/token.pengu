@@ -306,7 +306,7 @@ omen KeywordKind:
 ##
 ## ## Memoria
 ## Valor puro: no tiene heap.
-rune Token derive Par:
+rune Token:
     ## Categoría.
     kind as TokenKind
     ## Keyword exacto cuando `kind == TokKeyword`; `KwNotKeyword` si no.
@@ -323,7 +323,7 @@ rune Token derive Par:
     aux as int
 
 ## Una entrada de la tabla de keywords.
-rune KeywordEntry derive Par:
+rune KeywordEntry:
     ## Lexema en minúsculas.
     word as string
     ## Keyword asociado.
@@ -341,7 +341,7 @@ rune KeywordEntry derive Par:
 ##
 ## ## Memoria
 ## `banish table` libera `entries`; los `word` son literales estáticos.
-rune KeywordTable derive Nexus:
+rune KeywordTable:
     ## Entradas ordenadas alfabéticamente.
     entries as vector of KeywordEntry
 

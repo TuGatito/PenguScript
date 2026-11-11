@@ -2,7 +2,7 @@
 import std.spark
 
 weave main into int:
-    var xs as list of int is [1, 2, 3]
+    var xs as vector of int is [1, 2, 3]
     var hits as int is 0
     rows: for x in xs:
         for y in xs:

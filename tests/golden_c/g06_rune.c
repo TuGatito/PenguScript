@@ -43,6 +43,23 @@ static inline void _pengu_cleanup_Point(Point* p) {
     (void)p;
 }
 
+static inline bool _pengu_eqv_36(const void* a, const void* b);
+static inline bool _pengu_eqv_6(const void* a, const void* b);
+static inline bool _pengu_eq_Point(const Point* a, const Point* b);
+static inline bool _pengu_eqv_36(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Point(&((*((const Point*)a))), &((*((const Point*)b))));
+}
+static inline bool _pengu_eqv_6(const void* a, const void* b) {
+    (void)a; (void)b;
+    return (((*((const int32_t*)a))) == ((*((const int32_t*)b))));
+}
+static inline bool _pengu_eq_Point(const Point* a, const Point* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->x) == (b->x)) && ((a->y) == (b->y));
+}
+
 
 
 

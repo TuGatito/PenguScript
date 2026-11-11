@@ -106,6 +106,50 @@ static inline void _pengu_cleanup_Enemy(Enemy* p) {
 }
 static inline void _pengu_rc_drop_Enemy(void* p) { _pengu_cleanup_Enemy((Enemy*)p); }
 
+static inline bool _pengu_eqv_106(const void* a, const void* b);
+static inline bool _pengu_eqv_6(const void* a, const void* b);
+static inline bool _pengu_eqv_19(const void* a, const void* b);
+static inline bool _pengu_eqv_107(const void* a, const void* b);
+static inline bool _pengu_eqv_108(const void* a, const void* b);
+static inline bool _pengu_eq_GameObj(const GameObj* a, const GameObj* b);
+static inline bool _pengu_eq_Physics(const Physics* a, const Physics* b);
+static inline bool _pengu_eq_Enemy(const Enemy* a, const Enemy* b);
+static inline bool _pengu_eqv_106(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_GameObj(&((*((const GameObj*)a))), &((*((const GameObj*)b))));
+}
+static inline bool _pengu_eqv_6(const void* a, const void* b) {
+    (void)a; (void)b;
+    return (((*((const int32_t*)a))) == ((*((const int32_t*)b))));
+}
+static inline bool _pengu_eqv_19(const void* a, const void* b) {
+    (void)a; (void)b;
+    return pengu_string_equal((*((const PenguString*)a)), (*((const PenguString*)b)));
+}
+static inline bool _pengu_eqv_107(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Physics(&((*((const Physics*)a))), &((*((const Physics*)b))));
+}
+static inline bool _pengu_eqv_108(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Enemy(&((*((const Enemy*)a))), &((*((const Enemy*)b))));
+}
+static inline bool _pengu_eq_GameObj(const GameObj* a, const GameObj* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->position) == (b->position)) && pengu_string_equal(a->label, b->label);
+}
+static inline bool _pengu_eq_Physics(const Physics* a, const Physics* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->velocity) == (b->velocity)) && pengu_string_equal(a->note, b->note);
+}
+static inline bool _pengu_eq_Enemy(const Enemy* a, const Enemy* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return _pengu_eq_GameObj(&(a->gameObj), &(b->gameObj)) && _pengu_eq_Physics(&(a->physics), &(b->physics)) && ((a->health) == (b->health)) && pengu_string_equal(a->notes, b->notes);
+}
+
 
 void spark_pengu_println(PenguString s) {
 

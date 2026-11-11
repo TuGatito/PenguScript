@@ -59,7 +59,7 @@ omen SourceErrorKind:
 ##
 ## ## Memoria
 ## `banish error` libera `path` y `message`.
-rune SourceError derive Nexus:
+rune SourceError:
     ## Categoría del fallo.
     kind as SourceErrorKind
     ## Ruta solicitada.
@@ -111,7 +111,7 @@ weave nibble_char with n as int into char:
 ##
 ## ## Memoria
 ## `banish file` libera `path`, `text`, `line_starts` y `sha256`.
-rune SourceFile derive Nexus:
+rune SourceFile:
     ## Ruta lógica usada en diagnósticos (la que pasó el llamador).
     path as string
     ## Bytes sin BOM; CRLF preservado.

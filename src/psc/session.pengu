@@ -26,7 +26,7 @@ import psc.lexer as pslexer
 ##
 ## ## Memoria
 ## `banish session` libera todos los campos con heap.
-rune Session derive Nexus:
+rune Session:
     ## `false` si `open` falló.
     ok as bool
     ## Error de carga cuando `ok == false`.

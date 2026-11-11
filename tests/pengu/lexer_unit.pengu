@@ -10,7 +10,7 @@ import psc.lexer as pslexer
 import psc.lexer_decode as psldec
 import psc.token_dump as psdump
 
-rune LexFixture derive Nexus:
+rune LexFixture:
     src as SourceFile
     bag as diag.DiagnosticBag
     kw as KeywordTable

@@ -106,6 +106,11 @@ rune CgContext:
     errors as int
     ## Secuencia para nombres temporales únicos (`_pengu_tup0`, …).
     tmp_seq as int
+    ## `TypeId` de los tipos que necesitan comparador estructural (`==`).
+    eq_ids as vector of int
+    ## Nombres C cuya `_pengu_eq_T` ya se emitió (dos `TypeId` pueden bajar al
+    ## mismo nombre: el alias y el tipo nominal).
+    eq_names as vector of string
     ## Hook de F4 para reducir un bloque en posición de valor.
     #
     # `stmt` lo instala al empezar el bundle (evita el ciclo de imports
@@ -126,7 +131,7 @@ weave block_value_unset with c as ref to CgContext, node as int, expected as int
 weave new_context with p as ref to program.SemaProgram, o as opts.CgOptions into CgContext:
     var ns as names.CgNames is calling names.new_names with (sigil of p->names), (sigil of p->types), o.family
     var cat as catalog.CgCatalog is calling catalog.catalog_collect with p, o
-    return with block_value is block_value_unset, program is p, options is o, names is ns, catalog is cat, emitter is calling emit.new_emitter, locals is vector of CgLocal, defers is vector of int, errdefers is vector of int, param_names is vector of int, borrowed_names is vector of int, writing_target is false, drop_names is vector of int, drop_types is vector of int, drop_marks is vector of int, scope_marks is vector of int, err_marks is vector of int, scope_loops is vector of bool, with_targets is vector of string, with_types is vector of int, loop_names is vector of string, unsafe_depth is 0, return_type is -1, current_module is -1, current_fn is "", self_type is -1, self_value is false, lambdas is vector of CgLambda, errors is 0, tmp_seq is 0
+    return with block_value is block_value_unset, program is p, options is o, names is ns, catalog is cat, emitter is calling emit.new_emitter, locals is vector of CgLocal, defers is vector of int, errdefers is vector of int, param_names is vector of int, borrowed_names is vector of int, writing_target is false, drop_names is vector of int, drop_types is vector of int, drop_marks is vector of int, scope_marks is vector of int, err_marks is vector of int, scope_loops is vector of bool, with_targets is vector of string, with_types is vector of int, loop_names is vector of string, unsafe_depth is 0, return_type is -1, current_module is -1, current_fn is "", self_type is -1, self_value is false, lambdas is vector of CgLambda, errors is 0, tmp_seq is 0, eq_ids is vector of int, eq_names is vector of string
 
 ## Libera el contexto.
 ##
@@ -146,6 +151,10 @@ weave context_free with c as ref to CgContext into void:
     banish c->drop_types
     banish c->drop_marks
 
+    banish c->eq_ids
+    for en in c->eq_names:
+        banish en
+    banish c->eq_names
     banish c->scope_marks
     banish c->err_marks
     banish c->scope_loops

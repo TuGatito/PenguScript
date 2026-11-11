@@ -36,7 +36,7 @@ weave main into int:
     calling bag.add_source with "b.pengu", "beta\n"
     var s1 as Span is calling diag.span_from_positions with "a.pengu", 1, 1, 1, 6, 0, 5
     var s2 as Span is calling diag.span_from_positions with "b.pengu", 1, 1, 1, 5, 0, 4
-    var ls as list of Label is list of Label
+    var ls as vector of Label is vector of Label
     calling ls.push with (calling diag.label with s1, "alpha", true)
     calling ls.push with (calling diag.label with s2, "beta", false)
     calling bag.add with (calling diag.diagnostic with diag.Severity.Info, "I1", "two files", ls, (maybe none), (maybe none), (calling diag.no_related))

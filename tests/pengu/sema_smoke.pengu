@@ -68,7 +68,7 @@ weave main into int:
 
     var ref_t as int is calling types.ref_to with (sigil of t), list_t
     var string_t as int is calling types.base with (sigil of t), "string"
-    var ids as list of int is list of int
+    var ids as vector of int is vector of int
     calling ids.push with int_t
     calling ids.push with string_t
     var tup_t as int is calling types.tuple_of with (sigil of t), ids

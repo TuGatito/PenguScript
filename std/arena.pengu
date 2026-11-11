@@ -93,7 +93,7 @@ const ARENA_DEFAULT_ALIGNMENT as usize is 16
 ## `_blocks` holds one owned `string` per block. `banish arena` releases the
 ## two bookkeeping lists, **not** the blocks: call `free` first, or use
 ## `defer calling a.free`. `free` is idempotent and leaves the arena reusable.
-rune Arena derive Nexus:
+rune Arena:
     _blocks as vector of string
     _block_sizes as vector of usize
     _current_block as int

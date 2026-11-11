@@ -32,6 +32,18 @@ static inline void _pengu_clone_Kind(Kind* out, const Kind* v) {
 }
 
 
+static inline bool _pengu_eqv_36(const void* a, const void* b);
+static inline bool _pengu_eq_Kind(const Kind* a, const Kind* b);
+static inline bool _pengu_eqv_36(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Kind(&((*((const Kind*)a))), &((*((const Kind*)b))));
+}
+static inline bool _pengu_eq_Kind(const Kind* a, const Kind* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return (*a) == (*b);
+}
+
 
 
 

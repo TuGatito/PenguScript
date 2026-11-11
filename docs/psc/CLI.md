@@ -217,16 +217,37 @@ mismo código emitido en los dos backends):
 | `map of K to V` | `map of K, V` |
 | `nasci` / `mori` / `imago` | `born` / `die` / `mirror` |
 | `namespace` | `regnum` |
+| `derive Par, Nexus, Imago, Vinculum, Ordo` | (nada: son implícitos) |
 
 `--check` no escribe y sale con 1 si habría cambios; `--diff` muestra las
 líneas afectadas; sin flags escribe in place. El comando es idempotente y no
 toca comentarios, strings ni los `to` que no son separador de `map`
 (`for i in 0 to 5`, `result of T to E`).
 
+`--drop-derive` reescribe las cláusulas `derive`: quita los conceptos
+retirados en F2 (`Par`, `Ordo`, `Nexus`, `Imago`, `Vinculum`, `Donum`) y
+conserva `Json` (hasta F5) y `Drop` (hasta F2.3, que lo sustituye por
+`born mirror`/`die`). Sin conceptos que conservar borra la cláusula entera:
+
+```pengu
+rune Label derive Nexus, Par:   # antes
+rune Label:                     # después
+```
+
+Usar un concepto retirado en el fuente da `E0005`:
+
+```
+error[E0005]: concept 'Par' is retired in the C++ dialect
+   = help: '==' and '<=>' are automatic (Par/Ordo), every rune owns and
+     releases its fields (Nexus), copying is the default (Imago), and
+     hashing is 'bind T with Vinculum' plus 'weave hash'. Remove the
+     concept from the clause.
+```
+
 Lo que **no** hace, porque necesita semántica nueva o resolución de tipos:
-`umap`/`set`/`uset`, la retirada de `derive`, los identificadores que pasan a
-ser reservados (`result`, `span`, `set`, `map`, `unique`) y las firmas de la
-FFI. Cada una tiene su fase.
+`umap`/`set`/`uset`, los identificadores que pasan a ser reservados
+(`result`, `span`, `set`, `map`, `unique`) y las firmas de la FFI. Cada una
+tiene su fase.
 
 ## LSP
 

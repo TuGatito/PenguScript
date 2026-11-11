@@ -6,9 +6,9 @@ weave above with limit as ref to int, x as int into bool:
 
 weave main into int:
     var limit as int is 2
-    var present as list of int is [3, 4]
-    var low as list of int is [1, 2]
-    var empty as list of int is list of int
+    var present as vector of int is [3, 4]
+    var low as vector of int is [1, 2]
+    var empty as vector of int is vector of int
     calling spark.println with "{calling loom.any_ctx with present, (sigil of limit), above}"
     calling spark.println with "{calling loom.any_ctx with low, (sigil of limit), above}"
     calling spark.println with "{calling loom.any_ctx with empty, (sigil of limit), above}"

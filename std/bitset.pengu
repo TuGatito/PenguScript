@@ -72,7 +72,7 @@ const BITSET_VERSION as string is "2.14.0"
 ## ## Memoria
 ## `_data` is an owned byte buffer of `_byte_len` bytes. `banish bitset`
 ## releases it through `derive Nexus`.
-rune BitSet derive Nexus:
+rune BitSet:
     _data as string
     _bit_len as int
     _byte_len as int

@@ -4,9 +4,9 @@ import std.ward
 import std.lingua
 
 weave check with s as string, expected_len as int, first_cp as u32 into void:
-    var r as result of list of Codepoint to LinguaError is calling lingua.decode with s
+    var r as result of vector of Codepoint to LinguaError is calling lingua.decode with s
     calling ward.assert_true with r.is_ok
-    var cps as list of Codepoint is r.value
+    var cps as vector of Codepoint is r.value
     calling ward.assert_eq_int with cps.len, expected_len
     if expected_len > 0:
         calling ward.assert_eq_int with ((cps at 0) to u32) to int, first_cp to int

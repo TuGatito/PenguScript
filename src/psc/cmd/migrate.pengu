@@ -41,7 +41,7 @@ insignia psc_cmd_migrate_
 ##
 ## ## Memoria
 ## `text` es owned; liberar con `free_edit`.
-rune MigrateEdit derive Nexus:
+rune MigrateEdit:
     ## Offset inclusivo.
     start as int
     ## Offset exclusivo.
@@ -53,7 +53,7 @@ rune MigrateEdit derive Nexus:
 ##
 ## ## Memoria
 ## `text` es owned; `ok` es falso si el archivo no se pudo parsear.
-rune MigrateOutcome derive Nexus:
+rune MigrateOutcome:
     ## Texto migrado (copia owned).
     text as string
     ## Número de ediciones aplicadas.
@@ -70,10 +70,12 @@ weave print_help into void:
     calling spark.println with "  --check       no escribir; exit 1 si cambiaría algo"
     calling spark.println with "  --diff        mostrar cada edición (línea y columna)"
     calling spark.println with "  --verbose     listar los archivos tocados"
+    calling spark.println with "  --drop-derive borrar las cláusulas 'derive ...' (retiradas en F2)"
     calling spark.println with "  --help"
     calling spark.println with ""
     calling spark.println with "Transformaciones: list of -> vector of, slice of -> span of,"
     calling spark.println with "map of K to V -> map of K, V, nasci/mori/imago/namespace -> born/die/mirror/regnum."
+    calling spark.println with "Con --drop-derive: 'rune T derive Par, Nexus:' -> 'rune T:'."
 
 ## Copia owned.
 ##
@@ -220,6 +222,66 @@ weave collect_renames with tokens as vector of Token, text as string, es as ref 
                 calling add_edit with es, t.start, t.end, "regnum"
         set i is i + 1
 
+## Reescribe las cláusulas `derive ...` quitando los conceptos retirados.
+##
+## Retirados en F2 (sus efectos son implícitos): `Par`, `Ordo`, `Nexus`,
+## `Imago`, `Vinculum`, `Donum`, `Real`. Se conservan `Json` (hasta F5) y
+## `Drop` (hasta F2.3, que lo sustituye por `born mirror`/`die`). Si no queda
+## ningún concepto, se borra la cláusula entera con el espacio anterior.
+##
+## ## Memoria
+## Añade ediciones.
+weave collect_derive with tokens as vector of Token, text as string, es as ref to vector of MigrateEdit into void:
+    var i as int is 0
+    while i < tokens.len:
+        var t as Token is tokens at i
+        if t.kind == TokKeyword and t.kw == KwDerive:
+            var j as int is i + 1
+            var colon as int is -1
+            while j < tokens.len:
+                var tj as Token is tokens at j
+                if tj.line != t.line:
+                    break
+                if tj.kind == TokColon:
+                    set colon is j
+                    break
+                set j is j + 1
+            if colon > 0:
+                var keep as vector of string is vector of string
+                var k as int is i + 1
+                while k < colon:
+                    var tk2 as Token is tokens at k
+                    if tk2.kind == TokIdentifier:
+                        var w as string is (text at tk2.start to tk2.end)
+                        if w == "Json" or w == "Drop":
+                            calling keep.push with w
+                    set k is k + 1
+                var start as int is t.start
+                if start > 0 and (text at (start - 1) to start) == " ":
+                    set start is start - 1
+                if keep.len == 0:
+                    calling add_edit with es, start, (tokens at colon).start, ""
+                else:
+                    var sb as StringBuilder is calling StringBuilder.new
+                    calling sb.append with "derive "
+                    var ki as int is 0
+                    while ki < keep.len:
+                        if ki > 0:
+                            calling sb.append with ", "
+                        calling sb.append with (keep at ki)
+                        set ki is ki + 1
+                    var repl as string is calling sb.finish
+                    var cur as string is (text at t.start to (tokens at colon).start)
+                    if cur == repl:
+                        banish repl
+                    else:
+                        calling add_edit with es, t.start, (tokens at colon).start, repl
+                for kwd in keep:
+                    banish kwd
+                banish keep
+                set i is colon
+        set i is i + 1
+
 ## Aplica las ediciones ordenadas a `text`.
 ##
 ## ## Memoria
@@ -244,7 +306,7 @@ weave apply_edits with text as string, es as ref to vector of MigrateEdit into s
 ##
 ## ## Memoria
 ## Devuelve `MigrateOutcome` owned; liberar con `banish`.
-weave migrate_text with text as string into MigrateOutcome:
+weave migrate_text with text as string, drop_derive as bool into MigrateOutcome:
     var copy_text as string is calling copy with text
     var src as SourceFile is calling SourceFile.from_text with "<migrate>", copy_text
     var bag as diag.DiagnosticBag is calling diag_compat.new_diagnostic_bag
@@ -259,6 +321,8 @@ weave migrate_text with text as string into MigrateOutcome:
     if pr.ok:
         calling collect_edits with (sigil of pr.ast), lex.tokens, copy_text, (sigil of es)
         calling collect_renames with lex.tokens, copy_text, (sigil of es)
+        if drop_derive:
+            calling collect_derive with lex.tokens, copy_text, (sigil of es)
     var changes as int is es.len
     var okp as bool is pr.ok
     var out_text as string is ""
@@ -282,6 +346,7 @@ weave run_migrate with args as vector of string into int:
     calling sf.push with "--check"
     calling sf.push with "--diff"
     calling sf.push with "--verbose"
+    calling sf.push with "--drop-derive"
     calling sf.push with "--help"
     var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vector of string, sf, vector of string
     if not pr.ok:
@@ -296,6 +361,7 @@ weave run_migrate with args as vector of string into int:
     var check_only as bool is calling cliargs.enabled with (sigil of pr.args), "--check"
     var show_diff as bool is calling cliargs.enabled with (sigil of pr.args), "--diff"
     var verbose as bool is calling cliargs.enabled with (sigil of pr.args), "--verbose"
+    var drop_derive as bool is calling cliargs.enabled with (sigil of pr.args), "--drop-derive"
     var changed as int is 0
     var failed as int is 0
     var pi as int is 0
@@ -317,7 +383,7 @@ weave run_migrate with args as vector of string into int:
             var txtm as maybe string is calling archivum.read_text with f
             if txtm.is_present:
                 var original as string is txtm.value
-                var mo as MigrateOutcome is calling migrate_text with original
+                var mo as MigrateOutcome is calling migrate_text with original, drop_derive
                 if not mo.ok:
                     set failed is failed + 1
                     var fm as string is "cannot parse {f}: skipped"

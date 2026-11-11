@@ -1,4 +1,4 @@
-weave f with xs as list of int, p as ref to Point into int:
+weave f with xs as vector of int, p as ref to Point into int:
     let a is 1 + 2 * 3
     let b is (1 + 2) * 3
     let c is not (a > b) and (a != 0 or b == 0)

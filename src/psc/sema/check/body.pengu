@@ -349,20 +349,10 @@ weave check_stmt with s as ref to state.SemaState, node as int into void:
                 calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MEMORY_OP, (calling astutil.start_of with s->ast, e3), (calling astutil.end_of with s->ast, e3), "banish needs a place it can take the address of", "Bind the value first: 'var tmp as T is …', then 'banish tmp'.", ""
             var bt as int is calling state.call_infer with s, e3, -1
             var bty as tk.SemaType is calling types.at with s->types, bt
-            if bty.kind == tk.SemaTypeKind.TkRune or bty.kind == tk.SemaTypeKind.TkEcho:
-                var has_nexus as bool is false
-                if bty.a >= 0 and bty.a < s->types->nominal_infos.len:
-                    var bi as types.SemaNominalInfo is (s->types->nominal_infos at bty.a)
-                    var di as int is 0
-                    while di < bi.derived_count:
-                        var did as int is (s->types->derived at (bi.derived_first + di))
-                        var dty as tk.SemaType is calling types.at with s->types, did
-                        var dn as string is calling npool.text with s->names, dty.name
-                        if dn == "Nexus":
-                            set has_nexus is true
-                        set di is di + 1
-                if not has_nexus:
-                    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MEMORY_OP, (calling astutil.start_of with s->ast, e3), (calling astutil.end_of with s->ast, e3), "banish requires an owned/derive Nexus value", "Use a rune with 'derive Nexus' or avoid banish.", ""
+            # `derive Nexus` se retiró en F2: toda runa/eco tiene cleanup
+            # (`_pengu_cleanup_T`) y `banish` es siempre válido sobre un valor
+            # nominal. La regla de propiedad (no liberar un préstamo) la aplica
+            # el análisis de préstamos, no este chequeo.
         return
     if k == pskind.NodeKind.NdBreakStmt or k == pskind.NodeKind.NdContinueStmt:
         calling check_break with s, node

@@ -75,9 +75,9 @@ weave main into int:
     calling eq_s with req.proxy_credentials, "u:p", "proxy credentials"
 
     # A hand-built response reports zero written bytes and HTTP/1.1.
-    var headers as map of string to string is map of string to string
-    var cookies as map of string to string is map of string to string
-    var cleared as list of string is list of string
+    var headers as map of string, string is map of string, string
+    var cookies as map of string, string is map of string, string
+    var cleared as vector of string is vector of string
     var resp as Response is:
         status is 200
         headers is headers

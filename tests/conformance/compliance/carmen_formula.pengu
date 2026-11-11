@@ -6,7 +6,7 @@ import std.carmen
 import std.memoria
 import std.ffi
 
-weave pack_hex with fmt as string, vals as list of carmen.CarmenValue into string:
+weave pack_hex with fmt as string, vals as vector of carmen.CarmenValue into string:
     var r as result of string to carmen.CarmenError is calling carmen.pack with fmt, vals
     calling spark.assert_msg with r.is_ok, "pack {fmt}"
     var blob as string is r.value
@@ -14,7 +14,7 @@ weave pack_hex with fmt as string, vals as list of carmen.CarmenValue into strin
     banish blob
     return hx
 
-weave expect_hex with fmt as string, vals as list of carmen.CarmenValue, want as string into void:
+weave expect_hex with fmt as string, vals as vector of carmen.CarmenValue, want as string into void:
     var got as string is calling pack_hex with fmt, vals
     calling spark.assert_msg with got == want, "fmt {fmt}: got {got} want {want}"
     banish got
@@ -49,7 +49,7 @@ weave main into int:
 
     # unpack round trip
     var blob as string is (calling carmen.pack with "<i4sH", [(calling carmen.signed with -2), (calling carmen.text with "abc"), (calling carmen.unsigned with 7)]).value
-    var vals as list of carmen.CarmenValue is (calling carmen.unpack with "<i4sH", blob).value
+    var vals as vector of carmen.CarmenValue is (calling carmen.unpack with "<i4sH", blob).value
     calling spark.assert_msg with vals.length == 3, "step 9"
     var first as carmen.CarmenValue is vals at 0
     judge (essence of (sigil of first)):
@@ -59,14 +59,14 @@ weave main into int:
             calling spark.assert_msg with false, "step 11"
 
     # truncated and trailing
-    var short as result of list of carmen.CarmenValue to carmen.CarmenError is calling carmen.unpack with ">I", "abc"
+    var short as result of vector of carmen.CarmenValue to carmen.CarmenError is calling carmen.unpack with ">I", "abc"
     calling spark.assert_msg with short.is_ok == false, "step 12"
-    var extra as result of list of carmen.CarmenValue to carmen.CarmenError is calling carmen.unpack with ">I", "abcde"
+    var extra as result of vector of carmen.CarmenValue to carmen.CarmenError is calling carmen.unpack with ">I", "abcde"
     calling spark.assert_msg with extra.is_ok == false, "step 13"
 
     # named fields
     var named as string is (calling carmen.pack with r">{a:I}{b:4s}{c:H}", [(calling carmen.unsigned with 7), (calling carmen.text with "abcd"), (calling carmen.unsigned with 9)]).value
-    var m as map of string to carmen.CarmenValue is (calling carmen.unpack_named with r">{a:I}{b:4s}{c:H}", named).value
+    var m as map of string, carmen.CarmenValue is (calling carmen.unpack_named with r">{a:I}{b:4s}{c:H}", named).value
     var cval as carmen.CarmenValue is m at "c"
     judge (essence of (sigil of cval)):
         when Unsigned with value ->
@@ -77,7 +77,7 @@ weave main into int:
 
     # iter_unpack
     var rowblob as string is (calling carmen.pack with ">3H", [(calling carmen.unsigned with 1), (calling carmen.unsigned with 2), (calling carmen.unsigned with 3)]).value
-    var rows as list of list of carmen.CarmenValue is (calling carmen.iter_unpack with ">H", rowblob).value
+    var rows as vector of vector of carmen.CarmenValue is (calling carmen.iter_unpack with ">H", rowblob).value
     banish rowblob
     calling spark.assert_msg with rows.length == 3, "step 16"
     banish rows
@@ -112,7 +112,7 @@ weave main into int:
     # validate / layout / hex / compatibility
     calling spark.assert_msg with (calling carmen.validate with ">I4sH").value == 10, "step 27"
     calling spark.assert_msg with (calling carmen.validate with "=n").is_ok == false, "step 28"
-    var fs as list of carmen.CarmenField is (calling carmen.layout with "<2sI3x").value
+    var fs as vector of carmen.CarmenField is (calling carmen.layout with "<2sI3x").value
     var f1 as carmen.CarmenField is fs at 1
     var f2 as carmen.CarmenField is fs at 2
     var layout_ok as bool is f1.offset == 2
@@ -130,7 +130,7 @@ weave main into int:
     var wrote as result of int to carmen.CarmenError is calling carmen.pack_into with ">I", buf, 8, 2, [calling carmen.unsigned with 7]
     calling spark.assert_msg with wrote.value == 4, "step 33"
     var window as string is calling ffi.string_from_bytes with buf, 8
-    var back as result of list of carmen.CarmenValue to carmen.CarmenError is calling carmen.unpack_from with ">I", window, 2
+    var back as result of vector of carmen.CarmenValue to carmen.CarmenError is calling carmen.unpack_from with ">I", window, 2
     var back_ok as bool is back.is_ok
     var first_val as carmen.CarmenValue is back.value at 0
     var is_u as bool is calling first_val.is_unsigned
@@ -141,16 +141,16 @@ weave main into int:
     banish buf
 
     # named errors
-    var unnamed as result of map of string to carmen.CarmenValue to carmen.CarmenError is calling carmen.unpack_named with ">I", one_blob
+    var unnamed as result of map of string, carmen.CarmenValue to carmen.CarmenError is calling carmen.unpack_named with ">I", one_blob
     calling spark.assert_msg with unnamed.is_ok == false, "step 36"
-    var dup as result of list of carmen.CarmenField to carmen.CarmenError is calling carmen.layout with r">{a:I}{a:H}"
+    var dup as result of vector of carmen.CarmenField to carmen.CarmenError is calling carmen.layout with r">{a:I}{a:H}"
     calling spark.assert_msg with dup.is_ok == false, "step 37"
     var zbad as result of int to carmen.CarmenError is calling carmen.calcsize with ">z"
     calling spark.assert_msg with zbad.is_ok == false, "step 38"
 
     # iter_unpack rejects a partial record
     var part as string is (calling carmen.pack with ">3H", [(calling carmen.unsigned with 1), (calling carmen.unsigned with 2), (calling carmen.unsigned with 3)]).value
-    var rows_bad as result of list of list of carmen.CarmenValue to carmen.CarmenError is calling carmen.iter_unpack with ">I", part
+    var rows_bad as result of vector of vector of carmen.CarmenValue to carmen.CarmenError is calling carmen.iter_unpack with ">I", part
     calling spark.assert_msg with rows_bad.is_ok == false, "step 39"
     banish part
 

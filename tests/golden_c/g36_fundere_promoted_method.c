@@ -79,6 +79,45 @@ static inline void _pengu_cleanup_Top(Top* p) {
     _pengu_cleanup_Mid(&(p->mid));
 }
 
+static inline bool _pengu_eqv_106(const void* a, const void* b);
+static inline bool _pengu_eqv_6(const void* a, const void* b);
+static inline bool _pengu_eqv_107(const void* a, const void* b);
+static inline bool _pengu_eqv_108(const void* a, const void* b);
+static inline bool _pengu_eq_Base(const Base* a, const Base* b);
+static inline bool _pengu_eq_Mid(const Mid* a, const Mid* b);
+static inline bool _pengu_eq_Top(const Top* a, const Top* b);
+static inline bool _pengu_eqv_106(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Base(&((*((const Base*)a))), &((*((const Base*)b))));
+}
+static inline bool _pengu_eqv_6(const void* a, const void* b) {
+    (void)a; (void)b;
+    return (((*((const int32_t*)a))) == ((*((const int32_t*)b))));
+}
+static inline bool _pengu_eqv_107(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Mid(&((*((const Mid*)a))), &((*((const Mid*)b))));
+}
+static inline bool _pengu_eqv_108(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Top(&((*((const Top*)a))), &((*((const Top*)b))));
+}
+static inline bool _pengu_eq_Base(const Base* a, const Base* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->depth) == (b->depth));
+}
+static inline bool _pengu_eq_Mid(const Mid* a, const Mid* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return _pengu_eq_Base(&(a->base), &(b->base)) && ((a->level) == (b->level));
+}
+static inline bool _pengu_eq_Top(const Top* a, const Top* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return _pengu_eq_Mid(&(a->mid), &(b->mid)) && ((a->top) == (b->top));
+}
+
 
 void spark_pengu_println(PenguString s) {
 

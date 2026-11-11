@@ -1426,9 +1426,16 @@ mutable fluye hacia `frozen`; lo contrario no compila.
 
 ### 9.7 `derive`
 
+> **Estado (F2):** `derive` está en retirada. `Par`, `Ordo`, `Nexus`, `Imago`,
+> `Vinculum` y `Donum` **ya no se derivan**: sus efectos son implícitos, y
+> escribir el concepto da `E0005` con el sustituto exacto. `Json` sigue
+> aceptándose hasta F5 (es el único códec hasta entonces) y `Drop` hasta F2.3
+> (lo sustituyen `born mirror`/`die`). `psc migrate --drop-derive` reescribe
+> las cláusulas del árbol.
+
 ```pengu
-rune Point derive Par, Ordo, Vinculum, Imago:
-    x as int
+rune Point:              # antes: rune Point derive Par, Ordo, Vinculum, Imago:
+    x as int             # ==/!=, <...>, hash y copia son automáticos
     y as int
 ```
 
@@ -1439,7 +1446,6 @@ rune Point derive Par, Ordo, Vinculum, Imago:
 | `Vinculum` | sí | hash, usable como clave de mapa |
 | `Imago` | sí | `_pengu_clone_<T>`: copia superficial (la copia comparte los buffers poseídos) |
 | `Nexus` | sí | `_pengu_cleanup_<T>`: destrucción de primer nivel, invocada por `banish` |
-| `Drop` | sí | `Nexus` + destrucción en cada salida del scope + move-only (§13.9) |
 | `Drop` | sí | `Nexus` + destrucción en cada salida del scope + move-only (§13.9) |
 | `Json` | sí | `_pengu_json_encode_<T>` / `_pengu_json_decode_<T>` (implica `Nexus`; ver §9.7.1) |
 | `Forma`, `Iterabilis` | no (`E0005`) | — |

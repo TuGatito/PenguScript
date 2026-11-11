@@ -60,7 +60,7 @@ expect_error "$tmp/nested.pengu" "error\[E0080\]" "Drop propagado por dos nivele
 
 # `Nexus` no es `Drop`: el host se copia y se banisha.
 cat >"$tmp/nexus.pengu" <<'PENGU3'
-rune P derive Nexus:
+rune P:
     note as string
 
 rune H fundere P:

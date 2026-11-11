@@ -1,19 +1,19 @@
 # Regression: concrete `enchanting list of <type>` methods must bind to the
 # exact element type of the receiver.
 
-enchanting list of int:
+enchanting vector of int:
     ## Returns the marker for `list of int`.
     weave marker_int into int:
         return 11
 
-enchanting list of string:
+enchanting vector of string:
     ## Returns the marker for `list of string`.
     weave marker_str into int:
         return 22
 
 weave main into int:
-    var xs as list of int is [1, 2]
-    var ws as list of string is ["a", "b"]
+    var xs as vector of int is [1, 2]
+    var ws as vector of string is ["a", "b"]
     let a as int is calling xs.marker_int
     let b as int is calling ws.marker_str
     if a != 11:

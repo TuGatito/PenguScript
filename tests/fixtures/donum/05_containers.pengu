@@ -3,25 +3,25 @@
 import std.spark
 
 rune Bag:
-    items as list of int
+    items as vector of int
     name as string
 
 weave main into int:
-    var xs as list of int is donum (list of int)
+    var xs as vector of int is donum (vector of int)
     calling xs.push with 7
     calling spark.println with "list len={xs.length} first={xs at 0}"
 
-    var m as map of string to int is donum (map of string to int)
+    var m as map of string, int is donum (map of string, int)
     calling m.put with "a", 1
     calling spark.println with "map len={m.length}"
 
-    var sl as slice of int is donum (slice of int)
+    var sl as span of int is donum (span of int)
     calling spark.println with "slice len={sl.length}"
 
     var opt as maybe int is donum (maybe int)
     calling spark.println with "present={opt is present}"
 
-    var nested as list of list of int is donum (list of list of int)
+    var nested as vector of vector of int is donum (vector of vector of int)
     calling spark.println with "nested len={nested.length}"
 
     var bag as Bag is donum Bag

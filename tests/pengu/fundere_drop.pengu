@@ -10,7 +10,7 @@ rune Mid fundere Leaf:
 rune Top fundere Mid:
     t as int
 
-rune Tag derive Nexus:
+rune Tag:
     label as int
 
 rune Entry fundere Tag:

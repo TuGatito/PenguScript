@@ -232,7 +232,7 @@ return *data;
 ##
 ## `Native` is only used while resolving prefixes; fields always store the
 ## resolved `Little` or `Big` order.
-omen Endianness derive Nexus:
+omen Endianness:
     ## Whatever the host CPU uses.
     Native
     ## Least significant byte first.
@@ -271,7 +271,7 @@ weave native_order into Endianness:
 ##
 ## A tagged union instead of a single `i64`: the wire distinguishes signed from
 ## unsigned and a `u32` field must not silently accept `-1`.
-omen CarmenValue derive Nexus:
+omen CarmenValue:
     ## A signed integer field (`b`, `h`, `i`, `l`, `q`, `n`).
     Signed with value as i64
     ## An unsigned integer field (`B`, `H`, `I`, `L`, `Q`, `N`, `P`, `v`, `V`).
@@ -416,7 +416,7 @@ return pengu_string_owned(s.data, s.len);
 ##
 ## Malformed bytes are normal input here, so every failure is a value; `carmen`
 ## never panics on user data.
-omen CarmenError derive Nexus:
+omen CarmenError:
     ## The formula is malformed.
     BadFormat with reason as string, position as int
     ## The formula contains a character that is not a code.
@@ -624,7 +624,7 @@ weave _duplicate with name as string into CarmenError:
 # ----------------------------------------------------------------------------
 
 ## One element of a compiled formula.
-rune CarmenField derive Nexus:
+rune CarmenField:
     ## Field name from `{name:spec}`, or `""` when unnamed.
     name as string
     ## Formula code (`I`, `4s`, `x`, …).
@@ -641,7 +641,7 @@ rune CarmenField derive Nexus:
     order as Endianness
 
 ## A compiled formula. Compile once, reuse for many records.
-rune Carmen derive Nexus:
+rune Carmen:
     _fmt as string
     _fields as vector of CarmenField
     _size as int
@@ -1440,7 +1440,7 @@ weave unpack_from with fmt as string, data as string, offset as int into result 
 ##
 ## The writer owns its buffer; `to_string` copies it, `take_string` transfers
 ## it.
-rune CarmenWriter derive Nexus:
+rune CarmenWriter:
     _data as string
     _len as int
     _cap as int

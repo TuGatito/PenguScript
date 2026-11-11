@@ -1398,9 +1398,16 @@ A mutable value flows into `frozen`; the reverse does not compile.
 
 ### 9.7 `derive`
 
+> **Status (F2):** `derive` is being retired. `Par`, `Ordo`, `Nexus`, `Imago`,
+> `Vinculum` and `Donum` **no longer derive**: their effects are implicit, and
+> writing the concept gives `E0005` with the exact replacement. `Json` is still
+> accepted until F5 (it is the only codec until then) and `Drop` until F2.3
+> (`born mirror`/`die` replace it). `psc migrate --drop-derive` rewrites the
+> clauses in the tree.
+
 ```pengu
-rune Point derive Par, Ordo, Vinculum, Imago:
-    x as int
+rune Point:              # before: rune Point derive Par, Ordo, Vinculum, Imago:
+    x as int             # ==/!=, <...>, hash and copy are automatic
     y as int
 ```
 

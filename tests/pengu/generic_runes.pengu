@@ -36,7 +36,7 @@ weave main into int:
         return 1
     banish b
 
-    var xs as list of int is [1, 2, 3]
+    var xs as vector of int is [1, 2, 3]
     var qs as int is calling tally.sum with xs
     if qs != 6:
         banish xs

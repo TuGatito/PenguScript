@@ -2,23 +2,23 @@
 ##
 ## El literal construye un mapa real: cada entrada se inserta con
 ## `pengu_map_put` y el valor resultante es un `PenguMap` con dueño.
-weave size_of_map with m as map of string to int into int:
+weave size_of_map with m as map of string, int into int:
     return m.len
 
 weave main into int:
-    var empty as map of string to int is {}
+    var empty as map of string, int is {}
     if empty.len != 0:
         return 1
     banish empty
 
-    var one as map of string to int is {"a": 41}
+    var one as map of string, int is {"a": 41}
     if one.len != 1:
         return 2
     if (one at "a") != 41:
         return 3
     banish one
 
-    var m as map of string to int is {"a": 1, "b": 2, "c": 3}
+    var m as map of string, int is {"a": 1, "b": 2, "c": 3}
     if m.len != 3:
         return 4
     if (m at "b") != 2:
@@ -41,8 +41,8 @@ weave main into int:
     # Literal temporal en un argumento y mapa anidado.
     if (calling size_of_map with {"x": 7, "y": 8}) != 2:
         return 10
-    var nested as map of string to map of string to int is {"inner": {"n": 5}}
-    var inner as map of string to int is (nested at "inner")
+    var nested as map of string, map of string, int is {"inner": {"n": 5}}
+    var inner as map of string, int is (nested at "inner")
     if (inner at "n") != 5:
         return 11
     banish inner
@@ -50,7 +50,7 @@ weave main into int:
 
     # Claves no literales (expresión) y valores calculados.
     var base as int is 10
-    var computed as map of string to int is {"k{base}": base * 2}
+    var computed as map of string, int is {"k{base}": base * 2}
     if (computed at "k10") != 20:
         return 12
     banish computed

@@ -23,7 +23,7 @@ weave main into int:
     calling spark.println with "inter={(calling inter.count_ones)}"
     calling spark.println with "union={(calling union_set.count_ones)}"
     calling spark.println with "diff={(calling diff.count_ones)}"
-    var indexes as list of int is calling inter.iter_set
+    var indexes as vector of int is calling inter.iter_set
     defer banish indexes
     calling spark.println with "first={(indexes at 0)}"
     calling spark.println with "OK bitset_set_ops"

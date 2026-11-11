@@ -477,6 +477,415 @@ static inline void _pengu_cleanup_SpawnBox3__A__B__C(SpawnBox3__A__B__C* p) {
     (void)p;
 }
 
+static inline bool _pengu_eqv_108(const void* a, const void* b);
+static inline bool _pengu_eqv_18(const void* a, const void* b);
+static inline bool _pengu_eqv_6(const void* a, const void* b);
+static inline bool _pengu_eqv_109(const void* a, const void* b);
+static inline bool _pengu_eqv_16(const void* a, const void* b);
+static inline bool _pengu_eqv_110(const void* a, const void* b);
+static inline bool _pengu_eqv_19(const void* a, const void* b);
+static inline bool _pengu_eqv_111(const void* a, const void* b);
+static inline bool _pengu_eqv_112(const void* a, const void* b);
+static inline bool _pengu_eqv_294(const void* a, const void* b);
+static inline bool _pengu_eqv_4(const void* a, const void* b);
+static inline bool _pengu_eqv_295(const void* a, const void* b);
+static inline bool _pengu_eqv_296(const void* a, const void* b);
+static inline bool _pengu_eqv_297(const void* a, const void* b);
+static inline bool _pengu_eqv_298(const void* a, const void* b);
+static inline bool _pengu_eqv_299(const void* a, const void* b);
+static inline bool _pengu_eqv_300(const void* a, const void* b);
+static inline bool _pengu_eqv_301(const void* a, const void* b);
+static inline bool _pengu_eqv_302(const void* a, const void* b);
+static inline bool _pengu_eqv_303(const void* a, const void* b);
+static inline bool _pengu_eqv_304(const void* a, const void* b);
+static inline bool _pengu_eqv_7(const void* a, const void* b);
+static inline bool _pengu_eqv_305(const void* a, const void* b);
+static inline bool _pengu_eqv_307(const void* a, const void* b);
+static inline bool _pengu_eqv_499(const void* a, const void* b);
+static inline bool _pengu_eqv_310(const void* a, const void* b);
+static inline bool _pengu_eqv_311(const void* a, const void* b);
+static inline bool _pengu_eqv_546(const void* a, const void* b);
+static inline bool _pengu_eqv_93(const void* a, const void* b);
+static inline bool _pengu_eqv_143(const void* a, const void* b);
+static inline bool _pengu_eqv_116(const void* a, const void* b);
+static inline bool _pengu_eqv_126(const void* a, const void* b);
+static inline bool _pengu_eqv_288(const void* a, const void* b);
+static inline bool _pengu_eqv_139(const void* a, const void* b);
+static inline bool _pengu_eqv_286(const void* a, const void* b);
+static inline bool _pengu_eqv_147(const void* a, const void* b);
+static inline bool _pengu_eqv_572(const void* a, const void* b);
+static inline bool _pengu_eqv_576(const void* a, const void* b);
+static inline bool _pengu_eqv_571(const void* a, const void* b);
+static inline bool _pengu_eqv_580(const void* a, const void* b);
+static inline bool _pengu_eqv_582(const void* a, const void* b);
+static inline bool _pengu_eqv_113(const void* a, const void* b);
+static inline bool _pengu_eqv_594(const void* a, const void* b);
+static inline bool _pengu_eqv_596(const void* a, const void* b);
+static inline bool _pengu_eqv_114(const void* a, const void* b);
+static inline bool _pengu_eqv_603(const void* a, const void* b);
+static inline bool _pengu_eqv_605(const void* a, const void* b);
+static inline bool _pengu_eqv_115(const void* a, const void* b);
+static inline bool _pengu_eq_MaybeInt(const MaybeInt* a, const MaybeInt* b);
+static inline bool _pengu_eq_MaybeFloat(const MaybeFloat* a, const MaybeFloat* b);
+static inline bool _pengu_eq_MaybeString(const MaybeString* a, const MaybeString* b);
+static inline bool _pengu_eq_ResultInt(const ResultInt* a, const ResultInt* b);
+static inline bool _pengu_eq_ResultString(const ResultString* a, const ResultString* b);
+static inline bool _pengu_eq_Mutex(const Mutex* a, const Mutex* b);
+static inline bool _pengu_eq_WaitGroup(const WaitGroup* a, const WaitGroup* b);
+static inline bool _pengu_eq_Once(const Once* a, const Once* b);
+static inline bool _pengu_eq_Cond(const Cond* a, const Cond* b);
+static inline bool _pengu_eq_AtomicInt(const AtomicInt* a, const AtomicInt* b);
+static inline bool _pengu_eq_Chan(const Chan* a, const Chan* b);
+static inline bool _pengu_eq_ChanInt(const ChanInt* a, const ChanInt* b);
+static inline bool _pengu_eq_ChanString(const ChanString* a, const ChanString* b);
+static inline bool _pengu_eq_ChanFloat(const ChanFloat* a, const ChanFloat* b);
+static inline bool _pengu_eq_ChanBool(const ChanBool* a, const ChanBool* b);
+static inline bool _pengu_eq_Thread(const Thread* a, const Thread* b);
+static inline bool _pengu_eq_ThreadError(const ThreadError* a, const ThreadError* b);
+static inline bool _pengu_eq_SpawnBox0(const SpawnBox0* a, const SpawnBox0* b);
+static inline bool _pengu_eq_Tls(const Tls* a, const Tls* b);
+static inline bool _pengu_eq_Pool(const Pool* a, const Pool* b);
+static inline bool _pengu_eq_Blob(const Blob* a, const Blob* b);
+static inline bool _pengu_eq_Pair__T__U(const Pair__T__U* a, const Pair__T__U* b);
+static inline bool _pengu_eq_Pair__list_T__list_E(const Pair__list_T__list_E* a, const Pair__list_T__list_E* b);
+static inline bool _pengu_eq_Pair__int__string(const Pair__int__string* a, const Pair__int__string* b);
+static inline bool _pengu_eq_Pair__list_int__list_string(const Pair__list_int__list_string* a, const Pair__list_int__list_string* b);
+static inline bool _pengu_eq_SpawnBox__A(const SpawnBox__A* a, const SpawnBox__A* b);
+static inline bool _pengu_eq_SpawnBox2__A__B(const SpawnBox2__A__B* a, const SpawnBox2__A__B* b);
+static inline bool _pengu_eq_SpawnBox3__A__B__C(const SpawnBox3__A__B__C* a, const SpawnBox3__A__B__C* b);
+static inline bool _pengu_eqv_108(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_MaybeInt(&((*((const MaybeInt*)a))), &((*((const MaybeInt*)b))));
+}
+static inline bool _pengu_eqv_18(const void* a, const void* b) {
+    (void)a; (void)b;
+    return (((*((const bool*)a))) == ((*((const bool*)b))));
+}
+static inline bool _pengu_eqv_6(const void* a, const void* b) {
+    (void)a; (void)b;
+    return (((*((const int32_t*)a))) == ((*((const int32_t*)b))));
+}
+static inline bool _pengu_eqv_109(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_MaybeFloat(&((*((const MaybeFloat*)a))), &((*((const MaybeFloat*)b))));
+}
+static inline bool _pengu_eqv_16(const void* a, const void* b) {
+    (void)a; (void)b;
+    return (((*((const float*)a))) == ((*((const float*)b))));
+}
+static inline bool _pengu_eqv_110(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_MaybeString(&((*((const MaybeString*)a))), &((*((const MaybeString*)b))));
+}
+static inline bool _pengu_eqv_19(const void* a, const void* b) {
+    (void)a; (void)b;
+    return pengu_string_equal((*((const PenguString*)a)), (*((const PenguString*)b)));
+}
+static inline bool _pengu_eqv_111(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_ResultInt(&((*((const ResultInt*)a))), &((*((const ResultInt*)b))));
+}
+static inline bool _pengu_eqv_112(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_ResultString(&((*((const ResultString*)a))), &((*((const ResultString*)b))));
+}
+static inline bool _pengu_eqv_294(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Mutex(&((*((const Mutex*)a))), &((*((const Mutex*)b))));
+}
+static inline bool _pengu_eqv_4(const void* a, const void* b) {
+    (void)a; (void)b;
+    return (((*((const void**)a))) == ((*((const void**)b))));
+}
+static inline bool _pengu_eqv_295(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_WaitGroup(&((*((const WaitGroup*)a))), &((*((const WaitGroup*)b))));
+}
+static inline bool _pengu_eqv_296(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Once(&((*((const Once*)a))), &((*((const Once*)b))));
+}
+static inline bool _pengu_eqv_297(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Cond(&((*((const Cond*)a))), &((*((const Cond*)b))));
+}
+static inline bool _pengu_eqv_298(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_AtomicInt(&((*((const AtomicInt*)a))), &((*((const AtomicInt*)b))));
+}
+static inline bool _pengu_eqv_299(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Chan(&((*((const Chan*)a))), &((*((const Chan*)b))));
+}
+static inline bool _pengu_eqv_300(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_ChanInt(&((*((const ChanInt*)a))), &((*((const ChanInt*)b))));
+}
+static inline bool _pengu_eqv_301(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_ChanString(&((*((const ChanString*)a))), &((*((const ChanString*)b))));
+}
+static inline bool _pengu_eqv_302(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_ChanFloat(&((*((const ChanFloat*)a))), &((*((const ChanFloat*)b))));
+}
+static inline bool _pengu_eqv_303(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_ChanBool(&((*((const ChanBool*)a))), &((*((const ChanBool*)b))));
+}
+static inline bool _pengu_eqv_304(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Thread(&((*((const Thread*)a))), &((*((const Thread*)b))));
+}
+static inline bool _pengu_eqv_7(const void* a, const void* b) {
+    (void)a; (void)b;
+    return (((*((const int64_t*)a))) == ((*((const int64_t*)b))));
+}
+static inline bool _pengu_eqv_305(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_ThreadError(&((*((const ThreadError*)a))), &((*((const ThreadError*)b))));
+}
+static inline bool _pengu_eqv_307(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_SpawnBox0(&((*((const SpawnBox0*)a))), &((*((const SpawnBox0*)b))));
+}
+static inline bool _pengu_eqv_499(const void* a, const void* b) {
+    (void)a; (void)b;
+    return memcmp(a, b, sizeof(void (*)(void))) == 0;
+}
+static inline bool _pengu_eqv_310(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Tls(&((*((const Tls*)a))), &((*((const Tls*)b))));
+}
+static inline bool _pengu_eqv_311(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Pool(&((*((const Pool*)a))), &((*((const Pool*)b))));
+}
+static inline bool _pengu_eqv_546(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Blob(&((*((const Blob*)a))), &((*((const Blob*)b))));
+}
+static inline bool _pengu_eqv_93(const void* a, const void* b) {
+    (void)a; (void)b;
+    return pengu_list_equal(&((*((const PenguList*)a))), &((*((const PenguList*)b))), _pengu_eqv_6);
+}
+static inline bool _pengu_eqv_143(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Pair__T__U(&((*((const Pair__T__U*)a))), &((*((const Pair__T__U*)b))));
+}
+static inline bool _pengu_eqv_116(const void* a, const void* b) {
+    (void)a; (void)b;
+    return (memcmp(&((*((const void**)a))), &((*((const void**)b))), sizeof((*((const void**)a)))) == 0);
+}
+static inline bool _pengu_eqv_126(const void* a, const void* b) {
+    (void)a; (void)b;
+    return (memcmp(&((*((const void**)a))), &((*((const void**)b))), sizeof((*((const void**)a)))) == 0);
+}
+static inline bool _pengu_eqv_288(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Pair__list_T__list_E(&((*((const Pair__list_T__list_E*)a))), &((*((const Pair__list_T__list_E*)b))));
+}
+static inline bool _pengu_eqv_139(const void* a, const void* b) {
+    (void)a; (void)b;
+    return pengu_list_equal(&((*((const PenguList*)a))), &((*((const PenguList*)b))), _pengu_eqv_116);
+}
+static inline bool _pengu_eqv_286(const void* a, const void* b) {
+    (void)a; (void)b;
+    return pengu_list_equal(&((*((const PenguList*)a))), &((*((const PenguList*)b))), _pengu_eqv_147);
+}
+static inline bool _pengu_eqv_147(const void* a, const void* b) {
+    (void)a; (void)b;
+    return (memcmp(&((*((const void**)a))), &((*((const void**)b))), sizeof((*((const void**)a)))) == 0);
+}
+static inline bool _pengu_eqv_572(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Pair__int__string(&((*((const Pair__int__string*)a))), &((*((const Pair__int__string*)b))));
+}
+static inline bool _pengu_eqv_576(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Pair__list_int__list_string(&((*((const Pair__list_int__list_string*)a))), &((*((const Pair__list_int__list_string*)b))));
+}
+static inline bool _pengu_eqv_571(const void* a, const void* b) {
+    (void)a; (void)b;
+    return pengu_list_equal(&((*((const PenguList*)a))), &((*((const PenguList*)b))), _pengu_eqv_19);
+}
+static inline bool _pengu_eqv_580(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_SpawnBox__A(&((*((const SpawnBox__A*)a))), &((*((const SpawnBox__A*)b))));
+}
+static inline bool _pengu_eqv_582(const void* a, const void* b) {
+    (void)a; (void)b;
+    return memcmp(a, b, sizeof(void (*)(void*))) == 0;
+}
+static inline bool _pengu_eqv_113(const void* a, const void* b) {
+    (void)a; (void)b;
+    return (memcmp(&((*((const void**)a))), &((*((const void**)b))), sizeof((*((const void**)a)))) == 0);
+}
+static inline bool _pengu_eqv_594(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_SpawnBox2__A__B(&((*((const SpawnBox2__A__B*)a))), &((*((const SpawnBox2__A__B*)b))));
+}
+static inline bool _pengu_eqv_596(const void* a, const void* b) {
+    (void)a; (void)b;
+    return memcmp(a, b, sizeof(void (*)(void*, void*))) == 0;
+}
+static inline bool _pengu_eqv_114(const void* a, const void* b) {
+    (void)a; (void)b;
+    return (memcmp(&((*((const void**)a))), &((*((const void**)b))), sizeof((*((const void**)a)))) == 0);
+}
+static inline bool _pengu_eqv_603(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_SpawnBox3__A__B__C(&((*((const SpawnBox3__A__B__C*)a))), &((*((const SpawnBox3__A__B__C*)b))));
+}
+static inline bool _pengu_eqv_605(const void* a, const void* b) {
+    (void)a; (void)b;
+    return memcmp(a, b, sizeof(void (*)(void*, void*, void*))) == 0;
+}
+static inline bool _pengu_eqv_115(const void* a, const void* b) {
+    (void)a; (void)b;
+    return (memcmp(&((*((const void**)a))), &((*((const void**)b))), sizeof((*((const void**)a)))) == 0);
+}
+static inline bool _pengu_eq_MaybeInt(const MaybeInt* a, const MaybeInt* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->is_present) == (b->is_present)) && ((a->value) == (b->value));
+}
+static inline bool _pengu_eq_MaybeFloat(const MaybeFloat* a, const MaybeFloat* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->is_present) == (b->is_present)) && ((a->value) == (b->value));
+}
+static inline bool _pengu_eq_MaybeString(const MaybeString* a, const MaybeString* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->is_present) == (b->is_present)) && pengu_string_equal(a->value, b->value);
+}
+static inline bool _pengu_eq_ResultInt(const ResultInt* a, const ResultInt* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->is_ok) == (b->is_ok)) && ((a->value) == (b->value)) && pengu_string_equal(a->error_msg, b->error_msg);
+}
+static inline bool _pengu_eq_ResultString(const ResultString* a, const ResultString* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->is_ok) == (b->is_ok)) && pengu_string_equal(a->value, b->value) && pengu_string_equal(a->error_msg, b->error_msg);
+}
+static inline bool _pengu_eq_Mutex(const Mutex* a, const Mutex* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->_ptr) == (b->_ptr));
+}
+static inline bool _pengu_eq_WaitGroup(const WaitGroup* a, const WaitGroup* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->_ptr) == (b->_ptr));
+}
+static inline bool _pengu_eq_Once(const Once* a, const Once* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->_ptr) == (b->_ptr));
+}
+static inline bool _pengu_eq_Cond(const Cond* a, const Cond* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->_ptr) == (b->_ptr));
+}
+static inline bool _pengu_eq_AtomicInt(const AtomicInt* a, const AtomicInt* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->_ptr) == (b->_ptr));
+}
+static inline bool _pengu_eq_Chan(const Chan* a, const Chan* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->_ptr) == (b->_ptr)) && ((a->buffered) == (b->buffered)) && ((a->cap) == (b->cap));
+}
+static inline bool _pengu_eq_ChanInt(const ChanInt* a, const ChanInt* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->_ptr) == (b->_ptr)) && ((a->buffered) == (b->buffered)) && ((a->cap) == (b->cap));
+}
+static inline bool _pengu_eq_ChanString(const ChanString* a, const ChanString* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->_ptr) == (b->_ptr)) && ((a->buffered) == (b->buffered)) && ((a->cap) == (b->cap));
+}
+static inline bool _pengu_eq_ChanFloat(const ChanFloat* a, const ChanFloat* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->_ptr) == (b->_ptr)) && ((a->buffered) == (b->buffered)) && ((a->cap) == (b->cap));
+}
+static inline bool _pengu_eq_ChanBool(const ChanBool* a, const ChanBool* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->_ptr) == (b->_ptr)) && ((a->buffered) == (b->buffered)) && ((a->cap) == (b->cap));
+}
+static inline bool _pengu_eq_Thread(const Thread* a, const Thread* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->_id) == (b->_id)) && ((a->_err) == (b->_err));
+}
+static inline bool _pengu_eq_ThreadError(const ThreadError* a, const ThreadError* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->code) == (b->code)) && ((a->sys_code) == (b->sys_code));
+}
+static inline bool _pengu_eq_SpawnBox0(const SpawnBox0* a, const SpawnBox0* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->fn) == (b->fn));
+}
+static inline bool _pengu_eq_Tls(const Tls* a, const Tls* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->_ptr) == (b->_ptr));
+}
+static inline bool _pengu_eq_Pool(const Pool* a, const Pool* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->_ptr) == (b->_ptr));
+}
+static inline bool _pengu_eq_Blob(const Blob* a, const Blob* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return pengu_string_equal(a->name, b->name) && pengu_list_equal(&(a->values), &(b->values), _pengu_eqv_6);
+}
+static inline bool _pengu_eq_Pair__T__U(const Pair__T__U* a, const Pair__T__U* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return (memcmp(&(a->first), &(b->first), sizeof(a->first)) == 0) && (memcmp(&(a->second), &(b->second), sizeof(a->second)) == 0);
+}
+static inline bool _pengu_eq_Pair__list_T__list_E(const Pair__list_T__list_E* a, const Pair__list_T__list_E* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return pengu_list_equal(&(a->first), &(b->first), _pengu_eqv_116) && pengu_list_equal(&(a->second), &(b->second), _pengu_eqv_147);
+}
+static inline bool _pengu_eq_Pair__int__string(const Pair__int__string* a, const Pair__int__string* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->first) == (b->first)) && pengu_string_equal(a->second, b->second);
+}
+static inline bool _pengu_eq_Pair__list_int__list_string(const Pair__list_int__list_string* a, const Pair__list_int__list_string* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return pengu_list_equal(&(a->first), &(b->first), _pengu_eqv_6) && pengu_list_equal(&(a->second), &(b->second), _pengu_eqv_19);
+}
+static inline bool _pengu_eq_SpawnBox__A(const SpawnBox__A* a, const SpawnBox__A* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->fn) == (b->fn)) && (memcmp(&(a->arg), &(b->arg), sizeof(a->arg)) == 0);
+}
+static inline bool _pengu_eq_SpawnBox2__A__B(const SpawnBox2__A__B* a, const SpawnBox2__A__B* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->fn) == (b->fn)) && (memcmp(&(a->a0), &(b->a0), sizeof(a->a0)) == 0) && (memcmp(&(a->a1), &(b->a1), sizeof(a->a1)) == 0);
+}
+static inline bool _pengu_eq_SpawnBox3__A__B__C(const SpawnBox3__A__B__C* a, const SpawnBox3__A__B__C* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->fn) == (b->fn)) && (memcmp(&(a->a0), &(b->a0), sizeof(a->a0)) == 0) && (memcmp(&(a->a1), &(b->a1), sizeof(a->a1)) == 0) && (memcmp(&(a->a2), &(b->a2), sizeof(a->a2)) == 0);
+}
+
 
 void spark_pengu_println(PenguString s) {
 

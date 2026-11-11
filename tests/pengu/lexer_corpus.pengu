@@ -25,7 +25,7 @@ weave contains with s as string, needle as string into bool:
     return false
 
 weave check_dir with root as string into int:
-    var files as list of string is calling archivum.list_files_recursive with root
+    var files as vector of string is calling archivum.list_files_recursive with root
     var bad as int is 0
     var total as int is 0
     var tokens as int is 0

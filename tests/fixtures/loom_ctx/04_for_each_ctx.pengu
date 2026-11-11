@@ -3,7 +3,7 @@ import std.spark
 
 rune Collector:
     total as int
-    items as list of int
+    items as vector of int
 
 weave collect with c as ref to Collector, x as int into void:
     set c->total is c->total + x
@@ -11,7 +11,7 @@ weave collect with c as ref to Collector, x as int into void:
 
 weave main into int:
     var c as Collector is with total is 0
-    var xs as list of int is [1, 2, 3]
+    var xs as vector of int is [1, 2, 3]
     calling loom.for_each_ctx with xs, (sigil of c), collect
     calling spark.println with "{c.total} {calling c.items.len} {c.items at 2}"
     banish c.items

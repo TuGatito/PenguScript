@@ -70,6 +70,47 @@ static inline void _pengu_cleanup_Slot(Slot* p) {
     }
 }
 
+static inline bool _pengu_eqv_106(const void* a, const void* b);
+static inline bool _pengu_eqv_19(const void* a, const void* b);
+static inline bool _pengu_eqv_6(const void* a, const void* b);
+static inline bool _pengu_eqv_107(const void* a, const void* b);
+static inline bool _pengu_eq_Label(const Label* a, const Label* b);
+static inline bool _pengu_eq_Slot(const Slot* a, const Slot* b);
+static inline bool _pengu_eqv_106(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Label(&((*((const Label*)a))), &((*((const Label*)b))));
+}
+static inline bool _pengu_eqv_19(const void* a, const void* b) {
+    (void)a; (void)b;
+    return pengu_string_equal((*((const PenguString*)a)), (*((const PenguString*)b)));
+}
+static inline bool _pengu_eqv_6(const void* a, const void* b) {
+    (void)a; (void)b;
+    return (((*((const int32_t*)a))) == ((*((const int32_t*)b))));
+}
+static inline bool _pengu_eqv_107(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Slot(&((*((const Slot*)a))), &((*((const Slot*)b))));
+}
+static inline bool _pengu_eq_Label(const Label* a, const Label* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return pengu_string_equal(a->name, b->name) && ((a->weight) == (b->weight));
+}
+static inline bool _pengu_eq_Slot(const Slot* a, const Slot* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    if (a->tag != b->tag) return false;
+    switch (a->tag) {
+    case Slot_Empty: return true;
+    case Slot_Filled: {
+        if (!(pengu_string_equal(a->data.Filled.text, b->data.Filled.text))) return false;
+        return true;
+    }
+    default: return true;
+    }
+}
+
 
 void spark_pengu_println(PenguString s) {
 

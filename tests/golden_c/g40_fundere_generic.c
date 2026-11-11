@@ -62,6 +62,34 @@ static inline void _pengu_cleanup_Box__int(Box__int* p) {
     (void)p;
 }
 
+static inline bool _pengu_eqv_107(const void* a, const void* b);
+static inline bool _pengu_eqv_110(const void* a, const void* b);
+static inline bool _pengu_eqv_6(const void* a, const void* b);
+static inline bool _pengu_eq_Holder(const Holder* a, const Holder* b);
+static inline bool _pengu_eq_Box__int(const Box__int* a, const Box__int* b);
+static inline bool _pengu_eqv_107(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Holder(&((*((const Holder*)a))), &((*((const Holder*)b))));
+}
+static inline bool _pengu_eqv_110(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Box__int(&((*((const Box__int*)a))), &((*((const Box__int*)b))));
+}
+static inline bool _pengu_eqv_6(const void* a, const void* b) {
+    (void)a; (void)b;
+    return (((*((const int32_t*)a))) == ((*((const int32_t*)b))));
+}
+static inline bool _pengu_eq_Holder(const Holder* a, const Holder* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return _pengu_eq_Box__int(&(a->box), &(b->box)) && ((a->tag) == (b->tag));
+}
+static inline bool _pengu_eq_Box__int(const Box__int* a, const Box__int* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->value) == (b->value));
+}
+
 
 void spark_pengu_println(PenguString s) {
 

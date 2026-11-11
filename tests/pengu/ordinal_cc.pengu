@@ -16,7 +16,7 @@ weave main into int:
     calling ll.push_front with 1
     if (calling ll.size) != 2:
         return calling fail with "linked list size"
-    var li as list of int is calling ll.items
+    var li as vector of int is calling ll.items
     if (li at 0) != 1 or (li at 1) != 2:
         banish li
         return calling fail with "linked list order"
@@ -36,7 +36,7 @@ weave main into int:
     var beta as string is "beta"
     calling ls.push_back with alpha
     calling ls.push_back with beta
-    var lsi as list of string is calling ls.items
+    var lsi as vector of string is calling ls.items
     if (lsi at 0) != "alpha" or (lsi at 1) != "beta":
         banish lsi
         banish alpha
@@ -50,7 +50,7 @@ weave main into int:
     var lp as LinkedList of Point is calling new_linked_list of Point
     var p as Point is with x is 1, y is 2
     calling lp.push_back with p
-    var lpi as list of Point is calling lp.items
+    var lpi as vector of Point is calling lp.items
     var p0 as Point is lpi at 0
     if p0.x != 1 or p0.y != 2:
         banish lpi
@@ -91,7 +91,7 @@ weave main into int:
     calling os.add with 3
     calling os.add with 1
     calling os.add with 2
-    var oi as list of int is calling os.items
+    var oi as vector of int is calling os.items
     if (oi at 0) != 1 or (oi at 1) != 2 or (oi at 2) != 3:
         banish oi
         return calling fail with "ordered set order"
@@ -101,7 +101,7 @@ weave main into int:
     var ss as OrderedSet of string is calling new_ordered_set of string
     calling ss.add with "beta"
     calling ss.add with "alpha"
-    var si as list of string is calling ss.items
+    var si as vector of string is calling ss.items
     if (si at 0) != "alpha" or (si at 1) != "beta":
         banish si
         return calling fail with "ordered string set order"
@@ -129,7 +129,7 @@ weave main into int:
         banish k2
         return calling fail with "ordered map value"
     banish got
-    var ok as list of string is calling om.keys
+    var ok as vector of string is calling om.keys
     if (ok at 0) != "a" or (ok at 1) != "b":
         banish ok
         banish k1
@@ -147,7 +147,7 @@ weave main into int:
     var omi as OrderedMap of int and int is calling new_ordered_map of int and int
     calling omi.put with 2, 20
     calling omi.put with 1, 10
-    var ovi as list of int is calling omi.values
+    var ovi as vector of int is calling omi.values
     if (ovi at 0) != 10 or (ovi at 1) != 20:
         banish ovi
         return calling fail with "ordered int map values"

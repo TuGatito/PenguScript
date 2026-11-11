@@ -54,6 +54,28 @@ static inline void _pengu_cleanup_Label(Label* p) {
 }
 static inline void _pengu_rc_drop_Label(void* p) { _pengu_cleanup_Label((Label*)p); }
 
+static inline bool _pengu_eqv_106(const void* a, const void* b);
+static inline bool _pengu_eqv_19(const void* a, const void* b);
+static inline bool _pengu_eqv_6(const void* a, const void* b);
+static inline bool _pengu_eq_Label(const Label* a, const Label* b);
+static inline bool _pengu_eqv_106(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Label(&((*((const Label*)a))), &((*((const Label*)b))));
+}
+static inline bool _pengu_eqv_19(const void* a, const void* b) {
+    (void)a; (void)b;
+    return pengu_string_equal((*((const PenguString*)a)), (*((const PenguString*)b)));
+}
+static inline bool _pengu_eqv_6(const void* a, const void* b) {
+    (void)a; (void)b;
+    return (((*((const int32_t*)a))) == ((*((const int32_t*)b))));
+}
+static inline bool _pengu_eq_Label(const Label* a, const Label* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return pengu_string_equal(a->name, b->name) && ((a->weight) == (b->weight));
+}
+
 
 void spark_pengu_println(PenguString s) {
 

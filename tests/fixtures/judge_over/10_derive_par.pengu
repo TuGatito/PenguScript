@@ -5,7 +5,7 @@ omen ShapeKind:
     Square
     Rect
 
-rune Shape derive Par:
+rune Shape:
     kind as ShapeKind
     width as int
 

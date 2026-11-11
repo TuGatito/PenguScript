@@ -5,8 +5,8 @@
 import std.spark
 
 weave main into int:
-    var a as list of int is [1, 2, 3]
-    var b as list of int is a
+    var a as vector of int is [1, 2, 3]
+    var b as vector of int is a
     set b at 0 is 9
     calling spark.println with "{a at 0} {b at 0}"
     banish a

@@ -18,7 +18,7 @@ weave main into int:
         return 2
     banish s
 
-    var l as list of int is [1, 2, 3]
+    var l as vector of int is [1, 2, 3]
     set l is [4, 5]
     if (l length) != 2:
         banish l
@@ -32,9 +32,9 @@ weave main into int:
         return 5
     banish l
 
-    var m as map of string to int is map of string to int
+    var m as map of string, int is map of string, int
     calling m.put with "a", 1
-    set m is map of string to int
+    set m is map of string, int
     if (m length) != 0:
         banish m
         return 6

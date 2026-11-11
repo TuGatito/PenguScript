@@ -9,7 +9,7 @@ weave main into int:
         banish b
         return 1
     banish b
-    var parsed as maybe map of string to string is calling cipher.parse_json with "{\"a\":1}"
+    var parsed as maybe map of string, string is calling cipher.parse_json with "{\"a\":1}"
     banish parsed
     calling spark.println with "OK cipher_types"
     return 0

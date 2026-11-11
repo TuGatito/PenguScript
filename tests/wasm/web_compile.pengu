@@ -94,7 +94,7 @@ weave main into int:
     if not hl.is_ok:
         calling drop_js_error with hl.error
 
-    var rt as maybe list of url.Param is calling router.match with "/a/:id", "/a/1"
+    var rt as maybe vector of url.Param is calling router.match with "/a/:id", "/a/1"
     if rt is present:
         calling router.free_params with rt.value
 

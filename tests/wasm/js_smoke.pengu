@@ -48,7 +48,7 @@ weave main into int:
         return 1
     defer calling js.release with m.value
 
-    var a as list of js.JsValue is list of js.JsValue
+    var a as vector of js.JsValue is vector of js.JsValue
     defer banish a
     var x as result of js.JsValue to js.JsError is calling js.string with "x"
     var y as result of js.JsValue to js.JsError is calling js.string with "y"
@@ -79,7 +79,7 @@ weave main into int:
         calling spark.println with "callback create failed"
         return 1
     defer calling js.free_callback with cbv.value
-    var args as list of js.JsValue is list of js.JsValue
+    var args as vector of js.JsValue is vector of js.JsValue
     defer banish args
     calling args.push with (calling js.callback_value with cbv.value)
     var callr as result of js.JsValue to js.JsError is calling js.call with fn.value, g, args

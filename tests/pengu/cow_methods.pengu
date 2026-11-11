@@ -9,11 +9,11 @@ import std.spark
 
 weave main into int:
     # --- listas -----------------------------------------------------------
-    var a as list of int is list of int
+    var a as vector of int is vector of int
     calling a.push with 1
     calling a.push with 2
 
-    var b as list of int is a
+    var b as vector of int is a
     if not (calling a.is_shared):
         calling spark.println with "list should be shared after copy"
         return 1
@@ -22,9 +22,9 @@ weave main into int:
         return 2
 
     # Copiar un mapa también comparte su estado.
-    var m as map of string to int is map of string to int
+    var m as map of string, int is map of string, int
     calling m.put with "k", 1
-    var n as map of string to int is m
+    var n as map of string, int is m
     if not (calling m.is_shared):
         calling spark.println with "map should be shared after copy"
         return 3

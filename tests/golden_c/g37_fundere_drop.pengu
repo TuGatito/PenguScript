@@ -4,7 +4,7 @@
 ## por él, pero sí tiene cleanup.
 import std.spark
 
-rune GameObj derive Nexus:
+rune GameObj:
     position as int
     label as string
 

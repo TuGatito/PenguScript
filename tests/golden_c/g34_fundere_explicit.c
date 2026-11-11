@@ -66,6 +66,39 @@ static inline void _pengu_cleanup_Host(Host* p) {
     _pengu_cleanup_Position3D(&(p->position3D));
 }
 
+static inline bool _pengu_eqv_106(const void* a, const void* b);
+static inline bool _pengu_eqv_16(const void* a, const void* b);
+static inline bool _pengu_eqv_107(const void* a, const void* b);
+static inline bool _pengu_eqv_6(const void* a, const void* b);
+static inline bool _pengu_eq_Position3D(const Position3D* a, const Position3D* b);
+static inline bool _pengu_eq_Host(const Host* a, const Host* b);
+static inline bool _pengu_eqv_106(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Position3D(&((*((const Position3D*)a))), &((*((const Position3D*)b))));
+}
+static inline bool _pengu_eqv_16(const void* a, const void* b) {
+    (void)a; (void)b;
+    return (((*((const float*)a))) == ((*((const float*)b))));
+}
+static inline bool _pengu_eqv_107(const void* a, const void* b) {
+    (void)a; (void)b;
+    return _pengu_eq_Host(&((*((const Host*)a))), &((*((const Host*)b))));
+}
+static inline bool _pengu_eqv_6(const void* a, const void* b) {
+    (void)a; (void)b;
+    return (((*((const int32_t*)a))) == ((*((const int32_t*)b))));
+}
+static inline bool _pengu_eq_Position3D(const Position3D* a, const Position3D* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return ((a->x) == (b->x)) && ((a->y) == (b->y)) && ((a->z) == (b->z));
+}
+static inline bool _pengu_eq_Host(const Host* a, const Host* b) {
+    if (a == b) return true;
+    (void)a; (void)b;
+    return _pengu_eq_Position3D(&(a->position3D), &(b->position3D)) && ((a->health) == (b->health));
+}
+
 
 void spark_pengu_println(PenguString s) {
 

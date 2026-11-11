@@ -6,7 +6,7 @@ weave above with limit as ref to int, x as int into bool:
 
 weave main into int:
     var limit as int is 2
-    var xs as list of int is [1, 2, 3, 4]
+    var xs as vector of int is [1, 2, 3, 4]
     let (yes, no) is calling loom.partition_ctx with xs, (sigil of limit), above
     calling spark.println with "{calling yes.len} {yes at 0} {yes at 1}"
     calling spark.println with "{calling no.len} {no at 0} {no at 1}"

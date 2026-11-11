@@ -35,7 +35,7 @@ weave main into int:
     calling bag.add_source with "m.pengu", "let total is a + b\n"
     var s1 as Span is calling diag.span_from_positions with "m.pengu", 1, 14, 1, 15, 13, 14
     var s2 as Span is calling diag.span_from_positions with "m.pengu", 1, 18, 1, 19, 17, 18
-    var ls as list of Label is list of Label
+    var ls as vector of Label is vector of Label
     calling ls.push with (calling diag.label with s1, "left operand", true)
     calling ls.push with (calling diag.label with s2, "right operand", false)
     calling bag.add with (calling diag.diagnostic with diag.Severity.Warning, "W01", "operands have different units", ls, (maybe none), (maybe none), (calling diag.no_related))

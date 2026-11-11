@@ -75,7 +75,7 @@ const SOURCEMAP_CARRIAGE_RETURN as int is 13
 ##
 ## ## Memoria
 ## Value type: no heap fields, nothing to release.
-rune Position derive Par:
+rune Position:
     line as int
     col as int
 
@@ -86,7 +86,7 @@ rune Position derive Par:
 ##
 ## ## Memoria
 ## Value type: no heap fields, nothing to release.
-rune SourceSpan derive Par:
+rune SourceSpan:
     start as Position
     end as Position
 
@@ -99,7 +99,7 @@ rune SourceSpan derive Par:
 ## ## Memoria
 ## Owns `_source` (a private copy) and `_line_starts`. `banish map` releases
 ## both through `derive Nexus`.
-rune SourceMap derive Nexus:
+rune SourceMap:
     _source as string
     _line_starts as vector of int
 

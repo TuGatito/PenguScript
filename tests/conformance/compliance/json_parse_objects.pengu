@@ -23,7 +23,7 @@ weave main into int:
     calling eq_i with ((bi or else 0) to int), 3, "last duplicate wins"
     banish bi
     banish bs
-    var keys as list of string is calling root.keys
+    var keys as vector of string is calling root.keys
     calling eq_i with (keys.len), 2, "keys len"
     if (keys at 0) != "b":
         calling spark.println with "FAIL insertion order"
