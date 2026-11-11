@@ -2,6 +2,16 @@
 
 All notable changes to PenguScript will be documented in this file.
 
+## [0.60.0] — 2026-11-10 — Web bundle and PWA template
+
+- `psc web bundle [TARGET] [--pwa]`: optional esbuild pipeline for `[web] bundle`.
+  It uses the project's `node_modules/.bin/esbuild`, falls back to `npx esbuild`,
+  and writes to the first `[web] scripts` entry.
+- `[web] bundle = "web/entry.ts"` in `pengu.toml`.
+- `--pwa` writes a minimal `manifest.webmanifest` and a cache-first `sw.js` in
+  the `[web]` directory.
+- Documentation updated in `docs/NPM.md` and `docs/NPM.es.md`.
+
 ## [0.59.0] — 2026-11-10 — Adaptador Capacitor
 
 - Nuevo `std.web.capacitor`: `platform`, `is_native`, `is_available`, `plugin`,

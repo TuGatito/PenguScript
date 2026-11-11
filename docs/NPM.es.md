@@ -8,7 +8,8 @@ explícita y la llamas desde PenguScript con `std.web.npm`.
 - [1. Empaqueta la fachada](#1-empaqueta-la-fachada)
 - [2. Declara los assets web](#2-declara-los-assets-web)
 - [3. Llama a la fachada](#3-llama-a-la-fachada)
-- [4. Reglas de seguridad](#4-reglas-de-seguridad)
+- [4. Bundle y PWA con `psc web`](#4-bundle-y-pwa-con-psc-web)
+- [5. Reglas de seguridad](#5-reglas-de-seguridad)
 <!-- /toc -->
 
 ## 1. Empaqueta la fachada
@@ -43,6 +44,8 @@ límite tipado y auditable.
 dir = "web"
 scripts = ["npm.js"]
 base = ""
+# Opcional: deja que `psc web bundle` ejecute esbuild por ti.
+# bundle = "web/npm.ts"
 # assets = ["logo.png", "fonts"]
 ```
 
@@ -73,7 +76,30 @@ weave main into int:
   diagnóstico.
 - Todo handle devuelto es owned y debe liberarse exactamente una vez.
 
-## 4. Reglas de seguridad
+## 4. Bundle y PWA con `psc web`
+
+`psc web bundle` es una comodidad opcional: lee `[web] bundle`, ejecuta el
+`node_modules/.bin/esbuild` local (o `npx esbuild`) y escribe el IIFE en la
+primera entrada de `[web] scripts`.
+
+```toml
+[web]
+dir = "web"
+bundle = "web/npm.ts"
+scripts = ["npm.js"]
+```
+
+```sh
+psc web bundle .
+psc web bundle . --pwa   # además escribe manifest.webmanifest y sw.js
+```
+
+`--pwa` escribe un manifest mínimo y un service worker cache-first en el
+directorio `[web]`. El worker cachea `./`, `app.html`, `app.js` y `app.wasm`;
+añade iconos y ajusta la lista para producción. El comando nunca instala
+paquetes NPM: ejecuta `npm install` antes.
+
+## 5. Reglas de seguridad
 
 - Sin `eval` ni `import()` dinámico desde PenguScript; la fachada es el único
   límite.

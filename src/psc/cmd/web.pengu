@@ -1,0 +1,207 @@
+## psc/cmd/web.pengu — `psc web bundle` (Fase 3 opcional).
+##
+## Empaqueta `[web] bundle` con esbuild y, con `--pwa`, escribe un
+## `manifest.webmanifest` y un service worker mínimo. No resuelve NPM por sí
+## mismo: esbuild usa el `node_modules` del proyecto.
+
+import std.archivum
+import std.compass
+import std.rites
+import std.scrolls
+import std.spark
+
+import psc.driver.build as driver
+import psc.driver.manifest as manifest
+
+insignia psc_cmd_web_
+
+## Ayuda de `web`.
+##
+## ## Memoria
+## No asigna.
+weave print_help into void:
+    calling spark.println with "Usage: psc web bundle [TARGET] [--pwa]"
+    calling spark.println with "  TARGET            project directory (default: cwd)"
+    calling spark.println with "  --pwa             write manifest.webmanifest and sw.js in [web] dir"
+    calling spark.println with "  Requires esbuild in node_modules/.bin or available through npx."
+    calling spark.println with "  Configure [web] bundle=\"web/npm.ts\" and [web] scripts=[\"bundle.js\"]."
+
+## Escribe un archivo, informando del error.
+##
+## ## Memoria
+## No retiene `content`.
+weave write_file with path as string, content as string into bool:
+    if calling archivum.write_text with path, content:
+        return true
+    var msg as string is "psc web: cannot write '{path}'"
+    calling spark.eprintln with msg
+    banish msg
+    return false
+
+## Manifest PWA mínimo. `name`/`version` son del proyecto.
+##
+## ## Memoria
+## Devuelve string owned.
+weave pwa_manifest with name as string, version as string into string:
+    var t as string is "{\n  \"name\": \"@@NAME@@\",\n  \"short_name\": \"@@NAME@@\",\n  \"version\": \"@@VERSION@@\",\n  \"start_url\": \"./\",\n  \"display\": \"standalone\",\n  \"background_color\": \"#ffffff\",\n  \"theme_color\": \"#ffffff\"\n}\n"
+    var a as string is calling scrolls.replace_all with t, "@@NAME@@", name
+    var b as string is calling scrolls.replace_all with a, "@@VERSION@@", version
+    banish t
+    banish a
+    return b
+
+## Service worker de cache-first para el shell.
+##
+## ## Memoria
+## Devuelve string owned.
+weave pwa_worker with version as string into string:
+    var t as string is "const CACHE = 'pengu-@@VERSION@@';\nself.addEventListener('install', (e) => {\n  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(['./', './app.html', './app.js', './app.wasm'])));\n});\nself.addEventListener('fetch', (e) => {\n  e.respondWith(caches.match(e.request).then((r) => r || fetch(e.request)));\n});\n"
+    var b as string is calling scrolls.replace_all with t, "@@VERSION@@", version
+    banish t
+    return b
+
+## Implementa `psc web`.
+##
+## ## Memoria
+## Libera args propios y manifest.
+weave run with args as list of string into int:
+    if args.len < 3 or (args at 2) != "bundle":
+        calling print_help
+        return 2
+    var target as string is "."
+    var pwa as bool is false
+    var i as int is 3
+    while i < args.len:
+        var a as string is args at i
+        if a == "--pwa":
+            set pwa is true
+        else if a == "--help" or a == "-h":
+            calling print_help
+            return 0
+        else if a length > 0 and ((bytes of a) at 0) to int == 45:
+            var u as string is "psc web: unknown option '{a}'"
+            calling spark.eprintln with u
+            banish u
+            return 2
+        else:
+            set target is a
+        set i is i + 1
+    var root as string is calling driver.find_manifest_root with target
+    if root length == 0:
+        calling spark.eprintln with "psc web: pengu.toml not found"
+        banish root
+        return 2
+    var m as manifest.Manifest is calling manifest.load_manifest with root, "debug"
+    if not m.ok:
+        var e as string is m.error
+        var msg as string is "psc web: {e}"
+        calling spark.eprintln with msg
+        banish msg
+        calling manifest.free_manifest with (sigil of m)
+        banish root
+        return 2
+    if m.web_bundle length == 0:
+        calling spark.eprintln with "psc web: set [web] bundle = \"web/entry.ts\" first"
+        calling manifest.free_manifest with (sigil of m)
+        banish root
+        return 2
+    var out_name as string is "bundle.js"
+    if m.web_scripts.len > 0:
+        banish out_name
+        set out_name is calling manifest.copy with (m.web_scripts at 0)
+    var webdir as string is "{root}/{m.web_dir}"
+    var outpath as string is "{webdir}/{out_name}"
+    var entry as string is "{root}/{m.web_bundle}"
+    var esbuild as string is "{root}/node_modules/.bin/esbuild"
+    var ok as bool is false
+    if calling archivum.is_file with esbuild:
+        var eargs as list of string is list of string
+        calling eargs.push with (calling manifest.copy with entry)
+        calling eargs.push with (calling manifest.copy with "--bundle")
+        calling eargs.push with (calling manifest.copy with "--format=iife")
+        calling eargs.push with (calling manifest.copy with "--platform=browser")
+        calling eargs.push with (calling manifest.copy with "--target=es2020")
+        calling eargs.push with (calling manifest.copy with "--log-level=warning")
+        calling eargs.push with (calling manifest.copy with "--outfile={outpath}")
+        set ok is calling rites.exec_ok with esbuild, eargs
+        var j as int is 0
+        while j < eargs.len:
+            banish eargs at j
+            set j is j + 1
+        banish eargs
+    else:
+        var eargs as list of string is list of string
+        calling eargs.push with (calling manifest.copy with "esbuild")
+        calling eargs.push with (calling manifest.copy with entry)
+        calling eargs.push with (calling manifest.copy with "--bundle")
+        calling eargs.push with (calling manifest.copy with "--format=iife")
+        calling eargs.push with (calling manifest.copy with "--platform=browser")
+        calling eargs.push with (calling manifest.copy with "--target=es2020")
+        calling eargs.push with (calling manifest.copy with "--log-level=warning")
+        calling eargs.push with (calling manifest.copy with "--outfile={outpath}")
+        set ok is calling rites.exec_ok with "npx", eargs
+        var j as int is 0
+        while j < eargs.len:
+            banish eargs at j
+            set j is j + 1
+        banish eargs
+    if not ok:
+        var msg as string is "psc web: esbuild failed (install it in node_modules or use npx)"
+        calling spark.eprintln with msg
+        banish msg
+        calling manifest.free_manifest with (sigil of m)
+        banish root
+        banish webdir
+        banish outpath
+        banish entry
+        banish out_name
+        banish esbuild
+        return 1
+    if pwa:
+        if not (calling archivum.is_dir with webdir):
+            var mk as bool is calling archivum.create_dir with webdir, true
+        var mf as string is calling pwa_manifest with m.name, m.version
+        var sw as string is calling pwa_worker with m.version
+        var mpath as string is "{webdir}/manifest.webmanifest"
+        var spath as string is "{webdir}/sw.js"
+        if not (calling write_file with mpath, mf):
+            banish mf
+            banish sw
+            banish mpath
+            banish spath
+            calling manifest.free_manifest with (sigil of m)
+            banish root
+            banish webdir
+            banish outpath
+            banish entry
+            banish out_name
+            banish esbuild
+            return 1
+        if not (calling write_file with spath, sw):
+            banish mf
+            banish sw
+            banish mpath
+            banish spath
+            calling manifest.free_manifest with (sigil of m)
+            banish root
+            banish webdir
+            banish outpath
+            banish entry
+            banish out_name
+            banish esbuild
+            return 1
+        banish mf
+        banish sw
+        banish mpath
+        banish spath
+    var msg as string is "psc web: wrote {outpath}"
+    calling spark.println with msg
+    banish msg
+    calling manifest.free_manifest with (sigil of m)
+    banish root
+    banish webdir
+    banish outpath
+    banish entry
+    banish out_name
+    banish esbuild
+    return 0
