@@ -16,9 +16,10 @@ when os != "windows":
 rune Library:
     @public _handle as opaque
 
-declare ccx_dyn_open with path as ref to frozen char into opaque
-declare ccx_dyn_symbol with handle as opaque, name as ref to frozen char into ref to void
-declare ccx_dyn_close with handle as opaque into void
+extern c:
+    declare ccx_dyn_open with path as ref to frozen char into opaque
+    declare ccx_dyn_symbol with handle as opaque, name as ref to frozen char into ref to void
+    declare ccx_dyn_close with handle as opaque into void
 
 weave open with path as string into result of Library to string:
     var h as opaque is calling ccx_dyn_open with (calling ffi_cstr with path)

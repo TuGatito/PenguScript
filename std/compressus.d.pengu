@@ -136,21 +136,25 @@ const TINFL_FLAG_PARSE_ZLIB_HEADER as int is 1
 # ------------------------------------------------------------------
 
 ## Returns the miniz version string (borrowed; do not `banish`).
-declare mz_version into ref to frozen char
+extern c:
+    declare mz_version into ref to frozen char
 
 ## Upper bound, in bytes, of the zlib output for `source_len` bytes of input.
-declare mz_compressBound with source_len as u64 into u64
+extern c:
+    declare mz_compressBound with source_len as u64 into u64
 
 ## Compresses `pSource` into `pDest` as a zlib stream at `level`.
 ##
 ## `pDest_len` is in/out: pass the capacity, read the produced length. Returns
 ## `MZ_OK` or a negative `MZ_*` status.
-declare mz_compress2 with pDest as ref to byte, pDest_len as ref to u64, pSource as ref to frozen byte, source_len as u64, level as int into int
+extern c:
+    declare mz_compress2 with pDest as ref to byte, pDest_len as ref to u64, pSource as ref to frozen byte, source_len as u64, level as int into int
 
 ## Decompresses a zlib stream from `pSource` into `pDest`.
 ##
 ## `pDest_len` is in/out: pass the capacity, read the produced length.
-declare mz_uncompress with pDest as ref to byte, pDest_len as ref to u64, pSource as ref to frozen byte, source_len as u64 into int
+extern c:
+    declare mz_uncompress with pDest as ref to byte, pDest_len as ref to u64, pSource as ref to frozen byte, source_len as u64 into int
 
 # ------------------------------------------------------------------
 # One-shot raw deflate API (heap-allocating)
@@ -160,16 +164,19 @@ declare mz_uncompress with pDest as ref to byte, pDest_len as ref to u64, pSourc
 ##
 ## `pOut_len` receives the length. Release the result with `mz_free`, never with
 ## `banish` (it is not a `PenguString`).
-declare tdefl_compress_mem_to_heap with pSrc_buf as ref to frozen void, src_buf_len as usize, pOut_len as ref to usize, flags as int into ref to byte
+extern c:
+    declare tdefl_compress_mem_to_heap with pSrc_buf as ref to frozen void, src_buf_len as usize, pOut_len as ref to usize, flags as int into ref to byte
 
 ## Builds the `tdefl` flag word for `level`, `window_bits` and `strategy`.
 ##
 ## Pass `-MZ_DEFAULT_WINDOW_BITS` for raw deflate, `MZ_DEFAULT_WINDOW_BITS` for
 ## zlib.
-declare tdefl_create_comp_flags_from_zip_params with level as int, window_bits as int, strategy as int into u32
+extern c:
+    declare tdefl_create_comp_flags_from_zip_params with level as int, window_bits as int, strategy as int into u32
 
 ## Decompresses a block to a `malloc`-owned buffer. Release it with `mz_free`.
-declare tinfl_decompress_mem_to_heap with pSrc_buf as ref to frozen void, src_buf_len as usize, pOut_len as ref to usize, flags as int into ref to byte
+extern c:
+    declare tinfl_decompress_mem_to_heap with pSrc_buf as ref to frozen void, src_buf_len as usize, pOut_len as ref to usize, flags as int into ref to byte
 
 # ------------------------------------------------------------------
 # Checksums and allocation
@@ -179,14 +186,17 @@ declare tinfl_decompress_mem_to_heap with pSrc_buf as ref to frozen void, src_bu
 ##
 ## Start a fresh checksum with `crc == 0`. This is the checksum gzip stores in
 ## its trailer.
-declare mz_crc32 with crc as u64, ptr as ref to frozen byte, buf_len as usize into u64
+extern c:
+    declare mz_crc32 with crc as u64, ptr as ref to frozen byte, buf_len as usize into u64
 
 ## Adler-32 (RFC 1950) of `buf_len` bytes, continuing `adler`.
 ##
 ## Start a fresh checksum with `adler == 1`. This is the checksum zlib stores in
 ## its trailer.
-declare mz_adler32 with adler as u64, ptr as ref to frozen byte, buf_len as usize into u64
+extern c:
+    declare mz_adler32 with adler as u64, ptr as ref to frozen byte, buf_len as usize into u64
 
 ## Releases a block returned by `tdefl_compress_mem_to_heap`,
 ## `tinfl_decompress_mem_to_heap` or any other miniz allocation.
-declare mz_free with p as ref to void into void
+extern c:
+    declare mz_free with p as ref to void into void

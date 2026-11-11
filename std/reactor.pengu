@@ -79,22 +79,23 @@ rune EventLoop:
 # C declarations
 # ----------------------------------------------------------------------------
 
-declare pengu_c_reactor_new with workers as int into ref to void
-declare pengu_c_reactor_is_owner with r as ref to void into int
-declare pengu_c_reactor_free with r as ref to void into void
-declare pengu_c_reactor_add with r as ref to void, fd as int, events as int, token as i64 into int
-declare pengu_c_reactor_del with r as ref to void, fd as int into int
-declare pengu_c_reactor_wait with r as ref to void, timeout_ms as int, tokens as ref to i64, cap as int into int
-declare pengu_c_reactor_post with r as ref to void, task_id as i64, token as i64 into int
-declare pengu_c_reactor_take with r as ref to void, task_id as ref to i64, token as ref to i64 into int
-declare pengu_c_reactor_now_ms into int
-declare pengu_c_reactor_offload with r as ref to void, fn as ref to weave with ctx as ref to void into void, ctx as ref to void, task_id as i64, token as i64 into int
-declare pengu_c_reactor_wake with r as ref to void into void
+extern c:
+    declare pengu_c_reactor_new with workers as int into ref to void
+    declare pengu_c_reactor_is_owner with r as ref to void into int
+    declare pengu_c_reactor_free with r as ref to void into void
+    declare pengu_c_reactor_add with r as ref to void, fd as int, events as int, token as i64 into int
+    declare pengu_c_reactor_del with r as ref to void, fd as int into int
+    declare pengu_c_reactor_wait with r as ref to void, timeout_ms as int, tokens as ref to i64, cap as int into int
+    declare pengu_c_reactor_post with r as ref to void, task_id as i64, token as i64 into int
+    declare pengu_c_reactor_take with r as ref to void, task_id as ref to i64, token as ref to i64 into int
+    declare pengu_c_reactor_now_ms into int
+    declare pengu_c_reactor_offload with r as ref to void, fn as ref to weave with ctx as ref to void into void, ctx as ref to void, task_id as i64, token as i64 into int
+    declare pengu_c_reactor_wake with r as ref to void into void
 
-declare pengu_c_box_copy with src as ref to void, size as i64 into ref to void
-declare pengu_c_coro_box_new with size as i64 into ref to void
-declare pengu_c_coro_box_free with box as ref to void into void
-declare pengu_c_coro_new with run as ref to weave with raw as ref to void into void, box as ref to void into ref to void
+    declare pengu_c_box_copy with src as ref to void, size as i64 into ref to void
+    declare pengu_c_coro_box_new with size as i64 into ref to void
+    declare pengu_c_coro_box_free with box as ref to void into void
+    declare pengu_c_coro_new with run as ref to weave with raw as ref to void into void, box as ref to void into ref to void
 
 weave _kick with raw as ref to void into void:
     var job as ref to SpawnJob is transmute raw to ref to SpawnJob

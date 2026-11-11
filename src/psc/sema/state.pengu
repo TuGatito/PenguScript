@@ -78,6 +78,8 @@ rune SemaState:
     stop as bool
     ## `true` mientras se infiere un `expr_stmt` (permite métodos @mutates).
     allow_mutating as bool
+    ## `true` mientras se recolecta un bloque `extern c:`/`extern cpp:`.
+    in_extern as bool
 
 ## Stub de inferencia.
 ##

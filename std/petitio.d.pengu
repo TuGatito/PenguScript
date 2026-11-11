@@ -105,133 +105,172 @@ alias petitio_response as opaque
 alias petitio_multi as opaque
 
 # Creates the engine. NULL only on allocation or libcurl-init failure.
-declare petitio_multi_new into ref to petitio_multi
+extern c:
+    declare petitio_multi_new into ref to petitio_multi
 
 # Adds `request` (takes ownership on success). Returns the request index, or -1.
-declare petitio_multi_add with multi as ref to petitio_multi, request as ref to petitio_request into int
+extern c:
+    declare petitio_multi_add with multi as ref to petitio_multi, request as ref to petitio_request into int
 
 # Pumps the engine; returns the number of transfers still running.
-declare petitio_multi_perform with multi as ref to petitio_multi into int
+extern c:
+    declare petitio_multi_perform with multi as ref to petitio_multi into int
 
 # Blocks up to `timeout_ms` waiting for activity.
-declare petitio_multi_wait with multi as ref to petitio_multi, timeout_ms as int into void
+extern c:
+    declare petitio_multi_wait with multi as ref to petitio_multi, timeout_ms as int into void
 
 # Number of requests added so far.
-declare petitio_multi_count with multi as ref to frozen petitio_multi into int
+extern c:
+    declare petitio_multi_count with multi as ref to frozen petitio_multi into int
 
 # Pops one finished response (owned by the caller) and writes its index to
 # `out_index`. NULL when nothing is ready.
-declare petitio_multi_pop with multi as ref to petitio_multi, out_index as ref to int into ref to petitio_response
+extern c:
+    declare petitio_multi_pop with multi as ref to petitio_multi, out_index as ref to int into ref to petitio_response
 
 # Releases the engine, every request, response, mime body and libcurl handle.
-declare petitio_multi_free with multi as ref to petitio_multi into void
+extern c:
+    declare petitio_multi_free with multi as ref to petitio_multi into void
 
 # ------------------------------------------------------------------
 # Request builder
 # ------------------------------------------------------------------
 
 # Creates a request for `url`. Returns NULL only when the allocator fails.
-declare petitio_request_new with url as string into ref to petitio_request
+extern c:
+    declare petitio_request_new with url as string into ref to petitio_request
 
 # Releases the request and everything it copied. Call once.
-declare petitio_request_free with request as ref to petitio_request into void
+extern c:
+    declare petitio_request_free with request as ref to petitio_request into void
 
 # Sets the HTTP method ("GET", "POST", …). Defaults to "GET".
-declare petitio_request_set_method with request as ref to petitio_request, method as string into void
+extern c:
+    declare petitio_request_set_method with request as ref to petitio_request, method as string into void
 
 # Adds one request header. The wrapper rejects a name containing ':' or CR/LF
 # and a value containing CR/LF before this call; C only joins "name: value".
-declare petitio_request_add_header with request as ref to petitio_request, name as string, value as string into void
+extern c:
+    declare petitio_request_add_header with request as ref to petitio_request, name as string, value as string into void
 
 # Sets the request body (copied; may contain NUL bytes).
-declare petitio_request_set_body with request as ref to petitio_request, body as string into void
+extern c:
+    declare petitio_request_set_body with request as ref to petitio_request, body as string into void
 
 # Total and connect deadlines in milliseconds; 0 disables that deadline.
-declare petitio_request_set_timeout with request as ref to petitio_request, timeout_ms as i64, connect_timeout_ms as i64 into void
+extern c:
+    declare petitio_request_set_timeout with request as ref to petitio_request, timeout_ms as i64, connect_timeout_ms as i64 into void
 
 # Redirect policy. `max_redirects` is only meaningful when `follow` is non-zero.
-declare petitio_request_set_redirects with request as ref to petitio_request, follow as int, max_redirects as i64 into void
+extern c:
+    declare petitio_request_set_redirects with request as ref to petitio_request, follow as int, max_redirects as i64 into void
 
 # Protocol version: 0 = HTTP/1.1, 1 = HTTP/2 over ALPN, 2 = HTTP/2 prior knowledge.
-declare petitio_request_set_http_version with request as ref to petitio_request, version as int into void
+extern c:
+    declare petitio_request_set_http_version with request as ref to petitio_request, version as int into void
 
 # 0 disables peer/host verification (documented as insecure).
-declare petitio_request_set_verify_tls with request as ref to petitio_request, verify as int into void
+extern c:
+    declare petitio_request_set_verify_tls with request as ref to petitio_request, verify as int into void
 
 # Aborts the transfer once the body exceeds `max_bytes` (0 = unlimited).
-declare petitio_request_set_max_body with request as ref to petitio_request, max_bytes as i64 into void
+extern c:
+    declare petitio_request_set_max_body with request as ref to petitio_request, max_bytes as i64 into void
 
 # Basic authentication (RFC 7617). Empty user disables it.
-declare petitio_request_set_basic_auth with request as ref to petitio_request, user as string, password as string into void
+extern c:
+    declare petitio_request_set_basic_auth with request as ref to petitio_request, user as string, password as string into void
 
 # Authentication scheme: 0 = none, 1 = Basic, 2 = Digest, 3 = any.
-declare petitio_request_set_auth_mode with request as ref to petitio_request, mode as int into void
+extern c:
+    declare petitio_request_set_auth_mode with request as ref to petitio_request, mode as int into void
 
 # HTTP proxy, e.g. "http://127.0.0.1:8080". Empty disables it.
-declare petitio_request_set_proxy with request as ref to petitio_request, proxy as string, credentials as string into void
+extern c:
+    declare petitio_request_set_proxy with request as ref to petitio_request, proxy as string, credentials as string into void
 
 # Adds one multipart/form-data part held in memory. `filename` and
 # `content_type` may be empty. Returns 1 on success, 0 on allocation failure.
-declare petitio_request_add_form_field with request as ref to petitio_request, name as string, value as string, filename as string, content_type as string into int
+extern c:
+    declare petitio_request_add_form_field with request as ref to petitio_request, name as string, value as string, filename as string, content_type as string into int
 
 # Performs the request. Returns NULL only when the response object itself cannot
 # be allocated (reported by the wrapper as `HttpError.HttpOutOfMemory`).
-declare petitio_request_perform with request as ref to petitio_request into ref to petitio_response
+extern c:
+    declare petitio_request_perform with request as ref to petitio_request into ref to petitio_response
 
 # Performs the request and writes the body to `path` instead of buffering it.
-declare petitio_request_perform_to_file with request as ref to petitio_request, path as string into ref to petitio_response
+extern c:
+    declare petitio_request_perform_to_file with request as ref to petitio_request, path as string into ref to petitio_response
 
 # Performs the request and forwards every body chunk to `callback`.
 # `chunk` is a borrowed view valid only during the call; returning false aborts.
-declare petitio_request_perform_stream with request as ref to petitio_request, callback as ref to weave with chunk as string, user as ref to void into bool, user as ref to void into ref to petitio_response
+extern c:
+    declare petitio_request_perform_stream with request as ref to petitio_request, callback as ref to weave with chunk as string, user as ref to void into bool, user as ref to void into ref to petitio_response
 
 # ------------------------------------------------------------------
 # Response accessors
 # ------------------------------------------------------------------
 
 # One of the PETITIO_* codes above.
-declare petitio_response_error with response as ref to frozen petitio_response into int
+extern c:
+    declare petitio_response_error with response as ref to frozen petitio_response into int
 
 # Human-readable transport error, or "" when the request completed. Owned.
-declare petitio_response_error_message with response as ref to frozen petitio_response into string
+extern c:
+    declare petitio_response_error_message with response as ref to frozen petitio_response into string
 
 # HTTP status code, or 0 when no response line was received.
-declare petitio_response_status with response as ref to frozen petitio_response into int
+extern c:
+    declare petitio_response_status with response as ref to frozen petitio_response into int
 
 # Response body bytes (decoded when the server compressed it). Owned.
-declare petitio_response_body with response as ref to frozen petitio_response into string
+extern c:
+    declare petitio_response_body with response as ref to frozen petitio_response into string
 
 # Effective URL after redirects. Owned.
-declare petitio_response_url with response as ref to frozen petitio_response into string
+extern c:
+    declare petitio_response_url with response as ref to frozen petitio_response into string
 
 # Wall-clock duration of the transfer, in seconds.
-declare petitio_response_elapsed with response as ref to frozen petitio_response into f64
+extern c:
+    declare petitio_response_elapsed with response as ref to frozen petitio_response into f64
 
 # Number of redirects followed.
-declare petitio_response_redirect_count with response as ref to frozen petitio_response into int
+extern c:
+    declare petitio_response_redirect_count with response as ref to frozen petitio_response into int
 
 # Bytes the transfer wrote (body length, or file/callback bytes).
-declare petitio_response_bytes_written with response as ref to frozen petitio_response into i64
+extern c:
+    declare petitio_response_bytes_written with response as ref to frozen petitio_response into i64
 
 # Negotiated protocol: 0 = HTTP/1.0, 1 = HTTP/1.1, 2 = HTTP/2, 4 = HTTP/3.
-declare petitio_response_http_version with response as ref to frozen petitio_response into int
+extern c:
+    declare petitio_response_http_version with response as ref to frozen petitio_response into int
 
 # Final-response header count. Duplicates are preserved in receipt order and
 # names are lower-case.
-declare petitio_response_header_count with response as ref to frozen petitio_response into int
+extern c:
+    declare petitio_response_header_count with response as ref to frozen petitio_response into int
 
 # Name of header `index`, lower-case. Owned.
-declare petitio_response_header_name with response as ref to frozen petitio_response, index as int into string
+extern c:
+    declare petitio_response_header_name with response as ref to frozen petitio_response, index as int into string
 
 # Value of header `index`, trimmed. Owned.
-declare petitio_response_header_value with response as ref to frozen petitio_response, index as int into string
+extern c:
+    declare petitio_response_header_value with response as ref to frozen petitio_response, index as int into string
 
 # Releases the response and its body/header block. Call once.
-declare petitio_response_free with response as ref to petitio_response into void
+extern c:
+    declare petitio_response_free with response as ref to petitio_response into void
 
 # Parses an HTTP date into a Unix timestamp with libcurl's own parser, or -1
 # when the text is not a valid HTTP date.
-declare petitio_parse_http_date with text as string into i64
+extern c:
+    declare petitio_parse_http_date with text as string into i64
 
 # libcurl runtime version, for diagnostics ("libcurl/8.22.0"). Owned.
-declare petitio_version into string
+extern c:
+    declare petitio_version into string

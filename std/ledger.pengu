@@ -31,7 +31,8 @@ const LEDGER_VERSION as string is "2.14.0"
 # ----------------------------------------------------------------------------
 
 # Runtime bridge: returns keys of a string-to-string map as an owned list of string.
-declare pengu_map_keys_string with m as ref to map of string, string into vector of string
+extern c:
+    declare pengu_map_keys_string with m as ref to map of string, string into vector of string
 
 # ----------------------------------------------------------------------------
 # Quoting & Escaping (0.14.x baseline & 0.15.0 additions)

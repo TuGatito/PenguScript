@@ -91,41 +91,53 @@ const BASE64_ALPHABET as string is "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqr
 # ----------------------------------------------------------------------------
 
 ## C bridge: seeds the global PCG32 PRNG with `seed`.
-declare pengu_c_srand with seed as int into void
+extern c:
+    declare pengu_c_srand with seed as int into void
 
 ## C bridge: raw PCG32 draw in `[0, 2147483647]`.
-declare pengu_c_rand into int
+extern c:
+    declare pengu_c_rand into int
 
 ## C bridge: the upper bound of the raw draw (`2147483647`).
-declare pengu_c_rand_max into int
+extern c:
+    declare pengu_c_rand_max into int
 
 ## C bridge: uniform double in `[0, 1)`.
-declare pengu_c_rand_double into float
+extern c:
+    declare pengu_c_rand_double into float
 
 ## C bridge: uniform int in `[min, max]`, both bounds inclusive.
-declare pengu_c_rand_range with min as int, max as int into int
+extern c:
+    declare pengu_c_rand_range with min as int, max as int into int
 
 ## C bridge: uniform float in `[min, max)`.
-declare pengu_c_rand_range_float with min as float, max as float into float
+extern c:
+    declare pengu_c_rand_range_float with min as float, max as float into float
 
 ## C bridge: normal (Gaussian) draw through the Box-Muller transform.
-declare pengu_c_rand_normal with mean as float, stddev as float into float
+extern c:
+    declare pengu_c_rand_normal with mean as float, stddev as float into float
 
 ## C bridge: exponential draw with the given rate.
-declare pengu_c_rand_exp with rate as float into float
+extern c:
+    declare pengu_c_rand_exp with rate as float into float
 
 ## C bridge: boolean draw with the given probability.
-declare pengu_c_rand_bool with probability as float into bool
+extern c:
+    declare pengu_c_rand_bool with probability as float into bool
 
 ## C bridge: Poisson count draw with the given rate.
-declare pengu_c_rand_poisson with rate as float into int
+extern c:
+    declare pengu_c_rand_poisson with rate as float into int
 
 ## C bridge for `time()`: wall-clock seconds since the Unix epoch. Used by
 ## `seed_from_time`; the runtime already defines it, so no new dependency.
-declare pengu_c_time into float
+extern c:
+    declare pengu_c_time into float
 
 ## C bridge for the current process id. Used by `seed_from_pid`.
-declare pengu_c_getpid into int
+extern c:
+    declare pengu_c_getpid into int
 
 # ----------------------------------------------------------------------------
 # C name prefix

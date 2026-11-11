@@ -269,6 +269,8 @@ weave collect_top with s as ref to state.SemaState, node as int into void:
             set guard is 8
     var kind as pskind.NodeKind is calling astutil.kind_of with s->ast, n
     if kind == pskind.NodeKind.NdExternBlock:
+        var was_extern as bool is s->in_extern
+        set s->in_extern is true
         # `extern c:` / `extern cpp:` agrupa declaraciones externas; el
         # linkage lo consume el emisor, aquí se recolectan como cualquier
         # `declare` de nivel de módulo.
@@ -279,6 +281,7 @@ weave collect_top with s as ref to state.SemaState, node as int into void:
             if einner >= 0:
                 calling collect_top with s, einner
             set ei is ei + 1
+        set s->in_extern is was_extern
         return
     if kind == pskind.NodeKind.NdImportStmt:
         calling collect_import with s, n
@@ -320,6 +323,8 @@ weave collect_top with s as ref to state.SemaState, node as int into void:
         calling collect_weave with s, n, false
         return
     if kind == pskind.NodeKind.NdDeclareStmt:
+        if not s->in_extern:
+            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_DECLARE_OUTSIDE_EXTERN, (calling astutil.start_of with s->ast, n), (calling astutil.end_of with s->ast, n), "'declare' must be inside an 'extern c:' or 'extern cpp:' block", "Wrap the declarations: 'extern c:' for C functions, 'extern cpp:' with an optional 'regnum ns' for C++.", "The C++ dialect groups external declarations by linkage."
         calling collect_weave with s, n, true
         return
     if kind == pskind.NodeKind.NdAntiquusDecl:
@@ -886,10 +891,22 @@ weave register_type with s as ref to state.SemaState, kind as sym.SemaSymbolKind
 ##
 ## ## Memoria
 ## Añade tipo, campos y símbolo.
+
+## `true` para los nombres de tipo que reserva la biblioteca del dialecto.
+##
+## ## Memoria
+## Sin asignaciones.
+weave is_library_type_name with t as string into bool:
+    if t == "string" or t == "vector" or t == "map" or t == "umap" or t == "set" or t == "uset" or t == "array" or t == "span" or t == "maybe" or t == "result" or t == "unique" or t == "shared" or t == "weak" or t == "many":
+        return true
+    return false
+
 weave collect_record with s as ref to state.SemaState, node as int, sk as sym.SemaSymbolKind into void:
     var name as int is calling decl_name with s, node
     var name_txt as string is calling astutil.child_token_text with s->src, s->lex, s->ast, node, (calling collect_name_slot with s, node)
     defer banish name_txt
+    if calling is_library_type_name with name_txt:
+        calling sdiag.node_warning with s->bag, s->src, sdiag.CODE_SHADOW_LIB, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "type '{name_txt}' shadows the library type of the same name", "Rename the type: the dialect reserves 'string', 'vector', 'map', 'umap', 'set', 'uset', 'array', 'span', 'maybe', 'result', 'unique', 'shared', 'weak' and 'many'."
     var nk as tk.SemaNominalKind is tk.SemaNominalKind.NkRune
     if sk == sym.SemaSymbolKind.SkEcho:
         set nk is tk.SemaNominalKind.NkEcho

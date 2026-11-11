@@ -255,47 +255,68 @@ const ARCHIVUM_VERSION as string is "2.15.0"
 # ----------------------------------------------------------------------------
 
 # Runtime primitive: reads the whole file at `path` as UTF-8 text.
-declare pengu_c_archivum_read_file with path as string into maybe string
+extern c:
+    declare pengu_c_archivum_read_file with path as string into maybe string
 # Runtime primitive: writes `content` to `path`, truncating any existing file.
-declare pengu_c_archivum_write_file with path as string, content as string into bool
+extern c:
+    declare pengu_c_archivum_write_file with path as string, content as string into bool
 # Runtime primitive: appends `content` to `path`, creating it when missing.
-declare pengu_c_archivum_append_file with path as string, content as string into bool
+extern c:
+    declare pengu_c_archivum_append_file with path as string, content as string into bool
 # Runtime primitive: deletes the entry at `path`.
-declare pengu_c_archivum_delete_file with path as string into bool
+extern c:
+    declare pengu_c_archivum_delete_file with path as string into bool
 # Runtime primitive: true when an entry exists at `path`.
-declare pengu_c_archivum_exists with path as string into bool
+extern c:
+    declare pengu_c_archivum_exists with path as string into bool
 # Runtime primitive: true when `path` is a regular file.
-declare pengu_c_archivum_is_file with path as string into bool
+extern c:
+    declare pengu_c_archivum_is_file with path as string into bool
 # Runtime primitive: true when `path` is a directory.
-declare pengu_c_archivum_is_dir with path as string into bool
+extern c:
+    declare pengu_c_archivum_is_dir with path as string into bool
 # Runtime primitive: true when `path` is a symbolic link.
-declare pengu_c_archivum_is_symlink with path as string into bool
+extern c:
+    declare pengu_c_archivum_is_symlink with path as string into bool
 # Runtime primitive: creates the directory at `path`.
-declare pengu_c_archivum_create_dir with path as string, parents as bool into bool
+extern c:
+    declare pengu_c_archivum_create_dir with path as string, parents as bool into bool
 # Runtime primitive: removes the directory at `path`.
-declare pengu_c_archivum_remove_dir with path as string, recursive as bool into bool
+extern c:
+    declare pengu_c_archivum_remove_dir with path as string, recursive as bool into bool
 # Runtime primitive: lists the direct entry names of `path`.
-declare pengu_c_archivum_read_dir with path as string into maybe vector of string
+extern c:
+    declare pengu_c_archivum_read_dir with path as string into maybe vector of string
 # Runtime primitive: copies file `src` to `dst`.
-declare pengu_c_archivum_copy_file with src as string, dst as string, overwrite as bool into bool
+extern c:
+    declare pengu_c_archivum_copy_file with src as string, dst as string, overwrite as bool into bool
 # Runtime primitive: moves file `src` to `dst`.
-declare pengu_c_archivum_move_file with src as string, dst as string, overwrite as bool into bool
+extern c:
+    declare pengu_c_archivum_move_file with src as string, dst as string, overwrite as bool into bool
 # Runtime primitive: renames entry `old` to `new`.
-declare pengu_c_archivum_rename with old as string, new as string into bool
+extern c:
+    declare pengu_c_archivum_rename with old as string, new as string into bool
 # Runtime primitive: stat()es `path` into an owned map of string to string.
-declare pengu_c_archivum_metadata with path as string into maybe map of string, string
+extern c:
+    declare pengu_c_archivum_metadata with path as string into maybe map of string, string
 # Runtime primitive: globs `pattern` from the working directory.
-declare pengu_c_archivum_glob with pattern as string into vector of string
+extern c:
+    declare pengu_c_archivum_glob with pattern as string into vector of string
 # Runtime primitive: walks `root` depth-first into an owned nested list.
-declare pengu_c_archivum_walk with root as string into vector of vector of string
+extern c:
+    declare pengu_c_archivum_walk with root as string into vector of vector of string
 # Runtime primitive: updates modification time of `path`.
-declare pengu_c_archivum_touch with path as string into bool
+extern c:
+    declare pengu_c_archivum_touch with path as string into bool
 # Runtime primitive: creates symbolic link `link` pointing at `target`.
-declare pengu_c_archivum_symlink with target as string, link as string into bool
+extern c:
+    declare pengu_c_archivum_symlink with target as string, link as string into bool
 # Runtime primitive: resolves the target of the symlink at `path`.
-declare pengu_c_archivum_read_symlink with path as string into maybe string
+extern c:
+    declare pengu_c_archivum_read_symlink with path as string into maybe string
 # Runtime primitive: canonicalizes `path` to an absolute path.
-declare pengu_c_archivum_realpath with path as string into maybe string
+extern c:
+    declare pengu_c_archivum_realpath with path as string into maybe string
 
 # The `insignia` prefixes every top-level C name of this module, so the weaves
 # `rename`, `symlink` and `realpath` do not collide with the libc functions of

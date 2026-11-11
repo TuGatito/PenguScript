@@ -48,19 +48,25 @@ alias re_t as opaque
 alias regex_t as opaque
 
 # Compile regex string pattern to a regex_t-array.
-declare re_compile with pattern as ref to frozen char into re_t
+extern c:
+    declare re_compile with pattern as ref to frozen char into re_t
 
 # Compile into an owned block that `re_free` releases.
-declare re_compile_dynamic with pattern as ref to frozen char into re_t
+extern c:
+    declare re_compile_dynamic with pattern as ref to frozen char into re_t
 
 # `re_compile_dynamic` with an out-parameter describing the failure class.
-declare re_compile_dynamic_ex with pattern as ref to frozen char, error as ref to int into re_t
+extern c:
+    declare re_compile_dynamic_ex with pattern as ref to frozen char, error as ref to int into re_t
 
 # Releases a pattern returned by `re_compile_dynamic[_ex]`.
-declare re_free with pattern as re_t into void
+extern c:
+    declare re_free with pattern as re_t into void
 
 # Find matches of the compiled pattern inside text.
-declare re_matchp with pattern as re_t, text as ref to frozen char, matchlength as ref to int into int
+extern c:
+    declare re_matchp with pattern as re_t, text as ref to frozen char, matchlength as ref to int into int
 
 # Find matches of the txt pattern inside text (will compile automatically first).
-declare re_match with pattern as ref to frozen char, text as ref to frozen char, matchlength as ref to int into int
+extern c:
+    declare re_match with pattern as ref to frozen char, text as ref to frozen char, matchlength as ref to int into int

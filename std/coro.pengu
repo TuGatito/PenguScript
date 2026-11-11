@@ -38,15 +38,16 @@ rune CoroBox0:
 # External C Declarations
 # ----------------------------------------------------------------------------
 
-declare pengu_c_coro_box_new with size as int into ref to void
-declare pengu_c_coro_box_free with box as ref to void into void
-declare pengu_c_coro_new with run as ref to weave with raw as ref to void into void, box as ref to void into ref to void
-declare pengu_c_coro_resume with handle as ref to void into int
-declare pengu_c_coro_yield into void
-declare pengu_c_coro_status with handle as ref to void into int
-declare pengu_c_coro_free with handle as ref to void into void
-declare pengu_c_coro_abandon with handle as ref to void into void
-declare pengu_c_coro_current into ref to void
+extern c:
+    declare pengu_c_coro_box_new with size as int into ref to void
+    declare pengu_c_coro_box_free with box as ref to void into void
+    declare pengu_c_coro_new with run as ref to weave with raw as ref to void into void, box as ref to void into ref to void
+    declare pengu_c_coro_resume with handle as ref to void into int
+    declare pengu_c_coro_yield into void
+    declare pengu_c_coro_status with handle as ref to void into int
+    declare pengu_c_coro_free with handle as ref to void into void
+    declare pengu_c_coro_abandon with handle as ref to void into void
+    declare pengu_c_coro_current into ref to void
 
 # ----------------------------------------------------------------------------
 # Helpers

@@ -100,28 +100,39 @@ const MEMORIA_VERSION as string is "2.14.0"
 # ----------------------------------------------------------------------------
 
 ## Reserva `n` bytes a cero; aborta según `PENGU_OOM_ABORT`.
-declare pengu_memoria_alloc             with n as usize into ref to void
+extern c:
+    declare pengu_memoria_alloc             with n as usize into ref to void
 ## Reserva `count` elementos de `elem_size` bytes a cero; aborta según OOM.
-declare pengu_memoria_alloc_array       with count as usize, elem_size as usize into ref to void
+extern c:
+    declare pengu_memoria_alloc_array       with count as usize, elem_size as usize into ref to void
 ## Como `pengu_memoria_alloc` pero devuelve NULL en OOM.
-declare pengu_memoria_try_alloc         with n as usize into ref to void
+extern c:
+    declare pengu_memoria_try_alloc         with n as usize into ref to void
 ## Como `pengu_memoria_alloc_array` pero devuelve NULL en OOM.
-declare pengu_memoria_try_alloc_array   with count as usize, elem_size as usize into ref to void
+extern c:
+    declare pengu_memoria_try_alloc_array   with count as usize, elem_size as usize into ref to void
 ## Redimensiona preservando `min(old_n, new_n)`; la cola nueva va a cero.
-declare pengu_memoria_resize            with p as ref to void, old_n as usize, new_n as usize, elem_size as usize into ref to void
+extern c:
+    declare pengu_memoria_resize            with p as ref to void, old_n as usize, new_n as usize, elem_size as usize into ref to void
 ## Como `pengu_memoria_resize` pero devuelve NULL en OOM dejando `p` válido.
-declare pengu_memoria_try_resize        with p as ref to void, old_n as usize, new_n as usize, elem_size as usize into ref to void
+extern c:
+    declare pengu_memoria_try_resize        with p as ref to void, old_n as usize, new_n as usize, elem_size as usize into ref to void
 ## Intercambio byte a byte de `elem_size` bytes.
-declare pengu_memoria_swap              with a as ref to void, b as ref to void, elem_size as usize into void
+extern c:
+    declare pengu_memoria_swap              with a as ref to void, b as ref to void, elem_size as usize into void
 ## Relleno de `count` elementos con el patrón de `elem_size` bytes en `value`.
-declare pengu_memoria_fill              with dst as ref to void, value as ref to frozen void, count as usize, elem_size as usize into void
+extern c:
+    declare pengu_memoria_fill              with dst as ref to void, value as ref to frozen void, count as usize, elem_size as usize into void
 
 ## `memmove` de <string.h>: copia sin solapar ya soportado.
-declare memmove with dst as ref to void, src as ref to frozen void, n as usize into void
+extern c:
+    declare memmove with dst as ref to void, src as ref to frozen void, n as usize into void
 ## `memset` de <string.h>: relleno de bytes.
-declare memset  with dst as ref to void, value as int, n as usize into void
+extern c:
+    declare memset  with dst as ref to void, value as int, n as usize into void
 ## `memcmp` de <string.h>: comparación de bytes.
-declare memcmp  with a as ref to frozen void, b as ref to frozen void, n as usize into int
+extern c:
+    declare memcmp  with a as ref to frozen void, b as ref to frozen void, n as usize into int
 
 # ----------------------------------------------------------------------------
 # 1. Alocación (4)

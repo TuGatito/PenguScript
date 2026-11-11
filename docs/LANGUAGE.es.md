@@ -1079,8 +1079,12 @@ extern cpp:
 * `include` dentro de `extern cpp:` se emite como `#include "…"`. La forma
   `<…>` (cabeceras de sistema de C++) todavía no la acepta el lexer.
 
-Los 168 `declare` sueltos del árbol siguen compilando: la forma agrupada es la
-que se escribe a partir de ahora.
+Un `declare` suelto es **E0116**: toda función externa va dentro de un bloque
+`extern`. Si tienes fuentes antiguos, `psc migrate --wrap-declares` envuelve las
+tiradas de `declare` en `extern c:` y las indenta.
+
+Y si declaras un tipo con el nombre de un tipo de la biblioteca (`rune span`,
+`rune string`…) avisa **W0018**: el tipo del usuario gana en su módulo.
 
 ### 6.5 Lambdas
 

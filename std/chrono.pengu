@@ -47,25 +47,26 @@ rune Instant:
 ## A signed duration in nanoseconds.
 alias Duration as i64
 
-declare pengu_vaqt_now with sec as ref to i64, nsec as ref to i32 into void
-declare pengu_vaqt_from_unix with sec as i64, nsec as i32, out_sec as ref to i64, out_nsec as ref to i32 into void
-declare pengu_vaqt_to_unix with sec as i64, nsec as i32, out_sec as ref to i64, out_nsec as ref to i32 into void
-declare pengu_vaqt_year with sec as i64, nsec as i32 into int
-declare pengu_vaqt_month with sec as i64, nsec as i32 into int
-declare pengu_vaqt_day with sec as i64, nsec as i32 into int
-declare pengu_vaqt_hour with sec as i64, nsec as i32 into int
-declare pengu_vaqt_minute with sec as i64, nsec as i32 into int
-declare pengu_vaqt_second with sec as i64, nsec as i32 into int
-declare pengu_vaqt_nano with sec as i64, nsec as i32 into int
-declare pengu_vaqt_weekday with sec as i64, nsec as i32 into int
-declare pengu_vaqt_yearday with sec as i64, nsec as i32 into int
-declare pengu_vaqt_compare with asec as i64, ansec as i32, bsec as i64, bnsec as i32 into int
-declare pengu_vaqt_add with sec as i64, nsec as i32, add_sec as i64, add_nsec as i32, out_sec as ref to i64, out_nsec as ref to i32 into void
-declare pengu_vaqt_add_date with sec as i64, nsec as i32, years as int, months as int, days as int, out_sec as ref to i64, out_nsec as ref to i32 into void
-declare pengu_vaqt_format_iso with sec as i64, nsec as i32, offset as int into string
-declare pengu_vaqt_format_date with sec as i64, nsec as i32, offset as int into string
-declare pengu_vaqt_format_datetime with sec as i64, nsec as i32, offset as int into string
-declare pengu_vaqt_parse_iso with s as string, out_sec as ref to i64, out_nsec as ref to i32 into bool
+extern c:
+    declare pengu_vaqt_now with sec as ref to i64, nsec as ref to i32 into void
+    declare pengu_vaqt_from_unix with sec as i64, nsec as i32, out_sec as ref to i64, out_nsec as ref to i32 into void
+    declare pengu_vaqt_to_unix with sec as i64, nsec as i32, out_sec as ref to i64, out_nsec as ref to i32 into void
+    declare pengu_vaqt_year with sec as i64, nsec as i32 into int
+    declare pengu_vaqt_month with sec as i64, nsec as i32 into int
+    declare pengu_vaqt_day with sec as i64, nsec as i32 into int
+    declare pengu_vaqt_hour with sec as i64, nsec as i32 into int
+    declare pengu_vaqt_minute with sec as i64, nsec as i32 into int
+    declare pengu_vaqt_second with sec as i64, nsec as i32 into int
+    declare pengu_vaqt_nano with sec as i64, nsec as i32 into int
+    declare pengu_vaqt_weekday with sec as i64, nsec as i32 into int
+    declare pengu_vaqt_yearday with sec as i64, nsec as i32 into int
+    declare pengu_vaqt_compare with asec as i64, ansec as i32, bsec as i64, bnsec as i32 into int
+    declare pengu_vaqt_add with sec as i64, nsec as i32, add_sec as i64, add_nsec as i32, out_sec as ref to i64, out_nsec as ref to i32 into void
+    declare pengu_vaqt_add_date with sec as i64, nsec as i32, years as int, months as int, days as int, out_sec as ref to i64, out_nsec as ref to i32 into void
+    declare pengu_vaqt_format_iso with sec as i64, nsec as i32, offset as int into string
+    declare pengu_vaqt_format_date with sec as i64, nsec as i32, offset as int into string
+    declare pengu_vaqt_format_datetime with sec as i64, nsec as i32, offset as int into string
+    declare pengu_vaqt_parse_iso with s as string, out_sec as ref to i64, out_nsec as ref to i32 into bool
 
 ## Current UTC instant.
 weave now into Instant:

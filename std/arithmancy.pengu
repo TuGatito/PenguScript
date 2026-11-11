@@ -62,31 +62,32 @@ const SQRT3 as float is 1.7320508075688772
 # C Math Runtime Declarations (libm bridges)
 # ----------------------------------------------------------------------------
 
-declare pengu_c_fabs with x as float into float
-declare pengu_c_sqrt with x as float into float
-declare pengu_c_pow with x as float , y as float into float
-declare pengu_c_floor with x as float into float
-declare pengu_c_ceil with x as float into float
-declare pengu_c_round with x as float into float
-declare pengu_c_trunc with x as float into float
-declare pengu_c_fmod with x as float , y as float into float
-declare pengu_c_sin with x as float into float
-declare pengu_c_cos with x as float into float
-declare pengu_c_tan with x as float into float
-declare pengu_c_asin with x as float into float
-declare pengu_c_acos with x as float into float
-declare pengu_c_atan with x as float into float
-declare pengu_c_atan2 with y as float , x as float into float
-declare pengu_c_exp with x as float into float
-declare pengu_c_log with x as float into float
-declare pengu_c_log10 with x as float into float
-declare pengu_c_log2 with x as float into float
-declare pengu_c_sinh with x as float into float
-declare pengu_c_cosh with x as float into float
-declare pengu_c_tanh with x as float into float
-declare pengu_c_asinh with x as float into float
-declare pengu_c_acosh with x as float into float
-declare pengu_c_atanh with x as float into float
+extern c:
+    declare pengu_c_fabs with x as float into float
+    declare pengu_c_sqrt with x as float into float
+    declare pengu_c_pow with x as float , y as float into float
+    declare pengu_c_floor with x as float into float
+    declare pengu_c_ceil with x as float into float
+    declare pengu_c_round with x as float into float
+    declare pengu_c_trunc with x as float into float
+    declare pengu_c_fmod with x as float , y as float into float
+    declare pengu_c_sin with x as float into float
+    declare pengu_c_cos with x as float into float
+    declare pengu_c_tan with x as float into float
+    declare pengu_c_asin with x as float into float
+    declare pengu_c_acos with x as float into float
+    declare pengu_c_atan with x as float into float
+    declare pengu_c_atan2 with y as float , x as float into float
+    declare pengu_c_exp with x as float into float
+    declare pengu_c_log with x as float into float
+    declare pengu_c_log10 with x as float into float
+    declare pengu_c_log2 with x as float into float
+    declare pengu_c_sinh with x as float into float
+    declare pengu_c_cosh with x as float into float
+    declare pengu_c_tanh with x as float into float
+    declare pengu_c_asinh with x as float into float
+    declare pengu_c_acosh with x as float into float
+    declare pengu_c_atanh with x as float into float
 
 # ----------------------------------------------------------------------------
 # Scalar helpers — thin wrappers over the primitive-methods modules

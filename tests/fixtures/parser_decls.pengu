@@ -39,7 +39,8 @@ enchanting Point:
     weave sum into int:
         return self->x + self->y
 
-declare puts with s as string into int
+extern c:
+    declare puts with s as string into int
 
 antiquus raw_add with a as int, b as int into int:
     """

@@ -163,7 +163,8 @@ weave _z85_alphabet into string:
 # ----------------------------------------------------------------------------
 
 ## C bridge: copies the keys of a `map of string to string` into a fresh list.
-declare pengu_map_keys_string with m as ref to map of string, string into vector of string
+extern c:
+    declare pengu_map_keys_string with m as ref to map of string, string into vector of string
 
 # ----------------------------------------------------------------------------
 # C name prefix

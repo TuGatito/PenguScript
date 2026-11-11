@@ -139,13 +139,16 @@ const COLOR_BRIGHT_RED as string is "\033[91m"
 # ----------------------------------------------------------------------------
 
 ## C bridge that stores the global minimum log level.
-declare pengu_log_set_level with level as int into void
+extern c:
+    declare pengu_log_set_level with level as int into void
 
 ## C bridge that returns the global minimum log level.
-declare pengu_log_get_level into int
+extern c:
+    declare pengu_log_get_level into int
 
 ## C bridge that copies the keys of a `map of string to string` into a list.
-declare pengu_map_keys_string with m as ref to map of string, string into vector of string
+extern c:
+    declare pengu_map_keys_string with m as ref to map of string, string into vector of string
 
 # ----------------------------------------------------------------------------
 # C name prefix

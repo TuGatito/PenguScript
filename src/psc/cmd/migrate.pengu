@@ -71,11 +71,13 @@ weave print_help into void:
     calling spark.println with "  --diff        mostrar cada edición (línea y columna)"
     calling spark.println with "  --verbose     listar los archivos tocados"
     calling spark.println with "  --drop-derive borrar las cláusulas 'derive ...' (retiradas en F2)"
+    calling spark.println with "  --wrap-declares envolver los 'declare' sueltos en 'extern c:'"
     calling spark.println with "  --help"
     calling spark.println with ""
     calling spark.println with "Transformaciones: list of -> vector of, slice of -> span of,"
     calling spark.println with "map of K to V -> map of K, V, nasci/mori/imago/namespace -> born/die/mirror/regnum."
     calling spark.println with "Con --drop-derive: 'rune T derive Par, Nexus:' -> 'rune T:'."
+    calling spark.println with "Con --wrap-declares: 'declare f ...' -> 'extern c:' + '    declare f ...'."
 
 ## Copia owned.
 ##
@@ -302,12 +304,66 @@ weave apply_edits with text as string, es as ref to vector of MigrateEdit into s
         calling sb.append with (text at cursor to (text length))
     return calling sb.finish
 
-## Migra un texto completo.
+
+## Envuelve los `declare` de nivel de módulo en `extern c:`.
+##
+## El dialecto exige el bloque. Cada tirada de `declare` consecutivos (sin
+## líneas en blanco entre ellos) se convierte en un `extern c:` con las
+## declaraciones indentadas.
+##
+## ## Memoria
+## Devuelve un `string` owned; liberar con `banish`.
+weave wrap_text with text as string into string:
+    var starts as vector of int is vector of int
+    calling starts.push with 0
+    var i as int is 0
+    var n as int is text length
+    while i < n:
+        if (text at i) == "\n":
+            calling starts.push with i + 1
+        set i is i + 1
+    var sb as StringBuilder is calling StringBuilder.new
+    var li as int is 0
+    var total as int is starts.len
+    while li < total:
+        var ls as int is (starts at li)
+        var le as int is n
+        if li + 1 < total:
+            set le is (starts at (li + 1)) - 1
+        var line as string is (text at ls to le)
+        var is_decl as bool is (le - ls) >= 8 and (text at ls to (ls + 8)) == "declare "
+        if is_decl:
+            calling sb.append with "extern c:\n"
+            while li < total:
+                var s2 as int is (starts at li)
+                var e2 as int is n
+                if li + 1 < total:
+                    set e2 is (starts at (li + 1)) - 1
+                var l2 as string is (text at s2 to e2)
+                var d2 as bool is (e2 - s2) >= 8 and (text at s2 to (s2 + 8)) == "declare "
+                if not d2:
+                    set li is li - 1
+                    break
+                calling sb.append with "    "
+                calling sb.append with l2
+                calling sb.append with "\n"
+                set li is li + 1
+        else:
+            calling sb.append with line
+            if li + 1 < total:
+                calling sb.append with "\n"
+        set li is li + 1
+    return calling sb.finish
+
+## Migra un texto completo.## Migra un texto completo.
 ##
 ## ## Memoria
 ## Devuelve `MigrateOutcome` owned; liberar con `banish`.
-weave migrate_text with text as string, drop_derive as bool into MigrateOutcome:
+weave migrate_text with text as string, drop_derive as bool, wrap_declares as bool into MigrateOutcome:
     var copy_text as string is calling copy with text
+    if wrap_declares:
+        banish copy_text
+        set copy_text is calling wrap_text with text
     var src as SourceFile is calling SourceFile.from_text with "<migrate>", copy_text
     var bag as diag.DiagnosticBag is calling diag_compat.new_diagnostic_bag
     calling bag.add_source with "<migrate>", (calling src.get_text)
@@ -324,6 +380,8 @@ weave migrate_text with text as string, drop_derive as bool into MigrateOutcome:
         if drop_derive:
             calling collect_derive with lex.tokens, copy_text, (sigil of es)
     var changes as int is es.len
+    if copy_text != text:
+        set changes is changes + 1
     var okp as bool is pr.ok
     var out_text as string is ""
     if changes > 0:
@@ -347,6 +405,7 @@ weave run_migrate with args as vector of string into int:
     calling sf.push with "--diff"
     calling sf.push with "--verbose"
     calling sf.push with "--drop-derive"
+    calling sf.push with "--wrap-declares"
     calling sf.push with "--help"
     var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vector of string, sf, vector of string
     if not pr.ok:
@@ -362,6 +421,7 @@ weave run_migrate with args as vector of string into int:
     var show_diff as bool is calling cliargs.enabled with (sigil of pr.args), "--diff"
     var verbose as bool is calling cliargs.enabled with (sigil of pr.args), "--verbose"
     var drop_derive as bool is calling cliargs.enabled with (sigil of pr.args), "--drop-derive"
+    var wrap_declares as bool is calling cliargs.enabled with (sigil of pr.args), "--wrap-declares"
     var changed as int is 0
     var failed as int is 0
     var pi as int is 0
@@ -383,7 +443,7 @@ weave run_migrate with args as vector of string into int:
             var txtm as maybe string is calling archivum.read_text with f
             if txtm.is_present:
                 var original as string is txtm.value
-                var mo as MigrateOutcome is calling migrate_text with original, drop_derive
+                var mo as MigrateOutcome is calling migrate_text with original, drop_derive, wrap_declares
                 if not mo.ok:
                     set failed is failed + 1
                     var fm as string is "cannot parse {f}: skipped"

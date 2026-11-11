@@ -75,11 +75,12 @@ const COMPASS_VERSION as string is "2.14.0"
 # External C Runtime Declarations
 # ----------------------------------------------------------------------------
 
-declare pengu_c_getcwd into maybe string
-declare pengu_c_getenv with name as string into maybe string
-declare pengu_c_archivum_exists with path as string into bool
-declare pengu_c_archivum_is_file with path as string into bool
-declare pengu_c_archivum_is_dir with path as string into bool
+extern c:
+    declare pengu_c_getcwd into maybe string
+    declare pengu_c_getenv with name as string into maybe string
+    declare pengu_c_archivum_exists with path as string into bool
+    declare pengu_c_archivum_is_file with path as string into bool
+    declare pengu_c_archivum_is_dir with path as string into bool
 
 # ----------------------------------------------------------------------------
 # Internal helpers (cp_*)

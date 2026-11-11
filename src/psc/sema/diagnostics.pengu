@@ -27,6 +27,10 @@ insignia sema_diag_
 const CODE_SYNTAX as string is "E0000"
 const CODE_CONST_IN_WEAVE as string is "E0001"
 const CODE_VAR_TOP_LEVEL as string is "E0002"
+## Un tipo del usuario eclipsa un tipo de la biblioteca (dialecto C++).
+const CODE_SHADOW_LIB as string is "W0018"
+## `declare` fuera de un bloque `extern` (dialecto C++).
+const CODE_DECLARE_OUTSIDE_EXTERN as string is "E0116"
 const CODE_SELF_DOT as string is "E0003"
 const CODE_UNDEFINED as string is "E0004"
 const CODE_TYPE_MISMATCH as string is "E0005"

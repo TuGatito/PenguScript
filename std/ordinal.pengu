@@ -22,43 +22,44 @@ import std.spark
 
 # --- C bridges ------------------------------------------------------------
 
-declare ccx_ll_new with elem_size as int, kind as int into ref to void
-declare ccx_ll_push_back with h as ref to void, value as ref to void into void
-declare ccx_ll_push_front with h as ref to void, value as ref to void into void
-declare ccx_ll_pop_front_into with h as ref to void, out as ref to void, elem_size as int into void
-declare ccx_ll_items_into with h as ref to void, out as ref to void, elem_size as int into void
-declare ccx_ll_len with h as ref to void into int
-declare ccx_ll_clear with h as ref to void into void
-declare ccx_ll_free with h as ref to void into void
+extern c:
+    declare ccx_ll_new with elem_size as int, kind as int into ref to void
+    declare ccx_ll_push_back with h as ref to void, value as ref to void into void
+    declare ccx_ll_push_front with h as ref to void, value as ref to void into void
+    declare ccx_ll_pop_front_into with h as ref to void, out as ref to void, elem_size as int into void
+    declare ccx_ll_items_into with h as ref to void, out as ref to void, elem_size as int into void
+    declare ccx_ll_len with h as ref to void into int
+    declare ccx_ll_clear with h as ref to void into void
+    declare ccx_ll_free with h as ref to void into void
 
-declare ccx_uset_new with key_size as int, kind as int into ref to void
-declare ccx_uset_add with h as ref to void, key as ref to void into bool
-declare ccx_uset_has with h as ref to void, key as ref to void into bool
-declare ccx_uset_remove with h as ref to void, key as ref to void into bool
-declare ccx_uset_items_into with h as ref to void, out as ref to void, key_size as int into void
-declare ccx_uset_len with h as ref to void into int
-declare ccx_uset_clear with h as ref to void into void
-declare ccx_uset_free with h as ref to void into void
+    declare ccx_uset_new with key_size as int, kind as int into ref to void
+    declare ccx_uset_add with h as ref to void, key as ref to void into bool
+    declare ccx_uset_has with h as ref to void, key as ref to void into bool
+    declare ccx_uset_remove with h as ref to void, key as ref to void into bool
+    declare ccx_uset_items_into with h as ref to void, out as ref to void, key_size as int into void
+    declare ccx_uset_len with h as ref to void into int
+    declare ccx_uset_clear with h as ref to void into void
+    declare ccx_uset_free with h as ref to void into void
 
-declare ccx_oset_new with key_size as int, kind as int into ref to void
-declare ccx_oset_add with h as ref to void, key as ref to void into bool
-declare ccx_oset_has with h as ref to void, key as ref to void into bool
-declare ccx_oset_remove with h as ref to void, key as ref to void into bool
-declare ccx_oset_items_into with h as ref to void, out as ref to void, key_size as int into void
-declare ccx_oset_len with h as ref to void into int
-declare ccx_oset_clear with h as ref to void into void
-declare ccx_oset_free with h as ref to void into void
+    declare ccx_oset_new with key_size as int, kind as int into ref to void
+    declare ccx_oset_add with h as ref to void, key as ref to void into bool
+    declare ccx_oset_has with h as ref to void, key as ref to void into bool
+    declare ccx_oset_remove with h as ref to void, key as ref to void into bool
+    declare ccx_oset_items_into with h as ref to void, out as ref to void, key_size as int into void
+    declare ccx_oset_len with h as ref to void into int
+    declare ccx_oset_clear with h as ref to void into void
+    declare ccx_oset_free with h as ref to void into void
 
-declare ccx_omap_new with key_size as int, val_size as int, kind as int into ref to void
-declare ccx_omap_put with h as ref to void, key as ref to void, value as ref to void into bool
-declare ccx_omap_has with h as ref to void, key as ref to void into bool
-declare ccx_omap_remove with h as ref to void, key as ref to void into bool
-declare ccx_omap_get_into with h as ref to void, key as ref to void, out as ref to void, val_size as int into void
-declare ccx_omap_keys_into with h as ref to void, out as ref to void, key_size as int into void
-declare ccx_omap_values_into with h as ref to void, out as ref to void, val_size as int into void
-declare ccx_omap_len with h as ref to void into int
-declare ccx_omap_clear with h as ref to void into void
-declare ccx_omap_free with h as ref to void into void
+    declare ccx_omap_new with key_size as int, val_size as int, kind as int into ref to void
+    declare ccx_omap_put with h as ref to void, key as ref to void, value as ref to void into bool
+    declare ccx_omap_has with h as ref to void, key as ref to void into bool
+    declare ccx_omap_remove with h as ref to void, key as ref to void into bool
+    declare ccx_omap_get_into with h as ref to void, key as ref to void, out as ref to void, val_size as int into void
+    declare ccx_omap_keys_into with h as ref to void, out as ref to void, key_size as int into void
+    declare ccx_omap_values_into with h as ref to void, out as ref to void, val_size as int into void
+    declare ccx_omap_len with h as ref to void into int
+    declare ccx_omap_clear with h as ref to void into void
+    declare ccx_omap_free with h as ref to void into void
 
 ## Constante de tipo para el descriptor CC; el codegen la sustituye por una
 ## constante según `T` (0 entero, 1 string, 2 float, 9 bytes).

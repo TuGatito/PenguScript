@@ -137,150 +137,188 @@ rune SpawnBox shard A:
 # ----------------------------------------------------------------------------
 
 # Runtime: launches f on a new goroutine and returns immediately.
-declare pengu_c_filum_go with f as opaque into void
+extern c:
+    declare pengu_c_filum_go with f as opaque into void
 
 # First-class threads (0.30.0).
-declare pengu_c_filum_box_new with size as int into ref to void
-declare pengu_c_filum_box_free with p as ref to void into void
-declare pengu_c_filum_thread_start with run as ref to weave with ctx as ref to void into void, box as ref to void, err as ref to int into i64
-declare pengu_c_filum_thread_is_finished with id as i64 into int
-declare pengu_c_filum_thread_join with id as i64, sys as ref to int into int
-declare pengu_c_filum_thread_detach with id as i64, sys as ref to int into int
-declare pengu_c_filum_thread_abandon with id as i64 into void
-declare pengu_c_filum_thread_exists with id as i64 into bool
-declare pengu_c_filum_thread_id with id as i64 into i64
-declare pengu_c_filum_thread_name with id as i64 into string
-declare pengu_c_filum_thread_set_name with id as i64, name as string into int
-declare pengu_c_filum_tls_new into opaque
-declare pengu_c_filum_tls_free with t as opaque into void
-declare pengu_c_filum_tls_set with t as opaque, value as ref to void into void
-declare pengu_c_filum_tls_get with t as opaque into ref to void
-declare pengu_c_filum_pool_new with workers as int into opaque
-declare pengu_c_filum_pool_submit with p as opaque, fn as ref to weave with ctx as ref to void into void, ctx as ref to void into void
-declare pengu_c_filum_pool_wait with p as opaque into void
-declare pengu_c_filum_pool_free with p as opaque into void
-declare pengu_c_filum_parallel_for with n as int, body as ref to weave with ctx as ref to void, i as int into void, ctx as ref to void, workers as int into void
+extern c:
+    declare pengu_c_filum_box_new with size as int into ref to void
+    declare pengu_c_filum_box_free with p as ref to void into void
+    declare pengu_c_filum_thread_start with run as ref to weave with ctx as ref to void into void, box as ref to void, err as ref to int into i64
+    declare pengu_c_filum_thread_is_finished with id as i64 into int
+    declare pengu_c_filum_thread_join with id as i64, sys as ref to int into int
+    declare pengu_c_filum_thread_detach with id as i64, sys as ref to int into int
+    declare pengu_c_filum_thread_abandon with id as i64 into void
+    declare pengu_c_filum_thread_exists with id as i64 into bool
+    declare pengu_c_filum_thread_id with id as i64 into i64
+    declare pengu_c_filum_thread_name with id as i64 into string
+    declare pengu_c_filum_thread_set_name with id as i64, name as string into int
+    declare pengu_c_filum_tls_new into opaque
+    declare pengu_c_filum_tls_free with t as opaque into void
+    declare pengu_c_filum_tls_set with t as opaque, value as ref to void into void
+    declare pengu_c_filum_tls_get with t as opaque into ref to void
+    declare pengu_c_filum_pool_new with workers as int into opaque
+    declare pengu_c_filum_pool_submit with p as opaque, fn as ref to weave with ctx as ref to void into void, ctx as ref to void into void
+    declare pengu_c_filum_pool_wait with p as opaque into void
+    declare pengu_c_filum_pool_free with p as opaque into void
+    declare pengu_c_filum_parallel_for with n as int, body as ref to weave with ctx as ref to void, i as int into void, ctx as ref to void, workers as int into void
 
 # Runtime: creates a channel for elements of size elem_size with capacity cap
 # (0 = unbuffered). Memory: the caller owns the returned handle and must
 # release it with pengu_c_filum_chan_free.
-declare pengu_c_filum_chan_new with elem_size as usize , cap as int into opaque
+extern c:
+    declare pengu_c_filum_chan_new with elem_size as usize , cap as int into opaque
 
 # Runtime: sends a value into channel c; true when accepted, false when c is
 # closed.
-declare pengu_c_filum_chan_send with c as opaque , value as opaque into bool
+extern c:
+    declare pengu_c_filum_chan_send with c as opaque , value as opaque into bool
 
 # Runtime: receives a value from channel c into out; true when a value was
 # received, false when c is closed and drained.
-declare pengu_c_filum_chan_recv with c as opaque , out as opaque into bool
+extern c:
+    declare pengu_c_filum_chan_recv with c as opaque , out as opaque into bool
 
 # Runtime: closes channel c; queued values remain receivable.
-declare pengu_c_filum_chan_close with c as opaque into void
+extern c:
+    declare pengu_c_filum_chan_close with c as opaque into void
 
 # Runtime: number of values currently buffered in channel c.
-declare pengu_c_filum_chan_len with c as opaque into int
+extern c:
+    declare pengu_c_filum_chan_len with c as opaque into int
 
 # Runtime: capacity of channel c (0 when unbuffered).
-declare pengu_c_filum_chan_cap with c as opaque into int
+extern c:
+    declare pengu_c_filum_chan_cap with c as opaque into int
 
 # Runtime: allocates a native mutex. Memory: the caller owns the returned
 # handle and must release it with pengu_c_filum_mutex_free.
-declare pengu_c_filum_mutex_new into opaque
+extern c:
+    declare pengu_c_filum_mutex_new into opaque
 
 # Runtime: locks the mutex, blocking until it is available.
-declare pengu_c_filum_mutex_lock with m as opaque into void
+extern c:
+    declare pengu_c_filum_mutex_lock with m as opaque into void
 
 # Runtime: unlocks the mutex; the caller must currently hold the lock.
-declare pengu_c_filum_mutex_unlock with m as opaque into void
+extern c:
+    declare pengu_c_filum_mutex_unlock with m as opaque into void
 
 # Runtime: attempts a non-blocking lock on the mutex; true when acquired.
-declare pengu_c_filum_mutex_try_lock with m as opaque into bool
+extern c:
+    declare pengu_c_filum_mutex_try_lock with m as opaque into bool
 
 # Runtime: allocates a wait group. Memory: the caller owns the returned
 # handle and must release it with pengu_c_filum_wait_group_free.
-declare pengu_c_filum_wait_group_new into opaque
+extern c:
+    declare pengu_c_filum_wait_group_new into opaque
 
 # Runtime: adds delta to the wait-group counter.
-declare pengu_c_filum_wait_group_add with wg as opaque , delta as int into void
+extern c:
+    declare pengu_c_filum_wait_group_add with wg as opaque , delta as int into void
 
 # Runtime: decrements the wait-group counter by one.
-declare pengu_c_filum_wait_group_done with wg as opaque into void
+extern c:
+    declare pengu_c_filum_wait_group_done with wg as opaque into void
 
 # Runtime: blocks until the wait-group counter reaches zero.
-declare pengu_c_filum_wait_group_wait with wg as opaque into void
+extern c:
+    declare pengu_c_filum_wait_group_wait with wg as opaque into void
 
 # Runtime: allocates a once-guard. Memory: the caller owns the returned
 # handle and must release it with pengu_c_filum_once_free.
-declare pengu_c_filum_once_new into opaque
+extern c:
+    declare pengu_c_filum_once_new into opaque
 
 # Runtime: runs callback f exactly once across all callers of the same guard.
-declare pengu_c_filum_once_do with o as opaque , f as opaque into void
+extern c:
+    declare pengu_c_filum_once_do with o as opaque , f as opaque into void
 
 # Runtime: allocates a condition variable. Memory: the caller owns the
 # returned handle and must release it with pengu_c_filum_cond_free.
-declare pengu_c_filum_cond_new into opaque
+extern c:
+    declare pengu_c_filum_cond_new into opaque
 
 # Runtime: atomically releases mutex m and blocks until c is signaled;
 # reacquires m before returning.
-declare pengu_c_filum_cond_wait with c as opaque , m as opaque into void
+extern c:
+    declare pengu_c_filum_cond_wait with c as opaque , m as opaque into void
 
 # Runtime: wakes one goroutine waiting on c.
-declare pengu_c_filum_cond_signal with c as opaque into void
+extern c:
+    declare pengu_c_filum_cond_signal with c as opaque into void
 
 # Runtime: wakes every goroutine waiting on c.
-declare pengu_c_filum_cond_broadcast with c as opaque into void
+extern c:
+    declare pengu_c_filum_cond_broadcast with c as opaque into void
 
 # Runtime: allocates an atomic integer initialized to initial. Memory: the
 # caller owns the returned handle and must release it with
 # pengu_c_filum_atomic_int_free.
-declare pengu_c_filum_atomic_int_new with initial as int into opaque
+extern c:
+    declare pengu_c_filum_atomic_int_new with initial as int into opaque
 
 # Runtime: returns the current value of atomic integer a.
-declare pengu_c_filum_atomic_int_load with a as opaque into int
+extern c:
+    declare pengu_c_filum_atomic_int_load with a as opaque into int
 
 # Runtime: sets atomic integer a to val.
-declare pengu_c_filum_atomic_int_store with a as opaque , val as int into void
+extern c:
+    declare pengu_c_filum_atomic_int_store with a as opaque , val as int into void
 
 # Runtime: atomically adds delta to a and returns the previous value.
-declare pengu_c_filum_atomic_int_add with a as opaque , delta as int into int
+extern c:
+    declare pengu_c_filum_atomic_int_add with a as opaque , delta as int into int
 
 # Runtime: atomically replaces the value of a with new_val and returns the
 # previous value.
-declare pengu_c_filum_atomic_int_swap with a as opaque , new_val as int into int
+extern c:
+    declare pengu_c_filum_atomic_int_swap with a as opaque , new_val as int into int
 
 # Runtime: sets a to new_val only when it currently equals old_val; true when
 # the swap happened.
-declare pengu_c_filum_atomic_int_compare_swap with a as opaque , old_val as int , new_val as int into bool
+extern c:
+    declare pengu_c_filum_atomic_int_compare_swap with a as opaque , old_val as int , new_val as int into bool
 
 # Runtime: suspends the calling goroutine for ms milliseconds.
-declare pengu_c_filum_sleep with ms as int into void
+extern c:
+    declare pengu_c_filum_sleep with ms as int into void
 
 # Runtime: number of logical CPUs available to the process.
-declare pengu_c_filum_num_cpu into int
+extern c:
+    declare pengu_c_filum_num_cpu into int
 
 # Runtime: identifier of the calling goroutine.
-declare pengu_c_filum_goroutine_id into int
+extern c:
+    declare pengu_c_filum_goroutine_id into int
 
 # Runtime: releases a mutex handle. Call exactly once; do not use the Mutex afterwards.
-declare pengu_c_filum_mutex_free with m as opaque into void
+extern c:
+    declare pengu_c_filum_mutex_free with m as opaque into void
 
 # Runtime: releases a wait-group handle. Call exactly once; do not use the WaitGroup afterwards.
-declare pengu_c_filum_wait_group_free with wg as opaque into void
+extern c:
+    declare pengu_c_filum_wait_group_free with wg as opaque into void
 
 # Runtime: releases a once-guard handle. Call exactly once; do not use the Once afterwards.
-declare pengu_c_filum_once_free with o as opaque into void
+extern c:
+    declare pengu_c_filum_once_free with o as opaque into void
 
 # Runtime: releases a condition-variable handle. Call exactly once; do not use the Cond afterwards.
-declare pengu_c_filum_cond_free with c as opaque into void
+extern c:
+    declare pengu_c_filum_cond_free with c as opaque into void
 
 # Runtime: releases an atomic-integer handle. Call exactly once; do not use the AtomicInt afterwards.
-declare pengu_c_filum_atomic_int_free with a as opaque into void
+extern c:
+    declare pengu_c_filum_atomic_int_free with a as opaque into void
 
 # Runtime: releases a channel handle. Call exactly once; do not use the Chan afterwards.
-declare pengu_c_filum_chan_free with c as opaque into void
+extern c:
+    declare pengu_c_filum_chan_free with c as opaque into void
 
 # Runtime: creates an owned deep copy of s with its own heap buffer.
-declare pengu_string_copy with s as string into string
+extern c:
+    declare pengu_string_copy with s as string into string
 
 # ----------------------------------------------------------------------------
 # Mutex Functional API & Enchanting

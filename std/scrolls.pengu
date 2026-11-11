@@ -117,7 +117,8 @@
 # second definition and collide). This declaration must come before
 # `insignia pengu_`: the insignia prefixes every later top-level name, which
 # would mangle the C symbol into `pengu_pengu__find_sub` and fail to link.
-declare pengu__find_sub with hay as string, needle as string, from_idx as int into int
+extern c:
+    declare pengu__find_sub with hay as string, needle as string, from_idx as int into int
 
 # --- Module directives --------------------------------------------------
 const SCROLLS_VERSION as string is "2.14.0"

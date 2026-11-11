@@ -22,10 +22,11 @@ const FFI_CALL_VERSION as string is "1.0.0"
 rune FfiSignature:
     _sig as opaque
 
-declare ccx_ffi_sig_new with ret as int, args as vector of int into opaque
-declare ccx_ffi_sig_free with sig as opaque into void
-declare ccx_ffi_call with sig as opaque, fn as ref to void, args as vector of ref to void, out as ref to void into bool
-declare ccx_ffi_ret_size with sig as opaque into int
+extern c:
+    declare ccx_ffi_sig_new with ret as int, args as vector of int into opaque
+    declare ccx_ffi_sig_free with sig as opaque into void
+    declare ccx_ffi_call with sig as opaque, fn as ref to void, args as vector of ref to void, out as ref to void into bool
+    declare ccx_ffi_ret_size with sig as opaque into int
 
 ## Builds a call signature. The result owns the signature on success.
 weave signature with ret as int, args as vector of int into result of FfiSignature to string:

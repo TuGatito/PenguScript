@@ -101,70 +101,88 @@ else:
 
 # C bridge that looks up the value of environment variable `name`; returns a
 # maybe string that is none when the variable is unset.
-declare pengu_c_getenv with name as string into maybe string
+extern c:
+    declare pengu_c_getenv with name as string into maybe string
 
 # C bridge that sets environment variable `name` to `value`; `overwrite`
 # controls whether an existing variable may be replaced. Returns true on
 # success, false on failure (e.g. an empty `name`).
-declare pengu_c_setenv with name as string , value as string , overwrite as bool into bool
+extern c:
+    declare pengu_c_setenv with name as string , value as string , overwrite as bool into bool
 
 # C bridge that removes environment variable `name`. Returns true on success,
 # false on failure (e.g. an empty `name`).
-declare pengu_c_unsetenv with name as string into bool
+extern c:
+    declare pengu_c_unsetenv with name as string into bool
 
 # C bridge returning the program's argument count (argc, including the program
 # name at index 0).
-declare pengu_c_get_argc into int
+extern c:
+    declare pengu_c_get_argc into int
 
 # C bridge returning a copy of the program argument at index `idx` (0 = the
 # program name); an out-of-range index yields an empty string.
-declare pengu_c_get_argv with idx as int into string
+extern c:
+    declare pengu_c_get_argv with idx as int into string
 
 # C bridge returning a new list of string with one copy per program argument,
 # from index 0 (program name) upward.
-declare pengu_c_get_args into vector of string
+extern c:
+    declare pengu_c_get_args into vector of string
 
 # C bridge returning the current process id (int).
-declare pengu_c_getpid into int
+extern c:
+    declare pengu_c_getpid into int
 
 # C bridge returning the parent process id (int); always 0 on Windows.
-declare pengu_c_getppid into int
+extern c:
+    declare pengu_c_getppid into int
 
 # C bridge returning the current working directory as a maybe string (none
 # when it cannot be determined).
-declare pengu_c_getcwd into maybe string
+extern c:
+    declare pengu_c_getcwd into maybe string
 
 # C bridge that changes the current working directory to `path`; returns true
 # on success, false on failure.
-declare pengu_c_chdir with path as string into bool
+extern c:
+    declare pengu_c_chdir with path as string into bool
 
 # C bridge that terminates the process immediately with exit code `code`.
-declare pengu_c_exit with code as int into void
+extern c:
+    declare pengu_c_exit with code as int into void
 
 # C bridge that runs `cmd` plus each `args` entry (space-joined) through the
 # platform shell (system()) and returns the raw status it reports.
-declare pengu_c_exec with cmd as string , args as vector of string into int
+extern c:
+    declare pengu_c_exec with cmd as string , args as vector of string into int
 
 # C bridge that launches `cmd` with `args`; currently shares the same
 # implementation as exec (a blocking system() call).
-declare pengu_c_spawn with cmd as string , args as vector of string into int
+extern c:
+    declare pengu_c_spawn with cmd as string , args as vector of string into int
 
 # C bridge returning the OS family name ("Windows", "Darwin", "Linux" or
 # "Unknown") as a string.
-declare pengu_c_uname into string
+extern c:
+    declare pengu_c_uname into string
 
 # C bridge returning the host architecture ("x64", "arm64", "x86" or "arm").
-declare pengu_c_arch into string
+extern c:
+    declare pengu_c_arch into string
 
 # C bridge returning the machine's host name as a string.
-declare pengu_c_hostname into string
+extern c:
+    declare pengu_c_hostname into string
 
 # C bridge returning a new list of string holding the names of all currently
 # set environment variables.
-declare pengu_c_get_env_keys into vector of string
+extern c:
+    declare pengu_c_get_env_keys into vector of string
 
 # External file check declaration to avoid circular import with std.archivum.
-declare pengu_c_archivum_is_file with path as string into bool
+extern c:
+    declare pengu_c_archivum_is_file with path as string into bool
 
 # ----------------------------------------------------------------------------
 # Module Version

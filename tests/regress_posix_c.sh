@@ -38,7 +38,8 @@ C
 cat >"$tmp/src/posix_probe.d.pengu" <<'PENGU'
 include "posix_probe.h"
 
-declare posix_probe_clock into int
+extern c:
+    declare posix_probe_clock into int
 PENGU
 cat >"$tmp/src/main.pengu" <<'PENGU'
 import std.spark

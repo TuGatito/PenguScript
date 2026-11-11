@@ -218,6 +218,7 @@ mismo código emitido en los dos backends):
 | `nasci` / `mori` / `imago` | `born` / `die` / `mirror` |
 | `namespace` | `regnum` |
 | `derive Par, Nexus, Imago, Vinculum, Ordo` | (nada: son implícitos) |
+| `declare f …` (suelto) | `extern c:` + `    declare f …` |
 
 `--check` no escribe y sale con 1 si habría cambios; `--diff` muestra las
 líneas afectadas; sin flags escribe in place. El comando es idempotente y no
@@ -233,6 +234,9 @@ conserva `Json` (hasta F5) y `Drop` (hasta F2.3, que lo sustituye por
 rune Label derive Nexus, Par:   # antes
 rune Label:                     # después
 ```
+
+`--wrap-declares` envuelve las tiradas de `declare` de nivel de módulo en un
+bloque `extern c:` y las indenta (el `declare` suelto es `E0116`).
 
 Usar un concepto retirado en el fuente da `E0005`:
 

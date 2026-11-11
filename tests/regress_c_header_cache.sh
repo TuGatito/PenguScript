@@ -21,7 +21,8 @@ TOML
 cat >"$tmp/src/main.pengu" <<'PENGU'
 include "val.h"
 import std.spark
-declare val into int
+extern c:
+    declare val into int
 weave main into int:
     calling spark.println with "{calling val}"
     return 0

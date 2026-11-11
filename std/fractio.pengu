@@ -89,36 +89,37 @@ const FRACTIO_VERSION as string is "2.14.0"
 # included by pengu_runtime.h, and the bundle links -lm)
 # ----------------------------------------------------------------------------
 
-declare sqrtf with x as f32 into f32
-declare sqrt with x as f64 into f64
-declare cbrtf with x as f32 into f32
-declare cbrt with x as f64 into f64
-declare sinf with x as f32 into f32
-declare sin with x as f64 into f64
-declare cosf with x as f32 into f32
-declare cos with x as f64 into f64
-declare tanf with x as f32 into f32
-declare tan with x as f64 into f64
-declare asinf with x as f32 into f32
-declare asin with x as f64 into f64
-declare acosf with x as f32 into f32
-declare acos with x as f64 into f64
-declare atanf with x as f32 into f32
-declare atan with x as f64 into f64
-declare atan2f with y as f32, x as f32 into f32
-declare atan2 with y as f64, x as f64 into f64
-declare expf with x as f32 into f32
-declare exp with x as f64 into f64
-declare logf with x as f32 into f32
-declare log with x as f64 into f64
-declare log2f with x as f32 into f32
-declare log2 with x as f64 into f64
-declare log10f with x as f32 into f32
-declare log10 with x as f64 into f64
-declare powf with base as f32, exponent as f32 into f32
-declare pow with base as f64, exponent as f64 into f64
-declare hypotf with x as f32, y as f32 into f32
-declare hypot with x as f64, y as f64 into f64
+extern c:
+    declare sqrtf with x as f32 into f32
+    declare sqrt with x as f64 into f64
+    declare cbrtf with x as f32 into f32
+    declare cbrt with x as f64 into f64
+    declare sinf with x as f32 into f32
+    declare sin with x as f64 into f64
+    declare cosf with x as f32 into f32
+    declare cos with x as f64 into f64
+    declare tanf with x as f32 into f32
+    declare tan with x as f64 into f64
+    declare asinf with x as f32 into f32
+    declare asin with x as f64 into f64
+    declare acosf with x as f32 into f32
+    declare acos with x as f64 into f64
+    declare atanf with x as f32 into f32
+    declare atan with x as f64 into f64
+    declare atan2f with y as f32, x as f32 into f32
+    declare atan2 with y as f64, x as f64 into f64
+    declare expf with x as f32 into f32
+    declare exp with x as f64 into f64
+    declare logf with x as f32 into f32
+    declare log with x as f64 into f64
+    declare log2f with x as f32 into f32
+    declare log2 with x as f64 into f64
+    declare log10f with x as f32 into f32
+    declare log10 with x as f64 into f64
+    declare powf with base as f32, exponent as f32 into f32
+    declare pow with base as f64, exponent as f64 into f64
+    declare hypotf with x as f32, y as f32 into f32
+    declare hypot with x as f64, y as f64 into f64
 
 # ----------------------------------------------------------------------------
 # Pure methods (no libm): one body for all four float types
