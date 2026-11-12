@@ -96088,122 +96088,134 @@ void psc_codegen_stmt_emit_judge_core(CgContext* c, int32_t node, PsAst* ast, in
                                 (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("case %.*s: {", (int)blit.len, blit.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
                                 #line 1722 "src/psc/codegen/stmt.pengu"
                                 (void)(psc_codegen_emit_indent_more((&(c->emitter))));
-                                #line 1723 "src/psc/codegen/stmt.pengu"
-                                (void)(psc_codegen_stmt_emit_judge_arm_body(c, body2, ast, vty, vtmp));
-                                #line 1724 "src/psc/codegen/stmt.pengu"
-                                (void)(psc_codegen_emit_line((&(c->emitter)), pengu_string_from_cstr_len("break;", 6)));
-                                #line 1725 "src/psc/codegen/stmt.pengu"
-                                (void)(psc_codegen_emit_indent_less((&(c->emitter))));
                                 #line 1726 "src/psc/codegen/stmt.pengu"
+                                (void)(psc_codegen_stmt_begin_scope(c, false));
+                                #line 1727 "src/psc/codegen/stmt.pengu"
+                                (void)(psc_codegen_stmt_emit_judge_arm_body(c, body2, ast, vty, vtmp));
+                                #line 1728 "src/psc/codegen/stmt.pengu"
+                                (void)(psc_codegen_stmt_end_scope(c));
+                                #line 1729 "src/psc/codegen/stmt.pengu"
+                                (void)(psc_codegen_emit_line((&(c->emitter)), pengu_string_from_cstr_len("break;", 6)));
+                                #line 1730 "src/psc/codegen/stmt.pengu"
+                                (void)(psc_codegen_emit_indent_less((&(c->emitter))));
+                                #line 1731 "src/psc/codegen/stmt.pengu"
                                 (void)(psc_codegen_emit_line((&(c->emitter)), pengu_string_from_cstr_len("}", 1)));
                             }
-                            #line 1727 "src/psc/codegen/stmt.pengu"
+                            #line 1732 "src/psc/codegen/stmt.pengu"
                             pengu_banish_string(&(blit));
                         } else {
-                            #line 1729 "src/psc/codegen/stmt.pengu"
-                            PenguString pvt = sema_ast_token_text((&(m.source)), (&(m.lex)), (*( int32_t*)pengu_list_at(&(lab), (int)((__extension__(({ int64_t _p_idx1814 = (int64_t)(0); pengu_assert_bounds(_p_idx1814, (int64_t)((lab).len), "src/psc/codegen/stmt.pengu:1729"); _p_idx1814; })))))));
+                            #line 1734 "src/psc/codegen/stmt.pengu"
+                            PenguString pvt = sema_ast_token_text((&(m.source)), (&(m.lex)), (*( int32_t*)pengu_list_at(&(lab), (int)((__extension__(({ int64_t _p_idx1814 = (int64_t)(0); pengu_assert_bounds(_p_idx1814, (int64_t)((lab).len), "src/psc/codegen/stmt.pengu:1734"); _p_idx1814; })))))));
                             (void)pvt;
-                            #line 1730 "src/psc/codegen/stmt.pengu"
+                            #line 1735 "src/psc/codegen/stmt.pengu"
                             int32_t li = 0;
                             (void)li;
-                            #line 1731 "src/psc/codegen/stmt.pengu"
+                            #line 1736 "src/psc/codegen/stmt.pengu"
                             while ((li < (lab).len)) {
-                                #line 1732 "src/psc/codegen/stmt.pengu"
-                                int32_t ltk = (*( int32_t*)pengu_list_at(&(lab), (int)((__extension__(({ int64_t _p_idx1815 = (int64_t)(li); pengu_assert_bounds(_p_idx1815, (int64_t)((lab).len), "src/psc/codegen/stmt.pengu:1732"); _p_idx1815; }))))));
+                                #line 1737 "src/psc/codegen/stmt.pengu"
+                                int32_t ltk = (*( int32_t*)pengu_list_at(&(lab), (int)((__extension__(({ int64_t _p_idx1815 = (int64_t)(li); pengu_assert_bounds(_p_idx1815, (int64_t)((lab).len), "src/psc/codegen/stmt.pengu:1737"); _p_idx1815; }))))));
                                 (void)ltk;
-                                #line 1733 "src/psc/codegen/stmt.pengu"
+                                #line 1738 "src/psc/codegen/stmt.pengu"
                                 PenguString lpn = psc_codegen_stmt_judge_case_label(c, st, ltk, ast);
                                 (void)lpn;
-                                #line 1734 "src/psc/codegen/stmt.pengu"
+                                #line 1739 "src/psc/codegen/stmt.pengu"
                                 if (li == (((lab).len - 1))) {
-                                    #line 1735 "src/psc/codegen/stmt.pengu"
+                                    #line 1740 "src/psc/codegen/stmt.pengu"
                                     (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("case %.*s: {", (int)lpn.len, lpn.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
                                 } else {
-                                    #line 1737 "src/psc/codegen/stmt.pengu"
+                                    #line 1742 "src/psc/codegen/stmt.pengu"
                                     (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("case %.*s:", (int)lpn.len, lpn.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
                                 }
-                                #line 1738 "src/psc/codegen/stmt.pengu"
+                                #line 1743 "src/psc/codegen/stmt.pengu"
                                 pengu_banish_string(&(lpn));
-                                #line 1739 "src/psc/codegen/stmt.pengu"
+                                #line 1744 "src/psc/codegen/stmt.pengu"
                                 li = (li + 1);
                             }
-                            #line 1740 "src/psc/codegen/stmt.pengu"
+                            #line 1745 "src/psc/codegen/stmt.pengu"
                             (void)(psc_codegen_emit_indent_more((&(c->emitter))));
-                            #line 1741 "src/psc/codegen/stmt.pengu"
+                            #line 1746 "src/psc/codegen/stmt.pengu"
+                            (void)(psc_codegen_stmt_begin_scope(c, false));
+                            #line 1747 "src/psc/codegen/stmt.pengu"
                             if (payload2 >= 0) {
-                                #line 1742 "src/psc/codegen/stmt.pengu"
+                                #line 1748 "src/psc/codegen/stmt.pengu"
                                 (void)(psc_codegen_stmt_judge_bind_payload(c, st, payload2, ast, stmp, pvt));
                             }
-                            #line 1743 "src/psc/codegen/stmt.pengu"
+                            #line 1749 "src/psc/codegen/stmt.pengu"
                             if (guard2 >= 0) {
-                                #line 1744 "src/psc/codegen/stmt.pengu"
+                                #line 1750 "src/psc/codegen/stmt.pengu"
                                 int32_t gnode2 = guard2;
                                 (void)gnode2;
-                                #line 1745 "src/psc/codegen/stmt.pengu"
+                                #line 1751 "src/psc/codegen/stmt.pengu"
                                 if ((sema_ast_kind_of(ast, guard2)) == NodeKind_NdWhenGuard) {
-                                    #line 1746 "src/psc/codegen/stmt.pengu"
+                                    #line 1752 "src/psc/codegen/stmt.pengu"
                                     gnode2 = sema_ast_node_child(ast, guard2, 0);
                                 }
-                                #line 1747 "src/psc/codegen/stmt.pengu"
+                                #line 1753 "src/psc/codegen/stmt.pengu"
                                 PenguString gv2 = psc_codegen_expr_emit_expr(c, gnode2);
                                 (void)gv2;
-                                #line 1748 "src/psc/codegen/stmt.pengu"
+                                #line 1754 "src/psc/codegen/stmt.pengu"
                                 (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("if (!(%.*s)) break;", (int)gv2.len, gv2.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
-                                #line 1749 "src/psc/codegen/stmt.pengu"
+                                #line 1755 "src/psc/codegen/stmt.pengu"
                                 pengu_banish_string(&(gv2));
                             }
-                            #line 1750 "src/psc/codegen/stmt.pengu"
+                            #line 1756 "src/psc/codegen/stmt.pengu"
                             (void)(psc_codegen_stmt_emit_judge_arm_body(c, body2, ast, vty, vtmp));
-                            #line 1751 "src/psc/codegen/stmt.pengu"
+                            #line 1757 "src/psc/codegen/stmt.pengu"
+                            (void)(psc_codegen_stmt_end_scope(c));
+                            #line 1758 "src/psc/codegen/stmt.pengu"
                             (void)(psc_codegen_emit_line((&(c->emitter)), pengu_string_from_cstr_len("break;", 6)));
-                            #line 1752 "src/psc/codegen/stmt.pengu"
+                            #line 1759 "src/psc/codegen/stmt.pengu"
                             (void)(psc_codegen_emit_indent_less((&(c->emitter))));
-                            #line 1753 "src/psc/codegen/stmt.pengu"
+                            #line 1760 "src/psc/codegen/stmt.pengu"
                             (void)(psc_codegen_emit_line((&(c->emitter)), pengu_string_from_cstr_len("}", 1)));
-                            #line 1754 "src/psc/codegen/stmt.pengu"
+                            #line 1761 "src/psc/codegen/stmt.pengu"
                             pengu_banish_string(&(pvt));
                         }
                         pengu_banish_list(&(lab));
                     }
                 } else
                 if (ck2 == NodeKind_NdElseClause) {
-                    #line 1756 "src/psc/codegen/stmt.pengu"
+                    #line 1763 "src/psc/codegen/stmt.pengu"
                     has_else = true;
-                    #line 1757 "src/psc/codegen/stmt.pengu"
+                    #line 1764 "src/psc/codegen/stmt.pengu"
                     int32_t eb2 = sema_ast_node_child(ast, cl2, 0);
                     (void)eb2;
-                    #line 1758 "src/psc/codegen/stmt.pengu"
+                    #line 1765 "src/psc/codegen/stmt.pengu"
                     if (eb2 < 0) {
-                        #line 1759 "src/psc/codegen/stmt.pengu"
+                        #line 1766 "src/psc/codegen/stmt.pengu"
                         eb2 = cl2;
                     }
-                    #line 1760 "src/psc/codegen/stmt.pengu"
+                    #line 1767 "src/psc/codegen/stmt.pengu"
                     (void)(psc_codegen_origin_marker(c, m, cl2));
-                    #line 1761 "src/psc/codegen/stmt.pengu"
+                    #line 1768 "src/psc/codegen/stmt.pengu"
                     (void)(psc_codegen_emit_line((&(c->emitter)), pengu_string_from_cstr("default: {")));
-                    #line 1762 "src/psc/codegen/stmt.pengu"
+                    #line 1769 "src/psc/codegen/stmt.pengu"
                     (void)(psc_codegen_emit_indent_more((&(c->emitter))));
-                    #line 1763 "src/psc/codegen/stmt.pengu"
+                    #line 1770 "src/psc/codegen/stmt.pengu"
+                    (void)(psc_codegen_stmt_begin_scope(c, false));
+                    #line 1771 "src/psc/codegen/stmt.pengu"
                     (void)(psc_codegen_stmt_emit_judge_arm_body(c, eb2, ast, vty, vtmp));
-                    #line 1764 "src/psc/codegen/stmt.pengu"
+                    #line 1772 "src/psc/codegen/stmt.pengu"
+                    (void)(psc_codegen_stmt_end_scope(c));
+                    #line 1773 "src/psc/codegen/stmt.pengu"
                     (void)(psc_codegen_emit_line((&(c->emitter)), pengu_string_from_cstr_len("break;", 6)));
-                    #line 1765 "src/psc/codegen/stmt.pengu"
+                    #line 1774 "src/psc/codegen/stmt.pengu"
                     (void)(psc_codegen_emit_indent_less((&(c->emitter))));
-                    #line 1766 "src/psc/codegen/stmt.pengu"
+                    #line 1775 "src/psc/codegen/stmt.pengu"
                     (void)(psc_codegen_emit_line((&(c->emitter)), pengu_string_from_cstr_len("}", 1)));
                 }
             }
-            #line 1767 "src/psc/codegen/stmt.pengu"
+            #line 1776 "src/psc/codegen/stmt.pengu"
             i2 = (i2 + 1);
         }
-        #line 1768 "src/psc/codegen/stmt.pengu"
+        #line 1777 "src/psc/codegen/stmt.pengu"
         if (!has_else) {
-            #line 1769 "src/psc/codegen/stmt.pengu"
+            #line 1778 "src/psc/codegen/stmt.pengu"
             (void)(psc_codegen_emit_line((&(c->emitter)), pengu_string_from_cstr_len("default: break;", 15)));
         }
-        #line 1770 "src/psc/codegen/stmt.pengu"
+        #line 1779 "src/psc/codegen/stmt.pengu"
         (void)(psc_codegen_emit_indent_less((&(c->emitter))));
-        #line 1771 "src/psc/codegen/stmt.pengu"
+        #line 1780 "src/psc/codegen/stmt.pengu"
         (void)(psc_codegen_emit_line((&(c->emitter)), pengu_string_from_cstr_len("}", 1)));
     }
     pengu_banish_string(&(stmp));
@@ -96211,382 +96223,382 @@ void psc_codegen_stmt_emit_judge_core(CgContext* c, int32_t node, PsAst* ast, in
     pengu_banish_string(&(sct));
 }
 
-#line 1777 "src/psc/codegen/stmt.pengu"
+#line 1786 "src/psc/codegen/stmt.pengu"
 void psc_codegen_stmt_emit_judge_stmt(CgContext* c, int32_t node, PsAst* ast) {
     (void)c;
     (void)node;
     (void)ast;
-    #line 1778 "src/psc/codegen/stmt.pengu"
+    #line 1787 "src/psc/codegen/stmt.pengu"
     (void)(psc_codegen_stmt_emit_judge_core(c, node, ast, 0, pengu_string_from_cstr_len("", 0)));
 }
 
-#line 1786 "src/psc/codegen/stmt.pengu"
+#line 1795 "src/psc/codegen/stmt.pengu"
 PenguString psc_codegen_stmt_emit_judge_block_value(CgContext* c, int32_t node, PsAst* ast, int32_t rt) {
     (void)c;
     (void)node;
     (void)ast;
     (void)rt;
-    #line 1787 "src/psc/codegen/stmt.pengu"
+    #line 1796 "src/psc/codegen/stmt.pengu"
     PenguString rtmp = psc_codegen_emit_temp((&(c->emitter)), pengu_string_from_cstr_len("_jv", 3));
     (void)rtmp;
-    #line 1788 "src/psc/codegen/stmt.pengu"
+    #line 1797 "src/psc/codegen/stmt.pengu"
     (void)(psc_codegen_stmt_emit_judge_core(c, node, ast, rt, rtmp));
-    #line 1789 "src/psc/codegen/stmt.pengu"
+    #line 1798 "src/psc/codegen/stmt.pengu"
     return rtmp;
 }
 
-#line 1799 "src/psc/codegen/stmt.pengu"
+#line 1808 "src/psc/codegen/stmt.pengu"
 bool psc_codegen_stmt_is_share_type(CgContext* c, int32_t ty) {
     (void)c;
     (void)ty;
-    #line 1800 "src/psc/codegen/stmt.pengu"
+    #line 1809 "src/psc/codegen/stmt.pengu"
     int32_t k = psc_codegen_drop_consortium_kind_of(c, ty);
     (void)k;
-    #line 1801 "src/psc/codegen/stmt.pengu"
+    #line 1810 "src/psc/codegen/stmt.pengu"
     return (((k == 1) || (k == 2)) || (k == 4));
 }
 
-#line 1808 "src/psc/codegen/stmt.pengu"
+#line 1817 "src/psc/codegen/stmt.pengu"
 bool psc_codegen_stmt_value_is_place(CgContext* c, int32_t node, PsAst* ast) {
     (void)c;
     (void)node;
     (void)ast;
-    #line 1809 "src/psc/codegen/stmt.pengu"
+    #line 1818 "src/psc/codegen/stmt.pengu"
     if (node < 0) {
-        #line 1810 "src/psc/codegen/stmt.pengu"
+        #line 1819 "src/psc/codegen/stmt.pengu"
         return false;
     }
-    #line 1811 "src/psc/codegen/stmt.pengu"
+    #line 1820 "src/psc/codegen/stmt.pengu"
     NodeKind k = sema_ast_kind_of(ast, node);
     (void)k;
-    #line 1812 "src/psc/codegen/stmt.pengu"
+    #line 1821 "src/psc/codegen/stmt.pengu"
     return (k == NodeKind_NdVarRef);
 }
 
-#line 1821 "src/psc/codegen/stmt.pengu"
+#line 1830 "src/psc/codegen/stmt.pengu"
 void psc_codegen_stmt_share_assigned(CgContext* c, int32_t ty, int32_t vnode, PsAst* ast, PenguString target) {
     (void)c;
     (void)ty;
     (void)vnode;
     (void)ast;
     (void)target;
-    #line 1822 "src/psc/codegen/stmt.pengu"
+    #line 1831 "src/psc/codegen/stmt.pengu"
     if (ty <= 0) {
-        #line 1823 "src/psc/codegen/stmt.pengu"
+        #line 1832 "src/psc/codegen/stmt.pengu"
         return;
     }
-    #line 1824 "src/psc/codegen/stmt.pengu"
+    #line 1833 "src/psc/codegen/stmt.pengu"
     if (!(psc_codegen_stmt_value_is_place(c, vnode, ast))) {
-        #line 1825 "src/psc/codegen/stmt.pengu"
+        #line 1834 "src/psc/codegen/stmt.pengu"
         return;
     }
-    #line 1826 "src/psc/codegen/stmt.pengu"
+    #line 1835 "src/psc/codegen/stmt.pengu"
     int32_t cwk = psc_codegen_drop_cow_kind_of(c, ty);
     (void)cwk;
-    #line 1827 "src/psc/codegen/stmt.pengu"
+    #line 1836 "src/psc/codegen/stmt.pengu"
     if (cwk > 0) {
-        #line 1828 "src/psc/codegen/stmt.pengu"
+        #line 1837 "src/psc/codegen/stmt.pengu"
         (void)(psc_codegen_drop_emit_cow_share(c, cwk, target));
-        #line 1829 "src/psc/codegen/stmt.pengu"
+        #line 1838 "src/psc/codegen/stmt.pengu"
         return;
     }
-    #line 1831 "src/psc/codegen/stmt.pengu"
+    #line 1840 "src/psc/codegen/stmt.pengu"
     (void)(psc_codegen_drop_emit_share_value(c, ty, target, 0));
 }
 
-#line 1833 "src/psc/codegen/stmt.pengu"
+#line 1842 "src/psc/codegen/stmt.pengu"
 bool psc_codegen_stmt_is_drop_type(CgContext* c, int32_t ty) {
     (void)c;
     (void)ty;
-    #line 1834 "src/psc/codegen/stmt.pengu"
+    #line 1843 "src/psc/codegen/stmt.pengu"
     int32_t cur = ty;
     (void)cur;
-    #line 1835 "src/psc/codegen/stmt.pengu"
+    #line 1844 "src/psc/codegen/stmt.pengu"
     int32_t guard = 0;
     (void)guard;
-    #line 1836 "src/psc/codegen/stmt.pengu"
+    #line 1845 "src/psc/codegen/stmt.pengu"
     while (((cur >= 0) && (guard < 32))) {
-        #line 1837 "src/psc/codegen/stmt.pengu"
+        #line 1846 "src/psc/codegen/stmt.pengu"
         SemaType t = sema_type_table_at((&(c->program->types)), cur);
         (void)t;
-        #line 1838 "src/psc/codegen/stmt.pengu"
+        #line 1847 "src/psc/codegen/stmt.pengu"
         if ((t.kind == SemaTypeKind_TkRune) || (t.kind == SemaTypeKind_TkEcho)) {
-            #line 1839 "src/psc/codegen/stmt.pengu"
-            SemaNominalInfo info = (*( SemaNominalInfo*)pengu_list_at(&(c->program->types.nominal_infos), (int)((__extension__(({ int64_t _p_idx1816 = (int64_t)(t.a); pengu_assert_bounds(_p_idx1816, (int64_t)((c->program->types.nominal_infos).len), "src/psc/codegen/stmt.pengu:1839"); _p_idx1816; }))))));
+            #line 1848 "src/psc/codegen/stmt.pengu"
+            SemaNominalInfo info = (*( SemaNominalInfo*)pengu_list_at(&(c->program->types.nominal_infos), (int)((__extension__(({ int64_t _p_idx1816 = (int64_t)(t.a); pengu_assert_bounds(_p_idx1816, (int64_t)((c->program->types.nominal_infos).len), "src/psc/codegen/stmt.pengu:1848"); _p_idx1816; }))))));
             (void)info;
-            #line 1840 "src/psc/codegen/stmt.pengu"
+            #line 1849 "src/psc/codegen/stmt.pengu"
             return (((info.flags & sema_type_table_NIF_DROP)) != 0);
         }
-        #line 1841 "src/psc/codegen/stmt.pengu"
+        #line 1850 "src/psc/codegen/stmt.pengu"
         if ((t.kind == SemaTypeKind_TkAlias) || (t.kind == SemaTypeKind_TkSeal)) {
-            #line 1842 "src/psc/codegen/stmt.pengu"
+            #line 1851 "src/psc/codegen/stmt.pengu"
             cur = t.b;
         } else {
-            #line 1844 "src/psc/codegen/stmt.pengu"
+            #line 1853 "src/psc/codegen/stmt.pengu"
             return false;
         }
-        #line 1845 "src/psc/codegen/stmt.pengu"
+        #line 1854 "src/psc/codegen/stmt.pengu"
         guard = (guard + 1);
     }
-    #line 1846 "src/psc/codegen/stmt.pengu"
+    #line 1855 "src/psc/codegen/stmt.pengu"
     return false;
 }
 
-#line 1852 "src/psc/codegen/stmt.pengu"
+#line 1861 "src/psc/codegen/stmt.pengu"
 void psc_codegen_stmt_register_local(CgContext* c, int32_t nid, int32_t ty, int32_t cnode) {
     (void)c;
     (void)nid;
     (void)ty;
     (void)cnode;
-    #line 1853 "src/psc/codegen/stmt.pengu"
+    #line 1862 "src/psc/codegen/stmt.pengu"
     (void)(psc_codegen_context_add_local(c, nid, ty, cnode));
-    #line 1854 "src/psc/codegen/stmt.pengu"
+    #line 1863 "src/psc/codegen/stmt.pengu"
     if (psc_codegen_stmt_is_drop_type(c, ty)) {
-        #line 1855 "src/psc/codegen/stmt.pengu"
+        #line 1864 "src/psc/codegen/stmt.pengu"
         int32_t cid = psc_codegen_context_local_c_name(c, nid);
         (void)cid;
-        #line 1856 "src/psc/codegen/stmt.pengu"
+        #line 1865 "src/psc/codegen/stmt.pengu"
         if (cid >= 0) {
-            #line 1857 "src/psc/codegen/stmt.pengu"
+            #line 1866 "src/psc/codegen/stmt.pengu"
             (void)(psc_codegen_context_add_drop(c, cid, ty));
         }
     }
 }
 
-#line 1863 "src/psc/codegen/stmt.pengu"
+#line 1872 "src/psc/codegen/stmt.pengu"
 void psc_codegen_stmt_emit_local(CgContext* c, int32_t node, PsAst* ast) {
     (void)c;
     (void)node;
     (void)ast;
-    #line 1864 "src/psc/codegen/stmt.pengu"
-    SemaModule m = (*( SemaModule*)pengu_list_at(&(c->program->modules), (int)((__extension__(({ int64_t _p_idx1817 = (int64_t)(c->current_module); pengu_assert_bounds(_p_idx1817, (int64_t)((c->program->modules).len), "src/psc/codegen/stmt.pengu:1864"); _p_idx1817; }))))));
+    #line 1873 "src/psc/codegen/stmt.pengu"
+    SemaModule m = (*( SemaModule*)pengu_list_at(&(c->program->modules), (int)((__extension__(({ int64_t _p_idx1817 = (int64_t)(c->current_module); pengu_assert_bounds(_p_idx1817, (int64_t)((c->program->modules).len), "src/psc/codegen/stmt.pengu:1873"); _p_idx1817; }))))));
     (void)m;
-    #line 1865 "src/psc/codegen/stmt.pengu"
+    #line 1874 "src/psc/codegen/stmt.pengu"
     int32_t vlist = sema_ast_node_child(ast, node, 0);
     (void)vlist;
-    #line 1866 "src/psc/codegen/stmt.pengu"
+    #line 1875 "src/psc/codegen/stmt.pengu"
     if (((vlist >= 0) && ((sema_ast_kind_of(ast, vlist)) == NodeKind_NdVarNameList)) && ((sema_ast_child_count(ast, vlist)) > 1)) {
-        #line 1867 "src/psc/codegen/stmt.pengu"
+        #line 1876 "src/psc/codegen/stmt.pengu"
         (void)(psc_codegen_stmt_emit_destructure(c, node, ast, vlist));
-        #line 1868 "src/psc/codegen/stmt.pengu"
+        #line 1877 "src/psc/codegen/stmt.pengu"
         return;
     }
-    #line 1869 "src/psc/codegen/stmt.pengu"
+    #line 1878 "src/psc/codegen/stmt.pengu"
     int32_t name_tok = psc_codegen_stmt_decl_token(ast, node);
     (void)name_tok;
-    #line 1870 "src/psc/codegen/stmt.pengu"
+    #line 1879 "src/psc/codegen/stmt.pengu"
     if (name_tok < 0) {
-        #line 1871 "src/psc/codegen/stmt.pengu"
+        #line 1880 "src/psc/codegen/stmt.pengu"
         return;
     }
-    #line 1872 "src/psc/codegen/stmt.pengu"
+    #line 1881 "src/psc/codegen/stmt.pengu"
     PenguString txt = sema_ast_token_text((&(m.source)), (&(m.lex)), name_tok);
     (void)txt;
-    #line 1873 "src/psc/codegen/stmt.pengu"
-    #line 1874 "src/psc/codegen/stmt.pengu"
+    #line 1882 "src/psc/codegen/stmt.pengu"
+    #line 1883 "src/psc/codegen/stmt.pengu"
     int32_t nid = sema_names_intern((&(c->program->names)), txt);
     (void)nid;
-    #line 1875 "src/psc/codegen/stmt.pengu"
+    #line 1884 "src/psc/codegen/stmt.pengu"
     int32_t ty = (-1);
     (void)ty;
-    #line 1876 "src/psc/codegen/stmt.pengu"
+    #line 1885 "src/psc/codegen/stmt.pengu"
     int32_t vn = (-1);
     (void)vn;
-    #line 1877 "src/psc/codegen/stmt.pengu"
+    #line 1886 "src/psc/codegen/stmt.pengu"
     int32_t ci = 1;
     (void)ci;
-    #line 1878 "src/psc/codegen/stmt.pengu"
+    #line 1887 "src/psc/codegen/stmt.pengu"
     int32_t child_n = sema_ast_child_count(ast, node);
     (void)child_n;
-    #line 1879 "src/psc/codegen/stmt.pengu"
+    #line 1888 "src/psc/codegen/stmt.pengu"
     while ((ci < child_n)) {
-        #line 1880 "src/psc/codegen/stmt.pengu"
+        #line 1889 "src/psc/codegen/stmt.pengu"
         int32_t ch = sema_ast_node_child(ast, node, ci);
         (void)ch;
-        #line 1881 "src/psc/codegen/stmt.pengu"
+        #line 1890 "src/psc/codegen/stmt.pengu"
         if (ch >= 0) {
-            #line 1882 "src/psc/codegen/stmt.pengu"
+            #line 1891 "src/psc/codegen/stmt.pengu"
             if ((ty < 0) && (psc_codegen_stmt_is_type_node(ast, ch))) {
-                #line 1883 "src/psc/codegen/stmt.pengu"
+                #line 1892 "src/psc/codegen/stmt.pengu"
                 ty = psc_codegen_stmt_type_from_ast(c, m, ch);
             } else
             if ((vn < 0) && (!(psc_codegen_stmt_is_type_node(ast, ch)))) {
-                #line 1885 "src/psc/codegen/stmt.pengu"
+                #line 1894 "src/psc/codegen/stmt.pengu"
                 vn = ch;
             }
         }
-        #line 1886 "src/psc/codegen/stmt.pengu"
+        #line 1895 "src/psc/codegen/stmt.pengu"
         ci = (ci + 1);
     }
-    #line 1887 "src/psc/codegen/stmt.pengu"
+    #line 1896 "src/psc/codegen/stmt.pengu"
     if ((ty < 0) && (vn >= 0)) {
-        #line 1888 "src/psc/codegen/stmt.pengu"
+        #line 1897 "src/psc/codegen/stmt.pengu"
         ty = psc_codegen_expr_node_type(c, vn);
     }
-    #line 1889 "src/psc/codegen/stmt.pengu"
+    #line 1898 "src/psc/codegen/stmt.pengu"
     if (((ty < 0) && (vn >= 0)) && ((sema_ast_kind_of(ast, vn)) == NodeKind_NdAtExpr)) {
-        #line 1890 "src/psc/codegen/stmt.pengu"
+        #line 1899 "src/psc/codegen/stmt.pengu"
         ty = psc_codegen_expr_infer_at_type(c, vn, ast);
     }
-    #line 1891 "src/psc/codegen/stmt.pengu"
+    #line 1900 "src/psc/codegen/stmt.pengu"
     if (ty < 0) {
-        #line 1892 "src/psc/codegen/stmt.pengu"
+        #line 1901 "src/psc/codegen/stmt.pengu"
         ty = 1;
     }
-    #line 1895 "src/psc/codegen/stmt.pengu"
+    #line 1904 "src/psc/codegen/stmt.pengu"
     if ((ty > 0) && (c->names.subst.len > 0)) {
-        #line 1896 "src/psc/codegen/stmt.pengu"
+        #line 1905 "src/psc/codegen/stmt.pengu"
         ty = psc_codegen_generics_subst_codegen(c, ty);
     }
-    #line 1897 "src/psc/codegen/stmt.pengu"
+    #line 1906 "src/psc/codegen/stmt.pengu"
     PenguString ct = psc_codegen_ctype_c_type((&(c->names)), ty);
     (void)ct;
-    #line 1898 "src/psc/codegen/stmt.pengu"
-    #line 1899 "src/psc/codegen/stmt.pengu"
+    #line 1907 "src/psc/codegen/stmt.pengu"
+    #line 1908 "src/psc/codegen/stmt.pengu"
     PenguString cn = psc_codegen_context_safe_ident(c, txt);
     (void)cn;
-    #line 1900 "src/psc/codegen/stmt.pengu"
-    #line 1901 "src/psc/codegen/stmt.pengu"
+    #line 1909 "src/psc/codegen/stmt.pengu"
+    #line 1910 "src/psc/codegen/stmt.pengu"
     PenguString cdecl = psc_codegen_ctype_declare(ct, cn);
     (void)cdecl;
-    #line 1902 "src/psc/codegen/stmt.pengu"
-    #line 1903 "src/psc/codegen/stmt.pengu"
+    #line 1911 "src/psc/codegen/stmt.pengu"
+    #line 1912 "src/psc/codegen/stmt.pengu"
     int32_t jvn = vn;
     (void)jvn;
-    #line 1904 "src/psc/codegen/stmt.pengu"
+    #line 1913 "src/psc/codegen/stmt.pengu"
     while (((jvn >= 0) && ((sema_ast_kind_of(ast, jvn)) == NodeKind_NdParenExpr))) {
-        #line 1905 "src/psc/codegen/stmt.pengu"
+        #line 1914 "src/psc/codegen/stmt.pengu"
         jvn = sema_ast_node_child(ast, jvn, 0);
     }
-    #line 1907 "src/psc/codegen/stmt.pengu"
+    #line 1916 "src/psc/codegen/stmt.pengu"
     if ((jvn >= 0) && ((((sema_ast_kind_of(ast, jvn)) == NodeKind_NdOrReturn) || ((sema_ast_kind_of(ast, jvn)) == NodeKind_NdTryExpr)))) {
-        #line 1908 "src/psc/codegen/stmt.pengu"
+        #line 1917 "src/psc/codegen/stmt.pengu"
         int32_t ur_op = sema_ast_node_child(ast, jvn, 0);
         (void)ur_op;
-        #line 1909 "src/psc/codegen/stmt.pengu"
+        #line 1918 "src/psc/codegen/stmt.pengu"
         if (ur_op < 0) {
-            #line 1910 "src/psc/codegen/stmt.pengu"
+            #line 1919 "src/psc/codegen/stmt.pengu"
             (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s;", (int)cdecl.len, cdecl.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
-            #line 1911 "src/psc/codegen/stmt.pengu"
+            #line 1920 "src/psc/codegen/stmt.pengu"
             (void)(psc_codegen_stmt_register_local(c, nid, ty, nid));
-            #line 1912 "src/psc/codegen/stmt.pengu"
+            #line 1921 "src/psc/codegen/stmt.pengu"
             pengu_banish_string(&(cdecl));
             pengu_banish_string(&(cn));
             pengu_banish_string(&(ct));
             pengu_banish_string(&(txt));
             return;
         }
-        #line 1913 "src/psc/codegen/stmt.pengu"
+        #line 1922 "src/psc/codegen/stmt.pengu"
         int32_t ur_op2 = ur_op;
         (void)ur_op2;
-        #line 1914 "src/psc/codegen/stmt.pengu"
+        #line 1923 "src/psc/codegen/stmt.pengu"
         while (((ur_op2 >= 0) && ((sema_ast_kind_of(ast, ur_op2)) == NodeKind_NdParenExpr))) {
-            #line 1915 "src/psc/codegen/stmt.pengu"
+            #line 1924 "src/psc/codegen/stmt.pengu"
             ur_op2 = sema_ast_node_child(ast, ur_op2, 0);
         }
-        #line 1916 "src/psc/codegen/stmt.pengu"
+        #line 1925 "src/psc/codegen/stmt.pengu"
         int32_t ur_ot = psc_codegen_expr_node_type(c, ur_op2);
         (void)ur_ot;
-        #line 1917 "src/psc/codegen/stmt.pengu"
+        #line 1926 "src/psc/codegen/stmt.pengu"
         SemaType ur_ott = sema_type_table_at((&(c->program->types)), ur_ot);
         (void)ur_ott;
-        #line 1918 "src/psc/codegen/stmt.pengu"
+        #line 1927 "src/psc/codegen/stmt.pengu"
         int32_t ur_pay = ur_ot;
         (void)ur_pay;
-        #line 1919 "src/psc/codegen/stmt.pengu"
+        #line 1928 "src/psc/codegen/stmt.pengu"
         if ((ur_ott.kind == SemaTypeKind_TkMaybe) || (ur_ott.kind == SemaTypeKind_TkResult)) {
-            #line 1920 "src/psc/codegen/stmt.pengu"
+            #line 1929 "src/psc/codegen/stmt.pengu"
             ur_pay = ur_ott.a;
         }
-        #line 1921 "src/psc/codegen/stmt.pengu"
+        #line 1930 "src/psc/codegen/stmt.pengu"
         PenguString ur_pt = psc_codegen_ctype_c_type((&(c->names)), ur_pay);
         (void)ur_pt;
-        #line 1922 "src/psc/codegen/stmt.pengu"
-        #line 1923 "src/psc/codegen/stmt.pengu"
+        #line 1931 "src/psc/codegen/stmt.pengu"
+        #line 1932 "src/psc/codegen/stmt.pengu"
         PenguString ur_zero = psc_codegen_expr_zero_value_expr(c, ty);
         (void)ur_zero;
-        #line 1924 "src/psc/codegen/stmt.pengu"
-        #line 1925 "src/psc/codegen/stmt.pengu"
+        #line 1933 "src/psc/codegen/stmt.pengu"
+        #line 1934 "src/psc/codegen/stmt.pengu"
         (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s = %.*s;", (int)cdecl.len, cdecl.data, (int)ur_zero.len, ur_zero.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
-        #line 1926 "src/psc/codegen/stmt.pengu"
+        #line 1935 "src/psc/codegen/stmt.pengu"
         PenguString ur_ov = psc_codegen_expr_emit_expr(c, ur_op);
         (void)ur_ov;
-        #line 1927 "src/psc/codegen/stmt.pengu"
-        #line 1928 "src/psc/codegen/stmt.pengu"
+        #line 1936 "src/psc/codegen/stmt.pengu"
+        #line 1937 "src/psc/codegen/stmt.pengu"
         PenguString ur_tmp = psc_codegen_emit_temp((&(c->emitter)), pengu_string_from_cstr_len("_u", 2));
         (void)ur_tmp;
-        #line 1929 "src/psc/codegen/stmt.pengu"
-        #line 1930 "src/psc/codegen/stmt.pengu"
+        #line 1938 "src/psc/codegen/stmt.pengu"
+        #line 1939 "src/psc/codegen/stmt.pengu"
         if (ur_ott.kind == SemaTypeKind_TkMaybe) {
-            #line 1931 "src/psc/codegen/stmt.pengu"
+            #line 1940 "src/psc/codegen/stmt.pengu"
             (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("PenguMaybe %.*s = %.*s;", (int)ur_tmp.len, ur_tmp.data, (int)ur_ov.len, ur_ov.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
-            #line 1932 "src/psc/codegen/stmt.pengu"
+            #line 1941 "src/psc/codegen/stmt.pengu"
             (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("if (%.*s.is_present) {", (int)ur_tmp.len, ur_tmp.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
         } else
         if (ur_ott.kind == SemaTypeKind_TkResult) {
-            #line 1934 "src/psc/codegen/stmt.pengu"
+            #line 1943 "src/psc/codegen/stmt.pengu"
             (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("PenguResult %.*s = %.*s;", (int)ur_tmp.len, ur_tmp.data, (int)ur_ov.len, ur_ov.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
-            #line 1935 "src/psc/codegen/stmt.pengu"
+            #line 1944 "src/psc/codegen/stmt.pengu"
             (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("if (%.*s.is_ok) {", (int)ur_tmp.len, ur_tmp.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
         } else {
-            #line 1937 "src/psc/codegen/stmt.pengu"
+            #line 1946 "src/psc/codegen/stmt.pengu"
             (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s = %.*s;", (int)cn.len, cn.data, (int)ur_ov.len, ur_ov.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
         }
-        #line 1938 "src/psc/codegen/stmt.pengu"
+        #line 1947 "src/psc/codegen/stmt.pengu"
         if (ur_ott.kind == SemaTypeKind_TkMaybe) {
-            #line 1939 "src/psc/codegen/stmt.pengu"
+            #line 1948 "src/psc/codegen/stmt.pengu"
             (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s = (*( %.*s*)%.*s.value);", (int)cn.len, cn.data, (int)ur_pt.len, ur_pt.data, (int)ur_tmp.len, ur_tmp.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
         } else
         if (ur_ott.kind == SemaTypeKind_TkResult) {
-            #line 1941 "src/psc/codegen/stmt.pengu"
+            #line 1950 "src/psc/codegen/stmt.pengu"
             (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s = (*( %.*s*)%.*s.ok_val);", (int)cn.len, cn.data, (int)ur_pt.len, ur_pt.data, (int)ur_tmp.len, ur_tmp.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
         }
-        #line 1942 "src/psc/codegen/stmt.pengu"
+        #line 1951 "src/psc/codegen/stmt.pengu"
         if ((ur_ott.kind == SemaTypeKind_TkMaybe) || (ur_ott.kind == SemaTypeKind_TkResult)) {
-            #line 1943 "src/psc/codegen/stmt.pengu"
+            #line 1952 "src/psc/codegen/stmt.pengu"
             (void)(psc_codegen_emit_line((&(c->emitter)), pengu_string_from_cstr("} else {")));
-            #line 1944 "src/psc/codegen/stmt.pengu"
+            #line 1953 "src/psc/codegen/stmt.pengu"
             (void)(psc_codegen_emit_indent_more((&(c->emitter))));
-            #line 1945 "src/psc/codegen/stmt.pengu"
+            #line 1954 "src/psc/codegen/stmt.pengu"
             (void)(psc_codegen_stmt_emit_errdefers(c));
-            #line 1948 "src/psc/codegen/stmt.pengu"
+            #line 1957 "src/psc/codegen/stmt.pengu"
             (void)(psc_codegen_stmt_emit_all_drops(c));
-            #line 1949 "src/psc/codegen/stmt.pengu"
+            #line 1958 "src/psc/codegen/stmt.pengu"
             if ((sema_ast_kind_of(ast, jvn)) == NodeKind_NdOrReturn) {
-                #line 1950 "src/psc/codegen/stmt.pengu"
+                #line 1959 "src/psc/codegen/stmt.pengu"
                 int32_t ur_fb = sema_ast_node_child(ast, jvn, 1);
                 (void)ur_fb;
-                #line 1951 "src/psc/codegen/stmt.pengu"
+                #line 1960 "src/psc/codegen/stmt.pengu"
                 if (ur_fb >= 0) {
-                    #line 1952 "src/psc/codegen/stmt.pengu"
+                    #line 1961 "src/psc/codegen/stmt.pengu"
                     PenguString ur_fbv = psc_codegen_expr_emit_expr(c, ur_fb);
                     (void)ur_fbv;
-                    #line 1953 "src/psc/codegen/stmt.pengu"
-                    #line 1954 "src/psc/codegen/stmt.pengu"
+                    #line 1962 "src/psc/codegen/stmt.pengu"
+                    #line 1963 "src/psc/codegen/stmt.pengu"
                     (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("return %.*s;", (int)ur_fbv.len, ur_fbv.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
                     pengu_banish_string(&(ur_fbv));
                 } else {
-                    #line 1956 "src/psc/codegen/stmt.pengu"
+                    #line 1965 "src/psc/codegen/stmt.pengu"
                     (void)(psc_codegen_emit_line((&(c->emitter)), pengu_string_from_cstr_len("return 0;", 9)));
                 }
             } else {
-                #line 1958 "src/psc/codegen/stmt.pengu"
+                #line 1967 "src/psc/codegen/stmt.pengu"
                 if (ur_ott.kind == SemaTypeKind_TkMaybe) {
-                    #line 1959 "src/psc/codegen/stmt.pengu"
+                    #line 1968 "src/psc/codegen/stmt.pengu"
                     (void)(psc_codegen_emit_line((&(c->emitter)), pengu_string_from_cstr_len("return pengu_maybe_none();", 26)));
                 } else {
-                    #line 1961 "src/psc/codegen/stmt.pengu"
+                    #line 1970 "src/psc/codegen/stmt.pengu"
                     (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("return %.*s;", (int)ur_tmp.len, ur_tmp.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
                 }
             }
-            #line 1962 "src/psc/codegen/stmt.pengu"
+            #line 1971 "src/psc/codegen/stmt.pengu"
             (void)(psc_codegen_emit_indent_less((&(c->emitter))));
-            #line 1963 "src/psc/codegen/stmt.pengu"
+            #line 1972 "src/psc/codegen/stmt.pengu"
             (void)(psc_codegen_emit_line((&(c->emitter)), pengu_string_from_cstr_len("}", 1)));
         }
-        #line 1964 "src/psc/codegen/stmt.pengu"
+        #line 1973 "src/psc/codegen/stmt.pengu"
         (void)(psc_codegen_stmt_register_local(c, nid, ty, nid));
-        #line 1965 "src/psc/codegen/stmt.pengu"
+        #line 1974 "src/psc/codegen/stmt.pengu"
         pengu_banish_string(&(ur_tmp));
         pengu_banish_string(&(ur_ov));
         pengu_banish_string(&(ur_zero));
@@ -96601,153 +96613,153 @@ void psc_codegen_stmt_emit_local(CgContext* c, int32_t node, PsAst* ast) {
         pengu_banish_string(&(ur_zero));
         pengu_banish_string(&(ur_pt));
     }
-    #line 1966 "src/psc/codegen/stmt.pengu"
+    #line 1975 "src/psc/codegen/stmt.pengu"
     if ((jvn >= 0) && ((sema_ast_kind_of(ast, jvn)) == NodeKind_NdOrBlock)) {
-        #line 1967 "src/psc/codegen/stmt.pengu"
+        #line 1976 "src/psc/codegen/stmt.pengu"
         int32_t ob_op = sema_ast_node_child(ast, jvn, 0);
         (void)ob_op;
-        #line 1968 "src/psc/codegen/stmt.pengu"
+        #line 1977 "src/psc/codegen/stmt.pengu"
         if (ob_op < 0) {
-            #line 1969 "src/psc/codegen/stmt.pengu"
+            #line 1978 "src/psc/codegen/stmt.pengu"
             (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s;", (int)cdecl.len, cdecl.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
-            #line 1970 "src/psc/codegen/stmt.pengu"
+            #line 1979 "src/psc/codegen/stmt.pengu"
             (void)(psc_codegen_stmt_register_local(c, nid, ty, nid));
-            #line 1971 "src/psc/codegen/stmt.pengu"
+            #line 1980 "src/psc/codegen/stmt.pengu"
             pengu_banish_string(&(cdecl));
             pengu_banish_string(&(cn));
             pengu_banish_string(&(ct));
             pengu_banish_string(&(txt));
             return;
         }
-        #line 1972 "src/psc/codegen/stmt.pengu"
+        #line 1981 "src/psc/codegen/stmt.pengu"
         int32_t ob_op2 = ob_op;
         (void)ob_op2;
-        #line 1973 "src/psc/codegen/stmt.pengu"
+        #line 1982 "src/psc/codegen/stmt.pengu"
         while (((ob_op2 >= 0) && ((sema_ast_kind_of(ast, ob_op2)) == NodeKind_NdParenExpr))) {
-            #line 1974 "src/psc/codegen/stmt.pengu"
+            #line 1983 "src/psc/codegen/stmt.pengu"
             ob_op2 = sema_ast_node_child(ast, ob_op2, 0);
         }
-        #line 1975 "src/psc/codegen/stmt.pengu"
+        #line 1984 "src/psc/codegen/stmt.pengu"
         int32_t ob_ot = psc_codegen_expr_node_type(c, ob_op2);
         (void)ob_ot;
-        #line 1977 "src/psc/codegen/stmt.pengu"
+        #line 1986 "src/psc/codegen/stmt.pengu"
         SemaType ob_ott = sema_type_table_at((&(c->program->types)), ob_ot);
         (void)ob_ott;
-        #line 1978 "src/psc/codegen/stmt.pengu"
+        #line 1987 "src/psc/codegen/stmt.pengu"
         int32_t ob_pay = ob_ot;
         (void)ob_pay;
-        #line 1979 "src/psc/codegen/stmt.pengu"
+        #line 1988 "src/psc/codegen/stmt.pengu"
         if ((ob_ott.kind == SemaTypeKind_TkMaybe) || (ob_ott.kind == SemaTypeKind_TkResult)) {
-            #line 1980 "src/psc/codegen/stmt.pengu"
+            #line 1989 "src/psc/codegen/stmt.pengu"
             ob_pay = ob_ott.a;
         }
-        #line 1981 "src/psc/codegen/stmt.pengu"
+        #line 1990 "src/psc/codegen/stmt.pengu"
         PenguString ob_pt = psc_codegen_ctype_c_type((&(c->names)), ob_pay);
         (void)ob_pt;
-        #line 1982 "src/psc/codegen/stmt.pengu"
-        #line 1983 "src/psc/codegen/stmt.pengu"
+        #line 1991 "src/psc/codegen/stmt.pengu"
+        #line 1992 "src/psc/codegen/stmt.pengu"
         PenguString ob_zero = psc_codegen_expr_zero_value_expr(c, ty);
         (void)ob_zero;
-        #line 1984 "src/psc/codegen/stmt.pengu"
-        #line 1985 "src/psc/codegen/stmt.pengu"
+        #line 1993 "src/psc/codegen/stmt.pengu"
+        #line 1994 "src/psc/codegen/stmt.pengu"
         (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s = %.*s;", (int)cdecl.len, cdecl.data, (int)ob_zero.len, ob_zero.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
-        #line 1986 "src/psc/codegen/stmt.pengu"
+        #line 1995 "src/psc/codegen/stmt.pengu"
         PenguString ob_ov = psc_codegen_expr_emit_expr(c, ob_op);
         (void)ob_ov;
-        #line 1987 "src/psc/codegen/stmt.pengu"
-        #line 1988 "src/psc/codegen/stmt.pengu"
+        #line 1996 "src/psc/codegen/stmt.pengu"
+        #line 1997 "src/psc/codegen/stmt.pengu"
         PenguString ob_tmp = psc_codegen_emit_temp((&(c->emitter)), pengu_string_from_cstr_len("_or", 3));
         (void)ob_tmp;
-        #line 1989 "src/psc/codegen/stmt.pengu"
-        #line 1990 "src/psc/codegen/stmt.pengu"
+        #line 1998 "src/psc/codegen/stmt.pengu"
+        #line 1999 "src/psc/codegen/stmt.pengu"
         if (ob_ott.kind == SemaTypeKind_TkMaybe) {
-            #line 1991 "src/psc/codegen/stmt.pengu"
+            #line 2000 "src/psc/codegen/stmt.pengu"
             (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("PenguMaybe %.*s = %.*s;", (int)ob_tmp.len, ob_tmp.data, (int)ob_ov.len, ob_ov.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
-            #line 1992 "src/psc/codegen/stmt.pengu"
+            #line 2001 "src/psc/codegen/stmt.pengu"
             (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("if (%.*s.is_present) {", (int)ob_tmp.len, ob_tmp.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
         } else
         if (ob_ott.kind == SemaTypeKind_TkResult) {
-            #line 1994 "src/psc/codegen/stmt.pengu"
+            #line 2003 "src/psc/codegen/stmt.pengu"
             (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("PenguResult %.*s = %.*s;", (int)ob_tmp.len, ob_tmp.data, (int)ob_ov.len, ob_ov.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
-            #line 1995 "src/psc/codegen/stmt.pengu"
+            #line 2004 "src/psc/codegen/stmt.pengu"
             (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("if (%.*s.is_ok) {", (int)ob_tmp.len, ob_tmp.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
         } else {
-            #line 1997 "src/psc/codegen/stmt.pengu"
+            #line 2006 "src/psc/codegen/stmt.pengu"
             (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s = %.*s;", (int)cn.len, cn.data, (int)ob_ov.len, ob_ov.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
         }
-        #line 1998 "src/psc/codegen/stmt.pengu"
+        #line 2007 "src/psc/codegen/stmt.pengu"
         if (ob_ott.kind == SemaTypeKind_TkMaybe) {
-            #line 1999 "src/psc/codegen/stmt.pengu"
+            #line 2008 "src/psc/codegen/stmt.pengu"
             (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s = (*( %.*s*)%.*s.value);", (int)cn.len, cn.data, (int)ob_pt.len, ob_pt.data, (int)ob_tmp.len, ob_tmp.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
         } else
         if (ob_ott.kind == SemaTypeKind_TkResult) {
-            #line 2001 "src/psc/codegen/stmt.pengu"
+            #line 2010 "src/psc/codegen/stmt.pengu"
             (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s = (*( %.*s*)%.*s.ok_val);", (int)cn.len, cn.data, (int)ob_pt.len, ob_pt.data, (int)ob_tmp.len, ob_tmp.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
         }
-        #line 2002 "src/psc/codegen/stmt.pengu"
+        #line 2011 "src/psc/codegen/stmt.pengu"
         if ((ob_ott.kind == SemaTypeKind_TkMaybe) || (ob_ott.kind == SemaTypeKind_TkResult)) {
-            #line 2003 "src/psc/codegen/stmt.pengu"
+            #line 2012 "src/psc/codegen/stmt.pengu"
             (void)(psc_codegen_emit_line((&(c->emitter)), pengu_string_from_cstr("} else {")));
-            #line 2004 "src/psc/codegen/stmt.pengu"
+            #line 2013 "src/psc/codegen/stmt.pengu"
             (void)(psc_codegen_emit_indent_more((&(c->emitter))));
-            #line 2007 "src/psc/codegen/stmt.pengu"
+            #line 2016 "src/psc/codegen/stmt.pengu"
             bool ob_is_res = (ob_ott.kind == SemaTypeKind_TkResult);
             (void)ob_is_res;
-            #line 2008 "src/psc/codegen/stmt.pengu"
+            #line 2017 "src/psc/codegen/stmt.pengu"
             int32_t ob_err_id = 0;
             (void)ob_err_id;
-            #line 2009 "src/psc/codegen/stmt.pengu"
+            #line 2018 "src/psc/codegen/stmt.pengu"
             if (ob_is_res && (ob_ott.b > 0)) {
-                #line 2010 "src/psc/codegen/stmt.pengu"
+                #line 2019 "src/psc/codegen/stmt.pengu"
                 ob_err_id = ob_ott.b;
             }
-            #line 2011 "src/psc/codegen/stmt.pengu"
+            #line 2020 "src/psc/codegen/stmt.pengu"
             if (ob_err_id <= 0) {
-                #line 2012 "src/psc/codegen/stmt.pengu"
+                #line 2021 "src/psc/codegen/stmt.pengu"
                 ob_err_id = sema_type_table_base((&(c->program->types)), pengu_string_from_cstr_len("string", 6));
             }
-            #line 2013 "src/psc/codegen/stmt.pengu"
+            #line 2022 "src/psc/codegen/stmt.pengu"
             PenguString ob_err_t = psc_codegen_ctype_c_type((&(c->names)), ob_err_id);
             (void)ob_err_t;
-            #line 2014 "src/psc/codegen/stmt.pengu"
-            #line 2015 "src/psc/codegen/stmt.pengu"
+            #line 2023 "src/psc/codegen/stmt.pengu"
+            #line 2024 "src/psc/codegen/stmt.pengu"
             if (ob_is_res) {
-                #line 2016 "src/psc/codegen/stmt.pengu"
+                #line 2025 "src/psc/codegen/stmt.pengu"
                 (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s error = (*( %.*s*)%.*s.err_val);", (int)ob_err_t.len, ob_err_t.data, (int)ob_err_t.len, ob_err_t.data, (int)ob_tmp.len, ob_tmp.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
             } else {
-                #line 2018 "src/psc/codegen/stmt.pengu"
+                #line 2027 "src/psc/codegen/stmt.pengu"
                 (void)(psc_codegen_emit_line((&(c->emitter)), pengu_string_from_cstr_len("PenguString error = pengu_string_from_cstr(\"maybe is absent\");", 62)));
             }
-            #line 2019 "src/psc/codegen/stmt.pengu"
+            #line 2028 "src/psc/codegen/stmt.pengu"
             (void)(psc_codegen_emit_line((&(c->emitter)), pengu_string_from_cstr_len("(void)error;", 12)));
-            #line 2020 "src/psc/codegen/stmt.pengu"
+            #line 2029 "src/psc/codegen/stmt.pengu"
             int32_t ob_n = sema_ast_child_count(ast, jvn);
             (void)ob_n;
-            #line 2021 "src/psc/codegen/stmt.pengu"
+            #line 2030 "src/psc/codegen/stmt.pengu"
             int32_t ob_i = 1;
             (void)ob_i;
-            #line 2022 "src/psc/codegen/stmt.pengu"
+            #line 2031 "src/psc/codegen/stmt.pengu"
             while ((ob_i < ob_n)) {
-                #line 2023 "src/psc/codegen/stmt.pengu"
+                #line 2032 "src/psc/codegen/stmt.pengu"
                 int32_t ob_c = sema_ast_node_child(ast, jvn, ob_i);
                 (void)ob_c;
-                #line 2024 "src/psc/codegen/stmt.pengu"
+                #line 2033 "src/psc/codegen/stmt.pengu"
                 if (ob_c >= 0) {
-                    #line 2025 "src/psc/codegen/stmt.pengu"
+                    #line 2034 "src/psc/codegen/stmt.pengu"
                     (void)(psc_codegen_stmt_emit_stmt(c, ob_c));
                 }
-                #line 2026 "src/psc/codegen/stmt.pengu"
+                #line 2035 "src/psc/codegen/stmt.pengu"
                 ob_i = (ob_i + 1);
             }
-            #line 2027 "src/psc/codegen/stmt.pengu"
+            #line 2036 "src/psc/codegen/stmt.pengu"
             (void)(psc_codegen_emit_indent_less((&(c->emitter))));
-            #line 2028 "src/psc/codegen/stmt.pengu"
+            #line 2037 "src/psc/codegen/stmt.pengu"
             (void)(psc_codegen_emit_line((&(c->emitter)), pengu_string_from_cstr_len("}", 1)));
             pengu_banish_string(&(ob_err_t));
         }
-        #line 2029 "src/psc/codegen/stmt.pengu"
+        #line 2038 "src/psc/codegen/stmt.pengu"
         (void)(psc_codegen_stmt_register_local(c, nid, ty, nid));
-        #line 2030 "src/psc/codegen/stmt.pengu"
+        #line 2039 "src/psc/codegen/stmt.pengu"
         pengu_banish_string(&(ob_tmp));
         pengu_banish_string(&(ob_ov));
         pengu_banish_string(&(ob_zero));
@@ -96762,106 +96774,106 @@ void psc_codegen_stmt_emit_local(CgContext* c, int32_t node, PsAst* ast) {
         pengu_banish_string(&(ob_zero));
         pengu_banish_string(&(ob_pt));
     }
-    #line 2031 "src/psc/codegen/stmt.pengu"
+    #line 2040 "src/psc/codegen/stmt.pengu"
     if ((jvn >= 0) && ((sema_ast_kind_of(ast, jvn)) == NodeKind_NdJudgeExpr)) {
-        #line 2032 "src/psc/codegen/stmt.pengu"
+        #line 2041 "src/psc/codegen/stmt.pengu"
         (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s;", (int)cdecl.len, cdecl.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
-        #line 2033 "src/psc/codegen/stmt.pengu"
+        #line 2042 "src/psc/codegen/stmt.pengu"
         (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("(void)%.*s;", (int)cn.len, cn.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
-        #line 2034 "src/psc/codegen/stmt.pengu"
+        #line 2043 "src/psc/codegen/stmt.pengu"
         PenguString jtmp = psc_codegen_stmt_emit_judge_block_value(c, jvn, ast, ty);
         (void)jtmp;
-        #line 2035 "src/psc/codegen/stmt.pengu"
+        #line 2044 "src/psc/codegen/stmt.pengu"
         (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s = %.*s;", (int)cn.len, cn.data, (int)jtmp.len, jtmp.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
-        #line 2036 "src/psc/codegen/stmt.pengu"
+        #line 2045 "src/psc/codegen/stmt.pengu"
         pengu_banish_string(&(jtmp));
-        #line 2037 "src/psc/codegen/stmt.pengu"
+        #line 2046 "src/psc/codegen/stmt.pengu"
         (void)(psc_codegen_stmt_register_local(c, nid, ty, nid));
-        #line 2038 "src/psc/codegen/stmt.pengu"
+        #line 2047 "src/psc/codegen/stmt.pengu"
         pengu_banish_string(&(cdecl));
         pengu_banish_string(&(cn));
         pengu_banish_string(&(ct));
         pengu_banish_string(&(txt));
         return;
     }
-    #line 2039 "src/psc/codegen/stmt.pengu"
+    #line 2048 "src/psc/codegen/stmt.pengu"
     bool is_static = ((sema_ast_kind_of(ast, node)) == NodeKind_NdStaticVarDecl);
     (void)is_static;
-    #line 2044 "src/psc/codegen/stmt.pengu"
+    #line 2053 "src/psc/codegen/stmt.pengu"
     if (pengu_string_equal(c->options.family, pengu_string_from_cstr_len("cpp", 3))) {
-        #line 2045 "src/psc/codegen/stmt.pengu"
+        #line 2054 "src/psc/codegen/stmt.pengu"
         SemaType aty = sema_type_table_at((&(c->program->types)), ty);
         (void)aty;
-        #line 2046 "src/psc/codegen/stmt.pengu"
+        #line 2055 "src/psc/codegen/stmt.pengu"
         if (((aty.kind == SemaTypeKind_TkArray) && (aty.a > 0)) && (aty.b > 0)) {
-            #line 2047 "src/psc/codegen/stmt.pengu"
+            #line 2056 "src/psc/codegen/stmt.pengu"
             PenguString ect = psc_codegen_ctype_c_type((&(c->names)), aty.a);
             (void)ect;
-            #line 2048 "src/psc/codegen/stmt.pengu"
-            #line 2049 "src/psc/codegen/stmt.pengu"
+            #line 2057 "src/psc/codegen/stmt.pengu"
+            #line 2058 "src/psc/codegen/stmt.pengu"
             PenguString inits = pengu_string_from_cstr("{}");
             (void)inits;
-            #line 2050 "src/psc/codegen/stmt.pengu"
-            #line 2051 "src/psc/codegen/stmt.pengu"
+            #line 2059 "src/psc/codegen/stmt.pengu"
+            #line 2060 "src/psc/codegen/stmt.pengu"
             if ((vn >= 0) && ((sema_ast_kind_of(ast, vn)) == NodeKind_NdArrayLit)) {
-                #line 2052 "src/psc/codegen/stmt.pengu"
+                #line 2061 "src/psc/codegen/stmt.pengu"
                 StringBuilder isb = StringBuilder_new();
                 (void)isb;
-                #line 2053 "src/psc/codegen/stmt.pengu"
-                #line 2054 "src/psc/codegen/stmt.pengu"
+                #line 2062 "src/psc/codegen/stmt.pengu"
+                #line 2063 "src/psc/codegen/stmt.pengu"
                 (void)(StringBuilder_append(&(isb), pengu_string_from_cstr("{")));
-                #line 2055 "src/psc/codegen/stmt.pengu"
+                #line 2064 "src/psc/codegen/stmt.pengu"
                 int32_t ec = sema_ast_child_count(ast, vn);
                 (void)ec;
-                #line 2056 "src/psc/codegen/stmt.pengu"
+                #line 2065 "src/psc/codegen/stmt.pengu"
                 int32_t ei = 0;
                 (void)ei;
-                #line 2057 "src/psc/codegen/stmt.pengu"
+                #line 2066 "src/psc/codegen/stmt.pengu"
                 while ((ei < ec)) {
-                    #line 2058 "src/psc/codegen/stmt.pengu"
+                    #line 2067 "src/psc/codegen/stmt.pengu"
                     int32_t en = sema_ast_node_child(ast, vn, ei);
                     (void)en;
-                    #line 2059 "src/psc/codegen/stmt.pengu"
+                    #line 2068 "src/psc/codegen/stmt.pengu"
                     if (en >= 0) {
-                        #line 2060 "src/psc/codegen/stmt.pengu"
+                        #line 2069 "src/psc/codegen/stmt.pengu"
                         if (ei > 0) {
-                            #line 2061 "src/psc/codegen/stmt.pengu"
+                            #line 2070 "src/psc/codegen/stmt.pengu"
                             (void)(StringBuilder_append(&(isb), pengu_string_from_cstr_len(", ", 2)));
                         }
-                        #line 2062 "src/psc/codegen/stmt.pengu"
+                        #line 2071 "src/psc/codegen/stmt.pengu"
                         PenguString et = psc_codegen_expr_emit_expr_as(c, en, aty.a);
                         (void)et;
-                        #line 2063 "src/psc/codegen/stmt.pengu"
-                        #line 2064 "src/psc/codegen/stmt.pengu"
+                        #line 2072 "src/psc/codegen/stmt.pengu"
+                        #line 2073 "src/psc/codegen/stmt.pengu"
                         (void)(StringBuilder_append(&(isb), et));
                         pengu_banish_string(&(et));
                     }
-                    #line 2065 "src/psc/codegen/stmt.pengu"
+                    #line 2074 "src/psc/codegen/stmt.pengu"
                     ei = (ei + 1);
                 }
-                #line 2066 "src/psc/codegen/stmt.pengu"
+                #line 2075 "src/psc/codegen/stmt.pengu"
                 (void)(StringBuilder_append(&(isb), pengu_string_from_cstr("}")));
-                #line 2067 "src/psc/codegen/stmt.pengu"
+                #line 2076 "src/psc/codegen/stmt.pengu"
                 pengu_banish_string(&(inits));
-                #line 2068 "src/psc/codegen/stmt.pengu"
+                #line 2077 "src/psc/codegen/stmt.pengu"
                 inits = StringBuilder_finish(&(isb));
                 _pengu_cleanup_StringBuilder(&(isb));
             }
-            #line 2069 "src/psc/codegen/stmt.pengu"
+            #line 2078 "src/psc/codegen/stmt.pengu"
             PenguString spfx = pengu_string_from_cstr_len("", 0);
             (void)spfx;
-            #line 2070 "src/psc/codegen/stmt.pengu"
+            #line 2079 "src/psc/codegen/stmt.pengu"
             if (is_static) {
-                #line 2071 "src/psc/codegen/stmt.pengu"
+                #line 2080 "src/psc/codegen/stmt.pengu"
                 spfx = pengu_string_from_cstr_len("static ", 7);
             }
-            #line 2072 "src/psc/codegen/stmt.pengu"
+            #line 2081 "src/psc/codegen/stmt.pengu"
             (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s%.*s %.*s[%d] = %.*s;", (int)spfx.len, spfx.data, (int)ect.len, ect.data, (int)cn.len, cn.data, ((int32_t)(aty.b)), (int)inits.len, inits.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
-            #line 2073 "src/psc/codegen/stmt.pengu"
+            #line 2082 "src/psc/codegen/stmt.pengu"
             (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("(void)%.*s;", (int)cn.len, cn.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
-            #line 2074 "src/psc/codegen/stmt.pengu"
+            #line 2083 "src/psc/codegen/stmt.pengu"
             (void)(psc_codegen_stmt_register_local(c, nid, ty, nid));
-            #line 2075 "src/psc/codegen/stmt.pengu"
+            #line 2084 "src/psc/codegen/stmt.pengu"
             pengu_banish_string(&(inits));
             pengu_banish_string(&(ect));
             pengu_banish_string(&(cdecl));
@@ -96873,71 +96885,71 @@ void psc_codegen_stmt_emit_local(CgContext* c, int32_t node, PsAst* ast) {
             pengu_banish_string(&(ect));
         }
     }
-    #line 2076 "src/psc/codegen/stmt.pengu"
+    #line 2085 "src/psc/codegen/stmt.pengu"
     if (is_static) {
-        #line 2077 "src/psc/codegen/stmt.pengu"
+        #line 2086 "src/psc/codegen/stmt.pengu"
         (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("static %.*s;", (int)cdecl.len, cdecl.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
-        #line 2078 "src/psc/codegen/stmt.pengu"
+        #line 2087 "src/psc/codegen/stmt.pengu"
         if (vn >= 0) {
-            #line 2079 "src/psc/codegen/stmt.pengu"
+            #line 2088 "src/psc/codegen/stmt.pengu"
             PenguString val = psc_codegen_expr_emit_expr_as(c, vn, ty);
             (void)val;
-            #line 2080 "src/psc/codegen/stmt.pengu"
-            #line 2081 "src/psc/codegen/stmt.pengu"
+            #line 2089 "src/psc/codegen/stmt.pengu"
+            #line 2090 "src/psc/codegen/stmt.pengu"
             PenguString guard = pengu_string_format_ex("%.*s_pengu_initialized", (int)cn.len, cn.data);
             (void)guard;
-            #line 2082 "src/psc/codegen/stmt.pengu"
+            #line 2091 "src/psc/codegen/stmt.pengu"
             (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("static bool %.*s = false;", (int)guard.len, guard.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
-            #line 2083 "src/psc/codegen/stmt.pengu"
+            #line 2092 "src/psc/codegen/stmt.pengu"
             (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("if (!%.*s) {", (int)guard.len, guard.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
-            #line 2084 "src/psc/codegen/stmt.pengu"
+            #line 2093 "src/psc/codegen/stmt.pengu"
             (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s = %.*s;", (int)cn.len, cn.data, (int)val.len, val.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
-            #line 2085 "src/psc/codegen/stmt.pengu"
+            #line 2094 "src/psc/codegen/stmt.pengu"
             (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s = true;", (int)guard.len, guard.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
-            #line 2086 "src/psc/codegen/stmt.pengu"
+            #line 2095 "src/psc/codegen/stmt.pengu"
             (void)(psc_codegen_emit_line((&(c->emitter)), pengu_string_from_cstr_len("}", 1)));
             pengu_banish_string(&(val));
         }
-        #line 2087 "src/psc/codegen/stmt.pengu"
+        #line 2096 "src/psc/codegen/stmt.pengu"
         (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("(void)%.*s;", (int)cn.len, cn.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
-        #line 2089 "src/psc/codegen/stmt.pengu"
+        #line 2098 "src/psc/codegen/stmt.pengu"
         (void)(psc_codegen_context_add_local(c, nid, ty, nid));
-        #line 2090 "src/psc/codegen/stmt.pengu"
+        #line 2099 "src/psc/codegen/stmt.pengu"
         pengu_banish_string(&(cdecl));
         pengu_banish_string(&(cn));
         pengu_banish_string(&(ct));
         pengu_banish_string(&(txt));
         return;
     }
-    #line 2091 "src/psc/codegen/stmt.pengu"
+    #line 2100 "src/psc/codegen/stmt.pengu"
     bool is_drop = psc_codegen_stmt_is_drop_type(c, ty);
     (void)is_drop;
-    #line 2092 "src/psc/codegen/stmt.pengu"
+    #line 2101 "src/psc/codegen/stmt.pengu"
     if (vn >= 0) {
-        #line 2093 "src/psc/codegen/stmt.pengu"
+        #line 2102 "src/psc/codegen/stmt.pengu"
         PenguString val2 = psc_codegen_expr_emit_expr_as(c, vn, ty);
         (void)val2;
-        #line 2094 "src/psc/codegen/stmt.pengu"
-        #line 2095 "src/psc/codegen/stmt.pengu"
+        #line 2103 "src/psc/codegen/stmt.pengu"
+        #line 2104 "src/psc/codegen/stmt.pengu"
         if ((!is_drop) && (psc_codegen_stmt_value_is_place(c, vn, ast))) {
-            #line 2096 "src/psc/codegen/stmt.pengu"
+            #line 2105 "src/psc/codegen/stmt.pengu"
             (void)(psc_codegen_drop_emit_cow_promote_source(c, psc_codegen_drop_cow_kind_of(c, ty), vn, ast));
         }
-        #line 2097 "src/psc/codegen/stmt.pengu"
+        #line 2106 "src/psc/codegen/stmt.pengu"
         if (((!is_drop) && ((psc_codegen_drop_cow_kind_of(c, ty)) == 1)) && (psc_codegen_stmt_value_is_place(c, vn, ast))) {
-            #line 2099 "src/psc/codegen/stmt.pengu"
+            #line 2108 "src/psc/codegen/stmt.pengu"
             (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s = pengu_string_share_value(%.*s);", (int)cdecl.len, cdecl.data, (int)val2.len, val2.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
         } else
         if (((!is_drop) && ((psc_codegen_drop_cow_kind_of(c, ty)) == 2)) && (psc_codegen_stmt_value_is_place(c, vn, ast))) {
-            #line 2103 "src/psc/codegen/stmt.pengu"
+            #line 2112 "src/psc/codegen/stmt.pengu"
             (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s = %.*s;", (int)cdecl.len, cdecl.data, (int)val2.len, val2.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
-            #line 2104 "src/psc/codegen/stmt.pengu"
+            #line 2113 "src/psc/codegen/stmt.pengu"
             (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("pengu_cow_list_share(&(%.*s));", (int)cn.len, cn.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
-            #line 2105 "src/psc/codegen/stmt.pengu"
+            #line 2114 "src/psc/codegen/stmt.pengu"
             (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("(void)%.*s;", (int)cn.len, cn.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
-            #line 2106 "src/psc/codegen/stmt.pengu"
+            #line 2115 "src/psc/codegen/stmt.pengu"
             (void)(psc_codegen_stmt_register_local(c, nid, ty, nid));
-            #line 2107 "src/psc/codegen/stmt.pengu"
+            #line 2116 "src/psc/codegen/stmt.pengu"
             pengu_banish_string(&(val2));
             pengu_banish_string(&(cdecl));
             pengu_banish_string(&(cn));
@@ -96946,15 +96958,15 @@ void psc_codegen_stmt_emit_local(CgContext* c, int32_t node, PsAst* ast) {
             return;
         } else
         if (((!is_drop) && ((psc_codegen_drop_cow_kind_of(c, ty)) == 3)) && (psc_codegen_stmt_value_is_place(c, vn, ast))) {
-            #line 2109 "src/psc/codegen/stmt.pengu"
+            #line 2118 "src/psc/codegen/stmt.pengu"
             (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s = %.*s;", (int)cdecl.len, cdecl.data, (int)val2.len, val2.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
-            #line 2110 "src/psc/codegen/stmt.pengu"
+            #line 2119 "src/psc/codegen/stmt.pengu"
             (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("pengu_cow_map_share(&(%.*s));", (int)cn.len, cn.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
-            #line 2111 "src/psc/codegen/stmt.pengu"
+            #line 2120 "src/psc/codegen/stmt.pengu"
             (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("(void)%.*s;", (int)cn.len, cn.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
-            #line 2112 "src/psc/codegen/stmt.pengu"
+            #line 2121 "src/psc/codegen/stmt.pengu"
             (void)(psc_codegen_stmt_register_local(c, nid, ty, nid));
-            #line 2113 "src/psc/codegen/stmt.pengu"
+            #line 2122 "src/psc/codegen/stmt.pengu"
             pengu_banish_string(&(val2));
             pengu_banish_string(&(cdecl));
             pengu_banish_string(&(cn));
@@ -96962,40 +96974,40 @@ void psc_codegen_stmt_emit_local(CgContext* c, int32_t node, PsAst* ast) {
             pengu_banish_string(&(txt));
             return;
         } else {
-            #line 2115 "src/psc/codegen/stmt.pengu"
+            #line 2124 "src/psc/codegen/stmt.pengu"
             (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s = %.*s;", (int)cdecl.len, cdecl.data, (int)val2.len, val2.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
         }
-        #line 2116 "src/psc/codegen/stmt.pengu"
+        #line 2125 "src/psc/codegen/stmt.pengu"
         if (!is_drop) {
-            #line 2117 "src/psc/codegen/stmt.pengu"
+            #line 2126 "src/psc/codegen/stmt.pengu"
             (void)(psc_codegen_stmt_share_assigned(c, ty, vn, ast, cn));
         }
-        #line 2118 "src/psc/codegen/stmt.pengu"
+        #line 2127 "src/psc/codegen/stmt.pengu"
         if (is_drop) {
-            #line 2119 "src/psc/codegen/stmt.pengu"
+            #line 2128 "src/psc/codegen/stmt.pengu"
             if (psc_codegen_stmt_is_share_type(c, ty)) {
-                #line 2121 "src/psc/codegen/stmt.pengu"
+                #line 2130 "src/psc/codegen/stmt.pengu"
                 if (psc_codegen_stmt_value_is_place(c, vn, ast)) {
-                    #line 2122 "src/psc/codegen/stmt.pengu"
+                    #line 2131 "src/psc/codegen/stmt.pengu"
                     (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("if ((%.*s).ptr) { (%.*s).ptr = pengu_rc_retain((%.*s).ptr); }", (int)cn.len, cn.data, (int)cn.len, cn.data, (int)cn.len, cn.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
                 }
             } else {
-                #line 2124 "src/psc/codegen/stmt.pengu"
+                #line 2133 "src/psc/codegen/stmt.pengu"
                 (void)(psc_codegen_drop_note_move_source(c, vn, ast));
             }
         }
         pengu_banish_string(&(val2));
     } else
     if (is_drop) {
-        #line 2129 "src/psc/codegen/stmt.pengu"
+        #line 2138 "src/psc/codegen/stmt.pengu"
         (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s = {0};", (int)cdecl.len, cdecl.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
     } else {
-        #line 2131 "src/psc/codegen/stmt.pengu"
+        #line 2140 "src/psc/codegen/stmt.pengu"
         (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("%.*s;", (int)cdecl.len, cdecl.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
     }
-    #line 2132 "src/psc/codegen/stmt.pengu"
+    #line 2141 "src/psc/codegen/stmt.pengu"
     (void)(__extension__(({ PenguString p_t0 = pengu_string_format_ex("(void)%.*s;", (int)cn.len, cn.data); psc_codegen_emit_line((&(c->emitter)), p_t0); pengu_banish_string(&p_t0); 0; })));
-    #line 2133 "src/psc/codegen/stmt.pengu"
+    #line 2142 "src/psc/codegen/stmt.pengu"
     (void)(psc_codegen_stmt_register_local(c, nid, ty, nid));
     pengu_banish_string(&(cdecl));
     pengu_banish_string(&(cn));
@@ -97003,27 +97015,27 @@ void psc_codegen_stmt_emit_local(CgContext* c, int32_t node, PsAst* ast) {
     pengu_banish_string(&(txt));
 }
 
-#line 2139 "src/psc/codegen/stmt.pengu"
+#line 2148 "src/psc/codegen/stmt.pengu"
 int32_t psc_codegen_stmt_token_slot(PsAst* ast, int32_t node) {
     (void)ast;
     (void)node;
-    #line 2140 "src/psc/codegen/stmt.pengu"
+    #line 2149 "src/psc/codegen/stmt.pengu"
     int32_t i = 0;
     (void)i;
-    #line 2141 "src/psc/codegen/stmt.pengu"
+    #line 2150 "src/psc/codegen/stmt.pengu"
     int32_t n = sema_ast_child_count(ast, node);
     (void)n;
-    #line 2142 "src/psc/codegen/stmt.pengu"
+    #line 2151 "src/psc/codegen/stmt.pengu"
     while ((i < n)) {
-        #line 2143 "src/psc/codegen/stmt.pengu"
+        #line 2152 "src/psc/codegen/stmt.pengu"
         if ((sema_ast_token_child(ast, node, i)) >= 0) {
-            #line 2144 "src/psc/codegen/stmt.pengu"
+            #line 2153 "src/psc/codegen/stmt.pengu"
             return i;
         }
-        #line 2145 "src/psc/codegen/stmt.pengu"
+        #line 2154 "src/psc/codegen/stmt.pengu"
         i = (i + 1);
     }
-    #line 2146 "src/psc/codegen/stmt.pengu"
+    #line 2155 "src/psc/codegen/stmt.pengu"
     return (-1);
 }
 

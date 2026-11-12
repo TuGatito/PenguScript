@@ -1720,7 +1720,12 @@ weave emit_judge_core with c as ref to context.CgContext, node as int, ast as re
                             if (blit length) > 0:
                                 calling emit.line with (sigil of c->emitter), "case {blit}: {"
                                 calling emit.indent_more with (sigil of c->emitter)
+                                # Cada brazo es un bloque C: su scope se abre y se
+                                # cierra aquí para que los destructores de los
+                                # locales declarados dentro no se emitan fuera.
+                                calling begin_scope with c, false
                                 calling emit_judge_arm_body with c, body2, ast, vty, vtmp
+                                calling end_scope with c
                                 calling emit.line with (sigil of c->emitter), "break;"
                                 calling emit.indent_less with (sigil of c->emitter)
                                 calling emit.line with (sigil of c->emitter), "}"
@@ -1738,6 +1743,7 @@ weave emit_judge_core with c as ref to context.CgContext, node as int, ast as re
                                 banish lpn
                                 set li is li + 1
                             calling emit.indent_more with (sigil of c->emitter)
+                            calling begin_scope with c, false
                             if payload2 >= 0:
                                 calling judge_bind_payload with c, st, payload2, ast, stmp, pvt
                             if guard2 >= 0:
@@ -1748,6 +1754,7 @@ weave emit_judge_core with c as ref to context.CgContext, node as int, ast as re
                                 calling emit.line with (sigil of c->emitter), "if (!({gv2})) break;"
                                 banish gv2
                             calling emit_judge_arm_body with c, body2, ast, vty, vtmp
+                            calling end_scope with c
                             calling emit.line with (sigil of c->emitter), "break;"
                             calling emit.indent_less with (sigil of c->emitter)
                             calling emit.line with (sigil of c->emitter), "}"
@@ -1760,7 +1767,9 @@ weave emit_judge_core with c as ref to context.CgContext, node as int, ast as re
                     calling origin.marker with c, m, cl2
                     calling emit.line with (sigil of c->emitter), "default: {"
                     calling emit.indent_more with (sigil of c->emitter)
+                    calling begin_scope with c, false
                     calling emit_judge_arm_body with c, eb2, ast, vty, vtmp
+                    calling end_scope with c
                     calling emit.line with (sigil of c->emitter), "break;"
                     calling emit.indent_less with (sigil of c->emitter)
                     calling emit.line with (sigil of c->emitter), "}"

@@ -505,6 +505,33 @@ Convención: **cada fase termina en un repo verde** (`./build/psc test .` = 895/
 
 ### F3 — Semántica nueva en el dialecto C++ · 4–6 meses · confianza media-baja (es el tramo grande)
 
+> **Estado (2026-11-11) — F3.1 (RAII) medida antes de implementarla.** El emisor **ya tenía** la
+> infraestructura de destructores automáticos (`drop_names`/`drop_types`/`drop_marks` en `CgContext`,
+> `emit_pending_drops`/`emit_all_drops`/`emit_loop_exit_drops`, `remove_drop` al hacer `return` o
+> `banish`): solo la puerta `is_drop_type` la limitaba a los tipos `derive Drop`/`weave die`.
+> Al abrirla a **toda runa/eco/omen** aparecieron dos huecos de propiedad del modelo COW actual, y
+> ambos son **anteriores** a F3 (los crea la semántica, no la fase):
+>
+> 1. **Copia sin retención en `with`**: `var o as Outer is with inner is i` emitía `.inner = i`
+>    copiando el `string` interno sin `pengu_string_share_value`; el destructor de `i` liberaba el
+>    búfer y `o.inner.s` quedaba colgando (use-after-free detectado con ASan).
+> 2. **Aliasing sin retención en `std`**: `lexer_lex` (`src/psc/lexer.pengu:77`) hace
+>    `var result as LexResult is lx.result` y luego `set result.tokens is indented`; al abrir la
+>    puerta, `_pengu_cleanup_LexerState` → `pengu_banish_list` libera la misma lista que otro local
+>    todavía usa (`double free`, backtrace en `pengu_cow_list_drop`).
+>
+> Conclusión medida: **el RAII no es un cambio de 30 líneas en el emisor, es la propiedad de
+> valores**. Hay dos caminos y ambos son F3 de pleno derecho:
+> **(a)** copia profunda en toda copia (semántica del doc: `std::string`/`std::vector` por valor) y
+> RAII encima; **(b)** análisis de propiedad campo a campo (quién es dueño, quién presta) antes de
+> emitir destructores. Los helpers quedaron preparados y **desactivados** (`needs_auto_drop`,
+> `_pengu_copy_<T>`) para retomarlos cuando (a) o (b) estén.
+>
+> Lo que **sí** quedó arreglado en esta pasada: los brazos de `judge` no abrían scope, así que un
+> local con destructor declarado dentro de un `case` se liberaba **al final de la función**
+> (C inválido: `_pengu_cleanup_T(&(p))` fuera del bloque donde vive `p`). Ahora cada brazo
+> (`case`, `default` y el `case true/false`) abre y cierra su scope.
+
 - `ctype`: `string`→`std::string`, `list`→`std::vector`, `map`→`std::map`, `umap`→`unordered_map`, `set`/`uset`, `maybe`→`optional`, `result`→`variant`, `span`→`std::span`, `array`→`std::array`, `Rc`→`shared_ptr`.
 - `drop`/`banish`: RAII, sin `_pengu_cleanup_*`; `banish`→`std::move`; préstamos sin cleanup.
 - `pengu/core.hpp` (~250 líneas, doc §0.4) + `pengu/plat.c`; `with`/`omen`/`judge` con STL; `inherit` con upcast; `extern c` real; `@repr(c)`; `==`/`<=>` automáticos; `map` ordenado.
