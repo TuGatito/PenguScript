@@ -152,6 +152,14 @@ weave infer with s as ref to state.SemaState, node as int, expected as int into 
         if t <= 0 and expected > 0:
             set t is expected
         calling infer_field_inits with s, node, t
+        # Un tipo con `born` no se construye con `with` ni con `T: …`.
+        if t > 0:
+            var bund as int is calling underlying_type with s, t
+            var bty as tk.SemaType is calling types.at with s->types, bund
+            if bty.kind == tk.SemaTypeKind.TkRune or bty.kind == tk.SemaTypeKind.TkEcho:
+                var binf as types.SemaNominalInfo is (s->types->nominal_infos at bty.a)
+                if (binf.flags & types.NIF_BORN) != 0 and not s->born_with_ok:
+                    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_WITH_BORN, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "a type with a 'born' constructor cannot be built with 'with'", "Call the constructor instead: 'calling T.new with …'.", "A 'born' body may initialize fields in ways 'with' cannot express."
     else if kind == pskind.NodeKind.NdBoolOr or kind == pskind.NodeKind.NdBoolAnd:
         set t is calling infer_bool with s, node
     else if kind == pskind.NodeKind.NdIsPresent or kind == pskind.NodeKind.NdIsNotPresent or kind == pskind.NodeKind.NdIsTrue or kind == pskind.NodeKind.NdIsFalse or kind == pskind.NodeKind.NdInExpr or kind == pskind.NodeKind.NdNotInExpr:

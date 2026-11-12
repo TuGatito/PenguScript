@@ -202,7 +202,7 @@ weave report_size_cycle with p as ref to program.SemaProgram, chain as ref to ve
     var chaintext as string is calling sb.finish
     defer banish chaintext
     var m as loader.SemaModule is (p->modules at info.module)
-    var st as state.SemaState is with program is p, module is (sigil of m), src is (sigil of m.source), lex is (sigil of m.lex), ast is (sigil of m.parse.ast), types is (sigil of p->types), symbols is (sigil of p->symbols), names is (sigil of p->names), bag is (sigil of p->diagnostics), opts is (sigil of p->options), annotations is (sigil of m.annotations), hooks is (calling state.default_hooks), errors is 0, max_errors is p->options.max_errors, stop_after_first is p->options.stop_after_first, stop is false, allow_mutating is false, in_extern is false
+    var st as state.SemaState is with program is p, module is (sigil of m), src is (sigil of m.source), lex is (sigil of m.lex), ast is (sigil of m.parse.ast), types is (sigil of p->types), symbols is (sigil of p->symbols), names is (sigil of p->names), bag is (sigil of p->diagnostics), opts is (sigil of p->options), annotations is (sigil of m.annotations), hooks is (calling state.default_hooks), errors is 0, max_errors is p->options.max_errors, stop_after_first is p->options.stop_after_first, stop is false, allow_mutating is false, in_extern is false, born_with_ok is false
     var msg as StringBuilder is calling StringBuilder.new
     defer banish msg
     calling msg.append with "type '"

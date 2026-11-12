@@ -2363,11 +2363,143 @@ weave collect_enchanting with s as ref to state.SemaState, node as int into void
             if is_born or (calling has_weave_modifier with s, m, "born"):
                 # `born`/`born mirror` construyen el receptor: no llevan `self`
                 # de entrada, lo reciben como almacenamiento (ver function.pengu).
-                calling set_ritual_flag with s, msid
+                    calling set_ritual_flag with s, msid
+            if is_born:
+                calling born_check with s, m, recv_under
             calling apply_bounds with s, msid, br
             calling tag_decl with s, msid, m
             calling define_get_alias with s, recv_under, mname, ft, br, msid
         set i is i + 1
+
+## `true` si el bloque contiene un `return` con valor que pertenece al propio
+## bloque (no a una lambda de dentro).
+##
+## ## Memoria
+## Recurre a los hijos; no asigna.
+weave born_has_value_return with s as ref to state.SemaState, n as int into bool:
+    if n < 0:
+        return false
+    var k as pskind.NodeKind is calling astutil.kind_of with s->ast, n
+    if k == pskind.NodeKind.NdReturnStmt:
+        if (calling astutil.child_count with s->ast, n) > 0:
+            if (calling astutil.node_child with s->ast, n, 0) >= 0:
+                return true
+    if k == pskind.NodeKind.NdLambdaExpr or k == pskind.NodeKind.NdLambdaNoParams or k == pskind.NodeKind.NdWeaveDecl:
+        return false
+    var i as int is 0
+    var c as int is calling astutil.child_count with s->ast, n
+    while i < c:
+        if calling born_has_value_return with s, (calling astutil.node_child with s->ast, n, i):
+            return true
+        set i is i + 1
+    return false
+
+## Recoge los nombres de campo que el bloque asigna con `set self->campo is …`.
+##
+## ## Memoria
+## Añade strings owned a `out`.
+weave born_collect_sets with s as ref to state.SemaState, n as int, out as ref to vector of string into void:
+    if n < 0:
+        return
+    var k as pskind.NodeKind is calling astutil.kind_of with s->ast, n
+    if k == pskind.NodeKind.NdSetStmt:
+        var tgt as int is calling astutil.node_child with s->ast, n, 0
+        if tgt >= 0:
+            var nt as int is calling astutil.node_child with s->ast, tgt, 0
+            if nt >= 0 and (calling astutil.kind_of with s->ast, nt) == pskind.NodeKind.NdNormalTarget:
+                if (calling astutil.child_count with s->ast, nt) >= 2:
+                    var acc as int is calling astutil.node_child with s->ast, nt, 1
+                    if acc >= 0 and (calling astutil.kind_of with s->ast, acc) == pskind.NodeKind.NdArrowAccess:
+                        var btxt as string is calling astutil.child_token_text with s->src, s->lex, s->ast, nt, 0
+                        if btxt == "self":
+                            var ftxt as string is calling astutil.child_token_text with s->src, s->lex, s->ast, acc, 0
+                            if ftxt.len > 0:
+                                calling out.push with ftxt
+                            else:
+                                banish ftxt
+                        banish btxt
+    var i as int is 0
+    var c as int is calling astutil.child_count with s->ast, n
+    while i < c:
+        calling born_collect_sets with s, (calling astutil.node_child with s->ast, n, i), out
+        set i is i + 1
+
+## `true` si `sets` ya contiene `name`.
+##
+## ## Memoria
+## Compara; no asigna.
+weave born_has_set with sets as ref to vector of string, name as string into bool:
+    var i as int is 0
+    while i < sets->len:
+        if (sets at i) == name:
+            return true
+        set i is i + 1
+    return false
+
+## Diagnósticos del dialecto dentro de un `born`: `return` con valor, campos que
+## el cuerpo no inicializa y la forma "copia" (`born` con un solo parámetro del
+## propio tipo, que es `born mirror`).
+##
+## ## Memoria
+## Recorre el AST; libera los nombres que recoge.
+weave born_check with s as ref to state.SemaState, m as int, recv_under as int into void:
+    # El cuerpo son los hijos desde `nombre + 4` (params, retorno y cuerpo dejan
+    # dos huecos): el mismo layout que usa `check_weave_body`.
+    var bn as int is calling astutil.child_count with s->ast, m
+    var bi as int is 0
+    var nb as int is 0
+    var sets as vector of string is vector of string
+    while bi < bn:
+        var body as int is calling astutil.node_child with s->ast, m, bi
+        if body >= 0 and (calling astutil.kind_of with s->ast, body) == pskind.NodeKind.NdStmt:
+            set nb is nb + 1
+            if calling born_has_value_return with s, body:
+                calling sdiag.node_error with s->bag, s->src, sdiag.CODE_BORN_RETURN, (calling astutil.start_of with s->ast, body), (calling astutil.end_of with s->ast, body), "a 'born' body cannot 'return' a value", "Assign the fields with 'set self->field is value'; the constructor returns the value it builds.", "A 'return' belongs to the function, not to the constructor."
+            calling born_collect_sets with s, body, (sigil of sets)
+        set bi is bi + 1
+    # `born with other as T` sólo tiene sentido como copia: eso es `born mirror`.
+    var pi as int is 0
+    while pi < bn:
+        var pc as int is calling astutil.node_child with s->ast, m, pi
+        if pc >= 0 and (calling astutil.kind_of with s->ast, pc) == pskind.NodeKind.NdParamList:
+            if (calling astutil.child_count with s->ast, pc) == 1:
+                var pn as int is calling astutil.node_child with s->ast, pc, 0
+                if pn >= 0:
+                    var pt as int is calling astutil.node_child with s->ast, pn, 1
+                    if pt >= 0:
+                        var pctx as convert.TypeCtx is calling collect_type_ctx with s
+                        var pty as int is calling convert.convert with (sigil of pctx), pt
+                        var pcur as int is pty
+                        var pmore as bool is pcur > 0
+                        while pmore:
+                            var ptt as tk.SemaType is calling types.at with s->types, pcur
+                            if ptt.kind == tk.SemaTypeKind.TkAlias or ptt.kind == tk.SemaTypeKind.TkSeal or ptt.kind == tk.SemaTypeKind.TkRef or ptt.kind == tk.SemaTypeKind.TkFrozen:
+                                set pcur is ptt.a
+                                set pmore is pcur > 0
+                            else:
+                                set pmore is false
+                        if pcur == recv_under:
+                            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_BORN_COPY, (calling astutil.start_of with s->ast, m), (calling astutil.end_of with s->ast, m), "a 'born' that takes its own type is a copy", "Declare it as 'weave born mirror with other as ref to frozen T:' so the copy is explicit, or remove the parameter.", "A constructor builds a new value; copying is 'born mirror'."
+        set pi is pi + 1
+    if nb > 0:
+        var t as tk.SemaType is calling types.at with s->types, recv_under
+        if t.kind == tk.SemaTypeKind.TkRune:
+            var info as types.SemaNominalInfo is (s->types->nominal_infos at t.a)
+            var fi as int is 0
+            while fi < info.fields_count:
+                var fld as types.SemaField is (s->types->fields at (info.fields_first + fi))
+                if (fld.flags & types.FIELD_EMBED) == 0:
+                    var fnm as string is calling npool.text with s->names, fld.name
+                    if not (calling born_has_set with (sigil of sets), fnm):
+                        var msg as string is "a 'born' body does not initialize the field '{fnm}'"
+                        var help as string is "Add 'set self->{fnm} is …' to the constructor, or initialize it in the caller with a default."
+                        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_BORN_UNINIT, (calling astutil.start_of with s->ast, m), (calling astutil.end_of with s->ast, m), msg, help, "A constructor must leave the value fully initialized."
+                set fi is fi + 1
+    var si as int is 0
+    while si < sets.len:
+        banish (sets at si)
+        set si is si + 1
+    banish sets
 
 ## `bind Tipo with Concepto:`: registra las implementaciones de método.
 ##

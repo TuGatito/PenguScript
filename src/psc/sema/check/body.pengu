@@ -271,7 +271,12 @@ weave check_module_bodies with s as ref to state.SemaState into void:
                             var mnid as int is calling npool.intern with s->names, mtext
                             var msid as int is calling symbols.lookup_method with s->symbols, recv_t, mnid
                             calling apply_symbol_bounds with s, msid
+                            # Dentro de `enchanting` se construye el valor con
+                            # `with` (es donde viven los invariantes del tipo).
+                            var prev_bw as bool is s->born_with_ok
+                            set s->born_with_ok is true
                             calling check_weave_body with s, meth
+                            set s->born_with_ok is prev_bw
                             calling apply_symbol_bounds with s, -1
                         set j is j + 1
                 else if k == pskind.NodeKind.NdTestDecl:
@@ -866,6 +871,10 @@ weave check_return with s as ref to state.SemaState, node as int into void:
     if e >= 0:
         var nret as int is calling astutil.child_count with s->ast, node
         var got as int is 0
+        # Un constructor con nombre (`ritual … into T`) devuelve `with …`: es
+        # la vía explícita de inicializar un tipo con `born`.
+        var prev_bw as bool is s->born_with_ok
+        set s->born_with_ok is true
         if nret > 1:
             var ids as vector of int is vector of int
             defer banish ids
@@ -880,6 +889,7 @@ weave check_return with s as ref to state.SemaState, node as int into void:
             set got is calling state.call_infer with s, e, expected
             if got > 0:
                 calling ann.set_type with s->annotations, e, got
+        set s->born_with_ok is prev_bw
         calling check_dangling_return with s, e
         if calling moves.type_is_drop with s, got:
             calling moves.consume_value with s, e
@@ -1555,6 +1565,14 @@ weave check_with with s as ref to state.SemaState, node as int, expected as int 
         set tt is 1
     var start as int is calling astutil.start_of with s->ast, node
     var end as int is calling astutil.end_of with s->ast, node
+    # Un tipo con `born` no se construye con `with`: el constructor es la vía.
+    var wund as int is calling infer.underlying_type with s, tt
+    var wt as tk.SemaType is calling types.at with s->types, wund
+    if wt.kind == tk.SemaTypeKind.TkRune or wt.kind == tk.SemaTypeKind.TkEcho:
+        var winfo as types.SemaNominalInfo is (s->types->nominal_infos at wt.a)
+        if (winfo.flags & types.NIF_BORN) != 0 and not s->born_with_ok:
+            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_WITH_BORN, start, end, "a type with a 'born' constructor cannot be built with 'with'", "Call the constructor instead: 'calling T.new with …'.", "A 'born' body may initialize fields in ways 'with' cannot express."
+            return tt
     calling symbols.push_scope with s->symbols, scope.SemaScopeKind.SgWith, start, end
     var sc as scope.SemaScope is (s->symbols->scopes at s->symbols->current)
     set sc.with_type is tt

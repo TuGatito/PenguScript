@@ -553,11 +553,7 @@ enchanting StringBuilder:
     ## ```
     weave ritual from_string with s as string into StringBuilder:
         var n as int is s length
-        var b as string is calling _builder_alloc with n
-        var out as StringBuilder with:
-            set ._data is b
-            set ._len is 0
-            set ._cap is n
+        var out as StringBuilder is calling StringBuilder.with_capacity with n
         calling out.append with s
         return out
 

@@ -337,15 +337,21 @@ weave emit_expr with c as ref to context.CgContext, node as int into string:
         var slv as bool is calling is_lvalue_node with ast, sb0
         var srt as string is calling copy_text with bs0
         var sdecl as string is ""
-        if not slv:
-            var slty as int is calling node_type with c, sb0
+        var slty as int is calling node_type with c, sb0
+        var slkind as tk.SemaTypeKind is tk.SemaTypeKind.TkBase
+        var slct as string is "void"
+        if slty >= 0:
+            var slt as tk.SemaType is calling types.at with (sigil of c->program->types), slty
+            set slkind is slt.kind
+        # Sólo un contenedor necesita la dirección del receptor; un `string` se
+        # pasa por valor a `pengu_string_substring`.
+        if not slv and (slkind == tk.SemaTypeKind.TkArray or slkind == tk.SemaTypeKind.TkSlice or slkind == tk.SemaTypeKind.TkList):
             if slty >= 0:
-                var slct as string is calling ctype.c_type with (sigil of c->names), slty
+                set slct is calling ctype.c_type with (sigil of c->names), slty
                 var sltmp as string is calling emit.temp with (sigil of c->emitter), "_pr"
                 banish srt
                 set srt is sltmp
                 set sdecl is "{slct} {sltmp} = {bs0}; "
-                banish slct
         var r as string is ""
         if rg >= 0:
             var lo0 as int is calling astutil.node_child with ast, rg, 0
@@ -399,6 +405,7 @@ weave emit_expr with c as ref to context.CgContext, node as int into string:
             banish r
             set r is w
         banish srt
+        banish slct
         return r
     if k == pskind.NodeKind.NdLambdaExpr or k == pskind.NodeKind.NdLambdaNoParams:
         return "_pengu_lambda_{c->current_module}_{node}"

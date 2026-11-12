@@ -538,6 +538,8 @@ Convención: **cada fase termina en un repo verde** (`./build/psc test .` = 895/
 
 ---
 
+- **Hecho (F2.7, 2026-11-11)** — diagnósticos del constructor `born`: `E0100` (`return` con valor), `E0105` (campo sin asignar), `E0106` (`with` sobre un tipo con `born` fuera de `enchanting`), `E0118` (`born` con el propio tipo como único parámetro). Antes los tres primeros eran silenciosos: un `born` incompleto dejaba campos a cero y un `born` con `return` compilaba. Excepciones documentadas: `enchanting` y `return with …` de un `ritual`. Test `tests/regress_born_diag.sh` (positivo y negativo, C y `--backend=cpp`).
+
 ## 12. Riesgos abiertos y decisiones pendientes
 
 | # | Riesgo | Prob. | Impacto | Mitigación |

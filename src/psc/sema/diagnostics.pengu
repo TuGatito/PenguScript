@@ -31,6 +31,14 @@ const CODE_VAR_TOP_LEVEL as string is "E0002"
 const CODE_SHADOW_LIB as string is "W0018"
 ## `declare` fuera de un bloque `extern` (dialecto C++).
 const CODE_DECLARE_OUTSIDE_EXTERN as string is "E0116"
+## `return` dentro del cuerpo de un `born` (dialecto C++).
+const CODE_BORN_RETURN as string is "E0100"
+## Un `born` no inicializa un campo de la runa (dialecto C++).
+const CODE_BORN_UNINIT as string is "E0105"
+## Un `born` con la forma de una copia (`born with other as T`).
+const CODE_BORN_COPY as string is "E0118"
+## `with` sobre una runa que declaró `born` (dialecto C++).
+const CODE_WITH_BORN as string is "E0106"
 const CODE_SELF_DOT as string is "E0003"
 const CODE_UNDEFINED as string is "E0004"
 const CODE_TYPE_MISMATCH as string is "E0005"

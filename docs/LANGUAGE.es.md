@@ -1705,6 +1705,20 @@ enchanting Buffer:
 resuelven igual que en cualquier método. Un `weave mirror` **sin** `born` es un
 método normal llamado `mirror`: no lo usa el clon.
 
+El comprobador exige que el constructor deje el valor completo:
+
+| Código | Situación |
+|---|---|
+| `E0100` | `return` con valor dentro de un `born` (el constructor ya devuelve el valor que construye) |
+| `E0105` | un campo que el `born` no asigna (`set self->campo is …`) |
+| `E0106` | `with` / `T: …` sobre un tipo que declaró `born`: hay que llamar a `calling T.new with …` |
+| `E0118` | un `born` cuyo único parámetro es el propio tipo (o `ref to frozen T`): eso es una copia, se declara `weave born mirror` |
+
+Dos excepciones deliberadas: dentro de un bloque `enchanting` (donde viven los
+invariantes del tipo) y en el `return with …` de un constructor con nombre
+(`weave ritual … into T`) se permite `with`, porque es la vía explícita de
+construir el valor.
+
 ### 9.9 `fundere` — composición
 
 `fundere` declara que una runa *compone* otra: la runa embebida se guarda

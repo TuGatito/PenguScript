@@ -80,6 +80,7 @@ rune SemaState:
     allow_mutating as bool
     ## `true` mientras se recolecta un bloque `extern c:`/`extern cpp:`.
     in_extern as bool
+    born_with_ok as bool
 
 ## Stub de inferencia.
 ##
