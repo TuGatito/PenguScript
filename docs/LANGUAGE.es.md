@@ -52,6 +52,8 @@ English: [LANGUAGE.md](LANGUAGE.md).
   - [6.2 Convenciones de llamada](#62-convenciones-de-llamada)
   - [6.3 Parámetros variádicos](#63-parámetros-variádicos)
   - [6.4 `declare`](#64-declare)
+    - [6.4.1 `extern c:` y `extern cpp:`](#641-extern-c-y-extern-cpp)
+    - [6.4.2 Claves de mapa](#642-claves-de-mapa)
   - [6.5 Lambdas](#65-lambdas)
   - [6.6 Métodos `ritual`](#66-métodos-ritual)
   - [6.7 Punto de entrada](#67-punto-de-entrada)
@@ -1094,6 +1096,36 @@ tiradas de `declare` en `extern c:` y las indenta.
 
 Y si declaras un tipo con el nombre de un tipo de la biblioteca (`rune span`,
 `rune string`…) avisa **W0018**: el tipo del usuario gana en su módulo.
+
+Los atributos que el compilador no conoce avisan **W0019** (`@pubic` es una
+errata, no una decisión). `@repr(c)` se acepta y avisa que todavía no cambia el
+layout: las runas ya se emiten como `struct` de C.
+
+```pengu-fragment
+@bogus            # warning[W0019]: unknown attribute '@bogus'
+rune P:
+    x as int
+```
+
+### 6.4.2 Claves de mapa
+
+Una clave de mapa se hashea por sus bytes. Un tipo con carga en el montón
+(`string` como campo de una runa, `vector of T`, otro `map`, un omen…) no sirve
+como clave: dos claves de igual contenido tendrían punteros distintos y `has`
+fallaría. Eso es **E0121**; usa una clave escalar, `string` directa, o un id
+entero. Un `string` **como clave directa** sí funciona (el runtime lo hashea por
+contenido).
+
+```pengu-fragment
+rune Key:
+    name as string
+
+var bad as map of Key, int is map of Key, int   # error[E0121]
+```
+
+Hasta que exista `bind T with Vinculum` + `weave hash` (semántica nueva), los
+tipos `umap`, `set`, `uset`, `unique`, `shared` y `weak` tampoco existen: nombrarlos
+da `type 'X' is not available yet (planned for the C++ semantics phase)`.
 
 ### 6.5 Lambdas
 

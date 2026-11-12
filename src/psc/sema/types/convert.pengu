@@ -46,6 +46,38 @@ rune TypeCtx:
     ## AST actual.
     ast as ref to psast.PsAst
 
+## `true` si `ty` (como clave de mapa) lleva un payload que no se puede
+## hashear por bytes: contenedores o un nominal con algún campo así.
+##
+## ## Memoria
+## O(campos).
+weave key_needs_hash with ctx as ref to TypeCtx, ty as int into bool:
+    if ty <= 0:
+        return false
+    var t as tk.SemaType is calling types.at with ctx->types, ty
+    if t.kind == tk.SemaTypeKind.TkAlias or t.kind == tk.SemaTypeKind.TkSeal:
+        return calling key_needs_hash with ctx, t.b
+    if t.kind == tk.SemaTypeKind.TkBase:
+        # `string` dentro de una runa sí es payload; como clave directa el
+        # runtime la hashea por contenido (se exime en el sitio de uso).
+        var bn as string is calling npool.text with ctx->names, t.name
+        defer banish bn
+        return bn == "string"
+    if t.kind == tk.SemaTypeKind.TkList or t.kind == tk.SemaTypeKind.TkSlice or t.kind == tk.SemaTypeKind.TkMap or t.kind == tk.SemaTypeKind.TkMaybe or t.kind == tk.SemaTypeKind.TkResult or t.kind == tk.SemaTypeKind.TkArray:
+        return true
+    if t.kind == tk.SemaTypeKind.TkRune or t.kind == tk.SemaTypeKind.TkEcho:
+        var info as types.SemaNominalInfo is (ctx->types->nominal_infos at t.a)
+        var fi as int is 0
+        while fi < info.fields_count:
+            var fld as types.SemaField is (ctx->types->fields at (info.fields_first + fi))
+            if calling key_needs_hash with ctx, fld.type:
+                return true
+            set fi is fi + 1
+        return false
+    if t.kind == tk.SemaTypeKind.TkOmen:
+        return true
+    return false
+
 ## Convierte un nodo de tipo.
 ##
 ## ## Memoria
@@ -92,6 +124,20 @@ weave convert with ctx as ref to TypeCtx, node as int into int:
     if kind == pskind.NodeKind.NdMapType:
         var k as int is calling convert with ctx, (calling astutil.node_child with ctx->ast, node, 0)
         var v as int is calling convert with ctx, (calling astutil.node_child with ctx->ast, node, 1)
+        # Las claves se hashean por bytes: un tipo con carga en el montón
+        # (`string`, listas, mapas, otra runa con esos campos…) no sirve hasta
+        # que el dialecto traiga hash estructural (`bind T with Vinculum`).
+        var kbase as bool is false
+        if k > 0:
+            var kt0 as tk.SemaType is calling types.at with ctx->types, k
+            if kt0.kind == tk.SemaTypeKind.TkBase:
+                var kbn as string is calling npool.text with ctx->names, kt0.name
+                set kbase is kbn == "string"
+                banish kbn
+        if not kbase and calling key_needs_hash with ctx, k:
+            var km as string is "map key type needs structural hashing"
+            calling sdiag.node_error with ctx->bag, ctx->src, sdiag.CODE_MAP_KEY_HASH, (calling astutil.start_of with ctx->ast, node), (calling astutil.end_of with ctx->ast, node), km, "Use a scalar or 'string' key, or key by an integer id.", "Keys are hashed by their bytes; a key with a heap payload would compare by pointer."
+            banish km
         return calling types.map_of with ctx->types, k, v
     if kind == pskind.NodeKind.NdResultType:
         var ok as int is calling convert with ctx, (calling astutil.node_child with ctx->ast, node, 0)
@@ -210,6 +256,14 @@ weave convert_custom with ctx as ref to TypeCtx, node as int into int:
         # Un tipo de cabecera C (`cairo_t`, `petitio_response`, ...): opaque.
         return 4
     if t < 0:
+        # Tipos del dialecto C++ que llegan con la semántica nueva (F3): un
+        # mensaje explícito es mejor que "undefined type".
+        var pending as bool is name == "umap" or name == "set" or name == "uset" or name == "unique" or name == "shared" or name == "weak"
+        if pending:
+            var pmsg as string is "type '{name}' is not available yet (planned for the C++ semantics phase)"
+            calling sdiag.node_error with ctx->bag, ctx->src, sdiag.CODE_UNDEFINED, (calling astutil.start_of with ctx->ast, node), (calling astutil.end_of with ctx->ast, node), pmsg, "Use the current spelling meanwhile: 'map of K, V' for maps, 'Rc of T'/'Arc of T' for sharing and 'ref to T' for borrows.", "The C++ dialect replaces these containers and pointer types, but their semantics are still being implemented."
+            banish pmsg
+            return 0
         var msg as string is "undefined type '{name}'"
         calling sdiag.node_error with ctx->bag, ctx->src, sdiag.CODE_UNDEFINED, (calling astutil.start_of with ctx->ast, node), (calling astutil.end_of with ctx->ast, node), msg, "Declare the type or import the module that defines it.", "Types must be declared before they are used."
         banish msg
