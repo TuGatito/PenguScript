@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import tempfile
+import shutil
 import select
 import subprocess
 import sys
@@ -417,6 +419,58 @@ def main() -> int:
         assert_eq("generic field definition line", gd["range"]["start"]["line"], gen_line)
     finally:
         fc.shutdown()
+
+    # --- constructores `born`: `calling T.new` resuelve al símbolo `born` ---
+    tmp = tempfile.mkdtemp(prefix="psc-lsp-born-")
+    try:
+        proj = pathlib.Path(tmp) / "proj"
+        (proj / "src").mkdir(parents=True)
+        (proj / "pengu.toml").write_text(
+            '[project]\nname = "bornprobe"\nversion = "0.1.0"\n'
+            'entry = "src/main.pengu"\noutput_name = "bornprobe"\nsrc_dir = "src"\n'
+        )
+        bsrc = (
+            "rune Buffer:\n"
+            "    data as string\n"
+            "    size as int\n"
+            "\n"
+            "enchanting Buffer:\n"
+            "    ## Construye con capacidad.\n"
+            "    weave born with cap as int:\n"
+            "        set self->data is \"\"\n"
+            "        set self->size is cap\n"
+            "\n"
+            "weave main into int:\n"
+            "    var b as Buffer is calling Buffer.new with 3\n"
+            "    return b.size\n"
+        )
+        bfile = proj / "src" / "main.pengu"
+        bfile.write_text(bsrc)
+        bc = Client(proj)
+        try:
+            bc.request("initialize", {"rootUri": proj.as_uri(), "capabilities": {}})
+            bc.open(bfile.as_uri(), bsrc)
+            blines = bsrc.splitlines()
+            bline = next(i for i, ln in enumerate(blines) if "Buffer.new" in ln)
+            bch = blines[bline].index(".new") + 2
+            bhover = bc.request(
+                "textDocument/hover",
+                {"textDocument": {"uri": bfile.as_uri()}, "position": {"line": bline, "character": bch}},
+            )["result"]
+            assert_true("born hover exists", bhover is not None)
+            bval = bhover["contents"]["value"]
+            assert_true("born hover signature", "born" in bval and "Buffer" in bval)
+            bdef = bc.request(
+                "textDocument/definition",
+                {"textDocument": {"uri": bfile.as_uri()}, "position": {"line": bline, "character": bch}},
+            )["result"]
+            assert_true("born definition exists", bdef is not None)
+            born_line = next(i for i, ln in enumerate(blines) if "weave born" in ln)
+            assert_eq("born definition line", bdef["range"]["start"]["line"], born_line)
+        finally:
+            bc.shutdown()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
     print("OK LSP protocol tests")
     return 0

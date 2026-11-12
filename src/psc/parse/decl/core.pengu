@@ -396,8 +396,15 @@ weave pdecl_parse_field with p as ref to PsParser into int:
     var ignored as Token is calling ps_expect_kw with p, KwAs, "'as'"
     var ty as int is calling ptypes.ptype_parse_type with p
     calling ps_add_child with p, ty
+    if calling ps_check_kw with p, KwIs:
+        # Valor por defecto del campo: se parsea para que el diagnóstico del
+        # sema apunte a la expresión (el valor aún no se aplica, §9.2).
+        var ignored2 as Token is calling ps_advance with p
+        calling ps_add_child with p, (calling pexpr.pexpr_parse_expr with p)
+    else:
+        calling ps_add_absent with p
     calling ps_finish_statement with p
-    return calling ps_finish_node with p, NodeKind.NdFieldDecl, start, (calling pexpr.pexpr_end_of with p, ty), 0
+    return calling ps_finish_node with p, NodeKind.NdFieldDecl, start, (calling ps_previous_end with p), 0
 
 ## Parsea `omen NAME ...:`.
 ##

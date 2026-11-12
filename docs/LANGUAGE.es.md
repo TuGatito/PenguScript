@@ -1112,7 +1112,7 @@ rune P:
 Una clave de mapa se hashea por sus bytes. Un tipo con carga en el montón
 (`string` como campo de una runa, `vector of T`, otro `map`, un omen…) no sirve
 como clave: dos claves de igual contenido tendrían punteros distintos y `has`
-fallaría. Eso es **E0121**; usa una clave escalar, `string` directa, o un id
+fallaría. Eso es **E0134**; usa una clave escalar, `string` directa, o un id
 entero. Un `string` **como clave directa** sí funciona (el runtime lo hashea por
 contenido).
 
@@ -1120,12 +1120,17 @@ contenido).
 rune Key:
     name as string
 
-var bad as map of Key, int is map of Key, int   # error[E0121]
+var bad as map of Key, int is map of Key, int   # error[E0134]
 ```
 
 Hasta que exista `bind T with Vinculum` + `weave hash` (semántica nueva), los
 tipos `umap`, `set`, `uset`, `unique`, `shared` y `weak` tampoco existen: nombrarlos
 da `type 'X' is not available yet (planned for the C++ semantics phase)`.
+
+Un campo con valor por defecto (`port as int is 8080`) se parsea y da **E0135**
+("not implemented yet"): un defecto cambia cómo se construye el tipo, así que
+llega con la fase que define esos constructores (`born` y `with` ya lo cubren
+hoy asignando el campo donde se crea el valor).
 
 ### 6.5 Lambdas
 

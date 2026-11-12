@@ -40,9 +40,11 @@ const CODE_BORN_COPY as string is "E0118"
 ## `with` sobre una runa que declaró `born` (dialecto C++).
 const CODE_WITH_BORN as string is "E0106"
 ## Clave de mapa con carga en el montón: necesita hash estructural.
-const CODE_MAP_KEY_HASH as string is "E0121"
+const CODE_MAP_KEY_HASH as string is "E0134"
 ## Atributo desconocido (posible errata).
 const CODE_UNKNOWN_ATTRIBUTE as string is "W0019"
+## Valor por defecto de campo: llega con la semántica nueva.
+const CODE_FIELD_DEFAULT as string is "E0135"
 const CODE_SELF_DOT as string is "E0003"
 const CODE_UNDEFINED as string is "E0004"
 const CODE_TYPE_MISMATCH as string is "E0005"

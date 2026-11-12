@@ -3982,6 +3982,9 @@ Los códigos existentes conservan número y significado. Esta es la lista comple
 | `W0016` | copia profunda implícita de un contenedor grande | `ref to` (apagado por defecto) |
 | `W0017` | `inherit` con `@packed` | layout *implementation-defined* |
 | `W0018` | un tipo de usuario eclipsa un tipo de biblioteca | renombra la runa |
+| `W0019` | atributo desconocido (o `@repr(c)` todavía sin efecto) | revisa la errata; `@repr` llega con la fase de ABI |
+| `E0134` | clave de mapa con payload en el backend actual (hashea por bytes) | clave escalar o `string`; el orden/hash estructural llega con `Ordo`/`Vinculum` |
+| `E0135` | valor por defecto de campo (aún no implementado) | asigna el campo en `born` o en `is with` |
 
 ### 19.4 Códigos que cambian de detalle
 

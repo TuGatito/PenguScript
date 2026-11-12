@@ -27,7 +27,7 @@ cat > "$TMP/key_list.pengu" <<'EOF'
 weave take with m as map of vector of int, int into int:
     return m.len
 EOF
-check_has "$TMP/key_list.pengu" "E0121" "clave de mapa con lista"
+check_has "$TMP/key_list.pengu" "E0134" "clave de mapa con lista"
 
 cat > "$TMP/key_rune.pengu" <<'EOF'
 rune K:
@@ -36,7 +36,17 @@ rune K:
 weave take with m as map of K, int into int:
     return m.len
 EOF
-check_has "$TMP/key_rune.pengu" "E0121" "clave de mapa runa con string"
+check_has "$TMP/key_rune.pengu" "E0134" "clave de mapa runa con string"
+
+cat > "$TMP/fdefault.pengu" <<'EOF'
+rune Config:
+    port as int is 8080
+
+weave main into int:
+    var c as Config is with port is 9090
+    return c.port
+EOF
+check_has "$TMP/fdefault.pengu" "E0135" "valor por defecto de campo"
 
 cat > "$TMP/pending.pengu" <<'EOF'
 weave take with s as set of int into int:

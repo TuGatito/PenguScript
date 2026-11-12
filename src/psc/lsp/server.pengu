@@ -908,7 +908,12 @@ weave member_hover with p as ref to sema_api.SemaResult, mid as int, text as str
     while i < ids.len:
         var sid as int is (ids at i)
         var nm as string is calling query.symbol_name with p->program, sid
-        if nm == name:
+        # `calling T.new` es el nombre de llamada del constructor `weave born`;
+        # el símbolo conserva el nombre del fuente.
+        var matches as bool is nm == name
+        if not matches and name == "new" and nm == "born":
+            set matches is true
+        if matches:
             var sig as string is calling query.signature_for with p->program, sid
             calling sb.append with "```pengu
 {sig}
@@ -1082,7 +1087,11 @@ weave handle_definition with st as ref to State, id as rpc.JsonRpcId, params as 
                     while mi < mids.len:
                         var msid as int is (mids at mi)
                         var mnm as string is calling query.symbol_name with sp->program, msid
-                        if mnm == w:
+                        # `calling T.new` resuelve al constructor `weave born`.
+                        var mmatch as bool is mnm == w
+                        if not mmatch and w == "new" and mnm == "born":
+                            set mmatch is true
+                        if mmatch:
                             set sid is msid
                         set mi is mi + 1
                     banish mids

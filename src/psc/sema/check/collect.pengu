@@ -1037,6 +1037,7 @@ weave collect_record with s as ref to state.SemaState, node as int, sk as sym.Se
     while i < n:
         var c as int is calling astutil.node_child with s->ast, node, i
         if c >= 0 and (calling astutil.kind_of with s->ast, c) == pskind.NodeKind.NdFieldDecl:
+            calling validate_attributes with s, c
             var fname_slot as int is calling first_token_slot_after_attrs with s, c
             if fname_slot >= 0:
                 var fname_txt as string is calling astutil.child_token_text with s->src, s->lex, s->ast, c, fname_slot
@@ -1050,6 +1051,14 @@ weave collect_record with s as ref to state.SemaState, node as int, sk as sym.Se
                     if ftn >= 0:
                         var ctx as convert.TypeCtx is calling collect_type_ctx with s
                         set ftype is calling convert.convert with (sigil of ctx), ftn
+                var fdef as int is calling astutil.node_child with s->ast, c, (fty_slot + 1)
+                if fdef >= 0:
+                    # El valor por defecto de un campo se parsea (para no
+                    # romper el archivo) pero aún no se aplica: llega con la
+                    # semántica nueva, donde el constructor y `with` lo usan.
+                    var dmsg as string is "field default values are not implemented yet (planned for the C++ semantics phase)"
+                    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_FIELD_DEFAULT, (calling astutil.start_of with s->ast, fdef), (calling astutil.end_of with s->ast, fdef), dmsg, "Assign the field where the value is created (in 'born' or in 'is with'), or give it a name and set it afterwards.", "A default changes construction semantics, so it arrives with the phase that defines them."
+                    banish dmsg
                 var fattrs as int is -1
                 var fc0 as int is calling astutil.node_child with s->ast, c, 0
                 if fc0 >= 0 and (calling astutil.kind_of with s->ast, fc0) == pskind.NodeKind.NdAttributes:
