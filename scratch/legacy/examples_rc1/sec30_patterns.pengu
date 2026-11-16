@@ -1,0 +1,19 @@
+-- fragmento didáctico: se asume dentro de un `grimoire`; no es un módulo completo.
+rune Point
+    x: Int
+    y: Int
+
+classify = (n: Int) -> Str
+    match n
+        when 0 then "cero"
+        when 1 | 2 | 3 then "pequeño"
+        when 4..=9 then "mediano"
+        else "grande"
+
+bind p = Point(x: 1, y: 2)
+print(classify(7))
+
+bind total = match p
+    when Point(x: 0, y: y) then y
+    when Point(x, y) then x + y
+print(total)

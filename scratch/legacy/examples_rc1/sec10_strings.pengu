@@ -1,0 +1,11 @@
+grimoire
+    bind name: String = String.from("pengu")
+    bind greeting = "hola, #{name}"
+    bind chars = name.chars().count()
+    bind bytes = name.len()
+    bind upper = name.to_uppercase()
+
+    print(greeting)
+    print(chars)
+    print(bytes)
+    print(upper)

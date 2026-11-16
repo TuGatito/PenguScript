@@ -1,3 +1,0 @@
-weave main into int:
-    var s as string is r"""raw \n {x}"""
-    return 0

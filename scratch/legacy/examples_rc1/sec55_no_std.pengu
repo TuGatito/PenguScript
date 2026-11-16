@@ -1,0 +1,8 @@
+@@no_std
+
+@@panic_handler
+panic = (info: &PanicInfo) -> !
+    loop
+
+unveil add = (a: Int, b: Int) -> Int
+    a + b

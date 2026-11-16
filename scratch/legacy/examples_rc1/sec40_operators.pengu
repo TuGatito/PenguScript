@@ -1,0 +1,15 @@
+-- fragmento didáctico: se asume dentro de un `grimoire`; no es un módulo completo.
+summon std::ops::Add
+
+rune Point
+    x: Int
+    y: Int
+
+ritual Point for Add
+    essence Output = Point
+    add = (@own, other: Point) -> Point
+        Point(x: @.x + other.x, y: @.y + other.y)
+
+bind p = Point(x: 1, y: 2) + Point(x: 3, y: 4)
+print(p.x)
+print(p.y)

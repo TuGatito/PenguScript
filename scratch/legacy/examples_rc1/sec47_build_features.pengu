@@ -1,0 +1,11 @@
+@@cfg(debug_assertions)
+mode = () -> Str
+    "debug"
+
+@@cfg(not(debug_assertions))
+mode = () -> Str
+    "release"
+
+grimoire
+    print(mode())
+    print(cfg!(debug_assertions))

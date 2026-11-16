@@ -1,0 +1,12 @@
+-- fragmento didáctico: se asume dentro de un `grimoire`; no es un módulo completo.
+essence Meters = Float
+rune UserId(UInt)
+
+bind distance: Meters = 3.5
+bind id = UserId(7)
+bind a: Int = 300
+bind small = a as U8
+
+print(distance)
+print(id.0)
+print(small)

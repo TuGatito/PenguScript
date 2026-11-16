@@ -1,0 +1,28 @@
+grimoire
+    bind hex = 0xFF
+    bind big = 1_000_000
+    bind ratio = 1.5
+    bind letter = 'P'
+    bind greeting = "hello"
+    bind pair = (1, "one")
+    bind numbers =
+        1
+        2
+        3
+    bind words = Vec
+        "magic"
+        "static"
+    bind table =
+        name: "pengu"
+        kind: "seal"
+    bind maybe: ?Int = none
+    print(greeting)
+    print(hex)
+    print(big)
+    print(ratio)
+    print(letter)
+    print(pair.0)
+    print(maybe.is_none())
+    print(numbers.len())
+    print(words.len())
+    print(table.len())

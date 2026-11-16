@@ -1,0 +1,19 @@
+sigil LIMIT: Int = 10
+
+rune Counter
+    value: Int
+
+ritual Counter
+    bump = (@mut) -> Unit
+        @.value += 1
+
+grimoire
+    bind x = 1
+    do
+        bind x = 2
+        print(x)
+    print(x)
+
+    morph counter = Counter(value: 0)
+    counter.bump()
+    print(counter.value)

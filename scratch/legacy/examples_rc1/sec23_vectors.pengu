@@ -1,0 +1,10 @@
+-- fragmento didáctico: se asume dentro de un `grimoire`; no es un módulo completo.
+morph scores = Vec
+    70
+    90
+    80
+scores.push(100)
+scores.sort()
+print(scores.len())
+print(scores[0])
+print(scores.pop().unwrap())

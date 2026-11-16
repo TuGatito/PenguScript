@@ -1,0 +1,73 @@
+-- std/tabula.pengu — Map[K, V]
+--
+-- S3. Paso directo a `HashMap` de Rust (clase T3): el cuerpo `panic` nunca se
+-- emite. Requiere `K: Eq + Hash`.
+--
+-- Diferidos a S7 (necesitan `Iter[T]`/`Entry[K, V]`): `drain`, `keys`, `values`,
+-- `values_mut`, `iter`, `iter_mut`, `entry`.
+-- `retain` recibe `(K, &V)` y copia la clave (`K: Clone`) para respetar la
+-- firma de la spec sobre la de Rust.
+scroll tabula
+    ritual[K, V] Map[K, V]
+        new = () -> Map[K, V]
+            panic("passthrough")
+
+        with_capacity = (n: Usize) -> Map[K, V]
+            panic("passthrough")
+
+        insert = (@mut, key: K, value: V) -> Option[V]
+            panic("passthrough")
+
+        get = (@, key: &K) -> Option[&V]
+            panic("passthrough")
+
+        get_mut = (@mut, key: &K) -> Option[&mut V]
+            panic("passthrough")
+
+        remove = (@mut, key: &K) -> Option[V]
+            panic("passthrough")
+
+        remove_entry = (@mut, key: &K) -> Option[(K, V)]
+            panic("passthrough")
+
+        get_key_value = (@, key: &K) -> Option[(&K, &V)]
+            panic("passthrough")
+
+        get_or_insert = (@mut, key: K, default: V) -> &mut V
+            panic("passthrough")
+
+        get_or_insert_with = (@mut, key: K, f: () -> V) -> &mut V
+            panic("passthrough")
+
+        contains_key = (@, key: &K) -> Bool
+            panic("passthrough")
+
+        len = (@) -> Usize
+            panic("passthrough")
+
+        is_empty = (@) -> Bool
+            panic("passthrough")
+
+        clear = (@mut) -> Unit
+            panic("passthrough")
+
+        capacity = (@) -> Usize
+            panic("passthrough")
+
+        reserve = (@mut, additional: Usize) -> Unit
+            panic("passthrough")
+
+        shrink_to_fit = (@mut) -> Unit
+            panic("passthrough")
+
+        retain = (@mut, f: (K, V) -> Bool) -> Unit
+            panic("passthrough")
+
+        extend = (@mut, other: Map[K, V]) -> Unit
+            panic("passthrough")
+
+        clone = (@) -> Map[K, V]
+            panic("passthrough")
+
+        to_string = (@) -> String
+            panic("passthrough")

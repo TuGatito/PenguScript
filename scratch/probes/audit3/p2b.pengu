@@ -1,0 +1,9 @@
+grimoire
+    morph m = Map.new()
+    m.insert("a", 1)
+    match m.get("a")
+        when some(v)
+            m = Map.new()
+        when none
+            print("x")
+    print(m.len())

@@ -1,0 +1,5 @@
+foreign "C"
+    cos = (x: Float) -> Float
+
+grimoire
+    print(cos(0.0))

@@ -1,0 +1,6 @@
+scroll demo
+    ritual Vec[T]
+        primera = (@) -> Option[T]
+            @.get(0)
+grimoire
+    print(1)

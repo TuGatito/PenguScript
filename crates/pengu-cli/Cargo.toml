@@ -1,0 +1,35 @@
+[package]
+name = "pengu-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "pengu"
+path = "src/main.rs"
+
+[lib]
+name = "pengu_cli"
+path = "src/lib.rs"
+
+[dependencies]
+pengu-bindgen = { path = "../pengu-bindgen" }
+pengu-build = { path = "../pengu-build" }
+pengu-fmt = { path = "../pengu-fmt" }
+pengu-lint = { path = "../pengu-lint" }
+pengu-pkg = { path = "../pengu-pkg" }
+pengu-project = { path = "../pengu-project" }
+pengu-lir = { path = "../pengu-lir" }
+pengu-codegen = { path = "../pengu-codegen" }
+pengu-lsp = { path = "../pengu-lsp" }
+pengu-layout = { path = "../pengu-layout" }
+pengu-diag = { path = "../pengu-diag" }
+pengu-syntax = { path = "../pengu-syntax" }
+pengu-hir = { path = "../pengu-hir" }
+pengu-types = { path = "../pengu-types" }
+pengu-span = { path = "../pengu-span" }
+pengu-std = { path = "../pengu-std" }
+
+[lints]
+workspace = true

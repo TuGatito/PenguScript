@@ -1,0 +1,39 @@
+-- std/veritas.pengu — módulo `veritas`: métodos de `Bool`.
+--
+-- `Bool` es el tipo de verdad: `true` / `false`. Los operadores `and`, `or`,
+-- `not` y `xor` son parte del lenguaje; este módulo añade la superficie
+-- metodológica (incluido `switch`, el nombre de `not` como método).
+--
+-- Los métodos son de cuerpo puro: no necesitan intrínsecos.
+
+scroll veritas
+    foreign "pengu"
+        b_to_string = (b: Bool) -> String
+
+    ritual Bool
+        switch = (@own) -> Bool
+            not @
+
+        to_int = (@own) -> Int
+            if @ then 1 else 0
+
+        to_string = (@) -> String
+            b_to_string(@)
+
+        xor = (@own, other: Bool) -> Bool
+            @ != other
+
+        implies = (@own, other: Bool) -> Bool
+            (not @) or other
+
+        nand = (@own, other: Bool) -> Bool
+            not (@ and other)
+
+        nor = (@own, other: Bool) -> Bool
+            not (@ or other)
+
+        then_int = (@own, when_true: Int, when_false: Int) -> Int
+            if @ then when_true else when_false
+
+        to_float = (@own) -> Float
+            if @ then 1.0 else 0.0

@@ -1,3 +1,0 @@
-weave f into int:
-    return 0
-        # indented comment at EOF

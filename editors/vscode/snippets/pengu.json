@@ -1,0 +1,194 @@
+{
+  "Programa completo": {
+    "prefix": ["prog", "programa"],
+    "body": [
+      "--! ${1:Descripción del programa.}",
+      "",
+      "${2:saluda} = (nombre: &Str) -> String",
+      "    \"hola, #{nombre}\"",
+      "",
+      "grimoire",
+      "    print(${2:saluda}(\"mundo\"))",
+      "$0"
+    ],
+    "description": "Programa mínimo con un módulo documentado y `grimoire`."
+  },
+  "Función": {
+    "prefix": ["fn", "fun"],
+    "body": [
+      "${1:nombre} = (${2:valor}: ${3:Int}) -> ${4:Int}",
+      "    ${5:valor}$0"
+    ],
+    "description": "Función con un parámetro y tipo de retorno."
+  },
+  "Función privada": {
+    "prefix": ["fnpriv"],
+    "body": [
+      "${1:nombre} = (${2:valor}: ${3:Int}) -> ${4:Int}",
+      "    ${5:valor}$0"
+    ],
+    "description": "Función sin `unveil` (privada al módulo)."
+  },
+  "Prueba": {
+    "prefix": ["test", "@@test"],
+    "body": [
+      "@@test",
+      "${1:nombre_de_la_prueba} = () -> Unit",
+      "    ${2:assert_eq(1 + 1, 2)}$0"
+    ],
+    "description": "Función de prueba que ejecuta `pengu test`."
+  },
+  "Record": {
+    "prefix": ["rune", "record"],
+    "body": [
+      "rune ${1:Nombre}",
+      "    ${2:campo}: ${3:Int}$0"
+    ],
+    "description": "Record (`rune`) con un campo."
+  },
+  "Suma": {
+    "prefix": ["enchanting", "enum"],
+    "body": [
+      "enchanting ${1:Forma}",
+      "    ${2:Circulo}(${3:Radio})",
+      "    ${4:Vacio}$0"
+    ],
+    "description": "Suma (`enchanting`) con una variante con datos y otra vacía."
+  },
+  "Pact": {
+    "prefix": ["pact", "interfaz"],
+    "body": [
+      "pact ${1:Forma}",
+      "    ${2:area} = (@) -> Float$0"
+    ],
+    "description": "Pact (interfaz) con un método."
+  },
+  "Ritual inherente": {
+    "prefix": ["ritual", "impl"],
+    "body": [
+      "ritual ${1:Nombre}",
+      "    ${2:metodo} = (@, ${3:valor}: ${4:Int}) -> ${5:Int}",
+      "        ${6:valor}$0"
+    ],
+    "description": "Ritual de métodos inherentes sobre un tipo."
+  },
+  "Ritual de pact": {
+    "prefix": ["ritualp"],
+    "body": [
+      "ritual ${1:Nombre} for ${2:Pact}",
+      "    ${3:metodo} = (@) -> ${4:Float}",
+      "        ${5:0.0}$0"
+    ],
+    "description": "Ritual que implementa un pact."
+  },
+  "Módulo": {
+    "prefix": ["scroll", "modulo"],
+    "body": [
+      "scroll ${1:nombre}",
+      "",
+      "    ${2:funcion} = () -> ${3:Unit}",
+      "        ${4:()}",
+      "$0"
+    ],
+    "description": "Módulo en el mismo archivo."
+  },
+  "Importar módulo": {
+    "prefix": ["summon", "import"],
+    "body": ["summon ${1:std::modulo}$0"],
+    "description": "Importa los nombres de un módulo."
+  },
+  "Variable": {
+    "prefix": ["bind", "let"],
+    "body": ["bind ${1:nombre} = ${2:valor}$0"],
+    "description": "Binding inmutable."
+  },
+  "Variable mutable": {
+    "prefix": ["morph", "var"],
+    "body": ["morph ${1:nombre} = ${2:valor}$0"],
+    "description": "Binding reasignable con `morph`."
+  },
+  "Si": {
+    "prefix": ["if"],
+    "body": [
+      "if ${1:condicion} then",
+      "    ${2:valor}",
+      "else",
+      "    ${3:otro}$0"
+    ],
+    "description": "Condicional con `then`/`else`."
+  },
+  "Si encadenado": {
+    "prefix": ["elseif"],
+    "body": [
+      "if ${1:a} == ${2:1} then",
+      "    ${3:uno}",
+      "elseif ${1:a} == ${2:2} then",
+      "    ${4:dos}",
+      "else",
+      "    ${5:tres}$0"
+    ],
+    "description": "Cadena `if`/`elseif`/`else`."
+  },
+  "Match": {
+    "prefix": ["match"],
+    "body": [
+      "match ${1:valor}",
+      "    when ${2:patron} then",
+      "        ${3:resultado}",
+      "    when ${4:none} then",
+      "        ${5:alternativa}$0"
+    ],
+    "description": "`match` con dos brazos."
+  },
+  "Bucle for": {
+    "prefix": ["for"],
+    "body": ["for ${1:elemento} in ${2:valores} do", "    ${3:print(elemento)}$0"],
+    "description": "Recorre una colección."
+  },
+  "Bucle while": {
+    "prefix": ["while"],
+    "body": ["while ${1:condicion} do", "    ${2:()} $0"],
+    "description": "Bucle con condición booleana."
+  },
+  "Bucle loop": {
+    "prefix": ["loop"],
+    "body": ["loop", "    ${1:if condition then}", "        ${2:break}$0"],
+    "description": "Bucle infinito con `break`."
+  },
+  "Bloque curse": {
+    "prefix": ["curse", "unsafe"],
+    "body": ["curse", "    ${1:llamada_ffi()}$0"],
+    "description": "Bloque `curse` con la marca `-- SAFETY:`."
+  },
+  "Función foreign": {
+    "prefix": ["foreign"],
+    "body": [
+      "foreign \"C\"",
+      "    ${1:puts} = (${2:text}: &CStr) -> ${3:Int}$0"
+    ],
+    "description": "Declaración FFI dentro de un `.d.pengu` o `curse`."
+  },
+  "Documentación de item": {
+    "prefix": ["doc", "---"],
+    "body": [
+      "--- ${1:Resumen en una línea.}",
+      "---",
+      "--- ${2:Detalle con un ejemplo:}",
+      "---",
+      "--- ```pengu",
+      "--- ${3:ejemplo()}",
+      "--- ```$0"
+    ],
+    "description": "Comentario de documentación `---` (doc tests incluidos)."
+  },
+  "Documentación de módulo": {
+    "prefix": ["moddoc", "--!"],
+    "body": ["--! ${1:Descripción del módulo.}$0"],
+    "description": "Comentario de módulo `--!`."
+  },
+  "Interpolación": {
+    "prefix": ["interp", "#{"],
+    "body": ["#{${1:expresion}}$0"],
+    "description": "Interpolación dentro de una cadena."
+  }
+}

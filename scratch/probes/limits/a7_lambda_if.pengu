@@ -1,0 +1,5 @@
+grimoire
+    bind xs = [3, 1, 2]
+    bind ys = xs.map(fun (x: Int) -> Int
+        if x > 1 then x else 0)
+    print(ys.len())

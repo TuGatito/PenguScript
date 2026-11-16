@@ -1,0 +1,3 @@
+essence MiEntero = Int
+grimoire
+    print(1)

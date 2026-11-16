@@ -1,0 +1,33 @@
+-- std/opera.pengu — pactos de operadores.
+--
+-- Un tipo de usuario gana `+`, `-`, `*`, `/`, `%`, `-x`, `==`, `!=` y `<`
+-- implementando el pacto correspondiente con `ritual Tipo: Pacto`. Los
+-- primitivos ya traen sus operadores en el lenguaje; estos pactos son para
+-- tipos definidos por el usuario y para genéricos con bounds.
+--
+-- Se importan con `summon std::opera::Add` (o el pacto que haga falta).
+
+scroll opera
+    unveil pact Add
+        add = (@own, other: Self) -> Self
+
+    unveil pact Sub
+        sub = (@own, other: Self) -> Self
+
+    unveil pact Mul
+        mul = (@own, other: Self) -> Self
+
+    unveil pact Div
+        div = (@own, other: Self) -> Self
+
+    unveil pact Rem
+        rem = (@own, other: Self) -> Self
+
+    unveil pact Neg
+        neg = (@own) -> Self
+
+    unveil pact Eq
+        eq = (@, other: &Self) -> Bool
+
+    unveil pact Ord
+        cmp = (@, other: &Self) -> Ordering

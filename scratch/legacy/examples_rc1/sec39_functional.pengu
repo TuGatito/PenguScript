@@ -1,0 +1,7 @@
+-- fragmento didáctico: se asume dentro de un `grimoire`; no es un módulo completo.
+bind nums = [1, 2, 3, 4]
+bind doubled = nums.iter().map((x: &Int) => *x * 2).collect[Vec[Int]]()
+print(doubled)
+
+bind value: ?Int = some(3)
+print(value.map((x: Int) => x * 2).unwrap_or(0))

@@ -1,0 +1,21 @@
+-- std.proba — aserciones y utilidades de test.
+--
+-- Nota de implementación (S4): `panic` es una primitiva del lenguaje y no
+-- necesita declararse aquí. `should_panic` es un atributo del test
+-- (`@@test(should_panic: "...")`), no una función.
+--
+-- Todas las aserciones son intrínsecos `abi "pengu"`: el mensaje se construye
+-- en el backend con el trait `Show` del runtime, de modo que funcionan con
+-- cualquier tipo sin necesidad de bounds en la superficie.
+
+scroll proba
+    foreign "pengu"
+        assert = (condition: Bool, message: &Str) -> Unit
+        assert_eq = [T](actual: T, expected: T) -> Unit
+        assert_ne = [T](actual: T, unexpected: T) -> Unit
+        assert_eq_msg = [T](actual: T, expected: T, message: &Str) -> Unit
+        assert_ne_msg = [T](actual: T, unexpected: T, message: &Str) -> Unit
+        assert_approx_eq = (actual: Float, expected: Float, tolerance: Float) -> Unit
+        debug_assert = (condition: Bool, message: &Str) -> Unit
+        debug_assert_eq = [T](actual: T, expected: T) -> Unit
+        fail = (message: &Str) -> Never

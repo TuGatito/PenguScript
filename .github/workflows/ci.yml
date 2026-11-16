@@ -2,465 +2,52 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
   pull_request:
-    branches: [main, master]
 
-permissions:
-  contents: read
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
 
 jobs:
-  build:
-    name: PSC (${{ matrix.label }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { os: ubuntu-latest, label: linux }
-          - { os: macos-latest, label: macos }
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Assert macOS arm64
-        if: runner.os == 'macOS'
-        shell: bash
-        # `macos-latest` is an Apple Silicon runner; fail loudly if GitHub
-        # changes the mapping so the "macOS arm64 is guaranteed" claim stays
-        # honest.
-        run: test "$(uname -m)" = "arm64"
-
-      - name: Install libcurl (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
-
-      - name: Build bootstrap compiler
-        shell: bash
-        # The latest published release still ships the legacy `pengu` CLI,
-        # which cannot compile this tree in reasonable time. The checked-in
-        # stage0 bundle gives a native `psc` with only a C compiler.
-        run: bash ./tools/build_bootstrap.sh
-
-      - name: Build compiler
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./build/psc-stage0 build .
-          ./build/psc version
-
-      - name: Format gate
-        shell: bash
-        run: ./build/psc fmt --check src std
-
-      - name: Stage0 freshness
-        shell: bash
-        run: bash ./tools/gen_stage0.sh --check
-
-      - name: PSC tests
-        shell: bash
-        run: ./tests/run.sh
-
-      - name: C++ backend gate
-        shell: bash
-        # F0.3: the compiler must be able to emit itself as C++ that `g++`
-        # accepts, without linking. macOS has no real g++, so fall back to
-        # clang++ there.
-        run: |
-          CXX="$(command -v g++ || command -v clang++)" bash ./tests/cpp_backend/run.sh
-
-      - name: C++ stage0 bundles reproducible
-        shell: bash
-        # F1: los tres bundles C++ (linux/macos/windows) se generan igual y son
-        # ISO C++20 en los targets que no necesitan SDK de Windows.  No se
-        # commitean todavía (repo size); el bootstrap canónico sigue siendo C.
-        run: |
-          CXX="$(command -v g++ || command -v clang++)" bash ./tests/cpp_backend/run.sh --stage0
-
-      - name: C++ backend link + self-host suite
-        shell: bash
-        # F1: the C++ bundle must not only compile: it must link against the C
-        # runtime and behave like the C-built compiler (--version + 895 tests).
-        run: |
-          CXX="$(command -v g++ || command -v clang++)" bash ./tests/cpp_backend/run.sh --link
-
-      - name: C++ test suite (whole std through the C++ emitter)
-        shell: bash
-        # `psc test .` in C++ mode emits the *test* bundle, which instantiates
-        # the whole std (not just the compiler's DCE'd closure): this is the
-        # gate that keeps the C++ backend able to compile every module.
-        run: ./build/psc test . --backend=cpp
-
-      - name: Golden C tests
-        shell: bash
-        run: bash ./tests/golden_c/run.sh
-
-      - name: Leak tests (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: bash ./tests/leaks/run.sh
-
-      - name: Compiler benchmark gate
-        shell: bash
-        run: ./tools/bench.sh . --runs 2 --gate-warm 2000 --gate-check 1000
-
-      - name: CLI tests (psc add)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: bash ./tests/cli/add_no_name.sh
-
-      - name: Compiler regressions
-        if: runner.os != 'Windows'
-        shell: bash
-        run: bash ./tests/regress.sh
-
-      - name: License allowlist
-        shell: bash
-        run: bash ./tools/license_check.sh
-
-      - name: Link pruning
-        shell: bash
-        run: bash ./tests/link_prune.sh
-
-      - name: Receiver type guard
-        shell: bash
-        run: bash ./tests/receiver_guard.sh
-
-      - name: Pointer safety guard
-        shell: bash
-        run: bash ./tests/pointer_guard.sh
-
-      - name: Chain guard
-        shell: bash
-        run: bash ./tests/chain_guard.sh
-
-      - name: Parser fuzz smoke
-        shell: bash
-        run: ./build/psc run tests/pengu/fuzz_parsers.pengu --no-cache -- 5000
-
-      - name: Binary size budget (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: bash ./tools/size_report.sh
-
-      - name: LSP protocol tests
-        shell: bash
-        run: python3 tests/lsp/run_lsp_tests.py
-
-      - name: Language asset tests
-        shell: bash
-        run: python3 tests/lsp/test_assets.py
-
-      - name: Bind smoke
-        shell: bash
-        run: |
-          if [ -z "${PENGU_BIND:-}" ]; then
-            echo "::notice::bootstrap does not ship pengu-bind; skipping bind smoke"
-            exit 0
-          fi
-          ./build/psc bind c_bind_stubs/stdio.h --output=/tmp/psc-bind-check.d.pengu
-          test -s /tmp/psc-bind-check.d.pengu
-
-      - name: ASan/UBSan smoke (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          ./build/psc emit-c src/main.pengu --out=/tmp/psc-asan.c
-          cc -std=c11 -g -O1 -fsanitize=address,undefined -I "$PWD/build/include" -I . -I std_c \
-            /tmp/psc-asan.c build/lib/libpengu_runtime.a -lm -lpthread -ldl -o /tmp/psc-asan
-          ASAN_OPTIONS=detect_leaks=0 /tmp/psc-asan version
-
-      - name: Setup Emscripten
-        uses: mymindstorm/setup-emsdk@v14
-        with:
-          version: latest
-
-      - name: Build wasm runtime for packaging
-        shell: bash
-        run: bash ./tools/build_runtime_wasm.sh
-
-      - name: Package portable
-        shell: bash
-        run: bash ./tools/package_ci.sh
-
-      - name: Upload release files
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-${{ matrix.label }}
-          path: dist/*
-          if-no-files-found: error
-
-  docs:
-    name: Documentation
+  quality:
+    name: Compilador y herramientas
     runs-on: ubuntu-latest
-    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-
-      - name: Assert macOS arm64
-        if: runner.os == 'macOS'
-        shell: bash
-        # `macos-latest` is an Apple Silicon runner; fail loudly if GitHub
-        # changes the mapping so the "macOS arm64 is guaranteed" claim stays
-        # honest.
-        run: test "$(uname -m)" = "arm64"
-
-      - name: Install libcurl (Linux)
-        shell: bash
-        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
-
-      - name: Build compiler
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash ./tools/build_bootstrap.sh
-          ./build/psc-stage0 build .
-          ./build/psc version
-
-      - name: Generated API is current
-        shell: bash
-        run: bash ./tools/docs/gen_api.sh --check
-
-      - name: Validate documents
-        shell: bash
-        run: python3 ./tools/docs/validate_docs.py docs/LANGUAGE.md docs/LANGUAGE.es.md docs/PENGUNIC.md docs/PENGUNIC.es.md docs/STDLIB.md docs/STDLIB.es.md docs/BUILD_CACHE.md docs/CROSS_COMPILE.md docs/COVERAGE.md docs/SANITIZERS.md docs/DEBUGGER.md
-
-      - name: Diagnostics catalog is current
-        shell: bash
-        run: python3 ./tools/docs/check_codes.py --check
-
-      - name: Spanish/English docs keep the same shape
-        shell: bash
-        run: python3 ./tools/docs/parity.py
-
-      - name: Links resolve
-        shell: bash
-        run: bash ./tools/docs/check_links.sh docs
-
-  wasm:
-    name: WebAssembly (Emscripten)
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Emscripten
-        uses: mymindstorm/setup-emsdk@v14
+      - name: Instalar Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
-          version: latest
-
-      - name: Build bootstrap compiler
-        shell: bash
-        run: bash ./tools/build_bootstrap.sh
-
-      - name: Build compiler
-        shell: bash
+          components: rustfmt, clippy
+      - name: Caché de compilación
+        uses: Swatinem/rust-cache@v2
+      - name: Formato de Rust
+        run: cargo fmt --all -- --check
+      - name: Clippy sin avisos
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Tests del workspace
+        run: cargo test --workspace
+      - name: Compilar el binario `pengu`
+        run: cargo build -p pengu-cli
+      - name: La stdlib está formateada
+        run: ./target/debug/pengu fmt --check std
+      - name: La stdlib no tiene avisos
+        run: ./target/debug/pengu lint --std std
+      - name: Los ejemplos están formateados
+        run: ./target/debug/pengu fmt --check examples
+      - name: Los ejemplos no tienen avisos
+        run: ./target/debug/pengu lint examples
+      - name: Sintaxis de los scripts de instalación
         run: |
-          set -euo pipefail
-          ./build/psc-stage0 build .
-          ./build/psc version
-
-      - name: Build wasm runtime
-        shell: bash
-        run: bash ./tools/build_runtime_wasm.sh
-
-      - name: WebAssembly smoke tests
-        shell: bash
-        run: bash ./tests/wasm/run.sh
-
-      - name: Package wasm demo
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          ./build/psc run tests/wasm/std_web_smoke.pengu --target wasm --profile=release --no-cache
-          cp build/std_web_smoke.html build/std_web_smoke.js build/std_web_smoke.wasm dist/ || true
-
-      - name: Upload wasm demo
-        uses: actions/upload-artifact@v4
-        with:
-          name: wasm-demo
-          path: dist/*
-          if-no-files-found: ignore
-
-  vscode:
-    name: VS Code extension
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: npm
-          cache-dependency-path: vscode-extension/package-lock.json
-
-      - name: Install extension dependencies
-        working-directory: vscode-extension
-        run: npm ci
-
-      - name: Test extension path resolution
-        working-directory: vscode-extension
-        run: |
-          npm run compile
-          node test/psc_path_check.js "$PWD/out"
-          rm -f out/pscPath.js out/pscPath.js.map
-
-      - name: Bundle extension
-        working-directory: vscode-extension
-        run: npm run bundle
-
-      - name: Package VSIX
-        working-directory: vscode-extension
-        run: |
-          mkdir -p dist
-          npx @vscode/vsce package --out "dist/pengus-$(node -p "require('./package.json').version").vsix"
-
-      - name: Upload VSIX
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-vscode
-          path: vscode-extension/dist/*.vsix
-          if-no-files-found: error
-
-  release:
-    name: Publish release from CHANGELOG
-    needs: [build, wasm, vscode]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download release files
-        uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          pattern: release-*
-          merge-multiple: true
-          path: dist
-
-      - name: Create tag and GitHub release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          VERSION="$(grep -m1 -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md |
-            sed -E 's/^## \[([^]]+)\].*/\1/')"
-          if [ -z "$VERSION" ]; then
-            echo "::error::CHANGELOG.md has no versioned section"
-            exit 1
-          fi
-          TAG="v$VERSION"
-          echo "CHANGELOG version: $VERSION (tag $TAG)"
-          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
-            echo "::notice::tag $TAG already exists; skipping release"
-            exit 0
-          fi
-          shopt -s nullglob
-          platform_archives=(dist/*.tar.gz)
-          vsix_files=(dist/*.vsix)
-          shopt -u nullglob
-          if [ "${#platform_archives[@]}" -eq 0 ] || [ "${#vsix_files[@]}" -eq 0 ]; then
-            echo "::error::missing release archives or VSIX"
-            exit 1
-          fi
-          awk -v ver="$VERSION" '
-            index($0, "## [" ver "]") == 1 { capture = 1; next }
-            capture && /^## \[/ { exit }
-            capture { print }
-          ' CHANGELOG.md > release-notes.md
-          if [ ! -s release-notes.md ]; then
-            echo "::error::CHANGELOG.md has no section for $VERSION"
-            exit 1
-          fi
-          TITLE="$(awk -v ver="$VERSION" \
-            'index($0, "## [" ver "]") == 1 { print; exit }' CHANGELOG.md |
-            sed -E 's/^## \[[^]]+\] — [0-9]{4}-[0-9]{2}-[0-9]{2} — //')"
-          (cd dist && sha256sum *.tar.gz *.vsix > SHA256SUMS.txt)
-          assets=()
-          for f in dist/*.tar.gz dist/*.vsix dist/SHA256SUMS.txt; do
-            [ -f "$f" ] && assets+=("$f")
-          done
-          gh release create "$TAG" --target "$GITHUB_SHA" \
-            --title "PenguScript v$VERSION — $TITLE" \
-            --notes-file release-notes.md "${assets[@]}"
-
-
-  cross-linux-arm64:
-    name: Cross Linux ARM64
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install cross toolchain and qemu
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu qemu-user libcurl4-openssl-dev
-
-      - name: Build native compiler
-        run: ./tools/build.sh --no-register --no-wasm --no-bind
-
-      - name: Build ARM64 runtime
-        run: |
-          CC=aarch64-linux-gnu-gcc AR=aarch64-linux-gnu-ar \
-          RUNTIME_OUT=build/lib/aarch64-unknown-linux-gnu \
-          bash tools/build_runtime.sh
-
-      - name: Cross-build and run a project
-        run: |
-          mkdir -p /tmp/arm/src
-          cat >/tmp/arm/pengu.toml <<'TOML'
-          [build]
-          entry = "src/main.pengu"
-          output = "exe"
-          TOML
-          cat >/tmp/arm/src/main.pengu <<'PENGU'
-          weave main into int:
-              calling print with "arm64 ok"
-              return 0
-          PENGU
-          ./build/psc build /tmp/arm --target=aarch64-unknown-linux-gnu
-          qemu-aarch64 -L /usr/aarch64-linux-gnu /tmp/arm/build/app
-
-  windows:
-    name: Windows (MSYS2)
-    runs-on: windows-latest
-    timeout-minutes: 60
-    defaults:
-      run:
-        shell: msys2 {0}
-    env:
-      CC: gcc
-      AR: ar
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: mingw-w64-x86_64-gcc
-
-      - name: Build bootstrap compiler
-        run: bash ./tools/build_bootstrap.sh
-
-      - name: Build compiler
-        run: ./build/psc-stage0.exe build .
-
-      - name: Smoke test
-        run: |
-          mkdir -p /tmp/winhello/src
-          printf '[build]\nentry = "src/main.pengu"\noutput = "exe"\noutput_name = "hello"\n' > /tmp/winhello/pengu.toml
-          printf 'weave main into int:\n    calling print with "windows ok"\n    return 0\n' > /tmp/winhello/src/main.pengu
-          ./build/psc.exe build /tmp/winhello
-          ./build/psc.exe run /tmp/winhello
-
-      - name: Reactor smoke test
-        run: ./build/psc.exe run tests/pengu/reactor_basic.pengu
+          sh -n scripts/install.sh
+          sh -n scripts/package.sh
+          node --check scripts/vsix.mjs
+      - name: La extensión de VS Code pasa la validación
+        run: node scripts/vsix.mjs --check
+      - name: La extensión se activa y arranca el servidor
+        run: node editors/check-extension.mjs target/debug/pengu
+      - name: Prueba de humo del LSP
+        run: node editors/smoke.mjs target/debug/pengu
+      - name: El instalador funciona desde el código fuente
+        run: ./scripts/install.sh --from-source . --prefix "$RUNNER_TEMP/pengu" --no-path
+      - name: El paquete contiene el binario y las sumas
+        run: ./scripts/package.sh --skip-build --version 0.1.0 --out "$RUNNER_TEMP/dist"

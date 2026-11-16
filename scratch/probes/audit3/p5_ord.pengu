@@ -1,0 +1,23 @@
+summon std::opera::Ord
+
+unveil inserta_ordenado = [K: Ord, V](items: Vec[(K, V)], key: K, value: V) -> Vec[(K, V)]
+    morph out: Vec[(K, V)] = Vec.new()
+    morph puesto = false
+    for par in items
+        bind (k, v) = par
+        if !puesto && key < k
+            out.push((key, value))
+            puesto = true
+        out.push((k, v))
+    if !puesto
+        out.push((key, value))
+    out
+
+grimoire
+    morph xs: Vec[(Int, String)] = Vec.new()
+    xs = inserta_ordenado(xs, 5, "cinco")
+    xs = inserta_ordenado(xs, 1, "uno")
+    xs = inserta_ordenado(xs, 3, "tres")
+    for par in xs
+        bind (k, v) = par
+        print(k)

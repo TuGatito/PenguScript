@@ -1,0 +1,4 @@
+grimoire
+    bind a = String.from("x")
+    bind b = a
+    print(a.len())

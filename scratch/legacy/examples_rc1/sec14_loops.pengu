@@ -1,0 +1,19 @@
+grimoire
+    morph total = 0
+    for i in 0..5
+        total += i
+
+    for i in 0..=10 by 2
+        total += i
+
+    outer: for i in 0..3
+        for j in 0..3
+            if i == 1 and j == 1
+                break outer
+
+    bind squares = [x * x for x in 0..5]
+    bind evens = [x for x in 0..10 if x % 2 == 0]
+
+    print(total)
+    print(squares.len())
+    print(evens.len())

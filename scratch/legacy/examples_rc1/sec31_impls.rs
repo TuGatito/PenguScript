@@ -1,0 +1,19 @@
+struct Point {
+    x: f64,
+    y: f64,
+}
+
+impl Point {
+    fn new(x: f64, y: f64) -> Point {
+        Point { x, y }
+    }
+
+    fn length(&self) -> f64 {
+        (self.x * self.x + self.y * self.y).sqrt()
+    }
+}
+
+fn main() {
+    let p = Point::new(3.0, 4.0);
+    println!("{}", p.length());
+}

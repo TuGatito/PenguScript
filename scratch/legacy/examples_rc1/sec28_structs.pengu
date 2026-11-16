@@ -1,0 +1,13 @@
+-- fragmento didáctico: se asume dentro de un `grimoire`; no es un módulo completo.
+rune Point
+    x: Float
+    y: Float
+
+rune Pair(Int, Int)
+
+bind p = Point(x: 3.0, y: 4.0)
+bind q = Point(x: 1.0, ..p)
+bind pair = Pair(7, 8)
+
+print(p.x + q.y)
+print(pair.0 + pair.1)

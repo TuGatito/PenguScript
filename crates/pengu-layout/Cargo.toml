@@ -1,0 +1,15 @@
+[package]
+name = "pengu-layout"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+pengu-hir = { path = "../pengu-hir" }
+pengu-span = { path = "../pengu-span" }
+pengu-syntax = { path = "../pengu-syntax" }
+pengu-types = { path = "../pengu-types" }
+
+[lints]
+workspace = true

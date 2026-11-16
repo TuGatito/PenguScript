@@ -1,0 +1,7 @@
+summon std::floatem::FloatClass
+grimoire
+    bind c = (1.0).classify()
+    bind name = match c
+        when Zero then "cero"
+        when _ then "otro"
+    print(name)

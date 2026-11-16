@@ -1,0 +1,17 @@
+[package]
+name = "pengu-probe"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+pengu-codegen = { path = "../../../crates/pengu-codegen" }
+pengu-diag = { path = "../../../crates/pengu-diag" }
+pengu-hir = { path = "../../../crates/pengu-hir" }
+pengu-lir = { path = "../../../crates/pengu-lir" }
+pengu-span = { path = "../../../crates/pengu-span" }
+pengu-std = { path = "../../../crates/pengu-std" }
+pengu-syntax = { path = "../../../crates/pengu-syntax" }
+pengu-types = { path = "../../../crates/pengu-types" }

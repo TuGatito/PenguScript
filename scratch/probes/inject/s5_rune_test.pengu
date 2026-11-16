@@ -1,0 +1,4 @@
+scroll demo
+    unveil rune Punto
+        unveil x: Int
+        unveil y: Int

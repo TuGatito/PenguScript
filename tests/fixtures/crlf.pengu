@@ -1,3 +1,0 @@
-weave main into int:
-    var x as int is 1
-    return x

@@ -1,0 +1,8 @@
+@@derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)
+rune Id
+    value: UInt
+
+grimoire
+    bind a = Id(value: 7)
+    bind b = a
+    print("#{a == b} #{b:?}")

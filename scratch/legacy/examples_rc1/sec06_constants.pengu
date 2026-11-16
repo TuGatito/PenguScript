@@ -1,0 +1,9 @@
+summon std::sync::Mutex
+
+sigil MAX_HP: Int = 100
+relic GREETING: Str = "hello"
+@@shared relic COUNTER: Mutex[Int] = Mutex.new(0)
+
+grimoire
+    print(GREETING)
+    print(MAX_HP)

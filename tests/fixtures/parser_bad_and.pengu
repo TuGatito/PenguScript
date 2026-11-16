@@ -1,2 +1,0 @@
-weave f with a as int and b as int into int:
-    return a

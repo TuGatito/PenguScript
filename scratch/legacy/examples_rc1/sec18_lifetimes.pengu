@@ -1,0 +1,7 @@
+longest = ['a](a: &'a Str, b: &'a Str) -> &'a Str
+    if a.len() >= b.len() then a else b
+
+grimoire
+    bind a = "pengu"
+    bind b = "script"
+    print(longest(a, b))

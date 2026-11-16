@@ -1,0 +1,4 @@
+grimoire
+    bind xs = [1, 2, 3]
+    bind v: &[Int] = &xs
+    print(v.len())

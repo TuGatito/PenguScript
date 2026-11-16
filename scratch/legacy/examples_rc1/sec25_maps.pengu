@@ -1,0 +1,10 @@
+-- fragmento didáctico: se asume dentro de un `grimoire`; no es un módulo completo.
+bind text = "pengu pengu seal"
+morph counts = HashMap.new()
+
+for word in text.split_whitespace()
+    bind count = counts.entry(word).or_insert(0)
+    *count += 1
+
+print(counts.len())
+print(counts.get("pengu").unwrap())

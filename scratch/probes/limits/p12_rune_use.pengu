@@ -1,0 +1,5 @@
+rune Caja[T]
+    valor: T
+grimoire
+    bind c = Caja(valor: 1)
+    print(1)

@@ -1,3104 +1,4379 @@
-# PenguScript Language Reference
+# PenguScript
 
-PenguScript is a small, statically typed language that compiles to C. This
-reference documents the language as implemented by `psc` 0.60.0: every
-construct, its semantics, and the C it lowers to.
+**El lenguaje chico con backend filoso.**
 
-It is the *language* document of the documentation set:
+| Campo | Valor |
+|---|---|
+| Lenguaje | PenguScript |
+| Versión de la spec | `0.6.0` |
+| Estado | `0.6.0` en revisión editorial; implementación pendiente |
+| Fecha | 2026-11-12 |
+| Backend | Rust 2024, único backend en 0.6.0; invisible para el usuario |
+| MSRV del backend | 1.85.0 |
+| Archivo | `docs/LANGUAGE.md` |
 
-| Document | Answers |
-| --- | --- |
-| **LANGUAGE.md** (this file) | How do I write this construct, and what does it become in C? |
-| [PENGUNIC.md](PENGUNIC.md) | How do I write PenguScript that is safe, idiomatic and fast? |
-| [STDLIB.md](STDLIB.md) | Which standard module do I use, and where is its API? |
+PenguScript es un lenguaje de sistemas pequeño y directo. Usa un backend filoso
+para producir código máquina, pero **el usuario nunca escribe ni ve el
+backend**. No es un transpilador, no es azúcar sobre otro lenguaje y no busca
+retrocompatibilidad con las decisiones de Rust. Es un lenguaje propio.
 
-Spanish: [LANGUAGE.es.md](LANGUAGE.es.md).
+La personalidad del lenguaje se resume así:
 
-<!-- toc -->
-- [0. How to read this reference](#0-how-to-read-this-reference)
-- [1. Lexical structure](#1-lexical-structure)
-  - [1.1 Files and modules](#11-files-and-modules)
-  - [1.2 Comments](#12-comments)
-  - [1.3 Identifiers and keywords](#13-identifiers-and-keywords)
-  - [1.4 Layout](#14-layout)
-  - [1.5 Literals](#15-literals)
-- [2. Types](#2-types)
-  - [2.1 Primitive and runtime types](#21-primitive-and-runtime-types)
-  - [2.2 Composite types](#22-composite-types)
-  - [2.3 Value vs reference](#23-value-vs-reference)
-- [3. Variables and constants](#3-variables-and-constants)
-  - [3.1 Declarations](#31-declarations)
-  - [3.2 Assignment and `set`](#32-assignment-and-set)
-  - [3.3 Scope and shadowing](#33-scope-and-shadowing)
-  - [3.4 Safety guarantees and opt-outs](#34-safety-guarantees-and-opt-outs)
-- [4. Operators](#4-operators)
-  - [4.1 Precedence](#41-precedence)
-  - [4.2 Arithmetic and bitwise](#42-arithmetic-and-bitwise)
-  - [4.3 Comparison, membership, word tests](#43-comparison-membership-word-tests)
-  - [4.4 Address, dereference, size](#44-address-dereference-size)
-  - [4.5 Character and byte primitives](#45-character-and-byte-primitives)
-  - [4.6 Casts and conversions](#46-casts-and-conversions)
-  - [4.7 `defined`, `size of`, and compile-time values](#47-defined-size-of-and-compile-time-values)
-- [5. Control flow](#5-control-flow)
-  - [5.1 `if`, `unless` and `if`-bindings](#51-if-unless-and-if-bindings)
-  - [5.2 `while`](#52-while)
-  - [5.3 `for`](#53-for)
-  - [5.4 `judge` — pattern matching](#54-judge-pattern-matching)
-  - [5.5 `break`, `continue`, `return`](#55-break-continue-return)
-  - [5.6 Block expressions](#56-block-expressions)
-  - [5.7 `with` as a statement](#57-with-as-a-statement)
-- [6. Functions](#6-functions)
-  - [6.1 `weave`](#61-weave)
-  - [6.2 Calling conventions](#62-calling-conventions)
-  - [6.3 Variadic parameters](#63-variadic-parameters)
-  - [6.4 `declare`](#64-declare)
-  - [6.5 Lambdas](#65-lambdas)
-  - [6.6 `ritual` methods](#66-ritual-methods)
-  - [6.7 Entry point](#67-entry-point)
-- [7. Modules and imports](#7-modules-and-imports)
-  - [7.1 Module = file](#71-module-file)
-  - [7.2 `import`](#72-import)
-  - [7.3 Module-level state](#73-module-level-state)
-- [8. C interop](#8-c-interop)
-  - [8.1 `include`, `link`, `ldflag`, `insignia`](#81-include-link-ldflag-insignia)
-  - [8.2 `declare`](#82-declare)
-  - [8.3 `opaque`, `ref to`, `bytes of`](#83-opaque-ref-to-bytes-of)
-  - [8.4 `.d.pengu` declaration files](#84-dpengu-declaration-files)
-  - [8.5 `antiquus` — embedded C](#85-antiquus-embedded-c)
-  - [8.6 `transmute`, `@packed`, `@align`](#86-transmute-packed-align)
-- [9. Composite types](#9-composite-types)
-  - [9.1 `rune` — structs](#91-rune-structs)
-  - [9.2 `cyclus` — recursive types](#92-cyclus-recursive-types)
-  - [9.3 `echo` — unions](#93-echo-unions)
-  - [9.4 `omen` — enums and sum types](#94-omen-enums-and-sum-types)
-  - [9.5 `seal`, `alias`, `opaque`](#95-seal-alias-opaque)
-  - [9.6 `frozen`](#96-frozen)
-  - [9.7 `derive`](#97-derive)
-  - [9.7.1 `derive Json`](#971-derive-json)
-  - [9.8 `with:` builders](#98-with-builders)
-- [10. Methods and concepts](#10-methods-and-concepts)
-  - [10.1 `enchanting` — methods on a type](#101-enchanting-methods-on-a-type)
-  - [10.2 `@mutates`](#102-mutates)
-  - [10.3 `concept` — compile-time contracts](#103-concept-compile-time-contracts)
-  - [10.4 `bind` — implementing a concept](#104-bind-implementing-a-concept)
-  - [10.5 Method resolution](#105-method-resolution)
-  - [10.6 Built-in concepts](#106-built-in-concepts)
-- [11. Generics](#11-generics)
-  - [11.1 `shard`](#111-shard)
-  - [11.2 Bounds](#112-bounds)
-  - [11.3 `donum T`](#113-donum-t)
-  - [11.4 Generic methods and derivation](#114-generic-methods-and-derivation)
-  - [11.5 Limits](#115-limits)
-- [12. Optionals and errors](#12-optionals-and-errors)
-  - [12.1 `maybe T` and `result of T to E`](#121-maybe-t-and-result-of-t-to-e)
-  - [12.2 Constructors](#122-constructors)
-  - [12.3 Inspection and unwrapping](#123-inspection-and-unwrapping)
-  - [12.4 `or else`, `or return`, `try`, `or:`](#124-or-else-or-return-try-or)
-  - [12.5 `panic`](#125-panic)
-  - [12.6 `defer` and `errdefer`](#126-defer-and-errdefer)
-  - [12.7 Ownership of boxed values](#127-ownership-of-boxed-values)
-- [13. Memory](#13-memory)
-  - [13.1 The model](#131-the-model)
-  - [13.2 `banish`](#132-banish)
-  - [13.3 `defer` and `errdefer`](#133-defer-and-errdefer)
-  - [13.4 What the compiler does not do](#134-what-the-compiler-does-not-do)
-  - [13.5 Owned temporaries in expressions](#135-owned-temporaries-in-expressions)
-  - [13.6 Boxed values move](#136-boxed-values-move)
-  - [13.7 Returned values and parameters](#137-returned-values-and-parameters)
-  - [13.8 Debugging leaks](#138-debugging-leaks)
-  - [13.9 `derive Drop`: deterministic destruction](#139-derive-drop-deterministic-destruction)
-  - [13.10 Move by default](#1310-move-by-default)
-  - [13.11 Shared ownership: `Rc`, `Arc`, `Weak`](#1311-shared-ownership-rc-arc-weak)
-  - [13.12 Copy-on-write containers](#1312-copy-on-write-containers)
-- [14. Attributes](#14-attributes)
-  - [14.1 Threads](#141-threads)
-  - [14.2 Coroutines](#142-coroutines)
-- [15. Tests and tooling](#15-tests-and-tooling)
-  - [15.1 `test` blocks](#151-test-blocks)
-  - [15.2 Commands](#152-commands)
-  - [15.3 Build options](#153-build-options)
-  - [15.4 Project manifest](#154-project-manifest)
-  - [15.5 `psc doc`](#155-psc-doc)
-- [16. Chaining, pipes, tuples and shorthand](#16-chaining-pipes-tuples-and-shorthand)
-  - [16.1 Method chains](#161-method-chains)
-  - [16.2 Pipes](#162-pipes)
-  - [16.3 Tuples and multiple returns](#163-tuples-and-multiple-returns)
-  - [16.4 Shorthand struct initialisers](#164-shorthand-struct-initialisers)
-- [17. Deprecation](#17-deprecation)
-- [18. Diagnostics](#18-diagnostics)
-- [19. Complete example](#19-complete-example)
-- [Appendix A. Keywords](#appendix-a-keywords)
-- [Appendix B. Runtime representations](#appendix-b-runtime-representations)
-- [Appendix C. Grammar sketch](#appendix-c-grammar-sketch)
-<!-- /toc -->
+> Records, sums, pattern matching y ownership, sin lifetimes escritos, sin
+> traits complejos, sin macros y sin unsafe general. ~15 conceptos. Se lee en
+> una tarde. Se usa durante años.
 
-## 0. How to read this reference
+La metáfora operativa es un cuchillo karambit: chico, curvo, filoso, capaz. No
+es una navaja suiza. La regla que gobierna el diseño es:
 
-Every construct is documented once, in the order the compiler sees it: lexing,
-types, declarations, expressions, statements, then the features that need their
-own section (generics, memory, interop).
+> **Cada concepto que el usuario debe aprender debe justificar su existencia
+> con potencia, no con paridad.** Si una feature no da potencia para el 95% del
+> código, no entra. Si entra, se simplifica hasta que quepa en una línea.
 
-* A ```pengu block is valid PenguScript. Blocks marked `pengu-fragment` are
-  fragments; they illustrate a form and are not meant to compile alone.
-* A ```c block is the *representative* C that `psc emit-c` produces, with
-  `#line` markers and unused-variable `(void)` casts removed. Names of generated
-  helpers (`pengu_list_new`, `_pengu_clone_*`, …) are verbatim.
-* The keyword lists, type mappings and diagnostic codes are exhaustive; the
-  prose is not — [PENGUNIC.md](PENGUNIC.md) covers *how to use* the language and
-  [STDLIB.md](STDLIB.md) covers the standard library.
-* Version: `psc` 0.60.0. The ABI version the generated C expects is 3.
+<a id="indice"></a>
+## Índice
 
-## 1. Lexical structure
+1. [Misión y los ~15 conceptos](#sec-01)
+2. [Léxico](#sec-02)
+3. [Programa, módulos y entrada](#sec-03)
+4. [Tipos](#sec-04)
+5. [Bindings, mutabilidad y constantes](#sec-05)
+6. [Expresiones y control](#sec-06)
+7. [Funciones y closures](#sec-07)
+8. [Records y sums](#sec-08)
+9. [Pattern matching](#sec-09)
+10. [Colecciones](#sec-10)
+11. [Ownership y referencias](#sec-11)
+12. [Pacts y rituals](#sec-12)
+13. [Genéricos y bounds](#sec-13)
+14. [Operadores](#sec-14)
+15. [Errores, `Option` y `Result`](#sec-15)
+16. [FFI: `foreign` y `curse`](#sec-16)
+17. [Testing y documentación](#sec-17)
+18. [Herramientas y tomes](#sec-18)
+19. [Gramática](#sec-19)
+20. [Diagnósticos](#sec-20)
+21. [Garantías del lenguaje](#sec-21)
+22. [Diferido y no soportado](#sec-22)
+23. [Glosario](#sec-23)
+24. [Cookbook](#sec-24)
+25. [Decisiones de diseño (ADR)](#sec-25)
+26. [Changelog](#sec-26)
+27. [Referencias](#sec-27)
+28. [Apéndice Z: qué se eliminó y por qué](#sec-28)
 
-### 1.1 Files and modules
+---
 
-| Item | Rule |
-| --- | --- |
-| Source file | `*.pengu`, UTF-8, LF or CRLF |
-| Declaration file | `*.d.pengu` — `declare`/`include`/`link`/types only; no bodies by convention |
-| Module id | the path relative to the source root, with `/` → `.`, without extension |
-| Entry point | `weave main into int` in the module built as the program |
-| Test entry | blocks declared with `test` (§16) |
+<a id="sec-01"></a>
+## 1. Misión y los ~15 conceptos
 
-### 1.2 Comments
+### 1.1 Qué es
+
+PenguScript es un lenguaje:
+
+- **estático**, con inferencia local y firmas explícitas en items;
+- **de sistemas**, con ownership y movimiento, pero sin lifetimes escritos;
+- **propio**, con un backend que el usuario no ve ni edita;
+- **chico**, con una superficie que cabe en una tarde de lectura;
+- **explícito**, sin coerción implícita, sin excepciones y sin control oculto.
+
+### 1.2 Qué no es
+
+- No es un transpilador de Rust.
+- No es un subconjunto de Rust con otro nombre.
+- No es un lenguaje de macros.
+- No es un lenguaje de concurrencia en el núcleo.
+- No es un lenguaje de traits con tipos asociados.
+- No es una navaja suiza.
+
+### 1.3 Los 17 conceptos del núcleo
+
+| # | Concepto | Sintaxis |
+|---|---|---|
+| 1 | Primitivos: `Bool`, `Int`, `Float`, `Char`, `String`, `Unit`, `Never` | — |
+| 2 | Tuplas | `(A, B)` |
+| 3 | Arrays y slices | `[T; N]`, `&[T]` |
+| 4 | Colecciones | `Vec[T]`, `Map[K, V]`, `Set[T]` |
+| 5 | Records | `rune` |
+| 6 | Sums | `enchanting` |
+| 7 | Funciones nombradas | `->` |
+| 8 | Closures | `=>` |
+| 9 | Genéricos con bounds simples | `[T: Pact]` |
+| 10 | Contratos e implementaciones | `pact` / `ritual` |
+| 11 | Pattern matching | `match` / `when` / `then` |
+| 12 | Errores, ausencia y orden | `Option[T]`, `Result[T, E]`, `Ordering`, `?T`, `?` |
+| 13 | Módulos, imports y visibilidad | `scroll` / `summon` / `unveil` |
+| 14 | Bindings, mutabilidad y constantes | `bind` / `morph` / `sigil` / `relic` |
+| 15 | Control de flujo | `if` / `elseif` / `else`, `for`, `while`, `loop`, `return`, `break`, `continue` |
+| 16 | FFI auditada | `foreign` / `curse` |
+| 17 | Punto de entrada | `grimoire` |
+
+Estos 17 conceptos son el núcleo. `Show` no es uno adicional: es el pact de
+prelude que usan `print` y `format`. Ningún otro keyword entra al núcleo. Si una
+sección introduce un concepto que no está en esta tabla, se elimina, se difiere
+a §22 o se mueve a la librería estándar.
+
+### 1.4 Valores por defecto, referencias explícitas
+
+Los valores se mueven o se copian; no hay recolección de basura y no hay
+lifetimes que el usuario deba escribir. Las referencias `&T` y `&mut T` solo
+viven en parámetros y variables locales. Para compartir datos que sobreviven a
+una función se usa `Rc[T]` o `Arc[T]`, importados explícitamente.
+
+### 1.5 Ejemplo mínimo
 
 ```pengu
-# line comment
-## documentation comment (extracted by `psc doc` and the LSP)
+rune Point
+    x: Float
+    y: Float
 
-rune Point:
-    x as int   # trailing comments are allowed
+length = (p: Point) -> Float
+    (p.x * p.x + p.y * p.y).sqrt()
+
+grimoire
+    bind p = Point(x: 3.0, y: 4.0)
+    print(length(p))
 ```
 
-A run of `##` lines at the top of the file, before the first declaration, is the
-module docstring. A run of `##` lines immediately above a declaration documents
-that declaration. `psc doc` renders both (§16.3).
+El programa imprime `5.0`. No hay `main`, no hay `#[...]` y no hay Rust a la
+vista: `grimoire` es la entrada.
 
-### 1.3 Identifiers and keywords
+### 1.6 Criterio de admisión
 
-Identifiers start with a letter or `_` and continue with letters, digits or `_`.
-`_` alone is the discard binding (`for _, v in xs`). Names that collide with C
-reserved words or C type names are rejected (`E0035`); so is `main` as a
-constant.
+Una feature entra solo si cumple las cuatro condiciones:
 
-The language has 71 reserved words; Appendix A lists them. There is no
-`true`-like contextual keyword except `over` (only meaningful after a `judge`
-subject), `of` and `at`/`to` in their operator positions.
+1. Resuelve un problema del 95% del código de sistemas.
+2. Se puede explicar en una tabla o en una frase.
+3. No duplica otro concepto del núcleo.
+4. El backend puede implementarla sin filtraciones en la superficie.
 
-### 1.4 Layout
+[↑ Volver al índice](#indice)
+---
 
-Blocks are delimited by indentation. A block is the statements indented deeper
-than its header; dedenting ends it. The formatter (`psc fmt`) uses four spaces
-(`.pengufmt.toml`: `tab_size = 4`, `insert_spaces = true`) and is the reference
-for layout.
+<a id="sec-02"></a>
+## 2. Léxico
 
-```pengu
-weave classify with n as int into string:
-    if n < 0:
-        return "negative"
-    else if n == 0:
-        return "zero"
-    else:
-        return "positive"
-```
+### 2.1 Archivo y codificación
 
-A logical line may be continued inside an open `(`, `[` or `{`. Statements are
-otherwise one per line; `,` separates items in argument, parameter, field and
-element lists — never a statement terminator.
+- Fuente UTF-8 sin BOM. Un BOM es `PGS-E1001`.
+- Se aceptan LF y CRLF; CRLF se normaliza a LF.
+- La indentación significativa usa **cuatro espacios** por nivel.
+- Un tabulador fuera de un string o comentario es `PGS-E1002`.
+- Un aumento de indentación que no sea múltiplo de cuatro es `PGS-E1003`.
+- Un `DEDENT` que no coincide con ningún nivel abierto es `PGS-E1004`.
 
-### 1.5 Literals
-
-| Literal | Example | Type |
-| --- | --- | --- |
-| Decimal integer | `42`, `1_000_000` | `int` |
-| Hexadecimal | `0xFF`, `0x1F_2E` | `int` |
-| Binary | `0b1010` | `int` |
-| Float | `3.5`, `1e-9` | `float` (32-bit) |
-| Float, 64-bit | `3.5f64` is not a suffix — annotate: `var x as f64 is 3.5` | `f64` |
-| Boolean | `true`, `false` | `bool` |
-| Character | `'A'`, `'\n'` | `char` |
-| String | `"hi"`, `"a\nb"` | `string` |
-| Raw string | `r"a\nb"` (no escapes) | `string` |
-| Multi-line string | `"""line 1\nline 2"""` | `string` |
-| Interpolated | `"total: {total}"` | `string` |
-| List | `[1, 2, 3]` | `list of int` |
-| Map | `{"a": 1, "b": 2}` | `map of string to int` |
-| Fixed array | `[3, 1, 2]` in an `array of int with size 3` slot | `array of int with size 3` |
-| Range | `0 to 10` | integer range — only in `for`, `in` and comprehensions, not a writable type |
-| Null | `null` | any pointer, `opaque`, or `maybe T` |
-
-Escapes in ordinary strings: `\n \t \r \\ \" \' \0 \xNN \u{...}`. Interpolation
-takes an expression: `"{name} v{version}"`; `{{` and `}}` produce literal
-braces. A `:` inside the braces selects a `printf` format: `"{ratio:.2f}"`,
-`"{id:04d}"`, `"{n:x}"`, `"{name:10s}"`. The spec is validated at compile time
-(`E0019`) and must match the value: `d i o u x X` for integers, `f e g` for
-floats and `s` for strings.
-
-```pengu-fragment
-var ratio as float is 1.23456
-calling print with "{ratio:.2f}\n"     # 1.23
-```
-
-A float literal is single precision until its target type says otherwise: in a
-`f64` slot the same literal is emitted as a C `double` with all digits kept.
-
-## 2. Types
-
-### 2.1 Primitive and runtime types
-
-| PenguScript | C type | Size | Notes |
-| --- | --- | --- | --- |
-| `int` | `int32_t` | 4 | default integer |
-| `i64`, `long` | `int64_t` | 8 | |
-| `i16`, `short` | `int16_t` | 2 | |
-| `i8` | `int8_t` | 1 | |
-| `u32`, `uint` | `uint32_t` | 4 | |
-| `u64`, `ulong` | `uint64_t` | 8 | |
-| `u16`, `ushort` | `uint16_t` | 2 | |
-| `byte`, `u8` | `uint8_t` | 1 | bytes and unsigned 8 |
-| `size_t`, `usize` | `size_t` | pointer | lengths and indices |
-| `isize` | `intptr_t` | pointer | signed pointer-sized |
-| `float`, `f32` | `float` | 4 | IEEE-754 single |
-| `f64`, `double` | `double` | 8 | IEEE-754 double |
-| `char` | `char` | 1 | one byte |
-| `bool` | `bool` | 1 | `true` / `false` |
-| `void` | `void` | – | no value |
-| `string` | `PenguString` | 16 | `{ char *data; int len; int32_t is_owned; }` |
-| `opaque` | `void *` | pointer | C handle, only behind `ref to` |
-
-Prefer the short spellings (`int`, `byte`, `size_t`, `float`, `f64`). The
-C-width spellings exist so a signature copied from a header keeps its exact
-width and so `psc bind` can emit it verbatim.
-
-The runtime owning types are plain C structs (`build/include/pengu_runtime.h`):
-
-```c
-typedef struct { char *data; int len; int32_t is_owned; } PenguString;
-typedef struct { void *data; int len; int cap; size_t elem_size; } PenguList;
-typedef struct { bool is_present; void *value; } PenguMaybe;
-```
-
-`PenguString` keeps the length, so it may hold NUL bytes; `is_owned == 0`
-marks a borrowed view. `PenguList` stores elements by value at a fixed
-`elem_size` and owns only its element buffer.
-
-### 2.2 Composite types
-
-| Type | Spelling | C representation |
-| --- | --- | --- |
-| List | `list of T` | `PenguList` (CC vector) |
-| Map | `map of K to V` | `PenguMap` (CC map) |
-| Fixed array | `array of T with size N` | `T[N]`, nested as `T[M][N]` |
-| Slice | `slice of T` | `PenguSlice { void *data; int len; size_t elem_size; }` |
-| Optional | `maybe T` | tagged box, payload heap-allocated |
-| Result | `result of T to E` | tagged box, payload heap-allocated |
-| Pointer | `ref to T`, `ref to frozen T` | `T *` |
-| Tuple | `(T, U)`, `(T, U, V)` | anonymous struct |
-| Function pointer | `weave with T into U` | `U (*)(T)` |
-| User type | `rune`, `echo`, `omen`, `seal`, `alias` | struct / union / enum / wrapper |
-
-`string`, `list`, `map` and boxed `maybe`/`result` values are *owned* unless a
-function returns a borrowed view (§14). `slice`, `range`, `ref to T`, tuples and
-scalar types are plain values.
-
-Container literals construct the value where it is written:
-
-```pengu-fragment
-var xs as list of int is [1, 2, 3]
-defer banish xs
-var ages as map of string to int is {"ada": 36, "alan": 41}
-defer banish ages
-```
-
-A map literal needs a known key and value type, so it is only accepted where the
-type is written: a `var`/`let` annotation, a field, a parameter or a return type.
-Anywhere else the compiler reports `E0076` (`map literal needs a type
-annotation`). Keys may be string literals or any expression of the key type,
-including interpolations (`{"k{n}": n}`).
-
-The literal builds the container once, when it is evaluated. For a map it is one
-allocation plus one insert per entry, never a rebuild on each read:
-
-```c
-PenguMap ages = __extension__(({ PenguMap _map0 = pengu_map_new(sizeof(PenguString), sizeof(int32_t)); PenguString _mk1; int32_t _mv2; _mk1 = pengu_string_from_cstr_len("ada", 3); _mv2 = 36; pengu_map_put(&_map0, &_mk1, &_mv2); _mk1 = pengu_string_from_cstr_len("alan", 4); _mv2 = 41; pengu_map_put(&_map0, &_mk1, &_mv2); _map0; }));
-```
-
-The map owns copies of its keys and values, so the temporaries above are only
-borrowed while the entry is inserted. `banish` releases the whole map (§13).
-
-### 2.3 Value vs reference
-
-* `string`, `list`, `map`, `rune` containing any of them, `maybe`, `result`:
-  assignment copies the value, but strings and containers inside are shared
-  unless the language says otherwise — the compiler's cleanup functions assume
-  one owner (§14.3).
-* `slice of T` and `ref to T` are non-owning views. Copying them never
-  duplicates the storage.
-* `frozen T` is a read-only qualification; `ref to frozen T` is a read-only
-  pointer.
-
-## 3. Variables and constants
-
-### 3.1 Declarations
-
-These forms are accepted:
-
-```pengu-fragment
-var count as int is 0                 # typed, mutable
-let name as string is "Ada"           # typed, immutable
-var total is 100                      # inferred int
-let greeting is "Hello"               # inferred string
-var buffer as array of byte with size 64 is array of byte with size 64
-
-let (x, y) as Pair is point_value     # rune fields, in declaration order
-var (a, b) as Pair is point_value     # same, mutable bindings
-let q, r is calling divmod with 9, 2  # tuple from a multi-return call
-
-const MAX_USERS as int is 1024        # top level only, compile-time
-const PI is 3.14159                   # inferred float
-
-static var calls as int is 0          # inside a weave: persists across calls
-```
-
-Rules:
-
-* `var` binding is mutable, `let` is not (`E0006` on assignment).
-* `var`/`let` are forbidden at top level (`E0002`). Top-level state is `const`
-  or `static var` inside a function.
-* `const` is top-level only (`E0001`) and must be a compile-time expression.
-  A `list` or `map` constant evaluates its expression at every use; when you
-  want one static object, use `array of T`.
-* `null` needs an explicit type: `const NIL as ref to int is null`.
-* Destructuring binds the fields of a rune (in declaration order) or the
-  elements of a tuple returned by a call. The number of names must match the
-  value (`E0079`). A rune value needs `as T` so the compiler knows its fields;
-  tuples are inferred from the call.
-
-### 3.2 Assignment and `set`
-
-Assignment is `set`; there is no bare `x = 1`.
-
-```pengu-fragment
-set count is 42
-set player.hp is 100
-set self->hp is 80
-set items at (i + 1) is new_item
-set essence of ptr is 99            # *ptr = 99
-set .x is 10                        # only inside a `with:` builder
-```
-
-Compound forms exist: `+= -= *= /= %= &= |= ^= <<= >>=`. `+=` on `string` is
-`E0005`; compose strings with interpolation instead.
-
-```pengu-fragment
-set counter += 1
-set flags |= 0x08
-set text is "{text} suffix"
-```
-
-The target must be mutable: assigning to a `let`, a `const`, a `frozen` value
-or through a `ref to frozen T` is `E0006`.
-
-### 3.3 Scope and shadowing
-
-Scopes are indentation blocks: weave bodies, `if`/`while`/`for` branches,
-`with:` builders, `or:` blocks and `do:` expressions. Lookup is lexical and an
-inner declaration shadows an outer one.
-
-At module level, an unqualified name resolves in the current module first, then
-in the modules that module imports (transitively, in import order), and never in
-an unrelated module. A qualified name follows the imported aliases:
-`calling father.child.fn` inside `father` names `father.child.fn`, not a local
-`fn` of `father`.
+### 2.2 Comentarios
 
 ```pengu
-weave main into int:
-    let x is 1
-    if x == 1:
-        let x is "shadowed"      # a different x, same name
-        calling print with x
-    return x                     # 1
+-- comentario de línea
+--[[ comentario de bloque ]]
+--- documentación del siguiente item
+--! documentación interna del módulo
 ```
 
-`banish`, `defer` and `errdefer` are only valid inside a function body
-(`E0008`).
+`---` y `--!` son documentación, no comentarios libres. Se procesan en §17.
 
-### 3.4 Safety guarantees and opt-outs
+### 2.3 Identificadores
 
-Bounds checks are on by default (indexing a list, slice, array, string or map
-aborts with a message on out-of-range indices). Integer-overflow checks are
-**not implemented yet**: arithmetic wraps like C. `--release-unsafe` turns the
-bounds check off for a release build, never per statement. See §16 for the
-build profiles and §14 for what stays manual even with checks on.
+Un identificador empieza con `XID_Start` o `_` y continúa con `XID_Continue`.
+Se permiten letras Unicode, pero no emojis ni marcas de control. Los
+identificadores distinguen mayúsculas y minúsculas.
 
-## 4. Operators
+Convenciones:
 
-### 4.1 Precedence
+- `snake_case` para funciones, bindings y campos.
+- `PascalCase` para tipos, records, sums, pacts y variantes.
+- `SCREAMING_SNAKE_CASE` para `sigil`.
 
-Loosest first:
+### 2.4 Keywords
 
-| Level | Operators |
-| --- | --- |
-| 1 | `or else`, `or return`, `try`, `or:` |
-| 2 | `or` |
-| 3 | `and` |
-| 4 | `not` |
-| 5 | `is`, `is present`, `is not present`, `as`, `in`, `not in` |
-| 6 | `==`, `!=`, `<`, `<=`, `>`, `>=` |
-| 7 | `&#124;` (bitwise or) |
-| 8 | `^` (bitwise xor) |
-| 9 | `&` (bitwise and) |
-| 10 | `<<`, `>>` |
-| 11 | `+`, `-`, `+` for strings |
-| 12 | `*`, `/`, `%` |
-| 13 | unary `-`, `~`, `not`, `sigil of`, `essence of`, `bytes of`, `size of`, `align of`, `transmute ... to`, `banish`, `some`, `ord`, `chr` |
-| 14 | `.field`, `->field`, `at i`, `calling f with ...`, `(...)` |
+La lista completa es corta y cerrada:
 
-`pipe` starts a new link at the beginning of a continuation line (§16.2);
-it is not an infix operator.
+| Familia | Keywords |
+|---|---|
+| Declaraciones | `rune`, `enchanting`, `pact`, `ritual`, `essence`, `scroll`, `summon`, `unveil`, `grimoire`, `foreign`, `curse` |
+| Archivos de declaración | `abi` (solo en `.d.pengu`) |
+| Tipos de borde | `Ptr` (solo en `.d.pengu`, `foreign` y `curse`) |
+| Bindings | `bind`, `morph`, `sigil`, `relic` |
+| Control | `if`, `elseif`, `else`, `unless`, `match`, `when`, `then`, `for`, `while`, `loop`, `break`, `continue`, `return`, `do` |
+| Operadores | `and`, `or`, `not`, `is`, `isnt`, `in`, `as` |
+| Literales | `true`, `false`, `none`, `some`, `ok`, `err` |
+| Contextuales | `@`, `@mut`, `@own`, `Self` |
 
-### 4.2 Arithmetic and bitwise
+`Vec`, `Map`, `Set`, `Option`, `Result` y `String` son tipos de la prelude, no
+keywords. `Self` solo se usa dentro de `pact` y `ritual`.
 
-```pengu-fragment
-var a as int is 7
-var b as int is 2
-var q as int is a / b        # 3, integer division truncates toward zero
-var r as int is a % b        # 1
-var f as float is 7.0 / 2.0  # 3.5
-var m as int is a & 0x0F
-var s as int is a << 2
-```
+El lexer rechaza como identificadores estas palabras históricas: `spell`,
+`spirit`, `fn`, `def`, `function`, `class`, `this`, `self`, `null`, `nil`,
+`try`, `catch`, `throw`, `macro`, `impl`, `trait` y `where` (`PGS-E1010`).
+Otros nombres de features eliminadas, como `new` o `switch`, siguen siendo
+identificadores válidos; §28.1 describe features, no una lista de palabras
+reservadas.
 
-`/` and `%` on integers truncate; `%` on a negative left operand follows C
-(remainder keeps the sign of the dividend). `%` on `float` is `E0005`. Use
-`std.fractio` for floating-point helpers.
+### 2.5 Literales
 
-Integer arithmetic is unchecked in this release: `int` wraps like C
-(`2147483647 + 1` is `-2147483648`). Checked arithmetic is planned; division by
-zero still aborts (`SIGFPE`). `--release-unsafe` only affects bounds checks.
-
-### 4.3 Comparison, membership, word tests
+#### Booleanos y ausencia
 
 ```pengu
-weave classify with a as int, b as int, value as maybe int into string:
-    if a == b and a < 10:
-        return "small equal"
-    if value is present:
-        return "present"
-    return "none"
+true
+false
+none
 ```
 
-`in` works on lists, arrays, slices, maps (key membership), strings (substring)
-and ranges (`i in 0 to 10`). `is present` / `is not present` test a `maybe`; `is` also
-tests an omen variant (`state is Ready`).
+`none` es el único literal de ausencia. No hay `null` ni `nil`.
 
-Strings compare by content (`pengu_string_eq`); `==` on two `list`s compares
-element by element only if the element type has `Par` (§12).
-
-### 4.4 Address, dereference, size
-
-| Form | Meaning | C |
-| --- | --- | --- |
-| `sigil of x` | address of a variable/field | `&x` |
-| `essence of p` | dereference | `*p` |
-| `p at i` | pointer/array indexing | `p[i]` |
-| `size of T` | compile-time size | `sizeof(T)` |
-| `align of T` | compile-time alignment | `_Alignof(T)` |
-| `bytes of s` | byte view of a string/array | `(uint8_t*)s.data` |
-
-```pengu-fragment
-var n as int is 5
-var p as ref to int is sigil of n
-set essence of p is 6
-var raw as ref to frozen byte is bytes of "abc"
-var dist as isize is p2 - p1     # element distance
-```
-
-`p++`, `p[i]` and `p + 1` are not PenguScript: use `p at i`, `p + n` for pointer
-arithmetic (element-scaled). `ref to void` arithmetic is rejected.
-
-### 4.5 Character and byte primitives
-
-```pengu-fragment
-var c as char is 'A'
-var code as int is ord c        # 65
-var back as string is chr 65    # "A"
-```
-
-`ord` accepts `char`; `chr` accepts an integer in 0–255 and returns a
-one-character `string`.
-
-### 4.6 Casts and conversions
-
-| Form | Meaning | Runtime check |
-| --- | --- | --- |
-| `x to T` | numeric or nominal conversion (narrows silently) | no |
-| `if n as T is v:` | narrows a `maybe`/`result` and binds `n` | yes, presence test |
-| `transmute x to T` | reinterpret the bits | no, unsafe |
-
-```pengu-fragment
-var i as int is 65
-var c as char is i to char
-var f as float is 1 to float
-var v as maybe int is some 3
-if n as int is v:
-    calling print with "{n}"
-```
-
-The binding comes first: `if n as T is v` tests that `v` holds a `T` and, only
-if it does, binds `n` for the branch. The reversed spelling (`if v as T is n`)
-is not a binding. `as` is only valid in a condition (`if`, `while`, `judge`
-guard); it is not a general-purpose numeric cast. `to` converts between numeric types (truncating: `300 to u8` is
-`44`) and between `seal` and its representation. `transmute` is reserved for FFI
-layout tricks and is covered in §9.6.
-
-### 4.7 `defined`, `size of`, and compile-time values
-
-`defined(NAME)` is true when `-D NAME` was passed or the name is a predefined
-environment fact (`wasm`, `debug`, `main`). `size of`/`align of` are folded at
-compile time. Both are usable in `when` and in `const` initialisers.
-
-## 5. Control flow
-
-### 5.1 `if`, `unless` and `if`-bindings
-
-```pengu-fragment
-if score >= 100:
-    calling print with "winner"
-else if score >= 60:
-    calling print with "ok"
-else:
-    calling print with "keep going"
-
-unless muted:
-    calling play_sound with "beep"
-```
-
-A condition must be `bool` (`E0005`). A branch can hold one statement on the
-same line as the colon (`if x == 1: return 1`); declarations, `defer` and
-`banish` cannot.
-
-An `if` condition can bind the payload of a `maybe`:
-
-```pengu-fragment
-if u as User is user:
-    calling print with user.name
-else:
-    calling print with "anonymous"
-```
-
-The bound name is scoped to the `then` branch and is lowered to a single
-`pengu_maybe_is_present` test plus extraction.
-
-### 5.2 `while`
-
-```pengu-fragment
-var i as int is 0
-while i < 10:
-    calling tick with i
-    set i is i + 1
-```
-
-Loops accept a label before the keyword (`outer: while ...`); see §5.5.
-
-### 5.3 `for`
-
-```pengu-fragment
-for i from 0 to 10:              # [0, 10), end-exclusive
-    calling tick with i
-
-for i from 10 to 0 step -1:      # descending
-    calling tick with i
-
-for item in items:               # list, array, slice, string, map
-    calling handle with item
-
-for i, item in indexed:          # index + element
-    calling handle with i
-
-for _, v in values:              # discard the index
-    calling handle with v
-```
-
-| Form | Iterates over | Element type |
-| --- | --- | --- |
-| `for i from a to b` | integer range `[a, b)` | `int` |
-| `... step k` | range with step `k` (may be negative) | `int` |
-| `for x in list` | `list of T` | `T` |
-| `for x in array` | `array of T with size N` | `T` |
-| `for x in slice` | `slice of T` | `T` |
-| `for ch in s` | `string` | one-byte `string` (a byte view, no allocation) |
-| `for k in map` | `map of K to V` keys, hash order | `K` |
-| `for k, v in map` | key and value, hash order (no index) | `K`, `V` |
-| `for x in a .. b` | integer range `[a, b)` | `int` |
-| `for i in a to b` | integer range `[a, b)` (same as `..`) | `int` |
-
-The indexed form `for i, v in col` requires distinct names (`E0037`); `_`
-discards either binding. A map has no meaningful index: two bindings over a
-map are the **key and the value**, and the third form (`for kk, vv`) is the
-same. Iterating a map walks its hash order, so the order is unspecified.
-
-`a .. b` and `a to b` are the expression forms of a range (the same as
-`for i from a to b`); both evaluate to `range of int` and are half-open:
-`1 .. 4` and `1 to 4` yield `1`, `2`, `3`. Inside `for … in` and to the right
-of `in`, `to` is a range separator, not a cast; outside them it keeps meaning
-"cast to type" (`x to int`).
-
-**Comprehensions** build a list from an expression:
-
-```pengu-fragment
-let squares as list of int is for x in nums then x * x
-let evens as list of int is for x in nums when x % 2 == 0 then x
-```
-
-Comprehensions accept the element form only (no index binding) and lower to a
-statement-expression that allocates a `PenguList` and pushes each value. They
-work over lists, arrays, slices, strings, ranges and maps (the element of a map
-is its key).
-
-```c
-/* for i from 0 to 3 */
-for (int32_t i = 0; i < 3; i++) { ... }
-
-/* for item in xs: */
-for (int _k = 0; _k < xs.len; _k++) {
-    int32_t item = *(int32_t*)pengu_list_at(&xs, _k);
-    ...
-}
-
-/* for k, v in m: */
-for (; pengu_map_iter_valid(&it); pengu_map_iter_advance(&it)) {
-    PenguString k = *(const PenguString*)pengu_map_iter_key(&it);
-    int32_t v = *(const int32_t*)pengu_map_iter_value(&it);
-    ...
-}
-
-/* for ch in s: borrowed byte view, no malloc */
-for (int _k = 0; _k < s.len; _k++) {
-    PenguString ch = (PenguString){ (char*)s.data + _k, 1, 0 };
-    ...
-}
-```
-
-An array is lowered with its compile-time length (`N`), never `sizeof`, so a
-loop over an array parameter does not decay to a pointer length.
-
-### 5.4 `judge` — pattern matching
-
-```pengu-fragment
-let desc as string is judge state:
-    when Ready -> "ready"
-    when Loading -> "loading"
-    when Done -> "done"
-    else -> "unknown"
-```
-
-Subjects: `omen`, `bool`, `int`, `string`, `char`.
-
-| Pattern | Example |
-| --- | --- |
-| Bare variant | `when Ready ->` |
-| Qualified variant | `when Phase.Ready ->` |
-| Full C name | `when Phase_Ready ->` |
-| Literal | `when 42 ->`, `when "admin" ->`, `when 'X' ->` |
-| Alternatives | `when Ready &#124; Loading ->` |
-| Payload binding | `when Ok with value ->` |
-| Guard | `when Val with n if n > 0 ->` |
-| Default | `else ->` |
-
-Exhaustiveness is enforced for `omen` and `bool` subjects (`E0044`); for `int`,
-`string` and `char` a missing match yields the zero value unless an `else ->` is
-present. Guarded patterns do not count as coverage.
-
-`judge` is also a statement: write it without a value position and each arm runs
-for its side effects. Guards are evaluated top to bottom, and a guarded arm that
-does not hold falls through to the next matching arm, so the same pattern may
-appear twice when the first occurrence is guarded.
+#### Enteros
 
 ```pengu
-omen State:
-    Ready is 0
-    Loading is 1
-    Done is 2
-
-weave handle with state as State:
-    judge state:
-        when Ready ->
-            calling print with "run\n"
-        when Loading | Done ->
-            calling print with "waiting\n"
-        else ->
-            calling print with "unknown\n"
-
-weave main:
-    calling handle with Ready
-    calling handle with Loading
+42
+0xFF
+0o755
+0b1010
+1_000_000
+42_i64
+42_usize
 ```
 
-Emitting a `bool` subject compiles to `switch ((int)(x))` with `case true` and
-`case false`; guards compile to an `if` chain (never a `switch`), which keeps the
-generated C free of duplicate `case` labels.
+Los sufijos son `I8`, `I16`, `I32`, `I64`, `Isize`, `U8`, `U16`, `U32`, `U64`
+y `Usize`. Sin sufijo, el contexto decide; si no hay contexto, `Int`.
 
-**`judge ... over`** matches a rune whose discriminant is one of its fields:
+No hay `I128` ni `U128` en el núcleo. Se importan de `std.int` si hacen falta.
+
+Un literal entero con un dígito inválido para su base, o un prefijo sin
+dígitos (`0x`, `0b`, `0o`), es `PGS-E1011`.
+
+#### Flotantes
 
 ```pengu
-rune Expr:
-    kind as ExprKind
-    value as int
-    left as ref to Expr
-    right as ref to Expr
-
-omen ExprKind:
-    Lit is 0
-    Add is 1
-
-weave eval with e as ref to Expr into int:
-    return judge e over kind:
-        when Lit with value -> value
-        when Add with left, right ->
-            (calling eval with left) + (calling eval with right)
+1.5
+1.0e10
+2.5_f32
 ```
 
-`over` is a soft keyword: `var over as int is 5` still compiles. The `over` form
-also supports narrowed payloads (`field as some`, `field as ok`, `field as
-(a, b)`).
+Sin sufijo, el contexto decide; si no hay contexto, `Float`. No hay `NaN`
+literal; se usa `Float.nan()` de la prelude.
 
-Codegen emits a C `switch` when every arm is an integer constant; otherwise it
-emits `if`/`else` chains with payload extraction and guard checks.
+Un `.` seguido de un identificador después de un literal entero es acceso a
+método, no parte del número: `42.is_even()` es válido. Para un flotante se
+escribe `42.0` o `42.0e0`.
 
-```c
-switch (state.tag) {
-  case Ready: return pengu_string_from_cstr("ready");
-  case Loading: return pengu_string_from_cstr("loading");
-  case Done: return pengu_string_from_cstr("done");
-  default: return pengu_string_from_cstr("unknown");
-}
-```
-
-### 5.5 `break`, `continue`, `return`
-
-`break` and `continue` require an enclosing loop (`E0007`). `return` must match
-the enclosing `into` type (`E0020`); a bare `return` is valid only in a `void`
-weave.
-
-Loops can be labeled to leave more than the innermost one:
-
-```pengu-fragment
-outer: for line in lines:
-    for ch in line:
-        if ch == ";":
-            continue outer
-        if ch == "}":
-            break outer
-```
-
-Labels are function-local, unique per function (`E0069`) and lower to
-`goto _pengu_label_<name>_{continue,break}` with the loop's cleanup preserved.
-
-### 5.6 Block expressions
-
-A comprehension (`for x in xs then expr`), the one-line conditional
-expression (`if c then a else b`) and an **indented block** in value position
-are values. `do:` and a multi-line `if`/`unless` evaluate to the value of their
-last expression; the statements before it run in the block's own scope.
+#### Char y strings
 
 ```pengu
-weave main into int:
-    let v as int is do:
-        var a as int is 5
-        a + 4
-    let w as int is if v > 0:
-        1
-    else:
-        0
-    calling print with "{v} {w}"    # 9 1
-    return 0
+'a'
+'\n'
+b'P'
+"hola"
+"hola, #{name}"
+"""texto
+con varias líneas"""
+r"sin \escapes"
+b"bytes"
+c"cadena C"
 ```
 
-Blocks lower to GNU statement expressions (`__extension__(({ ... }))`), so the
-generated C needs GCC or Clang, the supported toolchains. `return`, `banish`
-and `defer` inside the block keep their usual meaning. A loop in value
-position (`for x in xs then expr`) collects each iteration's value into a new
-`list of T`.
+Un `Char` es un escalar Unicode. Un `byte char` es `U8`; el carácter directo
+debe ser ASCII y `\xNN` admite `0x00`–`0xFF`.
 
-### 5.7 `with` as a statement
+`String` es owned; `&Str` es una vista prestada. Un literal de string sin
+contexto es `&Str`; donde se espera `String` (retorno, argumento o binding
+anotado) el literal se convierte solo, sin `String.from`. En sentido
+contrario, un `String` que ya vive en una variable puede pasarse a un
+parámetro `&Str`. Esta conversión es la única del lenguaje y no alcanza a los
+temporales: prestar el resultado de una llamada exige `as_str`.
 
-A `with` block names a receiver once and lets the body address it with
-`.field` and `calling .method`:
+La interpolación `#{expr}` solo existe en strings normales y triples. Un
+string con partes es `String` (se construye en propiedad); sin partes es
+`&Str`. Para escribir `#{` literal se usa `\#{`.
 
-```pengu
-rune Point:
-    x as int
-    y as int
-
-enchanting Point:
-    weave shift with dx as int, dy as int into void:
-        set self->x is self->x + dx
-        set self->y is self->y + dy
-
-weave main into int:
-    var p as Point is with x is 1, y is 2
-    with p:
-        var y0 as int is .y
-        set .x is .x + 1
-        calling .shift with 2, 1
-    return p.x + p.y
-```
-
-`.field` reads or writes a field of the target and `calling .method` dispatches
-on its type, so the receiver is written once instead of on every line. The
-target is evaluated exactly once and must be an addressable place — a variable,
-a field, an element (`xs at i`) or a borrow — otherwise the compiler reports
-`E0077`. Every statement in the body is type-checked: an unknown name or a field
-that does not belong to the target's type is `E0004`.
-
-For a `rune` or `echo` target the target is bound to a pointer, which is why the
-receiver appears dereferenced:
-
-```c
-{
-    Point* _w0 = &(p);
-    int32_t y0 = (*_w0).y;
-    (*_w0).x = ((*_w0).x + 1);
-    Point_shift(&((*_w0)), 2, 1);
-}
-```
-
-For a `list`, `map` or `string` target the body calls the built-in methods
-(`calling .push with 4`, `calling .put with "k", 1`). A `with` builder in value
-position (`var p as Point with: ...`) is §9.8.
-
-## 6. Functions
-
-### 6.1 `weave`
+#### Colecciones
 
 ```pengu
-weave greet with name as string, times as int is 1 into void:
-    for i from 0 to times:
-        calling print with "Hi {name}"
-
-weave double with x as int into int:
-    return x * 2
+[1, 2, 3]
+[0; 4]
+Vec[1, 2, 3]
+Map["a": 1, "b": 2]
+Set["a", "b"]
+(1, "uno")
+()
 ```
 
-* `with` introduces the parameters, `into` the return type. A `void` weave may
-  omit the value of `return`.
-* Default parameter values must be compile-time constants — literals, `const`s
-  and integer arithmetic of those — and must match the parameter type. Defaults
-  are the trailing parameters: one without a default cannot follow one that has
-  it (`E0072`). A default that is not constant, or that does not fit the type,
-  is `E0073`; a generic default is checked again for every instantiation.
-* A body whose last statement is an expression returns it implicitly.
-* Calls accept positional and named arguments: `calling greet with "Ada",
-  times is 2` and `calling greet with times is 2, name is "Ada"` are equivalent;
-  every parameter must be covered exactly once, positionally, by name or by its
-  default (see §6.2).
-* The argument list after `with` is greedy — parenthesise a call used inside a
-  larger expression: `(calling get_count) > 0`.
-* `weave inline ...` forces the C function to be emitted as
-  `static inline __attribute__((always_inline))`.
+Los arrays son de tamaño fijo; `Vec`, `Map` y `Set` son colecciones owned.
+La forma indentada con `[]`/`{}` no forma parte del núcleo: la indentación se
+reserva para bloques. El `;` de `[0; 4]` y `[T; N]` solo separa la expresión
+del tamaño; no es un separador de sentencias.
 
-`psc emit-c` turns each weave into a C function named `<module>_<name>`:
-
-```c
-int32_t d1_add(int32_t a, int32_t b) {
-    return (a + b);
-}
-```
-
-A returned `string`, `list` or `map` is returned by value; the callee transfers
-ownership to the caller.
-
-Defaults are folded to their value once, when the function is declared, and the
-call site emits that value directly:
+#### Rangos
 
 ```pengu
-weave greet with name as string, times as int is 2 into void:
-    calling print with "{name} {times}"
-
-weave main into int:
-    calling greet with "Ada"
-    calling greet with "Ada", 2
-    return 0
+0..10
+0..=10
 ```
 
-```c
-d1_greet(pengu_string_from_cstr("Ada"), 2);
-```
+Un rango no es una colección; se usa en `for` y en slices.
 
-Both calls emit the same C, and a default never re-evaluates per call.
+### 2.6 Separadores
 
-### 6.2 Calling conventions
+- `NEWLINE` separa sentencias y elementos de un bloque.
+- Dentro de `()`, `[]` y `{}` se permiten saltos de línea; las comas son
+  opcionales antes del cierre.
+- No se usa `;` como separador.
+- La continuación de una expresión después de un operador binario es
+  automática si la línea siguiente está más indentada.
 
-```pengu-fragment
-calling greet with "Ada", 3        # free function
-calling spark.println with "hi"    # module-qualified
-calling player.heal with 25        # method on a value
-calling Player.new_hero with "Ada" # ritual (static) method, on the type
-calling items.push with 4          # built-in container method
-```
-
-Built-in container methods (`list`: `push`, `pop`, `len`, `at`, `clear`;
-`map`: `get`, `put`, `contains`, `remove`, `len`, `keys`, `values`) are
-resolved by the compiler without an `enchanting` block.
-
-Named arguments bind by parameter name, in any order, and the compiler prints
-the arguments in declaration order — both call forms below produce the same C:
+### 2.7 Ejemplo
 
 ```pengu
-weave greet with name as string, times as int is 2, loud as bool is false into void:
-    calling print with "{name}"
-
-weave main into int:
-    calling greet with "Ada", times is 3
-    calling greet with times is 3, name is "Ada"
-    return 0
+grimoire
+    bind name = "pengu"
+    bind answer = 42
+    bind ratio = 1.5
+    bind letter = 'P'
+    bind bytes = [1, 2, 3]
+    bind words = Vec["magic", "static"]
+    bind config = Map["name": name, "version": "0.6"]
+    print("#{name}: #{answer} / #{ratio} / #{letter}")
 ```
 
-```c
-d1_greet(pengu_string_from_cstr("Ada"), 3, false);
-```
+### 2.8 Diagnósticos del léxico
 
-* Positional arguments come first. A named argument may follow them; a
-  positional argument after a named one is `E0071`.
-* A parameter is covered at most once. Repeating it — `a is 1, a is 2` or
-  `1, a is 2` — is `E0071`; so is a name the function does not take.
-* A parameter without a default left uncovered, or extra arguments, is `E0005`.
-* Chain and pipe steps (`calling p.plus with 1` followed by `.plus with by is 2`)
-  still take positional arguments only; naming one is `E0071`. Call the method
-  directly instead: `calling p.plus with by is 2`.
+| Código | Situación |
+|---|---|
+| `PGS-E1001` | BOM al inicio. |
+| `PGS-E1002` | Tabulador en indentación. |
+| `PGS-E1003` | Indentación no múltiplo de cuatro. |
+| `PGS-E1004` | `DEDENT` sin nivel correspondiente. |
+| `PGS-E1005` | String sin cerrar. |
+| `PGS-E1006` | Char o byte char sin cerrar. |
+| `PGS-E1007` | Escape desconocido. |
+| `PGS-E1008` | Byte char no ASCII. |
+| `PGS-E1009` | Comentario de bloque sin cerrar. |
+| `PGS-E1010` | Término retirado. |
+| `PGS-E1011` | Carácter no reconocido o literal numérico inválido. |
 
-### 6.3 Variadic parameters
+[↑ Volver al índice](#indice)
+---
 
-A `many T` parameter accepts zero or more `T` arguments. It must be the last
-parameter, only one is allowed per signature, and it cannot have a default
-(`E0024`, `E0023`, `E0074`). In C it travels as a `PenguSlice`, so the callee
-indexes it like a slice and asks for `xs.len`:
+<a id="sec-03"></a>
+## 3. Programa, módulos y entrada
 
-```pengu
-weave total with xs as many int into int:
-    var t as int is 0
-    var i as int is 0
-    while i < xs.len:
-        set t is t + (xs at i)
-        set i is i + 1
-    return t
+### 3.1 Archivos y raíces
 
-weave main into int:
-    calling print with "{calling total with 1, 2, 3}"
-    return 0
-```
+Un programa PenguScript se compone de archivos `.pengu`.
 
-```c
-int32_t total(PenguSlice xs);
+- La raíz de un binario es `main.pengu`.
+- La raíz de una librería es `lib.pengu`.
+- Un módulo llamado `geometry` se busca en `geometry.pengu` o en
+  `geometry/scroll.pengu`. Si existen ambos, es `PGS-E2013`; no hay orden de
+  precedencia.
+- Un archivo `geometry.d.pengu` es una **declaración**: aporta tipos y firmas,
+  no código. Se resuelve después de las dos formas anteriores y solo si está
+  listado en `[declarations]` de `Tome.toml` o es adyacente a la raíz.
+- No hay `mod`, `use`, `pub` ni `crate`: esos nombres pertenecen al backend.
 
-total((PenguSlice){ (int32_t[]){ 1, 2, 3 }, 3, sizeof(int32_t) });
-```
-
-The call site packs loose arguments into a C99 compound literal and passes
-`(PenguSlice){ 0, 0, sizeof(T) }` for zero arguments. Passing an existing
-`slice`, `many` or array forwards the same view without copying:
+### 3.2 Módulos
 
 ```pengu
-weave count with xs as many int into int:
-    return xs.len
+scroll geometry
+    rune Point
+        x: Float
+        y: Float
 
-weave main into int:
-    var arr as array of int with size 3 is array of int with size 3
-    calling print with "{calling count with arr}"
-    return 0
+    unveil norm = (p: Point) -> Float
+        (p.x * p.x + p.y * p.y).sqrt()
 ```
 
-```c
-total(pengu_slice_new(arr, sizeof(arr[0]), (int)(sizeof(arr) / sizeof(arr[0]))));
-```
-
-Elements are borrowed: the callee must not `banish` an element it did not
-create, and a `many T` cannot be stored past the call. A `many` parameter is
-not allowed in `declare` (`E0075`); use a trailing `...` for raw C varargs
-there. Call-site spread (`f(...xs)`) does not exist.
-
-### 6.4 `declare`
+`scroll` declara un módulo en el mismo archivo. También puede declarar un módulo de archivo:
 
 ```pengu
-declare pengu_print with s as string into void
-declare strlen_c with s as ref to char into usize
-declare printf with fmt as ref to frozen char, ... into int
+scroll geometry
 ```
 
-`declare` binds an external C function; calls become direct C calls. Types must
-match the header exactly. A trailing `...` is raw C varargs (valid only in
-`declare`). Every external function needs a `declare`, or the call is `E0004`.
+En ese caso se carga `geometry.pengu` o `geometry/scroll.pengu`.
 
-### 6.5 Lambdas
+Un módulo puede contener records, sums, funciones, constantes, pacts, rituals y
+submódulos. No puede contener `bind` ni `morph` en su nivel superior: el estado
+global mutable no existe.
 
-```pengu-fragment
-let no_args as weave into int is lambda into 42
-let double as weave with x as int into int is lambda x as int into x * 2
-let add as weave with a as int, b as int into int is lambda a as int, b as int into a + b
-```
+La ruta de un módulo es única dentro del tome. `scroll geometry` con cuerpo y
+un archivo `geometry.pengu` son el mismo módulo: no hay precedencia, es un
+error `PGS-E2013`. Lo mismo pasa si existen `geometry.pengu` y
+`geometry/scroll.pengu` a la vez. Las rutas anidadas sí son distintas:
+`app::geometry` y `geometry` pueden coexistir.
 
-Lambdas are static C functions (`_pengu_lambda_N`) with **no captures**: they see
-their parameters and module-level declarations only. Their parameter types are
-mandatory; the return type is inferred. A lambda body is a function boundary, so
-`break`/`continue` cannot target a loop of the enclosing weave.
+Resolución de nombres:
 
-### 6.6 `ritual` methods
+- módulos y tipos comparten el espacio de nombres de tipos;
+- bindings, funciones, constantes y variantes viven en el espacio de valores;
+- un `bind`/`morph` local puede sombrear un valor importado, pero no un módulo
+  ni un tipo;
+- un `summon` que choca con otro nombre del mismo espacio es `PGS-E2005`;
+- `geometry::Point` siempre resuelve el módulo `geometry`, nunca un valor
+  local llamado `geometry`.
 
-A `ritual` is an associated (static) function declared inside `enchanting` or
-`bind`. It receives no `self` and is called on the type name:
-
-```pengu
-rune Player:
-    name as string
-    hp as int
-
-enchanting Player:
-    weave ritual new with name as string into Player:
-        return with name is name, hp is 100
-```
-
-Calling a ritual on an instance, or an instance method on the type name, is
-`E0034`; using `self` inside a ritual is `E0033`.
-
-### 6.7 Entry point
-
-The program entry is `weave main into int` (or `into void`) in the entry module.
-The compiler emits `pengu_main` and a C `main` that calls
-`pengu_init(argc, argv)`, runs `pengu_main`, flushes stdio and returns the
-status. The entry module sees `main` as `true` in `when` conditions; imported
-modules see `false`.
-
-## 7. Modules and imports
-
-### 7.1 Module = file
-
-A module is a `.pengu` file. Its module id is its path under the source root
-with `/` replaced by `.` and the extension removed: `src/components/player.pengu`
-is `components.player`. Files under the standard library are `std.*`.
-
-### 7.2 `import`
-
-```pengu-fragment
-import std.spark                  # bundled standard library
-import std.scrolls as s           # alias
-import components.player          # project module (src/components/player.pengu)
-import utils                      # src/utils.pengu
-```
-
-| Rule | Behaviour |
-| --- | --- |
-| Resolution | dotted path → `src/<path>.pengu`, then `<path>.d.pengu`, then `__init__.pengu` |
-| Order | modules are checked and emitted in dependency order (topological) |
-| Cycles | `E0004`, with the cycle printed (`a -> b -> a`) |
-| Duplicates | importing the same module twice is `E0004` |
-| Alias | `as name`; `_` is rejected (`E0036`), and a colliding alias is `E0036` |
-| Privacy | top-level names starting with `_` are module-private (`E0043`) |
-| Type names | module-scoped: use `a.Config` from another module |
-
-Importing a module does not run code. There are no wildcard imports and no
-`from ... import ...`.
-
-A leading `_` is what makes a name private: runes, aliases, constants,
-functions, methods and fields that start with `_` are only reachable from their
-own module (fields opt out with `@public`). Reaching one through an import (`a._secret`, `a._Hidden`, `a._helper()`)
-is `E0043`, and the diagnostic names the symbol. Fields follow the same rule in
-their own module (§9.9 fields promoted by `fundere` keep the visibility of the
-embed that declares them).
-
-### 7.3 Module-level state
-
-`var` and `let` are forbidden at top level (`E0002`). Persistent state has two
-legal forms: `const` (compile-time value) and `static var` inside a weave, which
-emits a C `static` with a one-time initialisation guard:
+### 3.3 Imports
 
 ```pengu
-weave next_id into int:
-    static var counter as int is 0
-    set counter += 1
-    return counter
+summon geometry::Point
+summon geometry::norm as length
 ```
 
-`static` state is per-process and never freed; prefer passing state explicitly.
+`summon` importa un item o un módulo. No hay imports glob. Un nombre importado
+puede renombrarse con `as`.
 
-## 8. C interop
+Los items del mismo módulo se ven sin importación. Los items de un submódulo se
+importan con su ruta.
 
-### 8.1 `include`, `link`, `ldflag`, `insignia`
+Si `summon nombre` no encuentra un `.pengu`, busca un `.d.pengu` declarado en
+`[declarations]` o un `nombre.d.pengu` adyacente. Un `.d.pengu` no genera
+código: solo contribuye nombres y tipos (§16.7).
 
-```pengu
-include "mylib.h"        # add the header to the generated C
-link "mylib"             # add -lmylib when a live function needs it
-link "m"
-ldflag "-sUSE_GLFW=3"    # raw linker option, for what a library name cannot express
-insignia mylib_          # C prefix for every declaration below
-```
+### 3.4 Visibilidad
 
-`link` is conditional: the flag reaches the linker only when the module has a
-live symbol that needs it (release prunes unused native code). `ldflag` is
-emitted outside the `--start-group` wrapper and can be overridden by the
-project's own `ldflags`.
+Por defecto todo es privado al módulo.
 
-`insignia` prefixes generated C names: with `insignia pengu_`, `weave helper`
-becomes `pengu_helper`, and an `omen Color` becomes `pengu_Color` with variants
-`pengu_Color_Red`. It is the tool that keeps a binding from colliding with libc.
+| Forma | Alcance |
+|---|---|
+| `unveil` | público |
+| `unveil(tome)` | visible en el tome actual |
+| `unveil(scroll)` | visible en el módulo padre |
 
-### 8.2 `declare`
-
-```pengu
-declare strlen_c with s as ref to char into usize
-declare printf with fmt as ref to frozen char, ... into int
-declare qsort with base as ref to void, n as usize, size as usize, cmp as ref to weave with a as ref to frozen void, b as ref to frozen void into int into void
-```
-
-Parameter lists for `declare` must be written on one line: the parser does not
-continue a parameter list after a trailing comma.
-
-* Every external function must be declared before use (`E0004`).
-* Parameter and return types must match the C prototype exactly; PenguScript
-  does not convert silently at the boundary.
-* A trailing `...` means raw C varargs (`declare` only).
-* `declare` may be combined with `@noreturn` and with `inline`.
-
-C strings: pass `ref to char`; a PenguScript string literal converts
-automatically where `ref to char` is expected. Use `bytes of s` for a mutable
-byte view and `std.ffi` for explicit conversions.
-
-### 8.3 `opaque`, `ref to`, `bytes of`
+`unveil` se escribe antes del item o del campo de un `rune`; las formas
+`unveil(tome)` y `unveil(scroll)` solo se aplican a items. No existe `pub`,
+`pub(crate)` ni `pub(in ...)`. Las variantes de un `enchanting` no
+tienen visibilidad propia: si el `enchanting` es `unveil`, todas las variantes
+son públicas; si no, ninguna. Un campo de variante tampoco lleva `unveil`; un
+`unveil` en esa posición es `PGS-E2007`.
 
 ```pengu
-alias File as opaque
+scroll geometry
+    unveil rune Point
+        unveil x: Float
+        unveil y: Float
 
-declare fopen with path as ref to char, mode as ref to char into ref to File
-declare fclose with f as ref to File into int
-
-weave main into int:
-    var f as ref to File is calling fopen with "/tmp/x", "r"
-    if f == null:
-        return 1
-    defer banish f          # only if the module documents that it owns the handle
-    var raw as ref to frozen byte is bytes of "abc"
-    return 0
+    unveil(tome) origin = () -> Point
+        Point(x: 0.0, y: 0.0)
 ```
 
-* `opaque` is an incomplete C type: it cannot be instantiated and is
-  only usable behind `ref to`.
-* `bytes of s` yields `ref to byte` for a string or a fixed byte array; the view
-  is borrowed and must not be banished.
-* `sigil of x` is `&x`; `essence of p` is `*p`.
+Un campo sin `unveil` solo se lee y se escribe dentro del módulo que declara el
+record. Un campo `unveil` puede leerse desde fuera; para escribirlo se usa un
+método `@mut`, no una asignación directa.
 
-### 8.4 `.d.pengu` declaration files
+### 3.5 Entrada
+
+`grimoire` es el punto de entrada del binario. No recibe argumentos y devuelve
+`Unit` o `Result[Unit, E]`.
 
 ```pengu
-# mylib.d.pengu
-include "mylib.h"
-link "mylib"
+rune Args
+    program: String
+    rest: Vec[String]
 
-omen Mode:
-    MODE_FAST is 1
-    MODE_SAFE is 2
-
-declare mylib_open with name as ref to char into ref to opaque
+grimoire
+    print("hola, pengu")
 ```
 
-A `.d.pengu` holds `include`/`link`/`ldflag`/`insignia`/`declare` and type
-declarations; it is not where executable code belongs. It is the hand-written or
-`psc bind` generated companion of a C library, and the Latin-named wrapper
-(`std/mylib.pengu`) is where the public, safe API lives. The compiler does not
-currently reject a body in a `.d.pengu`, so this is a convention you must keep.
+Si el `grimoire` declara `Result[Unit, E]`, un `err` se imprime en stderr y el
+proceso termina con código 1. Un `return` dentro de `grimoire` es válido y se
+tipa contra el retorno declarado, igual que en cualquier función:
 
-`psc bind header.h --output=mylib.d.pengu` generates the declarations from a C
-header (see `docs/EXTERNAL_MODULES.md`).
+- `grimoire` con `Unit`: `return` sin valor;
+- `grimoire: Result[Unit, E]`: `return ok(())` o `return err(e)`;
+- `return` con un valor incompatible es `PGS-E6006` o `PGS-E7002`.
 
-### 8.5 `antiquus` — embedded C
+`return` no es una producción especial de `grimoire`: es una sentencia normal
+de `block` (§19.9).
 
 ```pengu
-antiquus add with a as int, b as int into int:
-    """
-    return a + b;
-    """
+enchanting StartError
+    MissingName
+
+grimoire: Result[Unit, StartError]
+    bind name = "pengu"
+    if name.len() == 0 then
+        return err(MissingName)
+    print(name)
+    ok(())
 ```
 
-The body is literal C in a triple-quoted string. Header rules match `weave`
-(`shard`, `where`, defaults, any parameter type); the body sees the parameter
-names verbatim, so they must be valid C identifiers (`E0035`). `many T` is not
-allowed, `main` cannot be an `antiquus`. An `antiquus` is a definition, so it
-belongs in a `.pengu`, not in a `.d.pengu`. Prefer `r"""..."""` when the C
-contains backslashes.
+No hay `main`, `argc`, `argv` ni `std::env::args` en la superficie: la librería
+`std.env` expone `args()` cuando hace falta.
 
-`@export("sym")` pins the emitted symbol and makes it a DCE root.
-
-### 8.6 `transmute`, `@packed`, `@align`
-
-```pengu
-@packed
-rune Header:
-    magic as u32
-    version as u16
-
-weave bits_of with f as float into u32:
-    return transmute f to u32
-```
-
-`transmute x to T` reinterprets the bits (no check): it copies `min(sizeof(T),
-sizeof(x))` bytes through a temporary, so `transmute 1.0 to int` is
-`1065353216`, not `1`. `@packed` removes struct
-padding; `@align(N)` sets the alignment. Both change the C layout and are meant
-for on-disk or wire formats — see §14.
-
-## 9. Composite types
-
-### 9.1 `rune` — structs
+### 3.6 Un programa completo
 
 ```pengu
-rune Player:
-    name as string
-    hp as int
-    is_alive as bool
-    _secret_id as int          # private to the module (E0043 outside)
+scroll app
+    unveil rune Config
+        unveil name: String
+        unveil verbose: Bool
+
+    unveil load = () -> Config
+        Config(name: "pengu", verbose: false)
+
+summon app::load
+
+grimoire
+    bind config = load()
+    if config.verbose then
+        print("modo verboso")
+    print(config.name)
 ```
 
-Construction:
+### 3.7 Tome
 
-```pengu-fragment
-var p as Player is with name is "Hero", hp is 100, is_alive is true
+Un **tome** es la unidad de compilación. Su manifiesto es `Tome.toml`:
 
-var q as Player with:
-    set .name is "Villain"
-    set .hp is 50
+```toml
+[tome]
+name = "hello"
+version = "0.1.0"
+pengu = "0.6"
+edition = "2024"
+
+[dependencies]
+text = "1.2"
+
+[link]
+m = { lib = "m", kind = "shared" }
+foo = { lib = "foo", kind = "static" }
+
+[declarations]
+libc = "vendor/libc.d.pengu"
+
+[features]
+default = []
+json = []
+
+[[bin]]
+name = "hello"
+path = "main.pengu"
 ```
 
-Nested `with` initializers must be parenthesized; the comma belongs to the
-outermost `with`, so `address is (with city is "Madrid"), zip is 1` is the
-correct spelling and `address is with city is "Madrid", zip is 1` would try to
-put `zip` inside `address` (a C error against the nested rune). The compiler
-reports unknown and repeated fields (`E0004`) and suggests the parentheses.
+Solo se aceptan las claves `[tome]`, `[dependencies]`, `[link]`, `[declarations]`,
+`[features]`, `[[bin]]`, `[[lib]]`, `[[test]]` y `[[example]]`. No hay `[cargo]`, `[profile]` ni tablas
+de tooling: el backend decide esos detalles.
 
-Nested builders infer the field's type:
+### 3.8 Pipeline
 
-```pengu-fragment
-var person as Person with:
-    set .name is "Ada"
-    set .address is with:
-        set .street is "123 Main St"
-        set .city is "New York"
-```
+El compilador:
 
-Fields are read with `.` on a value and `->` on a reference (`self->hp`).
-A rune is a C `struct`; its fields appear in declaration order.
+1. lee `Tome.toml`;
+2. carga la raíz;
+3. lexea, parsea y resuelve nombres;
+4. verifica tipos, ownership y visibilidad;
+5. baja a su representación interna;
+6. emite código al backend;
+7. produce el binario o la librería.
 
-A rune lowers to a C struct plus a clone helper and a cleanup helper; both are
-generated even when they are trivial, so containers can copy and release any
-rune uniformly:
+Los errores del backend se traducen a diagnósticos PenguScript. El usuario no
+edita archivos generados y no ve el código del backend.
 
-```c
-struct Point { int32_t x; int32_t y; };
+Mapeo de errores del backend:
 
-static inline void _pengu_clone_Point(Point* out, const Point* v) { *out = *v; }
-static inline void _pengu_cleanup_Point(Point* p) { (void)p; }
-```
+1. Cada fragmento generado tiene un rango en `sourcemap.json` que apunta a un
+   rango de PenguScript.
+2. El compilador toma el span generado más interno y lo remapea al span de
+   PenguScript correspondiente.
+3. Si no hay mapeo, usa el item PenguScript que encerró la generación; si
+   tampoco existe, reporta `PGS-E2014` con la ubicación generada y el código
+   de backend como nota.
+4. El mensaje principal siempre es un diagnóstico PenguScript; el código de
+   rustc, si existe, aparece solo en la nota, nunca como diagnóstico primario.
+5. Un error interno del backend que no se pueda atribuir a un span es
+   `PGS-E2014`; no se muestra el código generado salvo con `pengu explain`.
 
-A rune whose fields own memory generates a cleanup that releases its top-level
-`string`/`list`/`map` fields (and an omen's payload shell), and `derive Nexus`
-is what makes `banish` call it. The cleanup is deliberately shallow: nested
-elements and the contents of a copied value are not followed, because values are
-copied by value and the copies share those buffers. Compose `banish` with your
-own deep free (or use a type that owns its tree, such as `JsonValue.free`).
+### 3.9 Diagnósticos del programa
 
-### 9.2 `cyclus` — recursive types
+| Código | Situación |
+|---|---|
+| `PGS-E2001` | No se encuentra `Tome.toml`. |
+| `PGS-E2002` | Falta `main.pengu` o `lib.pengu`. |
+| `PGS-E2003` | Módulo no encontrado. |
+| `PGS-E2004` | `summon` de un nombre inexistente. |
+| `PGS-E2005` | Import duplicado. |
+| `PGS-E2006` | Item privado usado fuera del módulo. |
+| `PGS-E2007` | `unveil` inválido en este contexto. |
+| `PGS-E2008` | `grimoire` duplicado. |
+| `PGS-E2009` | `grimoire` ausente en un binario. |
+| `PGS-E2010` | `Tome.toml` inválido. |
+| `PGS-E2011` | Dependencia no declarada. |
+| `PGS-E2012` | Ciclo de módulos. |
+| `PGS-E2013` | Módulo duplicado o ambiguo. |
+| `PGS-E2014` | Error del backend sin mapeo a PenguScript. |
 
-```pengu
-rune Node cyclus:
-    value as int
-    next as maybe ref to Node
-```
+[↑ Volver al índice](#indice)
+---
 
-By-value recursion is infinite and rejected (`E0050`). `cyclus` marks the
-declaration as intentionally recursive; the cycle must still be broken by
-indirection (`ref to`, `list`, `map`, `slice`). The same rule covers composition
-with `fundere`: `rune A fundere B:` where `B` contains `A` by value is `E0050`
-too, and the diagnostic shows the whole chain (`A -> B -> A`).
+<a id="sec-04"></a>
+## 4. Tipos
 
-A *generic* self-reference (`rune Node shard T:` with `ref to Node of T` inside)
-is rejected with `E0021` in 0.28.0: the type parameter is not in scope inside
-its own body. Wrap the payload instead (`value as ref to void`, or a non-generic
-node holding `slice of T`).
+### 4.1 Reglas
 
-### 9.3 `echo` — unions
+- El tipado es estático, fuerte y nominal.
+- Las firmas de items son explícitas; las variables locales y las expresiones
+  tienen inferencia local.
+- No hay `null`, truthiness, coerción implícita ni conversiones automáticas.
+- No hay tipos asociados ni tipos de retorno opacos en la superficie.
+- Un tipo se escribe con `PascalCase`.
 
-```pengu
-echo Number:
-    i as int
-    f as float
-```
+### 4.2 Primitivos
 
-An `echo` is a C `union`: all fields share storage and the record is as large as
-its biggest field. Field access is unchecked — writing one field overwrites the
-others. For a tagged sum type use `omen`.
+| Tipo | Representación | Literal |
+|---|---|---|
+| `Bool` | booleano | `true`, `false` |
+| `Int` | entero con signo de 32 bits | `42` |
+| `I8`, `I16`, `I32`, `I64`, `Isize` | enteros con signo | `42_i64` |
+| `U8`, `U16`, `U32`, `U64`, `Usize` | enteros sin signo | `42_usize` |
+| `Float` | 64 bits | `1.5` |
+| `F32`, `F64` | flotantes | `1.5_f32` |
+| `Char` | escalar Unicode | `'P'` |
+| `String` | string owned | `String.from("pengu")` |
+| `Str` | vista de string | `"pengu"` |
+| `Unit` | ausencia de valor | `()` |
+| `Never` | expresión que no retorna | `return`, `panic` |
 
-### 9.4 `omen` — enums and sum types
+`Int` es el entero por defecto; `Float` es el flotante por defecto. `I128` y
+`U128` no están en el núcleo.
 
-```pengu
-omen Direction:              # numeric enum
-    North is 0
-    South is 1
+`CStr`, `CString`, `Ptr[T]`, `Option`, `Result` y `Ordering` no son
+primitivos:
 
-omen Event:                  # algebraic sum type
-    Disconnected
-    Connecting with attempt as int
-    Connected with session_id as string, latency_ms as float
-```
+| Tipo | Dónde vive |
+|---|---|
+| `CStr`, `CString` | `std.ffi` (§16.3) |
+| `Ptr[T]` | tipo de borde de FFI (§4.7) |
+| `Option[T]`, `Result[T, E]` | sums de la prelude |
+| `Ordering` | sum de la prelude (`Less`, `Equal`, `Greater` son valores) |
+| `Range[T]` | rango `inicio..fin` / `inicio..=fin`; `Range[Usize]` para índices |
 
-| Flavour | Spelling | C |
-| --- | --- | --- |
-| Numeric | `omen X:` with `is N` | `typedef enum { X_A = 0, ... } X;` |
-| String | `omen X with string:` | rejected with `E0005` (not implemented yet) |
-| Algebraic | variants with `with` payloads | struct with `int32_t tag` + payload `union` |
-
-Variants are reachable unqualified (`Red`), qualified (`Color.Red`) or by full C
-name (`Color_Red`). `is N` sets the numeric value and it is preserved in the
-emitted enum; a variant without `is` takes the previous value plus one. Duplicate
-values are `E0027`, non-constant values `E0029`, payloads on a string-valued omen
-`E0028`. Interpolating an omen prints its variant name.
-
-```c
-typedef struct {
-    int32_t tag;
-    union {
-        struct { int32_t attempt; } Connecting;
-        struct { PenguString session_id; float latency_ms; } Connected;
-    } data;
-} Event;
-```
-
-### 9.5 `seal`, `alias`, `opaque`
-
-```pengu
-seal UserId as int          # nominal: no implicit conversion
-alias Inches as int         # transparent synonym
-alias Buffer as opaque      # incomplete C handle
-```
-
-In this release a `seal` is a transparent synonym like `alias`: the value is
-interchangeable with its target, and the nominal check that would require an
-explicit `raw to UserId` is still pending (documented as `E0005` in the plan).
-Prefer `alias` while that check lands. `opaque` cannot be instantiated
-and lives behind `ref to`.
-
-### 9.6 `frozen`
-
-```pengu-fragment
-frozen int              # const int
-ref to frozen int       # const int *
-frozen Player           # const Player
-```
-
-`frozen` qualifies the pointee; the canonical spelling is `ref to frozen T`.
-It is orthogonal to `let`: `let` freezes the name, `frozen` freezes the value.
-A mutable value flows into `frozen`; the reverse does not compile.
-
-### 9.7 `derive`
-
-> **Status (F2):** `derive` is being retired. `Par`, `Ordo`, `Nexus`, `Imago`,
-> `Vinculum` and `Donum` **no longer derive**: their effects are implicit, and
-> writing the concept gives `E0005` with the exact replacement. `Json` is still
-> accepted until F5 (it is the only codec until then) and `Drop` until F2.3
-> (`born mirror`/`die` replace it). `psc migrate --drop-derive` rewrites the
-> clauses in the tree.
+### 4.3 Tuplas
 
 ```pengu
-rune Point:              # before: rune Point derive Par, Ordo, Vinculum, Imago:
-    x as int             # ==/!=, <...>, hash and copy are automatic
-    y as int
+bind pair = (1, "uno")
+bind one = (1,)
+bind empty = ()
 ```
 
-| Concept | Derivable | Generates |
-| --- | --- | --- |
-| `Par` | yes | `==`, `!=` |
-| `Ordo` | yes | `<`, `<=`, `>`, `>=` |
-| `Vinculum` | yes | hash, usable as a map key |
-| `Imago` | yes | `_pengu_clone_<T>`: shallow copy (the copy shares owned buffers) |
-| `Nexus` | yes | `_pengu_cleanup_<T>`: first-level destruction, invoked by `banish` |
-| `Drop` | yes | `Nexus` + destruction at every scope exit + move-only (§13.9) |
-| `Json` | yes | `_pengu_json_encode_<T>` / `_pengu_json_decode_<T>` (implies `Nexus`; see §9.7.1) |
-| `Forma`, `Iterabilis` | no (`E0005`) | — |
-| `Donum` | automatic | implied when every field is defaultable; `derive Donum` is `E0005` |
+`()` es `Unit`. `(T,)` es una tupla de un elemento. Los campos se leen con
+`.0`, `.1`, etc.
 
-Deriving a comparison concept on a generic rune bounds its parameters; the check
-happens at each substitution site.
-
-`fundere` propagates `Drop` and `Nexus` (and nothing else): a rune whose embed is
-`Drop` is itself `Drop` — move-only, with a composed `_pengu_cleanup_<T>` — and a
-rune whose embed is `Nexus` gets the cleanup helper but stays copyable. Other
-concepts (`Par`, `Ordo`, `Vinculum`, `Imago`, `Json`) are never inherited; write
-them on the host if you want them. See §9.9.
-
-### 9.7.1 `derive Json`
-
-`Json` is a built-in concept that generates a JSON codec for a rune at compile
-time. It lowers to plain C: no reflection, no runtime type tables, no dependency
-on `std.json`.
+### 4.4 Arrays y slices
 
 ```pengu
-rune Address derive Json:
-    city as string
-    zip as int
-
-rune User derive Json:
-    id as i64
-    name as string
-    @json("e-mail") email as string
-    @skip password as string
-    tags as list of string
-    nick as maybe string
-    address as Address
+bind numbers: [Int; 3] = [1, 2, 3]
+bind zeros = [0; 4]
+bind view: &[Int] = &numbers
 ```
 
-Deriving `Json` adds two methods to the rune (and implies `Nexus`):
+Un array `[T; N]` tiene tamaño fijo. Un slice `&[T]` es una vista con longitud
+en tiempo de ejecución. `&mut [T]` permite modificarlo.
 
-| Method | Shape | Emitted C |
-| --- | --- | --- |
-| `to_json` | `weave to_json into string` (instance) | `_pengu_json_encode_<T>(T*)` |
-| `from_json` | `weave ritual from_json with text as string into result of T to string` (static) | `_pengu_json_decode_<T>(PenguString)` |
+### 4.5 Referencias
 
-```pengu-fragment
-var user as User is with id is 7, name is "Ana", email is "a@b.c",
-    password is "x", tags is ["a"], nick is (maybe none),
-    address is (with city is "Madrid", zip is 28001)
+`&T` y `&mut T` solo pueden aparecer:
 
-var text as string is calling user.to_json
-var parsed as result of User to string is calling User.from_json with text
-if parsed.is_ok:
-    calling print with parsed.value.name
-else:
-    calling print with parsed.error     # json: line 1, col 12: expected a string
-```
+- en parámetros de función;
+- en variables locales;
+- en el tipo de un binding local.
 
-#### Field attributes
-
-| Attribute | Meaning |
-| --- | --- |
-| `@json("external")` | JSON key for the field (default: the field name) |
-| `@skip` | never encoded and never required when decoding |
-
-Inside a rune that derives `Json`, any other field attribute is `E0054`; the
-compiler does not interpret validations such as `@format("email")`. Do that at
-your HTTP boundary with a hand-written `weave validate`. Runes that do not derive
-`Json` keep ignoring these attributes.
-
-#### Type mapping
-
-| PenguScript | JSON |
-| --- | --- |
-| `bool` | `true` / `false` |
-| `i8`…`i64`, `int`, `isize` | number (range-checked on decode) |
-| `u8`…`u64`, `usize` | number (range-checked on decode) |
-| `float`, `f64` | number (shortest round-trip form; non-finite values panic) |
-| `string` | string (UTF-8, `"` `\\` and C0 controls escaped) |
-| `list of T` | array |
-| `map of string to V` | object with sorted keys |
-| `maybe T` | `null` when absent, otherwise `T` |
-| rune with `derive Json` | object |
-| `omen` without payload | string with the variant name |
-
-Rejected with `E0054`: `result`, tuples, fixed arrays, `ref`/pointers, `fn`,
-`opaque`, `char`, generic runes (`rune shard T`), `echo`, and omens with payload.
-
-#### Decode semantics
-
-- The document root must be an object.
-- Unknown keys are validated and skipped.
-- A duplicate key for a known field is an error: silently overwriting would leak
-  the value stored first.
-- Missing required fields are an error; `maybe T` fields are optional.
-- Numbers are strict JSON numbers and range errors name the field and the type
-  (`field 'count': 300 does not fit in u8`).
-- Nesting is limited to 64 levels; trailing bytes are rejected.
-- On failure the decoder frees everything it reserved, returns `err` with a
-  message that carries `line`/`col`, and leaves no value for the caller. It uses
-  its own `_pengu_json_free_<T>`, so it is exact even though `banish` is shallow.
-
-#### Emitted C
-
-`psc emit-c` prints the five functions per rune (declarations first, then
-bodies), plus `_pengu_json_free_<T>`. For `User`:
-
-```c
-static PenguString _pengu_json_encode_User(User* self) {
-    PenguJsonOut _o;
-    pengu_json_out_init(&_o);
-    _pengu_json_write_User(&_o, self);
-    return pengu_json_out_finish(&_o);
-}
-
-static PenguResult _pengu_json_decode_User(PenguString text) {
-    PenguJsonIn _in;
-    pengu_json_in_init(&_in, text);
-    User* _out = (User*)malloc(sizeof(User));
-    if (!_out) abort();
-    PenguString _err = pengu_json_no_error();
-    if (!_pengu_json_read_User(&_in, _out, &_err)) {
-        free(_out);
-        return pengu_result_err(pengu_json_box_error(&_err));
-    }
-    if (!pengu_json_in_finish(&_in, &_err)) {
-        _pengu_json_free_User(_out);
-        free(_out);
-        return pengu_result_err(pengu_json_box_error(&_err));
-    }
-    return pengu_result_ok(_out);
-}
-
-static bool _pengu_json_read_User(PenguJsonIn* in, User* out, PenguString* err) {
-    memset(out, 0, sizeof(*out));
-    if (!pengu_json_in_object_begin(in, err)) return false;
-    bool _seen0 = false;              /* id */
-    bool _seen4 = false;              /* tags */
-    for (;;) { /* first element or ',' ; in_key ; key_eq */ }
-    if (!_seen0) {
-        pengu_json_failf(err, in, "missing field 'id'");
-        _pengu_json_free_User(out);
-        return false;
-    }
-    if (!pengu_json_in_object_end(in, err)) {
-        _pengu_json_free_User(out);
-        return false;
-    }
-    return true;
-}
-```
-
-The writer emits fields in declaration order, skipping `@skip`; the reader uses
-`pengu_json_skip` for unknown keys, so a JSON document produced by another
-version of the rune still decodes.
-
-### 9.8 `with:` builders
-
-```pengu-fragment
-var p as Point with:
-    set .x is 10
-    set .y is 20
-    calling .shift with 5, 3
-```
-
-A builder allocates a zeroed temporary, applies `set .field` and calls, and
-evaluates to the value. Only `set .field is ...` and calls on the target are
-allowed (`E0014`); `if`, `var`, `defer` and `banish` are rejected. Mutability
-follows the binding: `let p with:` builds once and freezes the name; `with
-let_ptr:` where `let_ptr as ref to T` stays mutable because the pointee is.
-
-### 9.9 `fundere` — composition
-
-`fundere` declares that a rune *composes* another rune: the embedded rune is
-stored inline as the first field, and its fields and methods are reachable
-through the host without writing the path. It is struct embedding, not
-inheritance.
-
-```pengu-fragment
-rune Enemy fundere GameObj, Physics:
-    health as int
-```
-
-What it is **not**: there is no subtyping (`ref to Enemy` is not a
-`ref to GameObj`, `E0005`), no vtable and no dynamic dispatch, no implicit
-interface inheritance, and no implicit constructor (`Enemy.new` never calls
-`GameObj.new`).
-
-#### 9.9.1 Syntax
-
-```pengu-fragment
-rune Enemy fundere GameObj:                       # field `gameObj`
-rune Enemy fundere GameObj, Physics:              # two embeds
-rune Enemy fundere GameObj as base, Physics:      # named field
-rune Player fundere GameObj, Inventory of Item as inv:
-```
-
-`fundere` is a hard keyword. It goes after the rune name (and an optional
-`cyclus`) and before `shard`, `where` and `derive`; `rune X shard T fundere Y`
-is `E0000` with a help that shows the right order. Embeds are separated by `,`
-or `and`.
-
-The field name defaults to the type name with a lowercased first letter
-(`GameObj` → `gameObj`, `Position3D` → `position3D`, `Box of int` → `box`).
-`as` is required (`E0089`) when the default name would collide with another
-field or embed, or when the type has more than one type argument
-(`Box of K and V`).
-
-#### 9.9.2 Fields
+No pueden aparecer en campos de `rune`, variantes de `enchanting`, tipos de
+retorno, alias que se guarden ni colecciones que se almacenen.
 
 ```pengu
-rune GameObj:
-    position as Vec2
-    bounds as Rect
-
-rune Enemy fundere GameObj:
-    health as int
+length = (s: &Str) -> Usize
+    s.len()
 ```
 
-`e.position` and `e.gameObj.position` are the same place:
+El compilador infiere cuánto vive la referencia. Si no puede, emite
+`PGS-E4109` y sugiere mover el valor, usar `Rc[T]`/`Arc[T]` o reestructurar.
 
-```c
-typedef struct { Vec2 position; Rect bounds; } GameObj;
-typedef struct { GameObj gameObj; int32_t health; } Enemy;
+### 4.6 Strings
 
-e.gameObj.position.x = 10;   /* both spellings compile to this */
-```
-
-Resolution for `expr.field`, where `expr` has type `Host`:
-
-1. A field declared by `Host` wins.
-2. If exactly one embed (recursively) declares it, it is promoted.
-3. If more than one does, `E0087`; write the explicit path (`host.a.field`).
-4. Otherwise `E0004`, as before.
-
-A host field may shadow a promoted field on purpose: `e.speed` is the host's
-`speed` and `e.gameObj.speed` is still the embed's. The shadowing lint reports
-it as `W0009` by default; `psc check --lint=no-shadow` silences it. It never
-blocks a build.
-
-#### 9.9.3 Methods
-
-Methods of the embed are promoted with the same rules: the host's own
-`enchanting` wins, a unique embed wins, two embeds give `E0088`. Promotion is
-recursive (`A fundere B` and `B fundere C` gives `A` the methods of `C`).
+`Str` es una vista prestada de bytes UTF-8. `String` es la versión owned.
 
 ```pengu
-enchanting GameObj:
-    weave move with dx as float into void:
-        set self->position.x is self->position.x + dx
-
-calling enemy.move with 1.0      # GameObj_move(&enemy.gameObj, 1.0)
+bind literal: &Str = "pengu"
+bind owned: String = "pengu"
+bind titulo = "hola #{owned}"
+bind vista: &Str = owned
+bind joined = owned + "script"
+bind copia = String.from(literal)
 ```
 
-`self` inside `move` is `ref to GameObj` pointing at `&enemy.gameObj`: the
-embed cannot see the host.
+`bind owned: String = "pengu"` convierte el literal porque la anotación pide
+`String`; `titulo` es `String` porque la interpolación construye un valor en
+propiedad; `vista` presta un `String` que ya es un lugar; `String.from(literal)`
+sigue siendo la forma explícita y nunca sobra.
 
-* `ritual` methods are **not** promoted (`E0004`, with a help that says to call
-  them on the embed's type); a ritual of `GameObj` builds a `GameObj`, not an
-  `Enemy`. Declare your own ritual on the host instead.
-* `@mutates` methods are promoted and mutate the embed's field:
+No se indexa un string por entero. Para recorrer caracteres se usan
+`chars()`, `bytes()` o `char_indices()`; para cortar, `get(a..b)` devuelve
+`Option[&Str]` y falla si el rango no cae en un límite de carácter.
 
-```c
-enemy.gameObj = GameObj_moved(&enemy.gameObj, 1.0);
-```
+### 4.7 Colecciones
 
-#### 9.9.4 Construction
+| Tipo | Uso |
+|---|---|
+| `Vec[T]` | secuencia dinámica |
+| `Map[K, V]` | diccionario hash |
+| `Set[T]` | conjunto hash |
+| `[T; N]` | array fijo |
+| `&[T]` | vista de secuencia |
 
-Both forms build the same value. The promoted form routes each field to its
-embed:
+`Map` y `Set` requieren claves `Eq + Hash`. No hay `BTreeMap` en la prelude;
+se importa de `std.collections` si hace falta.
+
+`Ordering` es un sum de la prelude con `Less`, `Equal` y `Greater`. Es el
+resultado de `Ord.cmp` y no se escribe a mano salvo para implementar `Ord`.
+
+`CStr` y `CString` pertenecen a `std.ffi`, no al núcleo. `CStr` es la vista
+prestada de un string C y solo se usa en la frontera FFI; se importa con
+`summon std::ffi::CStr`. `CString` es la versión owned y puede fallar con
+`NulError`.
+
+`Ptr[T]` es un tipo de borde para punteros opacos de FFI. Solo puede aparecer
+en un `.d.pengu`, en una firma `foreign` o en una función `curse`; no se
+guarda, no se compara y no se pasa a código PenguScript normal.
+
+### 4.8 Opcionales y errores
 
 ```pengu
-var e as Enemy is with
-    position is (with x is 0.0, y is 0.0),
-    bounds is (with w is 32, h is 32),
-    health is 100
-
-var f as Enemy is with
-    gameObj is (with position is (with x is 0.0, y is 0.0), bounds is (with w is 32, h is 32)),
-    health is 100
+bind maybe: Option[Int] = some(3)
+bind nothing: Option[Int] = none
+bind result: Result[Int, String] = ok(3)
+bind failure: Result[Int, String] = err("no")
 ```
 
-```c
-Enemy e = (Enemy){ .gameObj = (GameObj){ .position = (Vec2){ .x = 0.0, .y = 0.0 }, .bounds = (Rect){ .w = 32, .h = 32 } }, .health = 100 };
-```
-
-A promoted field that exists in more than one embed is `E0087`; mixing the
-whole embed and its promoted fields in the same initializer is also `E0087`
-(the two would be written twice in C). Inside `with host:` a leading dot
-resolves through promotion too: `set .position.x is 10` writes
-`host.gameObj.position.x`.
-
-#### 9.9.5 Memory
-
-`fundere` changes what cleanups exist, never how values move:
-
-* If **any** embed is `Drop`, the host is `Drop`: move-only, with a composed
-  `_pengu_cleanup_<Host>` that calls the embed's cleanup. Copying it is `E0080`.
-* If an embed is `Nexus` but not `Drop`, the host gets the cleanup helper and the
-  `Nexus` concept (so `banish` is allowed) but is **not** `Drop`.
-* If nothing needs cleanup, the host stays trivial and `Copy`.
-
-The cleanup runs the host's own fields in reverse declaration order and then
-the embeds in reverse `fundere` order:
-
-```c
-static inline void _pengu_cleanup_Enemy(Enemy* p) {
-    pengu_banish_string(&(p->notes));
-    _pengu_cleanup_Physics(&(p->physics));
-    _pengu_cleanup_GameObj(&(p->gameObj));
-    memset(p, 0, sizeof(*p));
-}
-```
-
-`Rc`, `Arc`, `Weak`, `Rc`-like handles, `string`, `list` and `map` inside an
-embed are handled by the same rules as always: the embed is just a field.
-
-#### 9.9.6 Layout, generics and size
-
-The C struct stores the embeds first, in `fundere` order, then the host's own
-fields in declaration order. `@packed` and `@align(N)` on the host apply to the
-host struct; each embed keeps its own layout.
-
-Embeds may be generic: `rune Enemy fundere Box of T shard T:`. The field is
-`box: Box of T`, and the fields of `Box` are promoted per instantiation.
-
-`fundere` never creates a value of infinite size: `rune A fundere A`,
-`A fundere B` with `B fundere A`, or an embed that contains the host by value
-is `E0050` (the same check `cyclus` uses), with the cycle printed as
-`A -> B -> A`. A `ref to`, a `list` or an `Rc`/`Arc` breaks the cycle.
-
-#### 9.9.7 Diagnostics
-
-| Code | Meaning |
-| --- | --- |
-| `E0085` | `fundere` type is not a `rune` (echo, omen, seal, opaque, base type) |
-| `E0087` | a promoted field is ambiguous between two embeds |
-| `E0088` | a promoted method is ambiguous between two embeds |
-| `E0089` | the embed has no implicit field name, or two embeds share a name |
-| `E0050` | the composition has infinite size |
-| `W0009` | a host field shadows a promoted field (`--lint=no-shadow` to silence) |
-
-Language servers see promoted members: hover shows the field and its declaring
-embed, completion lists own and promoted members together, and go-to-definition
-on `enemy.position` jumps to `GameObj.position`.
-
-## 10. Methods and concepts
-
-### 10.1 `enchanting` — methods on a type
+`?T` es azúcar para `Option[T]`:
 
 ```pengu
-rune Player:
-    name as string
-    hp as int
-
-enchanting Player:
-    weave heal with amount as int into void:
-        set self->hp is self->hp + amount
-
-    weave ritual new_hero with name as string into Player:
-        return with name is name, hp is 100
+bind maybe: ?Int = some(3)
 ```
 
-* `self` is implicit and has type `ref to Player`, so fields are written
-  `self->hp`. `self.hp` is `E0003`.
-* A method declared with `ritual` is static: no `self`, called on the type name
-  (`calling Player.new_hero with "Ada"`). Using `self` there is `E0033`.
-* Calling a ritual on an instance, or an instance method on a type, is `E0034`.
-* `enchanting` works on user types and on built-in containers, including generic
-  forms: `enchanting list of shard T:`.
+`!T` no existe. Para errores se escribe `Result[T, E]` explícito.
 
-A method becomes a free C function whose first parameter is the receiver
-pointer, named `<Type>_<method>`:
-
-```c
-void Player_heal(Player* self, int32_t amount) {
-    self->hp = (self->hp + amount);
-}
-
-/* call site */
-Player_heal(&p, 2);
-```
-
-There is no vtable: `bind` and concepts are resolved at compile time, so a
-concept method call is a direct C call to the concrete implementation.
-
-### 10.2 `@mutates`
-
-`@mutates` declares a method whose result is assigned back to the receiver. The
-body is written as if it were pure — `self` is not mutated and the body returns
-the new value — and the assignment happens at the call site.
+### 4.9 Alias y newtypes
 
 ```pengu
-rune Player:
-    name as string
-    hp as int
+essence Meters = Float
 
-enchanting Player:
-    @mutates
-    weave grown with by as int into Player:
-        return with name is self->name, hp is self->hp + by
+rune UserId
+    value: UInt
 ```
 
-It is valid only inside `enchanting`, the return type must be the receiver's
-type, and one C function serves both the pure and the in-place surface forms.
+Un alias no crea un tipo nuevo. Un `rune` de un solo campo sí: `UserId` no es
+`UInt` y no se convierte solo.
 
-### 10.3 `concept` — compile-time contracts
+### 4.10 Tipos genéricos
 
 ```pengu
-concept Speaker:
-    weave greet with target as string into string
+rune Box[T]
+    value: T
+
+rune Pair[A, B]
+    first: A
+    second: B
 ```
 
-A concept lists method signatures only — no bodies, no fields, no state. It may
-take type parameters (`concept Container shard T:`). `ritual` methods inside a
-concept are not supported in 0.28.0 (the checker records the modifier as the
-method name); declare rituals in `enchanting` instead.
-
-### 10.4 `bind` — implementing a concept
+Los parámetros van entre `[]`. Los bounds simples van en la cabecera:
 
 ```pengu
-concept Speaker:
-    weave greet with target as string into string
-
-rune Dog:
-    name as string
-
-bind Dog with Speaker:
-    weave greet with target as string into string:
-        return "Woof, {target}!"
+rune Sorted[T: Ord]
+    items: Vec[T]
 ```
 
-| Rule | Diagnostic |
-| --- | --- |
-| Every required method must be implemented | `E0031` |
-| Parameter count/types and return type must match exactly | `E0030` |
-| Type and concept must exist before the `bind` | `E0004` |
-| One type may bind any number of concepts | — |
-| No default methods: each `bind` writes every body | — |
+No hay cláusulas adicionales de bounds. No hay parámetros de tipo con valores; los arrays
+de tamaño fijo usan `[T; N]` con `N` literal o `sigil`.
 
-### 10.5 Method resolution
+### 4.11 Nunca y Unit
 
-`calling x.m with ...` resolves in this order:
+`Unit` es el tipo de `()`, de un `if` sin `else` y de un `while`.
 
-1. Unwrap `ref to`, `alias`, `seal` and `frozen` to the base type.
-2. If `x` is a type parameter, use its `where` bounds.
-3. Look up `(base type, method)` in the method table populated by `enchanting`
-   and `bind`.
-4. Look up the monomorphised name (`Box_int` → `Box`).
-5. Look up the concept-binding table.
-6. Fall back to built-in container methods (`push`, `pop`, `len`, `get`, …).
-7. Otherwise `E0004`.
+`Never` es el tipo de una expresión que no produce un valor: `return`,
+`break`, `continue` y `panic(...)`. `Never` se puede usar en cualquier rama.
 
-Resolution is static; there is no vtable and no dynamic dispatch.
+### 4.12 Diagnósticos de tipos
 
-### 10.6 Built-in concepts
+| Código | Situación |
+|---|---|
+| `PGS-E3001` | Tipos incompatibles. |
+| `PGS-E3002` | No se puede inferir el tipo. |
+| `PGS-E3003` | El tipo no existe. |
+| `PGS-E3004` | Genérico sin bound requerido. |
+| `PGS-E3005` | Bound no satisfecho. |
+| `PGS-E3006` | Referencia en posición prohibida. |
+| `PGS-E3007` | `?T` usado con un tipo que no es `Option`. |
+| `PGS-E3008` | `Result` con error no concreto. |
+| `PGS-E3009` | Alias recursivo. |
+| `PGS-E3010` | Newtype sin campo. |
 
-| Concept | Enables |
-| --- | --- |
-| `Num` | `+`, `-`, `*`, `/`, unary `-` |
-| `Integrum` | `%`, `&`, `&#124;`, `^`, `<<`, `>>`, `~`, comparisons |
-| `Real` | float arithmetic and comparisons |
-| `Par` | `==`, `!=` |
-| `Ordo` | `<`, `<=`, `>`, `>=` |
-| `Vinculum` | usable as a `map` key (hashing) |
-| `Imago` | shallow structural copy (`_pengu_clone_<T>`) |
-| `Nexus` | first-level destruction (`_pengu_cleanup_<T>`, invoked by `banish`) |
-| `Json` | JSON codec (`to_json` / `from_json`, see §9.7.1) |
-| `Forma` | string interpolation (`"{x}"`) |
-| `Iterabilis` | `for x in col` |
-| `Donum` | `donum T` default value |
+[↑ Volver al índice](#indice)
+---
 
-`Integrum` and `Real` are disjoint refinements of `Num`; a type satisfies `Num`
-through either. A generic that only needs `+ - * /` should bound on `Num`.
+<a id="sec-05"></a>
+## 5. Bindings, mutabilidad y constantes
 
-## 11. Generics
-
-### 11.1 `shard`
+### 5.1 `bind` y `morph`
 
 ```pengu
-rune Box shard T:
-    value as T
-
-weave identity shard T with x as T into T:
-    return x
+bind name = "pengu"
+bind answer = 42
+bind typed: Int = 42
+morph count = 0
+count = count + 1
 ```
 
-A `shard` parameter is in scope from the `with` list to the end of the
-declaration, including the return type and the body. Every concrete use
-instantiates a specialised C function or struct (`identity_int`,
-`Box_of_string`). Nesting is supported: `Box of (Box of int)`.
+- `bind` crea un binding inmutable. El tipo es opcional (`bind answer: Int = 42`); si se escribe, el checker lo comprueba.
+- `morph` crea un binding mutable.
+- `=` reasigna un binding `morph`; nunca crea uno nuevo.
+- La mutabilidad se declara en el binding, no en el tipo.
 
-Explicit arguments are available when inference cannot see them:
+No hay `let`, `var`, `const`, `final` ni `mut`.
 
-```pengu-fragment
-var a as int is calling identity of int with 5
-var b as string is calling identity of string with "hi"
-```
+### 5.2 Sin variables globales
 
-Each instantiation is a separate C function, suffixed with an instantiation
-number:
-
-```c
-int32_t d2_identity_inst3(int32_t x) { return x; }
-```
-
-The suffix is internal; the PenguScript name stays `identity`. A generic rune
-instantiates a struct per type argument, and only the instantiations the
-program uses are emitted (DCE).
-
-### 11.2 Bounds
+Un módulo no puede declarar `bind` ni `morph` en su nivel superior:
 
 ```pengu
-weave first_or shard T where T: Par with xs as list of T, fallback as T into T:
-    if xs.len == 0:
-        return fallback
-    return xs at 0
+-- ERROR PGS-E1101
+bind counter = 0
 ```
 
-Bounds are written with `where`; several are joined with `and`
-(`where T: Num and T: Ordo`). A bound is what lets a generic body use an
-operator or method on `T`; without it, the operator is `E0005`.
+El estado global mutable no existe. Para constantes se usa `sigil`; para datos
+inmutables compartidos, `relic`.
 
-### 11.3 `donum T`
+### 5.3 Scope y sombreado
 
-`donum T` is the default value of a defaultable type: `0` for numbers, `false`,
-`""`, a zeroed struct, an empty container.
+Un binding vive desde su declaración hasta el final del bloque. Se puede
+sombear con otro `bind`/`morph` en un bloque interno, pero no en el mismo
+bloque:
 
 ```pengu
-weave sum shard T where T: Num with xs as list of T into T:
-    var acc as T is donum T
-    for x in xs:
-        set acc is acc + x
-    return acc
+bind x = 1
+if true then
+    bind x = 2
+    print(x) -- 2
+print(x) -- 1
 ```
-
-A rune or echo implements `Donum` automatically when every field does. A generic
-container needs the bound: `rune Box shard T where T: Donum:`.
-
-### 11.4 Generic methods and derivation
 
 ```pengu
-rune Point shard T derive Par, Ordo:
-    x as T
-    y as T
+-- ERROR PGS-E1102
+bind x = 1
+bind x = 2
 ```
 
-Derived concepts on a generic become bounds on its parameters; the check happens
-at each substitution. `derive Donum` is never written (`E0005`).
+No hay elevación de declaraciones. Un binding no existe antes de su línea.
 
-### 11.5 Limits
-
-* Associated types are not implemented (deferred).
-* There are no wildcard or higher-kinded parameters.
-* Generic types and types with methods are not module-scoped: two modules
-  declaring the same generic name is `E0070`.
-
-## 12. Optionals and errors
-
-### 12.1 `maybe T` and `result of T to E`
-
-* `maybe T` answers *is there a value?* — lookups, optional fields, "find".
-* `result of T to E` answers *what went wrong?* — I/O, parsing, network.
+### 5.4 Destructuring
 
 ```pengu
-omen IoError:
-    NotFound
-    Permission
-    Unknown
-
-weave find_user with id as int into maybe string:
-    if id == 1:
-        return some "Admin"
-    return maybe none
-
-weave load with path as string into result of string to IoError:
-    if path == "":
-        return calling err_of with IoError.NotFound
-    return calling ok_of with "data"
+bind (a, b) = (1, 2)
+bind (head, tail) = text.split_at(4_usize)
+bind Point(x, y) = Point(x: 3.0, y: 4.0)
+bind Point(x: px, y: py) = Point(x: 5.0, y: 6.0)
 ```
 
-`maybe T` is a `PenguMaybe` — a flag plus a boxed payload. `some x` allocates
-the payload and moves the value into it:
-
-```c
-PenguMaybe m = __extension__(({ int32_t _p = 3;
-    int32_t* _h = malloc(sizeof(int32_t)); if (!_h) abort();
-    *_h = _p; PenguMaybe _r = pengu_maybe_some(_h); _r; }));
-```
-
-Reading a present value dereferences and copies it out; `banish` frees the box.
-The boxed payload is why `some x` moves an owning value instead of copying it.
-
-### 12.2 Constructors
-
-| Constructor | Produces |
-| --- | --- |
-| `some x` | present `maybe T` |
-| `maybe none` | empty `maybe T` |
-| `calling ok_of with v` | `ok` side of a `result` |
-| `calling err_of with e` | `err` side of a `result` |
-
-`ok` and `err` are **not** keywords or constructors: `ok 1` is
-`E0004: Undefined identifier 'ok'`. `result of T` without `to E` defaults `E` to
-`error` (a `const char *`); prefer naming the error type.
-
-### 12.3 Inspection and unwrapping
-
-```pengu-fragment
-var user as maybe string is calling find_user with 1
-
-if user is present:
-    calling print with user.value
-
-if user is not present:
-    calling print with "missing"
-
-if user as string is u:
-    calling print with u
-
-let fallback as string is user or else "Guest"
-let u2 as string is user or return 0
-let data as string is try calling load with "x"
-```
-
-`maybe` exposes `.is_present` and `.value`; `result` exposes `.is_ok`,
-`.value` and `.error` (alias `.err`). Reading `.value` when absent is undefined —
-guard first, or use `as`, `or else`, `or return`, `try` or `or:`.
-
-### 12.4 `or else`, `or return`, `try`, `or:`
-
-* `x or else fallback` — evaluates `fallback` only when absent or errored.
-* `x or return expr` — runs the pending `defer`/`errdefer` cleanups and returns
-  `expr` from the enclosing weave.
-* `try x` — propagates an empty `maybe` or an error `result` from the enclosing
-  function; the return type must be compatible. The function must
-  return a `maybe` or a compatible `result`.
-* `x or:` — a block that handles the failure; inside it, `error` is bound to the
-  failure payload (type `string` for `maybe`, the error type for `result`) and
-  owns it.
-
-```pengu-fragment
-var parsed as JsonValue is calling json.parse with text or:
-    calling spark.println with "invalid: {error}"
-    return 1
-```
-
-`error` is only visible inside the `or:` block (`E0015` outside). In arithmetic
-position, unwrap expressions need parentheses: `10 + (bonus or else 0)`.
-
-### 12.5 `panic`
-
-`panic` aborts the process after printing the message and a stack trace
-(`std.spark.panic`). It is for bugs and unsatisfiable states, never for expected
-failure — expected failure is a `result`.
-
-### 12.6 `defer` and `errdefer`
-
-```pengu-fragment
-weave copy_file with src as string, dst as string into result of void to IoError:
-    var in as string is try calling archivum.read_file_result with src
-    defer banish in
-    var out as string is calling transform with in
-    errdefer banish out          # runs only if the weave returns an error
-    if out.len == 0:
-        return calling err_of with IoError.Unknown
-    return calling ok_of with 0
-```
-
-`defer` runs at scope exit on every path; `errdefer` runs only when the scope
-exits via an error `return` (a `result` error). Both run in LIFO order and both
-run before an `or return`/`try` propagates.
-
-### 12.7 Ownership of boxed values
-
-`some`, `ok_of` and `err_of` box the payload with a `memcpy`. When the operand is
-a live owning slot (a variable, a field, `essence of`), the constructor **moves**
-it: the source is emptied and the box becomes the only owner. Do not use or
-`banish` the source afterwards. An rvalue is copied into the box directly, and a
-borrowed parameter is cloned, so the caller keeps its buffer.
-
-`banish m` releases the payload the box owns and then the box.
-
-## 13. Memory
-
-### 13.1 The model
-
-No GC, no borrow checker. Since 0.52 there are three layers on top of the
-manual model, and each one is opt-in or visible in the type:
-
-* **Layer 1 — `derive Drop`**: a rune is destroyed when it leaves the scope, in
-  every path, and it is move-only (§13.9).
-* **Layer 2 — `std.consortium`**: `Rc`/`Arc`/`Weak` add reference counting when
-  several owners must outlive each other (§13.11).
-* **Layer 3 — copy-on-write containers**: copying a `string`/`list`/`map` is
-  O(1) and the first mutation clones the buffer (§13.12).
-
-Everything else keeps the manual model: you allocate, you `banish`. The
-compiler checks types and, with one syntactic exception (boxing moves), does not
-track lifetimes across functions.
+El valor puede ser cualquier expresión: se evalúa una sola vez y se
+desestructura el resultado. El patrón debe ser irrefutable. Para patrones refutables se usa `match`,
+`if ... then` o `bind ... else`:
 
 ```pengu
-weave main into int:
-    var s as string is "hello"
-    defer banish s
-    calling print with s
-    return 0
+bind some(value) = maybe else
+    return
 ```
 
-### 13.2 `banish`
-
-`banish target` accepts a mutable lvalue of type `ref to T`, `string`,
-`list of T`, `map of K to V`, `maybe T`, `result of T to E`, or a rune with
-`derive Nexus` (or with a cleanup helper).
-
-| Target | Emitted C |
-| --- | --- |
-| `string` | `pengu_banish_string(&s)` |
-| `list of T` | `pengu_banish_list(&l)` |
-| `map of K to V` | `pengu_banish_map(&m)` |
-| `ref to T` | `pengu_banish((void*)p)` |
-| `maybe` / `result` | payload + box |
-| rune with `Nexus` | `_pengu_cleanup_T(&v)` |
-| element (`xs at 0`, `m at "k"`) | releases that element in place |
-
-Banishing a string or container resets it to empty. A borrowed string
-(`is_owned == 0`) is a safe no-op. Banishing a `list of string` frees the list's
-own buffer but **not** the strings inside it: release each string, or use
-`pengu_banish_string_list`.
-
-Copying a `string` **owned** (an SDS) with a declaration such as
-`var b as string is a` gives `b` its own buffer
-(`pengu_string_share_value`): banishing both is safe. Reading a `string`
-field, `xs at i`, or a call result gives a *view* of that storage, so only the
-owner must be banished.
-
-Writing through an element (`set xs at i is v`) clones a shared list first
-(`pengu_cow_list_at_mut`), so the other bindings keep their own view. A legacy
-list is written in place: promoting it would adopt its vector and leave dangling
-any pointer another part of the program holds to it.
-
-Reassigning an owned local `string`, `list` or `map` does **not** release its
-previous buffer yet: `set s is "x"` leaks what `s` owned before. Releasing it
-safely needs to know whether the new value aliases the old one (`set s is f(s)`,
-`set s is t` where `t` shares the buffer), which is exactly the ownership model
-that container elements get in the container-ownership work (§13.10). Until
-then, assign `banish` + a fresh value, or let the value go out of scope.
-
-Rejected targets (`E0008`): literals, temporaries (assign to a variable first),
-`seal` newtypes (convert explicitly), `frozen` values, and constants.
-
-### 13.3 `defer` and `errdefer`
-
-Schedule a release instead of running it now. `defer` runs at scope exit on every
-path; `errdefer` only on an error return. Both are LIFO.
-
-```pengu-fragment
-var buf as list of int is [1, 2, 3]
-defer banish buf
-```
-
-### 13.4 What the compiler does not do
-
-* It does not free a plain container at scope exit: `string`, `list` and `map`
-  still need `banish`. Only runes with `derive Drop` are released automatically.
-* It does not detect double free or use after free when you `banish` by hand.
-  It does detect a *use of a moved value* and an *implicit copy of a `Drop`
-  value* inside a function (`E0080`, `E0081`).
-* It does not track ownership through function boundaries: a parameter of
-  container type is a borrow (§13.7), and whoever allocates decides who
-  releases; the API must document it.
-* It does not free the elements of a `list`/`map` when the container is
-  banished: only the element buffer is released, and nested `string`s leak
-  unless you release them explicitly (§13.12, `free_strings` in `std.json`,
-  `std.toml`, `std.yaml`).
-
-### 13.5 Owned temporaries in expressions
-
-Interpolation (`"{x}"`), string concatenation (`+`) and a string view
-(`s at a to b`) produce a fresh owning `string`. When such a value is used as a
-call argument the compiler frees it right after the call, in the same
-statement:
-
-```pengu-fragment
-calling print with "hi {i}!\n"     # the formatted string is freed
-set acc += "{i}"                    # appends without leaking the old buffer
-```
-
-`+=` on a `string` lowers to `pengu_string_append`, which releases the previous
-buffer only when the variable owned it, so appending to a borrowed parameter
-never frees the caller's memory.
-
-### 13.6 Boxed values move
-
-`some x`, `ok_of x`, `err_of x` empty a live owning source slot (see §12.7).
-After boxing, the source is empty; banishing it is a no-op, using it is a bug.
-
-### 13.7 Returned values and parameters
-
-* A weave that returns a `string`, `list` or `map` returns ownership to the
-  caller; the caller banishes it.
-* A parameter of string/container type is **borrowed** by the callee, unless the
-  signature says otherwise. The callee must not banish it.
-* A returned `ref to T` is a borrowed view unless the module documents a
-  transfer of ownership.
-* Crossing a task boundary is a transfer: `filum.start` moves owning values and
-  requires `@shared` for refs; `coro.start` moves them too, but accepts `ref to
-  T` without `@shared` because the coroutine never changes thread. In both cases
-  the original binding becomes unusable (`E0008`).
-
-### 13.8 Debugging leaks
-
-* Build debug and run under `valgrind --leak-check=full` or ASan
-  (`cc -fsanitize=address`); the generated C is ordinary C.
-* The runtime keeps a 64-frame ring buffer for panic traces, so a `panic` points
-  at the line that raised it.
-* `std.arena` is the escape hatch for a group of allocations with one lifetime:
-  allocate from the arena, then `banish arena` to release everything at once.
-
-### 13.9 `derive Drop`: deterministic destruction
-
-`derive Drop` turns a rune into an owned value with a destructor. Three things
-change, and all three are visible in the declaration:
-
-1. It is destroyed at every scope exit — `return`, `break`, `continue`, the end
-   of the block, and the error path of `or return` / `try`.
-2. Assigning, returning or binding it **moves** it: the source is emptied and
-   using it again is `E0080`.
-3. Copying it implicitly is `E0081`; the explicit copy is `.clone()`.
+### 5.5 Asignación
 
 ```pengu
-rune Buffer derive Drop:
-    data as string
-    size as int
-
-weave make_buffer with text as string into Buffer:
-    return with data is text, size is 1
-
-weave main into int:
-    var a as Buffer is calling make_buffer with "x"
-    var c as Buffer is calling a.clone      # deep copy
-    calling print with "{c.size}"
-    return 0
+morph point = Point(x: 1.0, y: 2.0)
+point.x = 3.0
+point.y = point.y + 1.0
 ```
 
-The destructor is `_pengu_cleanup_Buffer`, the same first-level cleanup that
-`derive Nexus` generated, plus a `memset` that makes it idempotent:
+Solo se puede asignar a:
 
-```c
-static inline void _pengu_cleanup_Buffer(Buffer* p) {
-    pengu_banish_string(&(p->data));
-    (void)p;
-    memset(p, 0, sizeof(*p));
-}
-```
+- un binding `morph`;
+- un campo de un binding `morph`;
+- un elemento de un `Vec`/`Map` a través de un binding `morph`;
+- un `&mut T` local.
 
-The clone is a field-by-field deep copy (`_pengu_deepclone_Buffer`), and the
-destructor calls are inserted at every exit:
+La asignación a un campo `unveil` desde fuera del módulo requiere un método
+`@mut`; dentro del módulo, un binding `morph` puede asignarlo. La asignación es
+una sentencia, no una expresión. No devuelve valor.
 
-```c
-Buffer a = d_make_buffer(pengu_string_from_cstr_len("x", 1));
-Buffer c = _pengu_deepclone_Buffer(&(a));
-/* ... */
-_pengu_cleanup_Buffer(&(c));
-_pengu_cleanup_Buffer(&(a));
-```
+### 5.6 Constantes
 
-`banish` still works on a `Drop` value and is a no-op afterwards, because the
-cleanup zeroes the value: `banish a` followed by the automatic drop frees once.
-
-A `Drop` type may not be generic, and its fields may not be `maybe`/`result`
-(the deep clone cannot copy those boxes yet); both are `E0005` with a message
-that says what to do instead.
-
-`derive Drop` also composes through `fundere`: if any embedded rune is `Drop`,
-the host becomes `Drop` automatically (it cannot opt out — copying it would
-free the embed twice) and its cleanup runs the host's fields and then the
-embeds, in reverse order. See §9.9.5.
-
-### 13.10 Move by default
-
-Only `derive Drop` types move. A move is the destination taking the value and
-the source losing its destructor; the C for it is a plain struct assignment plus
-the absence of the cleanup call:
-
-```pengu-fragment
-var a as Buffer is calling make_buffer with "x"
-var b as Buffer is a          # moves: `a` is unusable now
-```
-
-```c
-Buffer b = a;                 /* no _pengu_cleanup_Buffer(&(a)) later */
-```
-
-Using the moved binding is `E0080`:
-
-```pengu-fragment
-calling print with "{a.size}"   # error[E0080]: value 'a' was moved
-```
-
-Moving out of a **borrowed** place is `E0081`: a parameter, a field or a
-dereference. A parameter of a `Drop` type is a borrow, so passing a value to a
-function does *not* move it; the callee must `.clone()` if it wants to keep it:
-
-```pengu-fragment
-weave consume with b as Buffer into int:
-    return b.size             # borrow: fine
-```
-
-Explicit destruction is `.drop()`, which runs the destructor immediately and
-leaves the value in zero; returning a `Drop` value by value from an
-`@export`-ed weave is `E0084`, because the C caller has no destructor to call.
-
-### 13.11 Shared ownership: `Rc`, `Arc`, `Weak`
-
-`std.consortium` adds reference counting for the cases where ownership cannot be
-threaded through the code:
-
-| Type | Copy | Crosses `filum.start` | Mutation |
-| --- | --- | --- | --- |
-| `Rc of T` | implicit, non-atomic increment | no (`E0082`) | `get_mut`, `make_mut` |
-| `Arc of T` | `.clone()`, atomic | yes, if `T` is `@shared` (`E0083`) | `make_mut` |
-| `WeakRc of T` / `WeakArc of T` | implicit, weak increment | no / yes | none |
+`sigil` declara una constante de módulo, evaluada en compilación:
 
 ```pengu
-import std.consortium
-import std.spark
-
-weave main into int:
-    var r as Rc of int is calling Rc.new with 42
-    calling spark.println with "{calling r.strong_count}"   # 1
-    banish r
-    return 0
+sigil MAX_POINTS: Int = 1024
+sigil GREETING: &Str = "hola"
+sigil ORIGIN: Point = Point(x: 0.0, y: 0.0)
 ```
 
-`new` and the destructor are the interesting lowering:
+Debe tener tipo explícito y una **expresión constante**. Una expresión
+constante es una de estas formas, y nada más:
 
-```c
-Rc r = __extension__(({ Rc _rcn = {0};
-    _rcn.ptr = pengu_rc_new(sizeof(int32_t), NULL, NULL);
-    *((int32_t*)_rcn.ptr) = (42); _rcn; }));
-/* ... */
-if ((r).ptr) { pengu_rc_release((r).ptr); (r).ptr = NULL; }
-```
+- un literal;
+- un cast `as` entre primitivos constantes;
+- un operador aritmético, de comparación o booleano entre constantes, con la
+  semántica de §14;
+- un constructor de `rune` o `enchanting` con campos constantes;
+- un array o una tupla de constantes;
+- `some`, `none`, `ok` o `err` sobre constantes;
+- una referencia a otro `sigil` del mismo módulo.
 
-The payload destructor and cloner travel inside the header, so the drop site
-does not need to know `T`: `pengu_rc_new(size, drop, clone)`. For a `Drop`
-payload the compiler passes `_pengu_rc_drop_T` and `_pengu_rc_clone_T`, both
-`static inline` next to `_pengu_cleanup_T`.
+No hay llamadas a funciones ni a métodos, aunque sean de `std`. Por eso
+`sigil X: String = String.from("hi")` no es constante; `sigil X: &Str = "hi"`
+sí. Tampoco se permiten `Vec`, `Map` ni `Set` literales, porque asignan en
+runtime. No puede depender de `bind`/`morph` locales ni de estado en tiempo de
+ejecución.
 
-`get` returns `ref to frozen T`, so a shared value cannot be mutated by
-accident. `get_mut` succeeds only when the handle is the only owner (`strong ==
-1 and weak == 0`); `make_mut` clones the payload when it is shared, which is why
-it is spelled out at the call site. `WeakRc.upgrade` returns `maybe Rc of T` and
-is `none` once the value is gone — that is how a cycle is broken.
+### 5.7 `relic`
 
-### 13.12 Copy-on-write containers
-
-`string`, `list of T` and `map of K to V` keep a reference counter in front of
-the buffer. Copying a binding is O(1), and the first mutation clones:
-
-```pengu-fragment
-var s as list of int is list of int
-calling s.push with 1
-var t as list of int is s
-calling t.push with 2          # clones: `s` keeps one element
-```
-
-```c
-PenguList s = pengu_list_new(sizeof(int32_t), 0);
-pengu_cow_list_push(&(s), &_push_tmp);
-PenguList t = s;
-pengu_cow_list_share(&(t));
-pengu_cow_list_push(&(t), &_push_tmp);   /* ensure_unique clones the buffer */
-```
-
-The header is two words in front of `data`:
-
-```c
-typedef struct { uint64_t magic; int32_t rc; int32_t pad; } PenguCowHdr;
-typedef struct { size_t elem_size; void (*drop_elem)(void *); } PenguCowAux;
-/* [PenguCowAux][PenguCowHdr][elements...] */
-```
-
-Three methods expose the state: `is_shared`, `ref_count` and `make_unique`
-(force a private buffer now). `banish` releases the buffer once the last binding
-goes away. Element drop is still the programmer's job: the runtime cannot tell
-whether an element handle is owned or borrowed, so freeing elements
-automatically is deferred to a future release (see `PENGUNIC` §21.4).
-
-Copy-then-mutate inside a loop is the pattern where COW is slower than plain
-copies. `psc check --lint=cow` reports it as `W0008` (informational, off by
-default).
-
-Composition with `fundere` (§9.9) lets a host declare a field with the same
-name as one promoted from an embed: the host's field wins and the embed's field
-stays reachable through the explicit path. `psc check` reports that deliberate
-shadowing as `W0009` (informational, on by default; silence it with
-`--lint=no-shadow`).
-
-## 14. Attributes
-
-Attributes are written on the line above the declaration they modify.
-
-| Attribute | Applies to | Effect | C |
-| --- | --- | --- | --- |
-| `@inline` | `weave` | force inlining | `static inline __attribute__((always_inline))` |
-| `@cold` | `weave` | mark a rare path | `__attribute__((cold))` |
-| `@deprecated("msg")` | any declaration | warn on use (`W0006`) | `__attribute__((deprecated("msg")))` |
-| `@noreturn` | `weave`, `declare`, `antiquus` | the call never returns | `__attribute__((noreturn))` |
-| `@export("symbol")` | `weave`, `antiquus` | pin the C symbol and keep it alive (DCE root) | exported C function |
-| `@packed` | `rune` | remove struct padding | `__attribute__((packed))` |
-| `@align(N)` | `rune` | set alignment | `__attribute__((aligned(N)))` |
-| `@mutates` | method in `enchanting` | assign the result back to the receiver | one C function, two call forms |
-| `@public` | field | let another module read a `_`-prefixed field (`E0043` otherwise) | no code change; compile-time flag |
-| `@shared` | `rune`, `omen` | allow `ref to T` to cross a `filum.start` boundary | no code change; compile-time flag |
-| `@spawn` | `weave` | marks the function that starts a thread; validates worker and ownership at each call | no code change; compiler contract |
-| `@coroutine` | `weave` | marks the function that starts a coroutine; validates worker and ownership | no code change; compiler contract |
+`relic` declara un valor inmutable de módulo, inicializado una vez:
 
 ```pengu
-@deprecated("use read_file_result to distinguish the failure cause")
-weave read_file with path as string into maybe string:
-    return maybe none
-
-@noreturn
-declare abort_now into void
-
-@packed
-rune WireHeader:
-    magic as u32
-    version as u16
+relic TABLE: [Int; 4] = [1, 2, 3, 4]
 ```
 
-`@export` without a project-specific prefix can collide with libc symbols; prefix
-it (`@export("mylib_fast_double")`). `@packed` and `@align(N)` change the ABI of
-the struct: only use them for wire or on-disk formats, and mirror the layout in
-the C side exactly. `@shared` is a promise that the rune's methods synchronize;
-the compiler checks the boundary, not the implementation.
+No hay `relic mut` ni `static mut`. Un `relic` no se reasigna. Si se necesita
+estado compartido mutable, se importa de `std.concurrent` de forma explícita;
+no es parte del núcleo.
 
-### 14.1 Threads
+### 5.8 Nombres
+
+- `bind`/`morph`: `snake_case`.
+- `sigil`: `SCREAMING_SNAKE_CASE`.
+- `relic`: `SCREAMING_SNAKE_CASE`.
+
+Un `sigil` o `relic` privado se puede usar en todo el módulo. `unveil` lo
+expone fuera.
+
+### 5.9 Diagnósticos de bindings
+
+| Código | Situación |
+|---|---|
+| `PGS-E1101` | `bind`/`morph` en nivel de módulo. |
+| `PGS-E1102` | Redeclaración en el mismo bloque. |
+| `PGS-E1103` | Asignación a un binding inmutable. |
+| `PGS-E1104` | Asignación a un campo privado. |
+| `PGS-E1105` | Patrón refutable sin `else`. |
+| `PGS-E1106` | `sigil` sin tipo explícito. |
+| `PGS-E1107` | `sigil` con expresión no constante. |
+| `PGS-E1108` | `relic` reasignado. |
+| `PGS-W1101` | Binding local no usado. |
+| `PGS-W1102` | Sombreado de un binding. |
+
+[↑ Volver al índice](#indice)
+---
+
+<a id="sec-06"></a>
+## 6. Expresiones y control
+
+### 6.1 Todo lo que produce un valor es una expresión
+
+Un bloque, un `if`, un `match`, un `loop` y una función producen un valor.
+`bind` y la asignación son sentencias. Los items solo se declaran en módulos, `pact` o `ritual`.
 
 ```pengu
-import std.filum
-
-weave worker with value as string into void:
-    calling print with value
-
-weave main into int:
-    let h as Thread is calling filum.start with worker, "hello"
-    var r as result of void to ThreadError is calling h.join
-    calling h.free
-    return 0
+bind label = if ready then "listo" else "esperando"
 ```
 
-`start` moves owning arguments into the worker; a moved local cannot be read
-again (`E0008`). `start0`, `start2` and `start3` cover workers with zero, two and
-three arguments. A `ref to T` requires `@shared` on `T`; scalars are copied.
-`join` waits and returns `result of void to ThreadError`; `detach` is
-fire-and-forget; `free` releases the handle. `Thread` is a copyable id, so a
-supervisor can keep it. TLS, `Pool` and `parallel_for` live in `std.filum` too.
-
-### 14.2 Coroutines
-
-A coroutine is an explicit, cooperative, *stackful* task: it suspends at
-`coro.yield` and only advances when its owner calls `resume`. It runs on the
-thread that created it, so there are no data races or migration; use
-`std.filum` for parallelism.
+La última expresión de un bloque es su valor:
 
 ```pengu
-import std.coro
-
-weave worker with out as ref to int into void:
-    set essence of out is 1
-    calling coro.yield
-    set essence of out is 2
-
-weave main into int:
-    var n as int is 0
-    var co as coro.Coroutine is calling coro.start with worker, (sigil of n)
-    var first as coro.CoroutineState is calling co.resume
-    var second as coro.CoroutineState is calling co.resume
-    calling co.free
-    if first != coro.CoroutineState.suspended or second != coro.CoroutineState.finished:
-        return 1
-    return n
+bind area =
+    bind side = 4.0
+    side * side
 ```
 
-`start` creates the coroutine suspended and moves the owning argument; `start0`
-covers a worker with no arguments. `resume` runs it to the next `yield` or until
-it returns, and reports `suspended` or `finished`; `status` reads the state
-without running it. `free` releases only a finished coroutine; `abandon`
-discards a suspended one (and does not run its `defer`s). `yield` outside a
-coroutine, or `resume` on a finished one, is a panic: a program bug, not a
-recoverable error.
+No se usa `;`. Una línea nueva separa sentencias.
 
-The default stack is 64 KiB (shared, recycled arena); a `ref to T` does not
-require `@shared` because it never crosses threads, and a `string`/`list`/`map`
-moves into the worker. There is no automatic scheduler, `async`/`await`
-syntax, cancellation or value passing through `yield`: control is explicit and
-data travels through `ref to` or the owner's shared state. The scheduling
-policy is a user-space object, `std.reactor.EventLoop`, created explicitly,
-started with `spawn` and run with `run`; `std.coro` alone never resumes
-anything on its own:
+### 6.2 `if`
 
 ```pengu
-import std.reactor
-
-weave worker with loop as ref to reactor.EventLoop, n as ref to int into void:
-    calling loop.sleep_ms with 10
-
-weave main into int:
-    var loop as reactor.EventLoop is calling reactor.EventLoop.new
-    calling loop.spawn with worker, 0
-    calling loop.run          # epoll_wait/poll + resume of ready tasks
-    calling loop.close
-    return 0
+if condition then
+    do_one()
+elseif other then
+    do_two()
+else
+    do_three()
 ```
 
-The `*_async` variants in `std.net`, `std.archivum` and `std.petitio` are
-ordinary functions with the same return types as their synchronous siblings:
-they suspend the current coroutine and must be called from a loop task; outside
-one they panic. There is no function-coloring transformation and no hidden
-state machine.
-
-**Translation to C.** Each `Coroutine` wraps a minicoro `mco_desc`
-(`runtime/pengu_coro.c`): `pengu_c_coro_new` allocates the argument box and the
-64 KiB stack from a per-thread arena with a free-list; `resume` checks that the
-current thread is the owner (TLS) and calls `mco_resume`; `yield` calls
-`mco_yield`. The ownership contract is enforced in Pengunic before C is
-emitted; the runtime keeps the wrong-thread and stack-exhaustion diagnostics.
-`std.coro` is not available on wasm.
-
-`@coroutine` marks the function that starts the task (the implementation of
-`std.coro.start`); if you write your own starter, mirror the contract: first
-argument the worker, remaining arguments the worker's, worker returns `void`.
-
-## 15. Tests and tooling
-
-### 15.1 `test` blocks
+La forma en una línea usa `then` y `else`:
 
 ```pengu
-import std.ward
-
-test "arithmetic":
-    calling ward.assert_eq_int with 1 + 1, 2
-
-test string_formatting:
-    calling ward.assert_eq_string with "abc", "abc"
+bind status = if score >= 60 then "ok" else "fail"
 ```
 
-A test is `test <name>:` where the name is a string literal or an identifier.
-Bodies are type-checked in every mode (`check`, `build`, `run`, `test`), but the
-C harness is emitted only for `psc test`. `test` blocks belong in `.pengu` files, not in `.d.pengu`.
+Reglas:
 
-```console
-$ psc test              # run every test block in the project
-$ psc test --watch      # rerun on change
-$ psc test --diagnostics=json   # JSON Lines events for CI
-```
+- La condición debe ser `Bool`; no hay truthiness.
+- `elseif` también funciona en la forma de una línea:
+  `if a < b then Less elseif a > b then Greater else Equal`. Dentro de
+  paréntesis (por ejemplo como argumento de una llamada) las líneas se
+  consideran continuación, así que la forma de una línea es la que se usa en
+  lambdas y comparadores.
+- Sin `else`, el `if` es `Unit`.
+- Con `else`, las dos ramas deben unificar en un tipo.
+- Una rama `Never` no participa en la unificación.
 
-### 15.2 Commands
-
-| Command | Purpose |
-| --- | --- |
-| `psc build [TARGET]` | compile to C and link |
-| `psc run FILE [-- args]` | build and run a program or a single file |
-| `psc check [TARGET]` | type-check only |
-| `psc emit-c FILE` | print the generated C |
-| `psc test` | run `test` blocks |
-| `psc fmt [PATHS]` | format (`--check`, `--diff`, `--stdin`, `--indent=N`, `--tabs`) |
-| `psc doc` | generate `docs/api` from `##` comments (`--include-std`, `--html`, `--output=DIR`) |
-| `psc bind HEADER` | generate a `.d.pengu` from a C header (`--prefix`, `--links`, `--ignore`, `--output`) |
-| `psc init` / `psc new` | scaffold a project |
-| `psc add` / `psc remove` / `psc update` | dependencies |
-| `psc lsp` | start the language server (stdio) |
-| `psc doctor` | diagnose the toolchain |
-| `psc assets` | embed project assets |
-| `psc gc` | remove stale build artifacts |
-| `psc tree` | print the module graph |
-| `psc time` | time the compilation phases |
-| `psc watch` | rebuild on change |
-| `psc eval` | evaluate an expression |
-| `psc version` / `--version` / `-V` | print the compiler version |
-
-### 15.3 Build options
-
-| Flag | Meaning |
-| --- | --- |
-| `--profile=debug` &#124; `--profile=release` | optimisation and checks |
-| `--target=TRIPLE` &#124; `--target=wasm` | cross-compile |
-| `--cc=NAME` | C compiler |
-| `--out=PATH` | artifact path |
-| `--exe` | link an executable even for a library project |
-| `--strict-c99` | portable C99 (no statement expressions) |
-| `--release-unsafe` | disable bounds checks |
-| `--verbose` | print the compiler command |
-
-`--diagnostics=json` on `check`/`build`/`test` emits machine-readable diagnostics;
-`--json` is accepted as an alias by `psc check` (parity with older releases). Exit
-codes: `0` success, `1` compilation or test failure, `2` usage error.
-
-### 15.4 Project manifest
-
-`pengu.toml` (preferred) or `pengu.yaml` at the project root declares `name`,
-`version`, `src_dir`, `lib_dir`, `std_dirs`, `dependencies`, `output`, `cc`,
-`ldflags`, `cflags`. `psc init` writes a minimal one.
-
-### 15.5 `psc doc`
-
-`psc doc` renders one page per module from the `##` comments. With
-`--include-std` it also documents the standard library, which is how
-[docs/api](api/README.md) is produced:
-
-```console
-$ psc doc --include-std --html --output docs/api
-Generated 182 module(s) in docs/api
-```
-
-Each page starts with `# <module>`, a `> Source:` line and the module docstring,
-then one `###` section per exported symbol with its signature and its `##` text.
-The index is `docs/api/README.md`, and `--html` adds a filterable
-`docs/api/index.html`.
-
-## 16. Chaining, pipes, tuples and shorthand
-
-### 16.1 Method chains
-
-A chain starts with a `calling` expression and continues with `.method` links.
-Each link may carry its own `with` list:
+### 6.3 `unless`
 
 ```pengu
-rune Counter:
-    value as int
-
-enchanting Counter:
-    weave plus with n as int into Counter:
-        return with value is self.value + n
-
-weave main into int:
-    var c as Counter is with value is 1
-    var d as Counter is calling c.plus with 2
-        .plus with 3          # 6
-    return d.value
+unless ready then
+    wait()
 ```
 
-The chain above is the multi-line form; it is the one to use when a link takes
-arguments. A link is always a method call, never a field read. Every link but
-the last must produce a value; a `@mutates` method may only be last.
+`unless` es `if not condition`. No tiene `elseif`; puede tener `else`.
 
-A continuation line starts with `.` (or `->` for a reference receiver) and is
-folded into the previous line before lexing.
+### 6.4 `do`
 
-### 16.2 Pipes
-
-`pipe` chains **free functions**: the previous value becomes the first argument
-of the next call.
-
-```pengu-fragment
-var text as string is 42
-    pipe spark.str_int
-
-weave editar with value as int, delta as int into int:
-    return value + delta
-
-var total as int is calling base
-    pipe editar with 2
-    pipe editar with 3
-```
-
-`pipe` is contextual (a valid identifier), only recognised at the start of a
-continuation line. Steps must be free functions, not methods (`E0053`). The last
-step may return `void`, in which case the pipe keeps the previous value.
-
-### 16.3 Tuples and multiple returns
+`do` introduce un bloque explícito como expresión:
 
 ```pengu
-weave divmod with a as int, b as int into (int, int):
-    return a / b, a % b
-
-weave main into int:
-    let (q, r) is calling divmod with 7, 2
-    return q + r
+bind value = do
+    bind x = 10
+    x * 2
 ```
 
-A tuple type is `(T, U)`; a tuple value is `(a, b)`. Destructuring works on
-tuples and runes. Tuples are C anonymous structs and are not heap-allocated.
+Se usa cuando hace falta un bloque donde la indentación sola no basta.
 
-A tuple type lowers to a struct named after its component types, with fields
-`first`, `second`, `third`, …:
-
-```c
-typedef struct { int32_t first; int32_t second; } PenguTuple_int32_t_int32_t;
-
-PenguTuple_int32_t_int32_t _pengu_tup0 = d2_divmod(7, 2);
-int32_t q = _pengu_tup0.first;
-int32_t r = _pengu_tup0.second;
-```
-
-A `let a, b is expr` stores `expr` in a temporary first, so the expression runs
-exactly once; the two bindings are reads of that temporary.
-
-### 16.4 Shorthand struct initialisers
-
-Inside a `with` literal, a field may omit `is value` and take the same-named
-binding:
-
-```pengu-fragment
-weave make into Player:
-    let name is "Ada"
-    var hp is 100
-    return with name, hp        # same as: with name is name, hp is hp
-```
-
-Both forms can be mixed; a field whose value is not a single bare name needs the
-explicit `is` form.
-
-## 17. Deprecation
-
-Mark a declaration with `@deprecated("reason")`; every use emits `W0006` with
-that reason, and `psc doc` shows a deprecated badge.
+### 6.5 `for`
 
 ```pengu
-## @deprecated use read_file_result to distinguish the failure cause
-@deprecated("use read_file_result to distinguish the failure cause")
-weave read_file with path as string into maybe string:
-    return maybe none
+for item in items do
+    print(item)
+
+for i in 0..10 do
+    print(i)
+
+for (key, value) in map do
+    print("#{key}: #{value}")
 ```
 
-Policy: a deprecated symbol keeps working for at least one minor release and is
-removed only in a major release; the changelog names the replacement. Do not
-deprecate without naming the alternative.
+`for` recorre un iterable. El cuerpo es `Unit`. No hay `for` estilo C ni
+`for` con índice implícito.
 
-## 18. Diagnostics
-
-Every diagnostic has a stable code. Errors stop the compilation; warnings do not.
-
-| Code | Meaning |
-| --- | --- |
-| `E0000` | syntax error |
-| `E0001` | `const` inside a weave |
-| `E0002` | top-level `var`/`let` |
-| `E0003` | `self.` instead of `self->` |
-| `E0004` | undefined name, member, module or label |
-| `E0005` | type mismatch |
-| `E0006` | mutability violation |
-| `E0007` | `break`/`continue` outside a loop, or a label that does not enclose |
-| `E0008` | invalid memory operation (`banish` of a temporary, literal, `frozen`, …) |
-| `E0014` | invalid statement inside a `with:` builder |
-| `E0015` | array dimension unknown |
-| `E0019` | invalid interpolation expression |
-| `E0020` | `return` type mismatch |
-| `E0021` | wrong number of generic arguments |
-| `E0022` | type parameter used outside its declaration |
-| `E0023` | more than one `many` parameter |
-| `E0024` | `many` is not the last parameter |
-| `E0026` | more than one `insignia` |
-| `E0027` | duplicate omen variant value |
-| `E0028` | payload on a string-valued omen |
-| `E0029` | non-constant omen variant value |
-| `E0030` | concept method signature mismatch |
-| `E0031` | concept method not implemented |
-| `E0032` | bound not satisfied |
-| `E0033` | `self` inside a `ritual` |
-| `E0034` | ritual called on an instance, or method on a type |
-| `E0035` | name not a valid C identifier |
-| `E0036` | invalid import alias |
-| `E0037` | duplicate binding name (loop index/element) |
-| `E0038` | reserved C name |
-| `E0039` | field name collides with a C name |
-| `E0041` | array size invalid |
-| `E0042` | invalid range |
-| `E0043` | private symbol accessed from another module |
-| `E0044` | non-exhaustive `judge` |
-| `E0047` | method not available on a primitive |
-| `E0049` | operator not allowed by the bound |
-| `E0050` | infinitely sized type |
-| `E0051` | dangling reference |
-| `E0052` | duplicate concept |
-| `E0053` | wrong composition form (`.` vs `pipe`) |
-| `E0054` | invalid `derive Json` (shape, attribute or field type) |
-| `E0056` | attribute not allowed here |
-| `E0057` | character out of range |
-| `E0059` | `antiquus` without a body |
-| `E0063` | `static` in the wrong position |
-| `E0064` | invalid test name |
-| `E0065` | field name collision in C |
-| `E0066` | `@mutates` used in value position |
-| `E0067` | `@mutates` on a non-method |
-| `E0068` | `@mutates` return type is not the receiver |
-| `E0069` | duplicate loop label |
-| `E0070` | duplicate type name in a module |
-| `E0071` | unknown, repeated or misplaced named argument |
-| `E0072` | parameter without a default after a defaulted one |
-| `E0073` | default value is not constant or does not match the type |
-| `E0074` | `many` parameter with a default value |
-| `E0075` | `many` parameter in `declare` |
-| `E0079` | destructuring with the wrong number of names |
-| `E0076` | map literal without a type annotation |
-| `E0077` | `with` target is not an addressable place |
-| `E0080` | use of a moved value (§13.10) |
-| `E0081` | implicit copy of a `Drop` value; use `.clone()` |
-| `E0082` | an `Rc` cannot cross a thread or coroutine boundary |
-| `E0083` | an `Arc of T` crossing a thread boundary needs `T` to be `@shared` |
-| `E0084` | an `@export`-ed weave cannot return a `Drop` value by value |
-| `E0085` | a `fundere` type is not a `rune` |
-| `E0087` | a field promoted by `fundere` is ambiguous between two embeds |
-| `E0088` | a method promoted by `fundere` is ambiguous between two embeds |
-| `E0089` | a `fundere` type has no implicit field name; write `as name` |
-| `W0008` | copy of a container mutated inside a loop (`--lint=cow`) |
-| `W0009` | a host field shadows a field promoted by `fundere` (on by default; `--lint=no-shadow` silences it) |
-| `W0001` | `transmute` used |
-| `W0002` | `echo` field access (unchecked union) |
-| `W0004` | unreachable code |
-| `W0005` | shadowed binding |
-| `W0006` | deprecated symbol used |
-| `W0007` | unsafe operation |
-| `W0013` | range is empty or reversed |
-
-`psc check --diagnostics=json` and `psc build --diagnostics=json` emit each diagnostic as a JSON object
-with `code`, `severity`, `message`, `file`, `line`, `column` and optional
-`help`.
-
-## 19. Complete example
-
-A task list that exercises `omen`, `rune`, `enchanting`, `judge`, `with`,
-`maybe`, `for`, `defer` and string interpolation:
+### 6.6 `while`
 
 ```pengu
-import std.spark
-
-omen Priority:
-    Low is 0
-    Normal is 1
-    High is 2
-
-weave priority_name with p as Priority into string:
-    return judge p:
-        when Priority.Low -> "low"
-        when Priority.Normal -> "normal"
-        when Priority.High -> "high"
-
-rune Task:
-    title as string
-    priority as Priority
-    done as bool
-
-enchanting Task:
-    weave label into string:
-        return "{self->title} [{calling priority_name with self->priority}]"
-
-weave make_task with title as string, priority as Priority into Task:
-    return with title is title, priority is priority, done is false
-
-weave first_high with tasks as list of Task into maybe Task:
-    for t in tasks:
-        if t.priority == Priority.High:
-            return some t
-    return maybe none
-
-weave main into int:
-    var tasks as list of Task is list of Task
-    defer banish tasks
-
-    calling tasks.push with (calling make_task with "write docs", Priority.High)
-    calling tasks.push with (calling make_task with "review PR", Priority.Low)
-
-    var top as maybe Task is calling first_high with tasks
-    if top is present:
-        var t as Task is top.value
-        calling spark.println with (calling t.label)
-    else:
-        calling spark.println with "nothing urgent"
-
-    calling spark.println with "{tasks.len} task(s)"
-    return 0
+morph n = 3
+while n > 0 do
+    n = n - 1
 ```
 
-Output:
+La condición es `Bool`. El resultado es `Unit`.
+
+### 6.7 `loop`
+
+```pengu
+bind result = loop
+    if done() then
+        break 42
+    work()
+```
+
+`loop` se repite hasta un `break`. Un `break` con valor convierte el `loop` en
+una expresión de ese tipo. Un `loop` sin `break` es `Never`.
+
+### 6.8 `break`, `continue`, `return`
+
+```pengu
+for x in items do
+    if x < 0 then
+        continue
+    if x > 100 then
+        break
+    print(x)
+```
+
+- `break` sale del `loop`/`while`/`for` más cercano.
+- `continue` salta a la siguiente iteración.
+- `return expr` sale de la función.
+- `return` sin expresión devuelve `Unit`.
+- Los tres son `Never`.
+
+No hay labels de bucle en el núcleo.
+
+### 6.9 `match` en una línea
+
+El pattern matching completo está en §9. La forma básica es:
+
+```pengu
+bind kind = match shape
+    when Circle(_) then "redondo"
+    when Square(_) then "cuadrado"
+    else "otro"
+```
+
+### 6.10 Diagnósticos de control
+
+| Código | Situación |
+|---|---|
+| `PGS-E6001` | Condición que no es `Bool`. |
+| `PGS-E6002` | Ramas de `if` con tipos incompatibles. |
+| `PGS-E6003` | `else` sin `if`. |
+| `PGS-E6004` | `break`/`continue` fuera de un bucle. |
+| `PGS-E6005` | `break` con valor fuera de `loop`. |
+| `PGS-E6006` | `return` con valor en función `Unit`. |
+| `PGS-W6001` | Código inalcanzable. |
+| `PGS-W6002` | Condición de bucle constante. |
+| `PGS-E6007` | `loop` sin `break` usado como valor. |
+| `PGS-E6008` | `match` no exhaustivo. |
+
+[↑ Volver al índice](#indice)
+---
+
+<a id="sec-07"></a>
+## 7. Funciones y closures
+
+### 7.1 Función nombrada
+
+```pengu
+add = (a: Int, b: Int) -> Int
+    a + b
+```
+
+Una función nombrada:
+
+- es un item, no un binding;
+- puede estar en el nivel de módulo;
+- no captura variables;
+- tiene tipo de retorno explícito;
+- devuelve la última expresión.
+
+No hay `spell`, `fn`, `def` ni `function`.
+
+### 7.2 Llamada
+
+```pengu
+bind total = add(2, 3)
+bind inc = add(1, _)
+```
+
+No hay aplicación parcial en el núcleo: `_` no es un placeholder. La segunda
+línea es un error.
+
+### 7.3 Retorno
+
+```pengu
+absolute = (n: Int) -> Int
+    if n < 0 then
+        return -n
+    n
+```
+
+`return` sale inmediatamente. La última expresión también es el valor de
+retorno; no hace falta escribir `return` al final.
+
+### 7.4 Parámetros
+
+```pengu
+repeat = (text: &Str, times: Int) -> String
+    bind out = String.new()
+    for _ in 0..times do
+        out.push_str(text)
+    out
+```
+
+- Los parámetros se separan con comas.
+- Cada parámetro tiene nombre y tipo.
+- No hay parámetros opcionales, valores por defecto, varargs ni sobrecarga.
+- No hay `morph` en parámetros: un parámetro es inmutable. Para mutar una copia,
+  se crea un `morph` local.
+
+### 7.5 Funciones que no retornan
+
+```pengu
+fail = (message: &Str) -> Never
+    panic(message)
+```
+
+`Never` se usa para funciones que siempre fallan o divergen.
+
+### 7.6 Closures
+
+```pengu
+bind inc = (x: Int) => x + 1
+
+bind add = (a: Int, b: Int) =>
+    a + b
+```
+
+Una closure:
+
+- usa `=>`;
+- puede capturar variables del scope;
+- infiere el tipo de retorno;
+- no puede usar `return` ni `?`;
+- no puede consumir una captura: solo leerla o mutarla;
+- se guarda en un `bind`/`morph` o se pasa como argumento.
+
+La captura es por referencia cuando es posible y por movimiento cuando la
+closure escapa o cuando el valor no se puede prestar. No se escribe `move` ni
+`ref`; el compilador decide.
+
+Una closure capturada por movimiento sigue siendo invocable varias veces:
+puede leer o mutar la captura, pero no moverla fuera. Pasar una captura
+no-`Copy` por valor, retornarla o guardarla en otra estructura es
+`PGS-E7004`. Si necesitas consumir el valor, pásalo como parámetro o usa
+`Rc`/`Arc`.
+
+La inmutabilidad de `bind` impide reasignar la variable que guarda la closure,
+no impide que la closure mute sus capturas. El backend puede usar `let mut`
+interno para una closure `bind` sin exponer reasignación en PenguScript.
+
+### 7.7 Tipo de función
+
+```pengu
+bind op: (Int, Int) -> Int = add
+make = (n: Int) -> (Int) -> Int
+    (x: Int) => x + n
+```
+
+El tipo `(A, B) -> C` describe una función o closure. No hay `Fn`, `FnMut` ni
+`FnOnce` en la superficie. Toda función o closure de este tipo se puede llamar
+cualquier número de veces; una closure nunca es `FnOnce`. El backend usa
+`FnMut` en los parámetros genéricos y `impl FnMut` en los retornos.
+
+### 7.8 Pasar funciones
+
+```pengu
+apply = (f: (Int) -> Int, value: Int) -> Int
+    f(value)
+
+bind doubled = apply((x: Int) => x * 2, 21)
+```
+
+No hay closures genéricas ni polimorfismo de rango superior. Si una función
+necesita un tipo distinto, se usa un genérico en la función contenedora.
+
+### 7.9 `grimoire`
+
+`grimoire` no es una función normal: no recibe parámetros y no se llama desde
+PenguScript. Se define en §3.
+
+### 7.10 Diagnósticos de funciones
+
+| Código | Situación |
+|---|---|
+| `PGS-E7001` | Falta el tipo de retorno. |
+| `PGS-E7002` | Retorno incompatible con la firma. |
+| `PGS-E7003` | Parámetro sin tipo. |
+| `PGS-E7004` | `return`, `?` o consumo de una captura en una closure. |
+| `PGS-E7005` | Llamada con número de argumentos incorrecto. |
+| `PGS-E7006` | Tipo de argumento incorrecto. |
+| `PGS-E7007` | Función usada como valor sin tipo. |
+| `PGS-E7008` | `Never` en una posición que requiere valor. |
+
+[↑ Volver al índice](#indice)
+---
+
+<a id="sec-08"></a>
+## 8. Records y sums
+
+### 8.1 Records
+
+```pengu
+rune Point
+    x: Float
+    y: Float
+
+bind p = Point(x: 1.0, y: 2.0)
+```
+
+Un `rune` agrupa campos con nombre. Es un tipo nominal: `Point` no es
+intercambiable con otro record de la misma forma.
+
+Los campos son privados por defecto. `unveil` los expone:
+
+```pengu
+unveil rune Point
+    unveil x: Float
+    unveil y: Float
+```
+
+Un campo `unveil` se lee desde fuera; se modifica a través de un método `@mut`
+o de un binding `morph` dentro del módulo.
+
+### 8.2 Records de un campo
+
+```pengu
+rune UserId
+    value: UInt
+
+bind id = UserId(value: 7)
+```
+
+Un record de un campo es un newtype: no se convierte automáticamente en
+`UInt`.
+
+### 8.3 Records genéricos
+
+```pengu
+rune Box[T]
+    value: T
+
+rune Pair[A, B]
+    first: A
+    second: B
+
+bind pair = Pair(first: 1, second: "uno")
+```
+
+Los parámetros de tipo se declaran entre `[]`. Los bounds van en la cabecera:
+
+```pengu
+rune Sorted[T: Ord]
+    items: Vec[T]
+```
+
+### 8.4 Shorthand y actualización
+
+```pengu
+bind x = 3.0
+bind p = Point(x: x, y: 4.0)
+bind q = Point(y: 5.0, ..p)
+```
+
+`..p` copia los campos restantes de `p`. El tipo de `q` es el mismo que el de
+`p`. Los campos sobrescritos se evalúan una sola vez.
+
+### 8.5 Sums
+
+```pengu
+enchanting Shape
+    Circle(radius: Float)
+    Rectangle(width: Float, height: Float)
+    Point
+```
+
+Un `enchanting` tiene variantes:
+
+- unitarias (`Point`);
+- con campos nombrados (`Circle(radius: Float)`);
+- con campos posicionales (`Rectangle(Float, Float)`).
+
+No hay discriminantes numéricos ni representación explícita. El backend elige la representación.
+
+### 8.6 Construcción y match
+
+```pengu
+bind c = Circle(radius: 2.0)
+bind r = Rectangle(3.0, 4.0)
+
+bind name = match c
+    when Circle(radius) then "círculo"
+    when Rectangle(width, height) then "rectángulo"
+    when Point then "punto"
+```
+
+El `match` debe ser exhaustivo o tener `else`. Los detalles están en §9.
+
+### 8.7 `Option` y `Result`
+
+`Option[T]` y `Result[T, E]` son sums de la prelude:
+
+```pengu
+enchanting Option[T]
+    some(T)
+    none
+
+enchanting Result[T, E]
+    ok(T)
+    err(E)
+```
+
+No se pueden redeclarar. `?T` es azúcar para `Option[T]`.
+
+### 8.8 `@@derive`
+
+El único atributo general es `@@derive(...)`, y solo acepta:
+
+`Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`, `Hash`,
+`Default`.
+
+```pengu
+@@derive(Debug, Clone, PartialEq)
+rune Point
+    x: Float
+    y: Float
+```
+
+Reglas:
+
+- `Copy` exige `Clone` y que todos los campos sean `Copy`.
+- `PartialEq` y `PartialOrd` sí se pueden derivar con `Float`.
+- `Eq`, `Ord` y `Hash` no se pueden derivar si hay `Float`: `NaN` rompe la
+  reflexividad de `Eq`.
+- `Float` no puede ser clave de `Map` ni elemento de `Set`, porque ambos exigen
+  `Eq + Hash`.
+- Para ordenar floats se usa `total_cmp`; `sort` normal no acepta `Float`.
+- En un `rune`, `Default` exige que todos los campos tengan valor por defecto.
+- En un `enchanting`, `@@derive` se aplica a todas las variantes y campos.
+  Se permiten `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`
+  y `Hash` si todos los campos lo permiten; `Copy` exige `Clone` y todos los
+  campos `Copy`. `Default` no se permite en `enchanting` en 0.6.0.
+- Un derive imposible es `PGS-E8007`.
+- No hay derives externos en v1.
+
+### 8.9 Diagnósticos de records y sums
+
+| Código | Situación |
+|---|---|
+| `PGS-E8001` | Campo duplicado. |
+| `PGS-E8002` | Campo faltante en la construcción. |
+| `PGS-E8003` | Campo desconocido. |
+| `PGS-E8004` | Variante duplicada. |
+| `PGS-E8005` | `..base` con tipo incompatible. |
+| `PGS-E8006` | `@@derive` desconocido. |
+| `PGS-E8007` | `@@derive` imposible para un campo. |
+| `PGS-E8008` | `Option`/`Result` redeclarados. |
+
+[↑ Volver al índice](#indice)
+---
+
+<a id="sec-09"></a>
+## 9. Pattern matching
+
+### 9.1 `match`
+
+```pengu
+bind area = match shape
+    when Circle(radius) then
+        3.141592653589793 * radius * radius
+    when Rectangle(width, height) then
+        width * height
+    when Point then
+        0.0
+```
+
+Cada brazo empieza con `when`, sigue un patrón y termina en `then` o en un
+bloque indentado.
+
+`else` cubre el resto:
+
+```pengu
+bind label = match n
+    when 0 then "cero"
+    when 1 then "uno"
+    else "muchos"
+```
+
+### 9.2 Patrones
+
+| Patrón | Ejemplo |
+|---|---|
+| Literal | `when 0`, `when "ok"`, `when true` |
+| Binding | `when x` |
+| Wildcard | `when _` |
+| Tupla | `when (a, b)` |
+| Record | `when Point(x, y)` |
+| Record con nombres | `when Point(x: px, y: py)` |
+| Variante unitaria | `when None`, `when FloatClass.NaN` |
+| Variante con campos | `when Some(value)` |
+| Variante con nombres | `when Circle(radius: r)` |
+| Rango | `when 0..=9` |
+| Alternativa | `when 0 | 1 | 2` |
+| Binding de patrón | `when whole @ Some(_)` |
+| Resto | `when Point(x, ..)` |
+| Slice | `when [first, .., last]` |
+
+Los literales numéricos de un patrón pueden ser negativos (`when -1`). No hay
+patrones de referencia, caja ni tipo.
+
+Las variantes unitarias se pueden nombrar sin calificar (`when Zero`) si el
+nombre es único entre las sumas visibles, o calificadas con su tipo
+(`when FloatClass.Zero`). `Less`, `Equal` y `Greater` son valores de `Ordering`
+utilizables en expresiones y patrones.
+
+### 9.3 Guards
+
+```pengu
+bind kind = match n
+    when x if x < 0 then "negativo"
+    when 0 then "cero"
+    else "positivo"
+```
+
+Un guard es una expresión `Bool`. Si falla, se prueba el siguiente brazo.
+
+### 9.4 `bind ... else`
+
+Un binding refutable necesita `else`:
+
+```pengu
+bind some(value) = maybe else
+    return none
+
+bind ok(number) = result else
+    return err("no era un número")
+```
+
+El `else` debe divergir: `return`, `break`, `continue` o `panic`.
+
+`bind ... else` es una sentencia; no se admite en la cabecera de un `for`
+(§19.9). El patrón de `for` es irrefutable. Para filtrar dentro de un bucle,
+se usa el cuerpo:
+
+```pengu
+for value in values
+    bind ok(n) = parse(value) else
+        continue
+    print(n)
+```
+
+### 9.5 Alternativas y anidamiento
+
+```pengu
+bind sign = match n
+    when -1 | 0 | 1 then "pequeño"
+    when x if x < 0 then "negativo"
+    else "grande"
+```
+
+Los patrones se evalúan de arriba a abajo. El primero que coincide gana.
+
+### 9.6 Exhaustividad
+
+Un `match` sobre un `enchanting` debe cubrir todas las variantes o tener
+`else`. Un `match` sobre `Bool` debe cubrir `true` y `false` (o `_`) o tener
+`else`; por tanto, esto es válido y exhaustivo:
+
+```pengu
+bind label = match flag
+    when true then "on"
+    when false then "off"
+```
+
+Con un solo brazo (`when true`) hace falta `else`. Un `match` sobre un rango de
+enteros necesita `else`.
+
+```pengu
+-- ERROR PGS-E6008
+bind bad = match shape
+    when Circle(_) then 1.0
+```
+
+### 9.7 `match` como expresión
+
+El tipo del `match` es la unificación de todos los brazos. Un brazo `Never`
+no participa.
+
+```pengu
+bind message = match result
+    when ok(value) then "valor: #{value}"
+    when err(reason) then
+        panic(reason)
+```
+
+### 9.8 Diagnósticos de patrones
+
+| Código | Situación |
+|---|---|
+| `PGS-E9001` | Patrón no exhaustivo. |
+| `PGS-W9001` | Brazo de `match` inalcanzable. |
+| `PGS-E9003` | Patrón incompatible con el tipo. |
+| `PGS-E9004` | Guard que no es `Bool`. |
+| `PGS-E9005` | `bind ... else` sin divergencia. |
+| `PGS-E9006` | `..` en posición inválida. |
+| `PGS-E9007` | Binding duplicado en un patrón. |
+| `PGS-E9008` | `else` después de un brazo exhaustivo. |
+
+[↑ Volver al índice](#indice)
+---
+
+<a id="sec-10"></a>
+## 10. Colecciones
+
+### 10.1 Arrays
+
+```pengu
+bind numbers: [Int; 3] = [1, 2, 3]
+bind zeros = [0; 4]
+```
+
+Un array tiene tamaño fijo. `[expr; N]` repite `expr` `N` veces. `N` debe ser
+un literal o un `sigil` entero.
+
+```pengu
+bind first = numbers[0]
+bind last = numbers[2]
+```
+
+El índice debe ser `Usize`. Un índice fuera de rango hace panic. Para evitar el
+panic se usa `numbers.get(i)`, que devuelve `Option[Int]`.
+
+### 10.2 Slices
+
+```pengu
+bind view: &[Int] = &numbers
+bind middle = &numbers[1..3]
+```
+
+Un slice es una vista. No se copia el contenido. `&mut [T]` permite modificar
+la vista, no el tamaño.
+
+```pengu
+sum = (values: &[Int]) -> Int
+    morph total = 0
+    for value in values do
+        total = total + value
+    total
+```
+
+### 10.3 `Vec`
+
+```pengu
+morph values = Vec[1, 2, 3]
+values.push(4)
+bind last = values.pop()
+```
+
+| Operación | Firma |
+|---|---|
+| `Vec.new()` | `() -> Vec[T]` |
+| `Vec.with_capacity(n)` | `(Usize) -> Vec[T]` |
+| `push` | `(@mut, T) -> Unit` |
+| `pop` | `(@mut) -> Option[T]` |
+| `insert` | `(@mut, Usize, T) -> Unit` |
+| `remove` | `(@mut, Usize) -> T` |
+| `retain` | `(@mut, (T) -> Bool) -> Unit` |
+| `len` | `(@) -> Usize` |
+| `is_empty` | `(@) -> Bool` |
+| `get` | `(@, Usize) -> Option[&T]` |
+| `sort` | `(@mut) -> Unit` |
+| `contains` | `(@, &T) -> Bool` |
+
+`Vec[T]` es el tipo de secuencia dinámica del núcleo. `VecDeque`, `LinkedList`
+y `BinaryHeap` viven en `std.collections`.
+
+### 10.4 `Map`
+
+```pengu
+morph ages = { "ana": 30, "pengu": 2 }
+ages.insert("lua", 5)
+bind ana = ages.get("ana") -- Option[&Int]
+bind removed = ages.remove("lua") -- Option[Int]
+```
+
+Las claves deben ser `Eq + Hash`. El orden de iteración no se garantiza.
+
+| Operación | Firma |
+|---|---|
+| `Map.new()` | `() -> Map[K, V]` |
+| `insert` | `(@mut, K, V) -> Option[V]` |
+| `get` | `(@, &K) -> Option[&V]` |
+| `get_mut` | `(@mut, &K) -> Option[&mut V]` |
+| `remove` | `(@mut, &K) -> Option[V]` |
+| `contains_key` | `(@, &K) -> Bool` |
+| `len` | `(@) -> Usize` |
+
+No hay `map[key]` en el núcleo. Se usa `get`/`insert` para hacer explícita la
+ausencia.
+
+### 10.5 `Set`
+
+```pengu
+morph tags = Set["magic", "static"]
+tags.insert("sharp")
+bind has = tags.contains("magic")
+```
+
+`Set[T]` requiere `T: Eq + Hash`. No conserva orden.
+
+### 10.6 Literales
+
+```pengu
+bind a = [1, 2, 3]
+bind b = Vec[1, 2, 3]
+bind c = { "a": 1, "b": 2 }
+bind d = Set["a", "b"]
+```
+
+Las comas finales están permitidas. Un `{` sin `clave: valor` es un error.
+
+### 10.7 Iteración
+
+```pengu
+for value in values do
+    print(value)
+
+for (key, value) in ages do
+    print("#{key}: #{value}")
+
+for tag in tags do
+    print(tag)
+```
+
+`for` es la única forma de recorrer una colección en el núcleo. No hay métodos
+de iterador en la prelude; `std.iter` los provee (incluidos `map`, `filter` y
+`collect`) cuando se importan.
+
+### 10.8 Capacidad y movimiento
+
+`Vec`, `Map`, `Set` y `String` son owned. Al pasarlos a una función se mueven,
+salvo que se preste una vista (`&[T]`, `&Str`, `&Map[K, V]`).
+
+```pengu
+print_all = (values: &[Int]) -> Unit
+    for value in values do
+        print(value)
+
+morph values = Vec[1, 2]
+print_all(&values)
+values.push(3) -- sigue siendo dueño
+```
+
+### 10.9 Diagnósticos de colecciones
+
+| Código | Situación |
+|---|---|
+| `PGS-E3101` | Índice fuera de rango en tiempo de compilación. |
+| `PGS-E3102` | `Map` con clave sin `Eq`/`Hash`. |
+| `PGS-E3103` | `Set` con elemento sin `Eq`/`Hash`. |
+| `PGS-E3104` | `Vec` con tipo no inferido. |
+| `PGS-E3105` | Literal de mapa con entrada inválida. |
+| `PGS-E3106` | `push` sobre un binding inmutable. |
+
+[↑ Volver al índice](#indice)
+---
+
+<a id="sec-11"></a>
+## 11. Ownership y referencias
+
+### 11.1 Move
+
+Asignar o pasar un valor owned lo **mueve**. Después del movimiento, el binding
+original no se puede usar.
+
+```pengu
+bind a = String.from("pengu")
+bind b = a
+-- ERROR PGS-E1103: `a` fue movido
+print(a)
+```
+
+Para conservar el original se presta (`&a`) o se clona explícitamente
+(`a.clone()`).
+
+### 11.2 `Copy`
+
+Los tipos simples se copian en lugar de moverse:
+
+`Bool`, `Int`, `I8`–`I64`, `U8`–`U64`, `Isize`, `Usize`, `Float`, `F32`,
+`F64`, `Char`, `Unit`, tuplas de `Copy` y arrays de `Copy`.
+
+```pengu
+bind x = 1
+bind y = x
+print(x) -- válido: Int es Copy
+```
+
+Un record puede ser `Copy` solo si todos sus campos lo son y si se deriva con
+`@@derive(Copy, Clone)`. `String`, `Vec`, `Map` y `Set` nunca son `Copy`.
+
+### 11.3 `Clone`
+
+`clone()` crea una copia profunda explícita:
+
+```pengu
+bind a = Vec[1, 2, 3]
+bind b = a.clone()
+```
+
+No hay clonado implícito. Pasar un `Vec` a una función que no lo necesita
+consume el original; si la función solo lee, recibe `&[T]`.
+
+### 11.4 Referencias
+
+```pengu
+length = (s: &Str) -> Usize
+    s.len()
+
+append = (values: &mut Vec[Int], value: Int) -> Unit
+    values.push(value)
+```
+
+Reglas:
+
+- `&T` presta de forma inmutable; `&mut T` presta de forma mutable.
+- No puede haber a la vez un `&T` y un `&mut T` al mismo valor.
+- Una referencia local no puede escapar de la función que la crea. Un método
+  puede devolver una vista ligada al receptor (§11.6).
+- No se guardan referencias en campos, variantes, retornos de funciones libres,
+  alias ni colecciones.
+- No se escribe ninguna anotación de vida. El compilador la infiere.
+
+### 11.5 Referencias en locales
+
+```pengu
+bind text = String.from("pengu")
+bind view: &Str = &text
+print(view)
+```
+
+La referencia vive mientras `text` viva y no se mueva. El compilador rechaza
+usar `view` después de mover `text`.
+
+### 11.6 Retornos
+
+Una función libre no puede devolver `&T` ni `&mut T`:
+
+```pengu
+-- ERROR PGS-E4109
+first_word = (text: &Str) -> &Str
+    text
+```
+
+Para devolver una vista se devuelve el valor owned (`String`), un `Box[String]`
+o un `Rc[String]`/`Arc[String]`.
+
+Un método sí puede devolver una referencia si deriva del receptor `@`/`@mut`,
+como `Str.get(a..b) -> Option[&Str]`. No puede devolver una referencia a un
+local del método.
+
+### 11.7 `Box`, `Rc`, `Arc`
+
+- `Box[T]` es propiedad única en el heap.
+- `Rc[T]` comparte dentro de un hilo.
+- `Arc[T]` comparte entre hilos.
+
+`Box` está en la prelude. `Rc` y `Arc` se importan:
+
+```pengu
+summon std::rc::Rc
+
+bind shared = Rc.new(String.from("pengu"))
+bind copy = shared.clone()
+print(shared.len())
+```
+
+`Rc` y `Arc` no son `Copy`; clonarlos incrementa el contador. No hay
+mutabilidad interior en el núcleo: si se necesita, se importa de
+`std.cell`/`std.concurrent` y se hace explícita.
+
+### 11.8 Destrucción
+
+El valor se destruye automáticamente al final de su scope. No hay `Drop`
+visible ni `defer` en el núcleo. El orden es el inverso al de declaración.
+
+### 11.9 Préstamos y métodos
+
+Un método `@` toma `&self`; `@mut` toma `&mut self`; `@own` toma `self`.
+Si un método `@`/`@mut` devuelve un campo cuyo tipo no es `Copy`, debe usar
+`@own` (`PGS-E4105`); devolver el campo desde un préstamo exigiría moverlo.
+
+```pengu
+rune Counter
+    value: Int
+
+ritual Counter
+    get = (@) -> Int
+        @.value
+
+    bump = (@mut) -> Unit
+        @.value = @.value + 1
+
+    into_value = (@own) -> Int
+        @.value
+```
+
+### 11.10 Diagnósticos de ownership
+
+| Código | Situación |
+|---|---|
+| `PGS-E4101` | Uso de un valor movido. |
+| `PGS-E4102` | Préstamo inmutable y mutable simultáneos. |
+| `PGS-E4103` | Asignación a un binding inmutable. |
+| `PGS-E4104` | Referencia que escapa del scope. |
+| `PGS-E4105` | Referencia en campo/variante/alias/retorno, o método `@`/`@mut` que devuelve un campo no-`Copy` sin `@own`. |
+| `PGS-E4106` | Movimiento de un valor prestado. |
+| `PGS-E4107` | `Rc`/`Arc` usado sin importar. |
+| `PGS-E4108` | Destrucción de un valor todavía prestado. |
+| `PGS-E4109` | No se puede inferir la vida de una referencia. |
+
+[↑ Volver al índice](#indice)
+---
+
+<a id="sec-12"></a>
+## 12. Pacts y rituals
+
+### 12.1 `pact`
+
+Un `pact` declara un contrato de métodos:
+
+```pengu
+pact Shape
+    area = (@) -> Float
+    name = (@) -> String
+        "shape"
+```
+
+Reglas:
+
+- Solo declara métodos con receptor `@`, `@mut` o `@own`.
+- Puede dar una implementación por defecto.
+- Puede tener como máximo un superpact.
+- No declara tipos asociados, constantes asociadas, métodos genéricos,
+  métodos de concurrencia ni cláusulas adicionales de bounds. Un `sigil` o
+  `relic` dentro de un `pact` o `ritual` es `PGS-E1204`.
+- No se usa como tipo dinámico: no hay despacho dinámico.
+
+### 12.2 Superpact
+
+```pengu
+pact Named
+    name = (@) -> String
+
+pact Shape: Named
+    area = (@) -> Float
+```
+
+`Shape` exige que el tipo implemente también `Named`. No hay herencia múltiple.
+
+### 12.3 `Show`
+
+`Show` es el único pact de la prelude:
+
+```pengu
+pact Show
+    show = (@) -> String
+```
+
+`print(x)` y `format("#{x}")` requieren `x: Show` o un primitivo. No hay
+`Display` ni `Debug` en la superficie; `@@derive(Debug)` sigue existiendo para
+depuración del backend, pero el usuario no lo usa para imprimir.
+
+### 12.4 `ritual` inherente
+
+```pengu
+rune Point
+    x: Float
+    y: Float
+
+ritual Point
+    length = (@) -> Float
+        (@.x * @.x + @.y * @.y).sqrt()
+
+    origin = () -> Point
+        Point(x: 0.0, y: 0.0)
+```
+
+Un `ritual` inherente agrega métodos y funciones asociadas al tipo.
+
+- `@` recibe `&self`.
+- `@mut` recibe `&mut self`.
+- `@own` recibe `self`.
+- Una función sin receptor se llama como `Point.origin()`.
+- `Self` se refiere al tipo del `ritual`.
+
+### 12.5 `ritual ... for`
+
+```pengu
+ritual Point for Shape
+    area = (@) -> Float
+        0.0
+
+    name = (@) -> String
+        "point"
+```
+
+Un `ritual Tipo for Pact` implementa el contrato. Deben estar todos los
+métodos sin default.
+
+### 12.6 Reglas de coherencia
+
+- Se puede implementar un `pact` propio para un tipo propio.
+- Se puede implementar un `pact` de la librería para un tipo propio.
+- No se puede implementar un `pact` ajeno para un tipo ajeno.
+- No hay impls solapadas.
+- No hay blanket impls (`ritual[T] Pact for T`).
+- Un tipo puede tener varios `ritual` inherentes, pero no dos métodos con el
+  mismo nombre.
+
+### 12.7 Genéricos en rituals
+
+```pengu
+rune Box[T]
+    value: T
+
+ritual[T] Box[T]
+    into_inner = (@own) -> T
+        @.value
+
+    replace = (@mut, value: T) -> T
+        bind old = @.value
+        @.value = value
+        old
+```
+
+El parámetro `[T]` se declara en el `ritual`. Los bounds van en la cabecera.
+
+### 12.8 Sin despacho dinámico
+
+No hay despacho dinámico ni tablas virtuales. Si se necesita
+elegir entre variantes, se usa un `enchanting`:
+
+```pengu
+enchanting AnyShape
+    Circle(Circle)
+    Square(Square)
+
+area = (shape: AnyShape) -> Float
+    match shape
+        when Circle(c) then c.area()
+        when Square(s) then s.area()
+```
+
+### 12.9 Diagnósticos de pacts
+
+| Código | Situación |
+|---|---|
+| `PGS-E1201` | Método faltante en el `ritual`. |
+| `PGS-E1202` | Firma incompatible con el `pact`. |
+| `PGS-E1203` | `pact` con más de un superpact. |
+| `PGS-E1204` | `pact`/`ritual` con asociado no soportado (tipo, `sigil` o `relic`). |
+| `PGS-E1205` | `ritual` para tipo ajeno y pact ajeno. |
+| `PGS-E1206` | Implementaciones solapadas. |
+| `PGS-E1207` | Blanket impl. |
+| `PGS-E1208` | Despacho dinámico en la superficie. |
+| `PGS-E1209` | `Self` fuera de un `pact`/`ritual`. |
+| `PGS-E1210` | `ritual` inherente sobre primitivo fuera de `std`. |
+| `PGS-W1210` | Método inherente y de pact con el mismo nombre en un primitivo. |
+
+### 12.10 Rituales sobre primitivos
+
+Los primitivos (`Int`, `I8`–`I64`, `U8`–`U64`, `Isize`, `Usize`, `Float`,
+`F32`, `F64`, `Bool`, `Char`, `String`, `Str`) pueden recibir métodos, pero con
+una restricción de coherencia:
+
+```pengu
+-- inherente: tipo local, o primitivo solo dentro de std
+ritual Point
+    inherent = (@) -> Float
+        0.0
+
+-- pact: tipo local o pact local
+ritual Point for Shape
+    area = (@) -> Float
+        0.0
+```
+
+- Un `ritual` **inherente** sobre un primitivo solo se permite dentro de `std`.
+  Fuera, es `PGS-E1210`.
+- Un `ritual Primitivo for MiPact` se permite en cualquier parte si `MiPact` es
+  local. Es la regla huérfana aplicada a primitivos.
+- Los métodos inherentes de primitivos son **públicos siempre**; no se escribe
+  `unveil`.
+- Para tipos `Copy`, el receptor natural es `@own`; para `String`, `@` o `@mut`
+  según el método. El autor de `std` elige.
+- Si un método inherente y uno de pact comparten nombre en un primitivo, gana el
+  inherente y se emite `PGS-W1210`.
+- No hay extension methods de usuario. Fuera de `std`, `ritual Int { ... }` es
+  error; esto evita ambigüedades de coherencia.
+
+Ejemplos de `std`:
+
+```pengu
+-- std/bool.pengu
+ritual Bool
+    switch = (@own) -> Bool
+        not @
+
+-- std/string.pengu
+ritual Str
+    split = (@, sep: &Str) -> Vec[&Str]
+        Vec[]
+    trim = (@) -> &Str
+        @
+
+-- std/int.pengu
+ritual Int
+    abs = (@own) -> Int
+        if @ < 0 then -@ else @
+
+    is_even = (@own) -> Bool
+        @ % 2 == 0
+```
+
+Uso:
+
+```pengu
+grimoire
+    print("  hola  ".trim())
+    bind parts = "a,b,c".split(",")
+    print(parts.len())
+    print(parts[0])
+    print(true.switch())
+    print((-5).abs())
+    print(42.is_even())
+```
+
+[↑ Volver al índice](#indice)
+---
+
+<a id="sec-13"></a>
+## 13. Genéricos y bounds
+
+### 13.1 Declaración
+
+```pengu
+identity = [T](value: T) -> T
+    value
+
+contains = [T: Eq](values: &[T], target: &T) -> Bool
+    for value in values do
+        if value == target then
+            return true
+    false
+
+rune Pair[A, B]
+    first: A
+    second: B
+```
+
+Los parámetros de tipo van entre `[]`, antes de los parámetros de valor.
+
+### 13.2 Bounds
+
+```pengu
+maximum = [T: Ord](a: T, b: T) -> T
+    if a > b then a else b
+```
+
+Un bound es un `pact`. Se pueden pedir varios con `+`:
+
+```pengu
+unique = [T: Eq + Hash](values: Vec[T]) -> Set[T]
+    morph out = Set.new()
+    for value in values do
+        out.insert(value)
+    out
+```
+
+No hay cláusulas adicionales de bounds. No hay bounds de tipo asociado, de vida ni de
+constantes.
+
+### 13.3 Llamada
+
+```pengu
+bind n = identity[Int](42)
+bind s = identity[String](String.from("pengu"))
+```
+
+El tipo se puede inferir:
+
+```pengu
+bind n = identity(42)
+```
+
+Si la inferencia no alcanza, se usa el turbofish `[T]` después del nombre.
+
+### 13.4 Tipos genéricos
+
+```pengu
+rune Box[T]
+    value: T
+
+enchanting Maybe[T]
+    some(T)
+    none
+
+pact Container[T]
+    contains = (@, target: &T) -> Bool
+```
+
+Un tipo genérico se instancia con `Box[Int]`, `Maybe[String]`,
+`Container[Point]`.
+
+### 13.5 Genéricos en rituals
+
+```pengu
+ritual[T] Box[T]
+    into_inner = (@own) -> T
+        @.value
+```
+
+Los parámetros del `ritual` deben coincidir con los del tipo o con un
+subconjunto.
+
+### 13.6 Monomorfización
+
+Cada instancia concreta genera una versión especializada en el backend. No hay
+despacho dinámico. El costo es código, no indirección.
+
+### 13.7 Límites
+
+- No hay parámetros de tipo con valores (`const N`).
+- No hay tipos asociados.
+- No hay tipos de retorno opacos.
+- No hay genéricos de rango superior.
+- No hay especialización.
+- No hay defaults de tipo.
+
+### 13.8 Diagnósticos de genéricos
+
+| Código | Situación |
+|---|---|
+| `PGS-E1301` | Parámetro de tipo no usado. |
+| `PGS-E1302` | Bound no satisfecho. |
+| `PGS-E1303` | Bound desconocido. |
+| `PGS-E1304` | Turbofish con número incorrecto de tipos. |
+| `PGS-E1305` | No se puede inferir el parámetro. |
+| `PGS-E1306` | Cláusula de bounds no permitida. |
+| `PGS-E1307` | Tipo asociado en un `pact`. |
+| `PGS-E1308` | Genérico en un contexto no permitido. |
+
+[↑ Volver al índice](#indice)
+---
+
+<a id="sec-14"></a>
+## 14. Operadores
+
+### 14.1 Precedencia
+
+De mayor a menor:
+
+| Nivel | Operadores | Asociatividad |
+|---|---|---|
+| 1 | `.`, `()`, `[]`, `?` | izquierda |
+| 2 | unario `-`, `not` | derecha |
+| 3 | `as` | izquierda |
+| 4 | `*`, `/`, `%` | izquierda |
+| 5 | `+`, `-` | izquierda |
+| 6 | `..`, `..=` | izquierda |
+| 7 | `<`, `<=`, `>`, `>=` | izquierda |
+| 8 | `is`, `isnt`, `==`, `!=`, `in` | izquierda |
+| 9 | `and` | izquierda |
+| 10 | `or` | izquierda |
+| 11 | `=` (asignación) | sentencia |
+
+No hay `&&`, `||`, `++`, `--` ni comparaciones encadenadas (`a < b < c` es
+error).
+
+### 14.2 Aritméticos
+
+```pengu
+bind a = 1 + 2
+bind b = 10 - 3
+bind c = 4 * 5
+bind d = 9 / 2
+bind e = 9 % 2
+bind f = -a
+```
+
+`/` entre enteros trunca hacia cero. La división por cero hace panic, igual
+que `MIN / -1` y `MIN % -1` para enteros con signo.
+
+La suma, resta y multiplicación de enteros usan **aritmética comprobada en
+todas las builds**, debug y release. Un desbordamiento hace panic; no hay
+wrapping silencioso en release. Para aritmética explícita se usan métodos de
+`std.int`:
+
+| Método | Resultado |
+|---|---|
+| `wrapping_add`/`wrapping_sub`/`wrapping_mul` | envuelve, sin panic |
+| `checked_add`/`checked_sub`/`checked_mul` | `Option[T]`; `none` si desborda |
+| `saturating_add`/`saturating_sub`/`saturating_mul` | satura al mínimo/máximo |
+| `overflowing_add`/`overflowing_sub`/`overflowing_mul` | `(T, Bool)` |
+
+Un desbordamiento en una expresión constante es error de compilación. La
+excepción son los casts `as`: no son aritmética comprobada, tienen su propia
+semántica de truncado o saturación (§14.6) y se aplican igual en `sigil`. El
+backend configura `overflow-checks = true` también en release.
+
+`Float` sigue IEEE 754 y no hace panic por overflow: produce `inf`, `-inf` o
+`NaN` según el caso.
+
+### 14.3 Comparación
+
+```pengu
+a == b
+a != b
+a < b
+a <= b
+a > b
+a >= b
+a is b
+a isnt b
+```
+
+`is`/`isnt` son alias legibles de `==`/`!=` para tipos que implementan `Eq`.
+No comparan identidad de referencia.
+
+`Float` usa IEEE 754:
+
+- `NaN == NaN` es `false`; `NaN != NaN` es `true`;
+- `0.0 == -0.0` es `true`;
+- cualquier comparación ordenada con `NaN` es `false`;
+- `is`/`isnt` exigen `Eq`, así que no se usan con `Float`;
+- para ordenar con `NaN` se usa `total_cmp`, no `<`.
+
+No se pueden comparar tipos distintos sin conversión explícita.
+
+### 14.4 Booleanos
+
+```pengu
+ready and not cancelled
+ready or fallback
+```
+
+`and` y `or` hacen cortocircuito. `not` es el único operador de negación
+booleana. No hay `!` para `Bool`.
+
+### 14.5 Rangos y pertenencia
+
+```pengu
+0..10
+0..=10
+value in 0..10
+```
+
+`in` comprueba pertenencia en un rango, en un `Set` o en un `Map` (clave).
+
+### 14.6 Casts
+
+```pengu
+bind small = 300 as U8      -- 44
+bind wrapped = -1 as U8     -- 255
+bind code = 'P' as U32      -- 80
+bind ratio = 2 as Float     -- 2.0
+```
+
+`as` solo convierte entre primitivos numéricos y entre `Char` y enteros. No
+convierte records, sums, `Bool` ni strings. Para strings se usa `.parse[T]()`;
+para números a string, `.to_string()`.
+
+La semántica es la de Rust, sin cambios en runtime ni en const eval:
+
+| Desde | Hasta | Resultado |
+|---|---|---|
+| entero | entero | trunca al ancho destino (módulo 2^N); `300 as U8` = 44, `-1 as U8` = 255 |
+| `Float` | entero | trunca hacia cero y satura al rango; `NaN` -> 0; `inf`/`-inf` -> máximo/mínimo |
+| entero | `Float` | redondeo al más cercano; puede perder precisión |
+| `Float` | `Float` | redondeo al más cercano; `F64` -> `F32` puede perder precisión |
+| `Char` | entero | valor escalar Unicode, truncado al ancho destino |
+| `U8` | `Char` | válido para 0..=255 |
+| otro entero | `Char` | error de compilación (`PGS-E1404`); usar `Char.from_u32` de `std` |
+
+Un cast nunca hace panic por rango. `300 as U8` es válido y vale 44; un
+`sigil X: U8 = 300` sin cast sí es error de compilación. En const eval se
+aplica exactamente la misma tabla que en runtime.
+
+### 14.7 `?`
+
+El operador postfix `?` propaga `Option`/`Result`:
+
+```pengu
+summon std::fs
+
+read_config = (path: &Str) -> Result[Config, ReadError]
+    bind text = fs.read_to_string(path)?
+    parse_config(text)
+```
+
+- En una función que devuelve `Option[T]`, `?` propaga `none`.
+- En una función que devuelve `Result[T, E]`, `?` propaga `err`.
+- El error debe convertirse explícitamente si el tipo no coincide.
+- `?` no se permite dentro de una closure: no tiene un tipo de retorno
+  declarado del cual inferir la propagación. Es `PGS-E7004`; se usa `match` o
+  se propaga en la función contenedora.
+
+### 14.8 Sobrecarga
+
+La sobrecarga de operadores es explícita y chica. Los pacts viven en
+`std.ops` y se importan:
+
+```pengu
+summon std::ops::Add
+
+rune Point
+    x: Float
+    y: Float
+
+ritual Point for Add
+    add = (@own, other: Point) -> Point
+        Point(x: @.x + other.x, y: @.y + other.y)
+
+bind p = Point(x: 1.0, y: 2.0) + Point(x: 3.0, y: 4.0)
+```
+
+`Ordering` es un sum de la prelude:
+
+```pengu
+enchanting Ordering
+    Less
+    Equal
+    Greater
+```
+
+Solo se sobrecargan:
+
+| Operador | Pact | Método |
+|---|---|---|
+| `+` | `Add` | `add` |
+| `-` | `Sub` | `sub` |
+| `*` | `Mul` | `mul` |
+| `/` | `Div` | `div` |
+| `%` | `Rem` | `rem` |
+| `-` unario | `Neg` | `neg` |
+| `==`, `!=` | `Eq` | `eq` |
+| `<`, `<=`, `>`, `>=` | `Ord` | `cmp` |
+
+Las firmas son:
+
+- aritméticos: `(@own, other: Self) -> Self`;
+- `Eq`: `(@, other: &Self) -> Bool`;
+- `Ord`: `(@, other: &Self) -> Ordering`.
+
+`Ord` requiere `Eq`. No hay tipo de salida asociado.
+
+No se sobrecargan `[]`, `()`, `.`, `=`, `&`, `*` de desreferencia, `?`, `!`,
+`..` ni `as`. No hay `+=` para tipos de usuario; se escribe `p = p + q`.
+
+### 14.9 Diagnósticos de operadores
+
+| Código | Situación |
+|---|---|
+| `PGS-E1401` | Tipos incompatibles en un operador. |
+| `PGS-E1402` | Operador no definido para el tipo. |
+| `PGS-E1403` | División por cero constante. |
+| `PGS-E1404` | Cast inválido. |
+| `PGS-E1405` | `?` fuera de una función que devuelve `Option`/`Result`. |
+| `PGS-E1406` | Sobrecarga de un operador no permitido. |
+| `PGS-E1407` | Firma de sobrecarga incorrecta. |
+| `PGS-E1408` | Comparación encadenada. |
+
+[↑ Volver al índice](#indice)
+---
+
+<a id="sec-15"></a>
+## 15. Errores, `Option` y `Result`
+
+### 15.1 Ausencia
+
+`Option[T]` representa un valor que puede faltar:
+
+```pengu
+bind maybe: Option[Int] = some(3)
+bind nothing: Option[Int] = none
+```
+
+Formas cortas:
+
+```pengu
+bind maybe: ?Int = some(3)
+bind nothing: ?Int = none
+```
+
+`?T` es exactamente `Option[T]`. No hay `!T`.
+
+### 15.2 Resultado
+
+`Result[T, E]` representa un éxito o un error:
+
+```pengu
+bind ok_value: Result[Int, String] = ok(3)
+bind error_value: Result[Int, String] = err("no")
+```
+
+`E` es un tipo concreto: un `enchanting`, un `rune` o un primitivo. No hay
+errores boxed ni jerarquías de errores.
+
+### 15.3 `?`
+
+```pengu
+read_number = (text: &Str) -> Result[Int, ParseError]
+    bind n = text.parse[Int]()?
+    ok(n + 1)
+```
+
+`?`:
+
+- en `Option`, devuelve `none` si el valor es `none`;
+- en `Result`, devuelve `err(e)` si el valor es `err(e)`;
+- exige que el error del caller sea el mismo tipo, o que se convierta con
+  `map_err` antes.
+
+No hay conversión automática de errores.
+
+### 15.4 Métodos de `Option`
+
+| Método | Firma | Nota |
+|---|---|---|
+| `is_some` | `(@) -> Bool` | no consume |
+| `is_none` | `(@) -> Bool` | no consume |
+| `unwrap` | `(@own) -> T` | panic si es `none`; solo tests/prototipo |
+| `expect` | `(@own, message: &Str) -> T` | panic con mensaje; solo tests/prototipo |
+| `unwrap_or` | `(@own, default: T) -> T` | evalúa `default` siempre |
+| `unwrap_or_else` | `(@own, f: () -> T) -> T` | evalúa `f` solo si es `none` |
+| `map` | `(@own, f: (T) -> U) -> Option[U]` | transforma el valor |
+| `and_then` | `(@own, f: (T) -> Option[U]) -> Option[U]` | encadena |
+| `filter` | `(@own, f: (T) -> Bool) -> Option[T]` | conserva o descarta |
+| `ok_or` | `(@own, err: E) -> Result[T, E]` | convierte a `Result` |
+| `take` | `(@mut) -> Option[T]` | deja `none` en el receptor |
+| `replace` | `(@mut, value: T) -> Option[T]` | reemplaza y devuelve el anterior |
+
+### 15.5 Métodos de `Result`
+
+| Método | Firma | Nota |
+|---|---|---|
+| `is_ok` | `(@) -> Bool` | no consume |
+| `is_err` | `(@) -> Bool` | no consume |
+| `unwrap` | `(@own) -> T` | panic si es `err`; solo tests/prototipo |
+| `expect` | `(@own, message: &Str) -> T` | panic con mensaje; solo tests/prototipo |
+| `unwrap_or` | `(@own, default: T) -> T` | evalúa `default` siempre |
+| `unwrap_or_else` | `(@own, f: (E) -> T) -> T` | evalúa `f` solo si es `err` |
+| `map` | `(@own, f: (T) -> U) -> Result[U, E]` | transforma el éxito |
+| `map_err` | `(@own, f: (E) -> F) -> Result[T, F]` | transforma el error |
+| `and_then` | `(@own, f: (T) -> Result[U, E]) -> Result[U, E]` | encadena |
+| `ok` | `(@own) -> Option[T]` | descarta el error |
+| `err` | `(@own) -> Option[E]` | descarta el éxito |
+
+`unwrap()` y `expect()` existen solo en tests y en código de prototipo; el
+linter los marca en producción. `unwrap_or_else` recibe una closure sin
+parámetros y no evalúa el valor por defecto si no hace falta.
+
+### 15.6 Errores como sums
+
+```pengu
+summon std::fs
+
+enchanting ConfigError
+    MissingFile(path: String)
+    InvalidLine(line: Int)
+    Empty
+
+read_config = (path: &Str) -> Result[Config, ConfigError]
+    bind ok(text) = fs.read_to_string(path) else
+        return err(MissingFile(path: String.from(path)))
+    parse_config(text)
+```
+
+La suma de errores es el mecanismo normal. No hay jerarquía de excepciones.
+
+### 15.7 `panic`
+
+`panic(message)` desenrolla la pila, ejecuta los `Drop` de los valores vivos y
+termina el proceso con código 1. Se usa para bugs, no para errores esperables.
+
+```pengu
+assert = (condition: Bool, message: &Str) -> Unit
+    if not condition then
+        panic(message)
+```
+
+`panic` es `Never`. No hay `try`, `catch`, `throw` ni `raise`, y no hay forma
+de recuperarse de un panic. El backend compila con `panic = "unwind"`; los
+`Drop` corren, pero el proceso no continúa. Un panic que alcanza una frontera
+`curse`/`foreign` se convierte en abort y nunca cruza a C. `std.concurrent` no
+se reutiliza después de un panic: el proceso ya terminó.
+
+### 15.8 Entrada fallible
+
+```pengu
+grimoire: Result[Unit, ConfigError]
+    bind config = read_config("app.toml")?
+    print(config.name)
+    ok(())
+```
+
+El backend imprime el error y devuelve código 1.
+
+### 15.9 Diagnósticos de errores
+
+| Código | Situación |
+|---|---|
+| `PGS-E1501` | `?` en función que no devuelve `Option`/`Result`. |
+| `PGS-E1502` | Error de `?` incompatible. |
+| `PGS-W1501` | `unwrap`/`expect` en producción. |
+| `PGS-E1504` | `Option`/`Result` usado como valor directo. |
+| `PGS-E1505` | `Result` sin tipo de error concreto. |
+| `PGS-E1506` | `panic` en una rama que debía devolver valor. |
+| `PGS-E1507` | `err` sin tipo de éxito. |
+| `PGS-E1508` | `none` sin tipo. |
+
+[↑ Volver al índice](#indice)
+---
+
+<a id="sec-16"></a>
+## 16. FFI: `foreign` y `curse`
+
+### 16.1 `foreign`
+
+`foreign "C"` declara funciones externas. No tiene cuerpo y no exporta nada:
+
+```pengu
+summon std::ffi::CStr
+
+foreign "C"
+    puts = (text: &CStr) -> Int
+    strlen = (text: &CStr) -> Usize
+```
+
+Un bloque `foreign` solo contiene firmas. No puede contener records, sums ni
+funciones con cuerpo.
+
+### 16.2 `curse`
+
+Llamar a una función `foreign` requiere un bloque `curse`:
+
+```pengu
+summon std::ffi::CString
+
+say = (text: &Str) -> Unit
+    bind ok(c_text) = CString.new(text) else
+        return
+    curse
+        -- SAFETY: `c_text` vive hasta el final del bloque y `puts` no la guarda.
+        puts(&c_text)
+```
+
+Reglas:
+
+- `curse` es la única puerta a FFI.
+- Cada bloque `curse` debe tener un comentario `-- SAFETY:` que explique por
+  qué la llamada es válida.
+- No hay punteros crudos, conversiones de representación, uniones, asm ni acceso directo a
+  memoria.
+- No se puede exportar una función PenguScript a C en v1.
+- El bloque `curse` no se puede usar para saltarse ownership, tipos ni
+  visibilidad.
+
+Una función que siempre requiere `curse` se declara con el modificador:
+
+```pengu
+foreign "C"
+    read = (fd: Int) -> Int
+
+-- SAFETY: el descriptor lo valida el llamador
+curse read_raw = (fd: Int) -> Int
+    read(fd)
+```
+
+Llamar a `read_raw` también requiere `curse`.
+
+### 16.3 Tipos de FFI
+
+| Penguin | C |
+|---|---|
+| `Int` | `int32_t` |
+| `I64` | `int64_t` |
+| `U8` | `uint8_t` |
+| `Usize` | `size_t` |
+| `Float` | `double` |
+| `Bool` | `bool` (solo si el header lo garantiza) |
+| `&CStr` | `const char *` |
+| `Ptr[T]` | puntero opaco; solo borde FFI |
+| `*` | no disponible |
+
+`CStr` y `CString` viven en `std.ffi`. `CString.new` puede fallar si el string
+contiene un byte nulo; devuelve `Result[CString, NulError]`.
+
+### 16.4 ABI
+
+- El ABI de `foreign` en un archivo normal es `"C"`.
+- `.d.pengu` puede declarar `"C"`, `"system"`, `"js"` o `"pengu"`.
+- No hay variádicas.
+- Una función `foreign` que puede hacer panic debe documentarlo; el backend
+  no deja que un panic cruce la frontera C.
+- Los errores de C se convierten en `Result` explícito.
+
+### 16.4.1 Declaraciones desde C
+
+Un archivo `.d.pengu` generado por `pengu bindgen` se registra en `Tome.toml`
+y se importa como un módulo:
+
+```toml
+[link]
+z
+
+[declarations]
+zlib = "zlib.d.pengu"
+```
+
+`summon zlib::zlibVersion` queda disponible y, como toda firma `foreign "C"`,
+solo se puede llamar desde `curse`. Usar una declaración `abi "C"` sin `[link]`
+es `PGS-E2023`; el nombre debe ser un identificador (`PGS-E2010`), el archivo
+tiene que existir (`PGS-E2003`) y terminar en `.d.pengu` (`PGS-E2020`).
+
+Los punteros `CStr` cruzan la frontera como `*const c_char`: el backend los
+convierte con `.as_ptr()` al llamar y con `CStr::from_ptr` al volver, porque
+`CStr` no tiene tamaño y una referencia sería un puntero gordo.
+
+### 16.5 Ejemplo completo
+
+```pengu
+summon std::ffi::CStr
+summon std::ffi::CString
+
+foreign "C"
+    puts = (text: &CStr) -> Int
+
+grimoire
+    bind ok(message) = CString.new("hola desde PenguScript") else
+        panic("string con NUL")
+    curse
+        -- SAFETY: el CString vive hasta después de la llamada y puts no retiene el puntero.
+        puts(&message)
+```
+
+### 16.6 Diagnósticos de FFI
+
+| Código | Situación |
+|---|---|
+| `PGS-E1601` | `foreign` con cuerpo. |
+| `PGS-E1602` | Llamada a `foreign` fuera de `curse`. |
+| `PGS-E1603` | `curse` sin comentario `-- SAFETY:`. |
+| `PGS-E1604` | Tipo no representable en C. |
+| `PGS-E1605` | ABI desconocido. |
+| `PGS-E1606` | Exportación de función PenguScript a C. |
+| `PGS-E1607` | `curse` usado fuera de FFI. |
+| `PGS-E1608` | `CString` sin manejo de `NulError`. |
+
+### 16.7 Archivos de declaración y `Ptr[T]`
+
+Un archivo `.d.pengu` distribuye declaraciones sin implementación. Sirve para
+FFI nativa, bindings JS y headers de librerías PenguScript.
+
+```pengu
+-- libc.d.pengu
+abi "C"
+
+summon std::ffi::CStr
+
+rune FILE
+    _private: [U8; 0]
+
+puts = (text: &CStr) -> Int
+fopen = (path: &CStr, mode: &CStr) -> Ptr[FILE]
+fclose = (file: Ptr[FILE]) -> Int
+```
+
+La primera línea debe ser `abi "..."`:
+
+| `abi` | Uso | Validación |
+|---|---|---|
+| `"C"` | FFI nativa (`.dll`, `.so`, `.dylib`) | siempre |
+| `"system"` | FFI del sistema | siempre |
+| `"js"` | Backend JS, **diferido** | en 0.6.0 siempre `PGS-E2022` |
+| `"pengu"` | Librería PenguScript | siempre; requiere implementación |
+
+`abi "C"` y `abi "system"` requieren una entrada en `[link]` de `Tome.toml`
+(§18.2), o una dependencia que declare `link`. Sin esa entrada, el build falla
+con `PGS-E2023`. `abi "pengu"` y `abi "js"` no usan `[link]`; `abi "js"` no
+existe en 0.6.0.
+
+Contenido permitido:
+
+- `rune`, `enchanting` y `pact` con campos, variantes y métodos **sin cuerpo**;
+  en un `rune` de `.d.pengu` también se permiten métodos declarados.
+- `nombre = (params) -> ret` sin cuerpo.
+- `nombre: Type` como constante declarada sin valor.
+- `summon`.
+
+Contenido prohibido:
+
+- `grimoire`, `bind`, `morph`, `sigil`, `relic`, `foreign` y cuerpos de
+  función.
+- Valores por defecto en métodos de `pact`.
+- `unveil`: todos los items son públicos implícitamente. `unveil` produce
+  `PGS-E2027`.
+
+`Ptr[T]` es un puntero opaco de FFI. Solo se acepta en `.d.pengu`, en firmas
+`foreign` y en funciones `curse`; no se guarda, no se compara y no cruza a
+código normal.
+
+Dos `.d.pengu` pueden declarar el mismo nombre (`puts`) si pertenecen a módulos
+distintos: `libc::puts` y `mylib::puts` son símbolos distintos. El conflicto
+solo existe si dos archivos declaran el mismo módulo (`PGS-E2013`) o si se
+importan los dos sin alias con `summon` (`PGS-E2005`). Con alias
+(`summon libc::puts as c_puts`) no hay conflicto.
+
+Ejemplo de header PenguScript:
+
+```pengu
+-- mylib.d.pengu
+abi "pengu"
+
+rune Config
+    name: String
+    verbose: Bool
+
+enchanting LoadError
+    Missing
+    Invalid(line: Int)
+
+load = (path: &Str) -> Result[Config, LoadError]
+```
+
+En `Tome.toml`:
+
+```toml
+[declarations]
+libc = "vendor/libc.d.pengu"
+```
+
+El compilador también busca `nombre.d.pengu` junto a `nombre.pengu`. Una
+dependencia puede declarar `declarations = "vendor/mylib.d.pengu"`.
+
+Reglas:
+
+1. Un `.d.pengu` no genera código; solo aporta tipos y nombres.
+2. Todos sus items son públicos implícitos.
+3. Un método o función sin cuerpo solo es válido en `.d.pengu`.
+4. Una constante `nombre: Type` sin valor solo es válida en `.d.pengu`.
+5. `abi "js"` siempre es `PGS-E2022` en 0.6.0; el backend JS está diferido.
+6. `abi "C"`/`"system"` requiere una entrada en `[link]`; si falta, `PGS-E2023`.
+7. `abi "pengu"` requiere una implementación en la misma crate o dependencia.
+8. `Ptr[T]` solo se acepta en `.d.pengu`, `foreign` y `curse`.
+
+`foreign "C"` directo y `.d.pengu` con `abi "C"` coexisten: el primero sirve
+para casos chicos; el segundo para distribuir una superficie.
+
+| Código | Situación |
+|---|---|
+| `PGS-E2020` | `.d.pengu` sin cabecera `abi`. |
+| `PGS-E2021` | `.d.pengu` con cuerpo, `sigil` o `relic`. |
+| `PGS-E2022` | `abi "js"` en 0.6.0; backend JS diferido. |
+| `PGS-E2023` | `abi "C"`/`"system"` sin entrada `[link]` o librería no enlazada. |
+| `PGS-E2024` | `abi "pengu"` sin implementación. |
+| `PGS-E2025` | `Ptr[T]` fuera de `.d.pengu`/`foreign`/`curse`. |
+| `PGS-E2026` | `grimoire` en `.d.pengu`. |
+| `PGS-E2027` | `unveil` en `.d.pengu`. |
+
+[↑ Volver al índice](#indice)
+---
+
+<a id="sec-17"></a>
+## 17. Testing y documentación
+
+### 17.1 `@@test`
+
+El único atributo de testing es `@@test`:
+
+```pengu
+@@test
+adds = () -> Unit
+    assert_eq(1 + 1, 2)
+```
+
+Una función de test:
+
+- no recibe parámetros;
+- devuelve `Unit`; los tests que devuelven `Result[Unit, E]` se difieren a una
+  versión futura;
+- se ejecuta con `pengu test`;
+- puede estar en cualquier módulo.
+
+### 17.2 Variantes
+
+```pengu
+@@test(should_panic: "división por cero")
+divide_by_zero = () -> Unit
+    panic("división por cero")
+
+@@test(ignore: "pendiente de implementar")
+future_test = () -> Unit
+    assert(false, "pendiente")
+```
+
+No hay `@@bench`, `@@should_panic` separado, property testing ni fuzzing en el
+núcleo. Viven en `std.test` o en crates externos.
+
+### 17.3 Aserciones
+
+```pengu
+assert(condition, "mensaje")
+assert_eq(actual, expected)
+assert_ne(actual, unexpected)
+```
+
+`assert` hace panic con el mensaje si la condición es falsa. `assert_eq` y
+`assert_ne` requieren `Debug + PartialEq` y muestran ambos valores.
+
+### 17.4 Tests de integración
+
+`[[test]]` en `Tome.toml`:
+
+```toml
+[[test]]
+name = "integration"
+path = "tests/integration.pengu"
+```
+
+El archivo se compila como un binario de test independiente. No hay
+No hay compilación condicional de tests: `@@test` marca la función.
+
+### 17.5 Documentación
+
+```pengu
+--- Suma dos enteros.
+---
+--- ```pengu
+--- assert_eq(add(1, 2), 3)
+--- ```
+unveil add = (a: Int, b: Int) -> Int
+    a + b
+```
+
+- `---` documenta el item siguiente.
+- `--!` documenta el módulo.
+- El contenido es Markdown.
+- Los bloques ```pengu se ejecutan como doc tests con `pengu test --doc`.
+
+### 17.6 `@@deprecated` no existe
+
+No hay atributos generales. Para marcar algo como obsoleto se usa la
+documentación y el changelog; el linter puede emitir un warning si el nombre
+aparece en una lista de migración.
+
+### 17.7 Cobertura
+
+`pengu test --coverage` produce un reporte de líneas y ramas. La cobertura no
+es parte de la semántica del lenguaje.
+
+### 17.8 Diagnósticos de testing
+
+| Código | Situación |
+|---|---|
+| `PGS-E1701` | `@@test` con parámetros. |
+| `PGS-E1702` | `@@test` con retorno distinto de `Unit`. |
+| `PGS-E1703` | `should_panic` sin mensaje. |
+| `PGS-E1704` | `assert_eq` con tipos incompatibles. |
+| `PGS-E1705` | Doc test que no compila. |
+| `PGS-E1706` | `@@test` duplicado. |
+
+[↑ Volver al índice](#indice)
+---
+
+<a id="sec-18"></a>
+## 18. Herramientas y tomes
+
+### 18.1 CLI
 
 ```text
-write docs [high]
-2 task(s)
+pengu new <name> | init | templates
+pengu add | remove | update | tree | fetch | vendor | outdated
+pengu check | build | run | clean | watch
+pengu test [--doc] [--coverage]
+pengu bench
+pengu fmt [--check] | lint | fix | doc [--open]
+pengu bindgen | lsp | doctor | explain <code>
+pengu metadata | completions <shell> | man
+pengu self update
 ```
 
-The interesting lowering: `Task` becomes a C struct, `Priority` an enum,
-`judge p:` a `switch`, the `with` literal a compound literal, the `maybe` a
-`PenguMaybe` whose payload is heap-boxed, and `defer banish tasks` a cleanup
-call emitted on every return path.
+No hay `fuzz`, `audit` ni `deny` en el núcleo. Se instalan como herramientas
+externas. `debug` y `repl` están reservados.
 
-## Appendix A. Keywords
+### 18.2 `Tome.toml`
 
-| Keyword | Meaning |
-| --- | --- |
-| `alias` | transparent type synonym |
-| `and` | logical and (also joins bounds) |
-| `antiquus` | function whose body is literal C |
-| `as` | checked cast / narrowing |
-| `banish` | release owned storage |
-| `bind` | implement a concept for a type |
-| `break` | leave a loop |
-| `bytes` | byte-view operator (`bytes of`) |
-| `calling` | call prefix |
-| `chr` | integer to character |
-| `concept` | compile-time contract |
-| `const` | top-level compile-time value |
-| `continue` | next iteration |
-| `cyclus` | mark an intentionally recursive type |
-| `declare` | external C function |
-| `defer` | run at scope exit |
-| `defined` | compile-time name test |
-| `derive` | generate concept implementations |
-| `donum` | default value of a type |
-| `echo` | C union |
-| `else` | fallback branch |
-| `enchanting` | methods on a type |
-| `errdefer` | run on error return |
-| `error` | failure payload inside `or:` |
-| `essence` | dereference (`essence of`) |
-| `false` | boolean false |
-| `for` | loop |
-| `from` | range start / loop form |
-| `fundere` | declare embedded runes (composition, no inheritance) |
-| `if` | conditional |
-| `import` | module import |
-| `in` | membership / iteration |
-| `include` | add a C header |
-| `insignia` | C name prefix |
-| `into` | return type separator |
-| `is` | predicate / naming form |
-| `judge` | pattern match |
-| `lambda` | anonymous static function |
-| `ldflag` | raw linker option |
-| `let` | immutable binding |
-| `link` | link a library |
-| `many` | variadic parameter marker (see §6.3) |
-| `maybe` | optional type / empty constructor |
-| `none` | empty `maybe` (`maybe none`) |
-| `not` | logical negation / `not in` |
-| `null` | null pointer value |
-| `of` | type constructor (`list of T`) |
-| `omen` | enum / sum type |
-| `or` | logical or / fallback forms |
-| `ord` | character to integer |
-| `return` | return from a weave |
-| `rune` | struct |
-| `seal` | nominal newtype |
-| `set` | assignment |
-| `shard` | generic type parameter |
-| `sigil` | address-of (`sigil of`) |
-| `some` | present `maybe` |
-| `static` | persistent local |
-| `step` | loop stride |
-| `test` | test block |
-| `to` | conversion / range end |
-| `transmute` | reinterpret bits |
-| `true` | boolean true |
-| `try` | propagate failure |
-| `unless` | negated `if` |
-| `var` | mutable binding |
-| `weave` | function |
-| `when` | match arm / compile-time branch |
-| `where` | generic bounds |
-| `while` | loop |
-| `with` | parameter list / literal / builder |
+```toml
+[tome]
+name = "hello"
+version = "0.1.0"
+pengu = "0.6"
+edition = "2024"
 
-## Appendix B. Runtime representations
+[dependencies]
+json = { git = "https://github.com/pengu/json", tag = "v1.2.0" }
+local = { path = "../local" }
 
-| PenguScript | C |
-| --- | --- |
-| `string` | `typedef struct { char *data; int len; int32_t is_owned; } PenguString;` |
-| `list of T` | `typedef struct { void *data; int len; int cap; size_t elem_size; } PenguList;` |
-| `map of K to V` | `typedef struct { void *state; int len; int cap; size_t key_size; size_t val_size; } PenguMap;` |
-| `slice of T` | `typedef struct { void *data; int len; size_t elem_size; } PenguSlice;` |
-| `maybe T` | `PenguMaybe` — presence flag + boxed payload |
-| `result of T to E` | `PenguResult` — ok flag + boxed payload/error |
-| `ref to T` | `T *` |
-| `rune` | `struct` with fields in order |
-| `echo` | `union` |
-| `omen` (numeric) | `enum` |
-| `omen` (algebraic) | `struct { int32_t tag; union { ... } data; }` |
-| `weave ... into ...` | function pointer type |
-| tuple `(T, U)` | named `struct PenguTuple_<mangled>` with fields `first`, `second`, … |
-| `Rc of T` / `WeakRc of T` | `struct { void *ptr; }` — `ptr` points **past** a `PenguRcHdr` |
-| `Arc of T` / `WeakArc of T` | same handle; the header is `PenguArcHdr` with `_Atomic int32_t` counters |
-| copy-on-write buffer | `[PenguCowAux][PenguCowHdr][elements…]`; `PenguCowHdr { uint64_t magic; int32_t rc; int32_t pad; }` |
+[link]
+m = { lib = "m", kind = "shared" }
+foo = { lib = "foo", kind = "static" }
 
-`PenguRcHdr` is `{ int32_t strong; int32_t weak; uint32_t magic; uint32_t pad;
-void (*drop)(void *); void (*clone)(const void *, void *); size_t size; }`: the
-payload destructor and cloner travel with the value, so `pengu_rc_release` does
-not need a type. A copy-on-write list carries `PenguCowAux { size_t elem_size;
-void (*drop_elem)(void *); }` in front of the counter, which is what makes
-`banish` release the elements.
+[declarations]
+libc = "vendor/libc.d.pengu"
 
-Generated helpers: `pengu_string_from_cstr`, `pengu_string_format_ex`,
-`pengu_string_copy`, `pengu_banish_string`, `pengu_list_new`, `pengu_list_push`,
-`pengu_list_at`, `pengu_banish_list`, `pengu_map_new`, `pengu_map_put`,
-`pengu_map_get`, `pengu_banish_map`, `pengu_maybe_some`, `pengu_maybe_none`,
-`pengu_maybe_is_present`, `pengu_sigil_alloc`, `_pengu_clone_<T>`,
-`_pengu_cleanup_<T>`, `_pengu_lambda_<N>`.
+[features]
+default = []
+json = []
 
-## Appendix C. Grammar sketch
+[[bin]]
+name = "hello"
+path = "main.pengu"
 
-A compact EBNF of the implemented language; it omits expression precedence
-(§4.1) and the contextual keywords (`over`, `pipe`, `frozen`).
+[[lib]]
+name = "hello"
+path = "lib.pengu"
+
+[[test]]
+name = "integration"
+path = "tests/integration.pengu"
+```
+
+Reglas:
+
+- `name`, `version`, `pengu` y `edition` son obligatorios.
+- `pengu` declara la versión mínima del compilador.
+- Las dependencias son **git o path**; no hay registry central ni crates.
+- Una dependencia git declara `git` y exactamente uno de `tag`, `branch` o
+  `rev`; `pengu add` elige un tag si existe y, si no, `branch = "main"` con
+  advertencia.
+- Una dependencia path declara `path`, relativo a la raíz del paquete.
+- Una dependencia acepta `features` (lista), `default-features` (bool,
+  por defecto `true`) y `optional` (bool, por defecto `false`); una dependencia
+  opcional se activa con una feature del mismo nombre. Las features se unen.
+- `[link]` declara librerías nativas para `foreign` y `.d.pengu` con
+  `abi "C"`/`"system"`. Cada entrada exige `lib` y acepta `kind = "shared"`
+  (por defecto) o `kind = "static"`.
+- Una dependencia puede declarar su propio `link = { lib = "...", kind = "..." }`;
+  se une al `[link]` del paquete.
+- `[declarations]` lista archivos `.d.pengu` que se cargan como módulos de
+  declaraciones; no generan código.
+- Una dependencia puede declarar `declarations = "ruta.d.pengu"`.
+- `features` del paquete son aditivas.
+- No hay `[cargo]`, `[profile]`, `[tool.*]` ni scripts de build.
+
+### 18.3 Lockfile
+
+`Tome.lock` registra los commits y checksums exactos. Se genera con
+`pengu build` y se versiona en la aplicación. `pengu update` lo actualiza. Es
+TOML, igual que `Tome.toml`:
+
+```toml
+version = 1
+
+[[package]]
+name = "json"
+version = "0.3.1"
+source = "git+https://github.com/pengu/json?tag=v1.2.0"
+commit = "9f1c..."
+checksum = "sha256-..."
+features = ["std"]
+dependencies = ["text"]
+
+[[package]]
+name = "text"
+version = "1.2.3"
+source = "git+https://github.com/pengu/text?rev=4a7d..."
+commit = "4a7d..."
+checksum = "sha256-..."
+features = []
+dependencies = []
+```
+
+Reglas:
+
+- `version` es la versión del formato del lockfile; en `0.6.0` es `1`.
+- Cada `[[package]]` tiene `name`, `version`, `source`, `checksum`, `features`
+  y `dependencies`.
+- `source` es canónico: `git+URL?tag=...`, `?branch=...`, `?rev=...`, o
+  `path+../local`.
+- `commit` es obligatorio para git; no se emite para path.
+- `checksum` es SHA-256 del árbol empaquetado y es obligatorio.
+- `dependencies` son nombres exactos, no rangos; solo hay una versión por
+  nombre en el grafo.
+- Las entradas se ordenan por `name`.
+- El lockfile no se edita a mano; `pengu` lo reescribe.
+- Un lockfile con formato desconocido, campos faltantes o checksum inválido es
+  `PGS-E1808`; uno válido pero incompatible con `Tome.toml` es `PGS-E1804`.
+
+#### 18.3.1 Resolución de dependencias
+
+No hay registry, rangos SemVer de dependencias ni solver SAT en `0.6.0`. El
+resolver es determinista y simple:
+
+1. Lee `[dependencies]`; cada nombre aparece una sola vez.
+2. Resuelve git: `tag` o `branch` a su commit actual, o usa `rev`; `path` lee
+   el `Tome.toml` local.
+3. Un commit/versión por nombre; si dos entradas piden fuentes o features
+   incompatibles, emite `PGS-E1807`.
+4. Une las features pedidas por todos los consumidores (son aditivas).
+5. Si `Tome.lock` existe, usa commits/checksums exactos; si no coincide con
+   `Tome.toml`, emite `PGS-E1804`.
+6. `pengu update` re-resuelve `branch`/`tag` a su commit actual e ignora el
+   lock; `pengu build` respeta el lock. Un `rev` no se mueve.
+
+No se permiten dos versiones del mismo paquete en el grafo. Las dependencias
+path se tratan como locales y su checksum se calcula del árbol.
+
+### 18.4 Formatter
+
+`pengu fmt` aplica:
+
+- cuatro espacios por nivel;
+- un espacio después de `:` en tipos;
+- sin espacios dentro de `[]` y `()`;
+- una coma por elemento, con coma final permitida;
+- líneas de hasta 100 columnas.
+
+No hay configuración por proyecto en v1. Las diferencias se reportan con
+`pengu fmt --check`.
+
+### 18.5 Linter
+
+`pengu lint` detecta:
+
+- bindings no usados (`PGS-W1101`);
+- sombreado de bindings (`PGS-W1102`);
+- imports no usados (`PGS-W2001`);
+- `unwrap`/`expect` en producción (`PGS-W1501`);
+- comparaciones redundantes;
+- `if` que puede ser `match`;
+- código inalcanzable (`PGS-W6001`);
+- condiciones de bucle constantes (`PGS-W6002`);
+- brazos de `match` inalcanzables (`PGS-W9001`);
+- nombres que no siguen la convención.
+
+Los warnings se pueden silenciar con `pengu lint --allow <code>`; no hay
+atributos de lint en el código.
+
+### 18.6 LSP
+
+`pengu lsp` ofrece:
+
+- diagnóstico al guardar;
+- autocompletado de nombres y campos;
+- ir a definición;
+- buscar referencias;
+- renombrar;
+- formato.
+
+No hay refactors avanzados ni generación de código.
+
+### 18.7 Reproducibilidad
+
+Un build es reproducible si:
+
+- `Tome.lock` está presente;
+- la versión de `pengu` coincide con `pengu` del manifiesto;
+- no se usan rutas absolutas;
+- no se lee el entorno durante la compilación.
+
+El backend puede producir artefactos idénticos con `--remap-path-prefix`.
+
+### 18.8 Diagnósticos de tooling
+
+| Código | Situación |
+|---|---|
+| `PGS-E1802` | Versión de `pengu` incompatible. |
+| `PGS-E1803` | Dependencia o librería de `[link]` no encontrada. |
+| `PGS-E1804` | Lockfile desactualizado. |
+| `PGS-E1805` | `pengu fmt` no puede formatear. |
+| `PGS-E1806` | Dependencia git sin `tag`/`branch`/`rev` o ref inválido. |
+| `PGS-E1807` | Conflicto de dependencias por nombre, fuente o features. |
+| `PGS-E1808` | `Tome.lock` inválido o con checksum incorrecto. |
+| `PGS-W2001` | Import no usado. |
+
+[↑ Volver al índice](#indice)
+---
+
+<a id="sec-19"></a>
+## 19. Gramática
+
+La gramática usa `NEWLINE`, `INDENT` y `DEDENT` producidos por el lexer. Los
+terminales léxicos se definen en §2.
+
+### 19.1 Programa
+
+```ebnf
+program        ::= item*
+item           ::= scroll_def | summon_def | rune_def | enchanting_def
+                 | pact_def | ritual_def | essence_def | foreign_def
+                 | function_def | const_def | static_def | grimoire_def
+                 | test_def
+visibility     ::= "unveil" ("(" ("tome" | "scroll") ")")?
+
+scroll_def     ::= "scroll" IDENT (NEWLINE INDENT item* DEDENT)?
+summon_def     ::= "summon" path ("as" IDENT)?
+path           ::= IDENT ("::" IDENT)*
+```
+
+### 19.2 Records y sums
+
+```ebnf
+rune_def       ::= derive_attr? visibility? "rune" IDENT type_params? NEWLINE INDENT field+ DEDENT
+field          ::= "unveil"? IDENT ":" type
+
+enchanting_def ::= derive_attr? visibility? "enchanting" IDENT type_params? NEWLINE INDENT variant+ DEDENT
+variant        ::= variant_name (variant_fields)?
+variant_name   ::= IDENT | "some" | "none" | "ok" | "err"
+variant_fields ::= "(" (named_field ("," named_field)* | type ("," type)* ","?)? ")"
+named_field    ::= IDENT ":" type
+```
+
+### 19.2.1 Alias de tipo
+
+```ebnf
+essence_def    ::= visibility? "essence" IDENT type_params? "=" type
+```
+
+`essence` no crea un tipo nominal; el checker la sustituye por el tipo de la
+derecha.
+
+### 19.3 Pacts y rituals
+
+```ebnf
+pact_def       ::= visibility? "pact" IDENT type_params? (":" path)? NEWLINE INDENT pact_item+ DEDENT
+pact_item      ::= method_sig | method_def
+
+ritual_def     ::= visibility? "ritual" type_params? type ("for" path)? NEWLINE INDENT ritual_item+ DEDENT
+ritual_item    ::= method_def | function_def | const_def
+
+method_sig     ::= IDENT "=" receiver "(" params? ")" "->" type
+method_def     ::= IDENT "=" receiver "(" params? ")" "->" type NEWLINE INDENT block DEDENT
+receiver       ::= "@" | "@mut" | "@own"
+const_def      ::= ("sigil" | "relic") IDENT ":" type "=" const_expr
+```
+
+Un `ritual` puede declarar métodos, funciones asociadas (`Tipo.metodo(args)`) y
+constantes asociadas (`Tipo.NOMBRE`, con `sigil` o `relic`). El lenguaje ya
+define `Int.MIN/MAX/BITS`, `Float.EPSILON/MIN/MAX/MIN_POSITIVE/NAN/INFINITY/
+NEG_INFINITY` y `Char.from_u32/from_digit` en la stdlib; las constantes
+asociadas se leen con la misma sintaxis `Tipo.NOMBRE` en cualquier expresión
+constante.
+
+### 19.4 Tipos
+
+```ebnf
+type           ::= "?" type
+                 | "&" "mut"? type
+                 | "[" type ";" expr "]"
+                 | "(" ")"
+                 | "(" type "," ")"
+                 | "(" type ("," type)+ ","? ")"
+                 | path type_args?
+                 | "[" type ("," type)* ","? "]"
+                 | function_type
+                 | "Self"
+                 | ptr_type
+
+function_type  ::= "(" (type ("," type)* ","?)? ")" "->" type
+ptr_type       ::= "Ptr" "[" type "]"
+
+type_args      ::= "[" type ("," type)* ","? "]"
+type_params    ::= "[" type_param ("," type_param)* ","? "]"
+type_param     ::= IDENT (":" bound ("+" bound)*)?
+bound          ::= path
+```
+
+`Self` solo es válido dentro de `pact` y `ritual`. No hay despacho dinámico ni anotaciones de vida. `Ptr[T]` es la única
+construcción de borde para FFI; se reconoce por el nombre `Ptr` y no puede
+usarse como identificador de usuario.
+
+### 19.5 Funciones
+
+```ebnf
+function_def   ::= visibility? "curse"? IDENT "=" type_params? "(" params? ")" "->" type
+                   NEWLINE INDENT block DEDENT
+params         ::= param ("," param)* ","?
+param          ::= IDENT ":" type
+
+grimoire_def   ::= "grimoire" (":" type)? NEWLINE INDENT block DEDENT
+```
+
+`grimoire` usa un `block` normal, así que `return` ya está permitido como
+`return_stmt`; no hay una producción especial. El tipo del `return` se compara
+con el tipo declarado de `grimoire`.
+
+### 19.6 Constantes y estáticos
+
+```ebnf
+const_def      ::= visibility? "sigil" IDENT ":" type "=" expr
+static_def     ::= visibility? "relic" IDENT ":" type "=" expr
+```
+
+### 19.7 FFI
+
+```ebnf
+foreign_def    ::= "foreign" STRING NEWLINE INDENT foreign_item+ DEDENT
+foreign_item   ::= IDENT "=" "(" params? ")" "->" type
+```
+
+`foreign` no tiene cuerpos. `curse` aparece en `function_def` y en bloques.
+
+### 19.8 Expresiones
+
+```ebnf
+expr           ::= or_expr
+or_expr        ::= and_expr ("or" and_expr)*
+and_expr       ::= comparison ("and" comparison)*
+comparison     ::= range (comp_op range)?
+comp_op        ::= "==" | "!=" | "<" | "<=" | ">" | ">=" | "is" | "isnt" | "in"
+range          ::= additive (".." "="? additive)?
+additive       ::= multiplicative (("+" | "-") multiplicative)*
+multiplicative ::= cast (("*" | "/" | "%") cast)*
+cast           ::= unary ("as" type)*
+unary          ::= ("-" | "not" | "&" "mut"?) unary | postfix
+postfix        ::= primary (("." (IDENT ("(" args? ")")? | INT)) | "(" args? ")" | "[" expr "]" | "?")*
+primary        ::= literal | path | "(" expr ")" | tuple | array | vector
+                 | map | map_lit | set | record
+                 | if_expr | match_expr | do_expr | loop_expr | curse_expr | lambda
+
+record         ::= path "(" record_field ("," record_field)* ","? ")"
+record_field   ::= IDENT ":" expr | ".." expr
+
+if_expr        ::= "if" expr "then" expr
+                 | "if" expr "then" expr "else" expr
+                 | "if" expr "then" expr ("elseif" expr "then" expr)*
+                   ("else" expr)?
+                 | "if" expr "then" NEWLINE INDENT block DEDENT
+                   ("elseif" expr "then" NEWLINE INDENT block DEDENT)*
+                   ("else" NEWLINE INDENT block DEDENT)?
+                 | "unless" expr "then" expr
+                 | "unless" expr "then" expr "else" expr
+                 | "unless" expr "then" NEWLINE INDENT block DEDENT
+                   ("else" NEWLINE INDENT block DEDENT)?
+match_expr     ::= "match" expr NEWLINE INDENT match_arm+ DEDENT
+do_expr        ::= "do" NEWLINE INDENT block DEDENT
+loop_expr      ::= "loop" NEWLINE INDENT block DEDENT
+curse_expr     ::= "curse" NEWLINE INDENT block DEDENT
+lambda         ::= "(" params? ")" "=>" expr
+                 | "(" params? ")" "=>" NEWLINE INDENT block DEDENT
+
+tuple          ::= "(" ")" | "(" expr "," ")" | "(" expr ("," expr)+ ","? ")"
+array          ::= "[" "]" | "[" expr ("," expr)* ","? "]"
+                 | "[" expr ";" expr "]"
+vector         ::= "Vec" "[" "]" | "Vec" "[" expr ("," expr)* ","? "]"
+map            ::= "{" "}" | "{" map_entry ("," map_entry)* ","? "}"
+map_lit        ::= "Map" "[" "]" | "Map" "[" map_entry ("," map_entry)* ","? "]"
+map_entry      ::= expr ":" expr
+set            ::= "Set" "[" "]" | "Set" "[" expr ("," expr)* ","? "]"
+```
+
+`Vec`, `Map` y `Set` no son keywords. En expresión, un `IDENT` exacto
+`Vec`/`Map`/`Set` seguido de `[` se parsea como literal; en tipo,
+`Vec[T]`/`Map[K, V]`/`Set[T]` es `path` + `type_args`.
+
+### 19.9 Sentencias
+
+```ebnf
+block          ::= statement+
+statement      ::= binding | assignment | expr | while_stmt
+                 | for_stmt | return_stmt | break_stmt | continue_stmt
+
+binding        ::= ("bind" | "morph") pattern (":" type)? "=" binding_value
+                   ("else" NEWLINE INDENT block DEDENT)?
+binding_value  ::= expr | NEWLINE INDENT block DEDENT
+assignment     ::= expr "=" expr
+
+while_stmt     ::= "while" expr "do"? NEWLINE INDENT block DEDENT
+for_stmt       ::= "for" pattern "in" expr "do"? NEWLINE INDENT block DEDENT
+return_stmt    ::= "return" expr?
+break_stmt     ::= "break" expr?
+continue_stmt  ::= "continue"
+```
+
+### 19.10 Patrones
+
+```ebnf
+pattern        ::= literal
+                 | "_"
+                 | IDENT
+                 | IDENT "@" pattern
+                 | "(" pattern ("," pattern)* ","? ")"
+                 | path "(" pattern ("," pattern)* ","? ")"
+                 | path "(" named_pattern ("," named_pattern)* ","? ")"
+                 | path
+                 | pattern "|" pattern
+                 | pattern ".." pattern?
+                 | "[" pattern ("," pattern)* ","? "]"
+
+named_pattern  ::= IDENT ":" pattern
+```
+
+### 19.11 Atributos y tests
+
+```ebnf
+test_def       ::= "@@test" ("(" test_opt ("," test_opt)* ")")? NEWLINE
+                   IDENT "=" "(" ")" "->" type NEWLINE INDENT block DEDENT
+test_opt       ::= "should_panic" ":" STRING | "ignore" ":" STRING
+
+derive_attr    ::= "@@derive" "(" IDENT ("," IDENT)* ")"
+```
+
+Solo existen `@@test` y `@@derive`. No hay otros atributos.
+
+### 19.12 Match
+
+```ebnf
+match_arm      ::= "when" pattern ("if" expr)? "then" expr
+                 | "when" pattern ("if" expr)? "then"? NEWLINE INDENT block DEDENT
+                 | "else" expr
+                 | "else" NEWLINE INDENT block DEDENT
+```
+
+### 19.13 Restricciones
+
+- `else` es obligatorio si el `match` no es exhaustivo.
+- Un `break` con valor solo es válido dentro de `loop`.
+- `?` solo es válido en funciones que devuelven `Option` o `Result`.
+- `@`, `@mut` y `@own` solo son válidos como receptores de métodos o en patrones de binding.
+- `Self` solo es válido dentro de `pact` y `ritual`.
+- `bind ... else` solo es una sentencia; no se admite en la cabecera de `for`.
+- Las variantes de `enchanting` no llevan `unveil`; heredan la visibilidad del
+  `enchanting`.
+- Un módulo y un tipo no pueden compartir nombre en el mismo ámbito.
+
+### 19.14 Archivos de declaración
+
+```ebnf
+decl_file      ::= abi_decl item_decl*
+abi_decl       ::= "abi" STRING NEWLINE
+item_decl      ::= rune_decl | enchanting_decl | pact_decl
+                 | function_decl | const_decl | summon_def
+
+rune_decl      ::= "rune" IDENT type_params? NEWLINE (INDENT decl_member+ DEDENT)?
+decl_member    ::= field_decl | method_decl
+
+field_decl     ::= IDENT ":" type
+
+enchanting_decl ::= "enchanting" IDENT type_params? NEWLINE INDENT decl_variant+ DEDENT
+decl_variant   ::= IDENT variant_fields?
+
+pact_decl      ::= "pact" IDENT type_params? (":" path)? NEWLINE INDENT method_decl+ DEDENT
+method_decl    ::= IDENT "=" receiver "(" params? ")" "->" type
+function_decl  ::= IDENT "=" "(" params? ")" "->" type
+const_decl     ::= IDENT ":" type
+```
+
+Un `rune` de `.d.pengu` puede declarar métodos; en un `.pengu` normal los
+métodos van en un `ritual`. `method_decl` no lleva cuerpo y `pact_decl` no
+admite defaults. `const_decl` no lleva `=`.
+
+[↑ Volver al índice](#indice)
+---
+
+<a id="sec-20"></a>
+## 20. Diagnósticos
+
+El compilador emite códigos estables. Un error impide compilar; un warning no.
+
+El catálogo tiene **160 códigos** (152 errores, 8 warnings), en el límite de 160 del núcleo.
+
+### 20.1 Formato
 
 ```text
-program        = { top_decl } ;
-top_decl       = const_decl | rune_decl | echo_decl | omen_decl | seal_decl
-               | alias_decl | weave_decl | declare_decl | antiquus_decl
-               | enchanting_decl | concept_decl | bind_decl | test_decl
-               | import_decl | directive | when_top ;
-
-directive      = "include" string | "link" string | "ldflag" string
-               | "insignia" ident ;
-
-import_decl    = "import" dotted [ "as" ident ] ;
-const_decl     = "const" ident [ "as" type ] "is" expr ;
-rune_decl      = "rune" ident [ "cyclus" ] [ "fundere" embed_list ]
-                 [ "shard" ident { "," ident } ] [ "where" bounds ]
-                 [ "derive" ident { "," ident } ] ":" { field } ;
-embed_list     = embed { ( "," | "and" ) embed } ;
-embed          = type [ "as" ident ] ;
-field          = ident "as" type ;
-echo_decl      = "echo" ident ":" { field } ;
-omen_decl      = "omen" ident [ "with" "string" ] ":"
-                 { ident [ "is" expr ] [ "with" field { "," field } ] } ;
-seal_decl      = "seal" ident "as" type ;
-alias_decl     = "alias" ident "as" type ;
-weave_decl     = [ "@" attr ] { "@" attr } "weave" [ "inline" ] ident
-                 [ "shard" ident { "," ident } ] [ "where" bounds ]
-                 [ "ritual" ] [ "with" params ] "into" type ":" block ;
-declare_decl   = "declare" ident [ "with" params ] "into" type ;
-antiquus_decl  = "antiquus" ident [ "with" params ] "into" type ":"
-                 ( '"""' { any } '"""' | 'r"""' { any } '"""' ) ;
-enchanting_decl= "enchanting" type ":" { weave_decl } ;
-concept_decl   = "concept" ident [ "shard" ident ] [ "where" bounds ] ":"
-                 { weave_sig } ;
-bind_decl      = "bind" ident "with" ident ":" { weave_decl } ;
-test_decl      = "test" ( string | ident ) ":" block ;
-when_top       = "when" expr ":" { top_decl } [ "else" ":" { top_decl } ] ;
-
-block          = INDENT { stmt } DEDENT ;
-stmt           = var_decl | const_decl | set_stmt | if_stmt | while_stmt
-               | for_stmt | judge_stmt | with_stmt | return_stmt | break_stmt
-               | continue_stmt | defer_stmt | banish_stmt | expr_stmt
-               | "do" ":" block ;
-with_stmt      = "with" expr ":" block ;
-var_decl       = [ "static" ] "var" ident [ "as" type ] "is" expr
-               | "let" ( ident | "(" ident { "," ident } ")" )
-                 [ "," ident { "," ident } ] [ "as" type ] "is" expr ;
-set_stmt       = "set" lvalue ( "is" expr | op "=" expr ) ;
-lvalue         = [ "self" ( "." | "->" ) ] ident
-               | lvalue "at" expr | "." ident | expr "." ident ;
-if_stmt        = ( "if" | "unless" ) expr ":" block
-                 { "else" "if" expr ":" block } [ "else" ":" block ] ;
-while_stmt     = [ ident ":" ] "while" expr ":" block ;
-for_stmt       = [ ident ":" ] "for" ident [ "," ident ] "in" expr ":" block
-               | [ ident ":" ] "for" ident "from" expr "to" expr
-                 [ "step" expr ] ":" block ;
-judge_stmt     = "judge" expr [ "over" ident ] ":"
-                 { "when" pattern [ "with" ident { "," ident } ] [ "if" expr ]
-                   "->" ( expr | block ) }
-                 [ "else" "->" ( expr | block ) ] ;
-return_stmt    = "return" [ expr ] ;
-defer_stmt     = ( "defer" | "errdefer" ) stmt ;
-banish_stmt    = "banish" expr ;
-
-type           = "int" | "float" | "bool" | "char" | "string" | "void"
-               | "ref" "to" [ "frozen" ] type
-               | "frozen" type
-               | "list" "of" type | "slice" "of" type
-               | "array" "of" type "with" "size" expr
-               | "map" "of" type "to" type
-               | "many" type | "maybe" type | "result" "of" type [ "to" type ]
-               | "(" type { "," type } ")"
-               | "weave" [ "with" params ] "into" type
-               | ident [ "of" type ] ;
+PGS-E3001: tipos incompatibles
+  --> src/main.pengu:12:9
+   |
+12 |     bind x: Int = "pengu"
+   |                   ^^^^^^^ se esperaba `Int`
 ```
 
-### 13.13 Cloning a rune
+Cada diagnóstico incluye: código, mensaje, archivo, línea, columna, fragmento y una solución cuando existe.
 
-`_pengu_clone_T` (the helper behind `Nexus`/`Imago` and `antiquus` code that
-calls it) produces an independent value: `string` fields are copied, `list`
-fields are cloned, and nested COW containers are retained. Banishing the
-original and the copy is safe. `ref`, `slice` and `many` fields stay borrowed —
-cloning them would change what they point at, not who owns it.
+### 20.2 Catálogo
+
+| Código | Situación |
+|---|---|
+| `PGS-E1001` | BOM al inicio. |
+| `PGS-E1002` | Tabulador en indentación. |
+| `PGS-E1003` | Indentación no múltiplo de cuatro. |
+| `PGS-E1004` | `DEDENT` sin nivel correspondiente. |
+| `PGS-E1005` | String sin cerrar. |
+| `PGS-E1006` | Char o byte char sin cerrar. |
+| `PGS-E1007` | Escape desconocido. |
+| `PGS-E1008` | Byte char no ASCII. |
+| `PGS-E1009` | Comentario de bloque sin cerrar. |
+| `PGS-E1010` | Término retirado. |
+| `PGS-E1011` | Carácter no reconocido o literal numérico inválido. |
+| `PGS-E1101` | `bind`/`morph` en nivel de módulo. |
+| `PGS-E1102` | Redeclaración en el mismo bloque. |
+| `PGS-E1103` | Asignación a un binding inmutable. |
+| `PGS-E1104` | Asignación a un campo privado. |
+| `PGS-E1105` | Patrón refutable sin `else`. |
+| `PGS-E1106` | `sigil` sin tipo explícito. |
+| `PGS-E1107` | `sigil` con expresión no constante. |
+| `PGS-E1108` | `relic` reasignado. |
+| `PGS-E1201` | Método faltante en el `ritual`. |
+| `PGS-E1202` | Firma incompatible con el `pact`. |
+| `PGS-E1203` | `pact` con más de un superpact. |
+| `PGS-E1204` | `pact`/`ritual` con asociado no soportado (tipo, `sigil` o `relic`). |
+| `PGS-E1205` | `ritual` para tipo ajeno y pact ajeno. |
+| `PGS-E1206` | Implementaciones solapadas. |
+| `PGS-E1207` | Blanket impl. |
+| `PGS-E1208` | Despacho dinámico en la superficie. |
+| `PGS-E1209` | `Self` fuera de un `pact`/`ritual`. |
+| `PGS-E1210` | `ritual` inherente sobre primitivo fuera de `std`. |
+| `PGS-W1210` | Método inherente y de pact con el mismo nombre en un primitivo. |
+| `PGS-E1301` | Parámetro de tipo no usado. |
+| `PGS-E1302` | Bound no satisfecho. |
+| `PGS-E1303` | Bound desconocido. |
+| `PGS-E1304` | Turbofish con número incorrecto de tipos. |
+| `PGS-E1305` | No se puede inferir el parámetro. |
+| `PGS-E1306` | Cláusula de bounds no permitida. |
+| `PGS-E1307` | Tipo asociado en un `pact`. |
+| `PGS-E1308` | Genérico en un contexto no permitido. |
+| `PGS-E1401` | Tipos incompatibles en un operador. |
+| `PGS-E1402` | Operador no definido para el tipo. |
+| `PGS-E1403` | División por cero constante. |
+| `PGS-E1404` | Cast inválido. |
+| `PGS-E1405` | `?` fuera de una función que devuelve `Option`/`Result`. |
+| `PGS-E1406` | Sobrecarga de un operador no permitido. |
+| `PGS-E1407` | Firma de sobrecarga incorrecta. |
+| `PGS-E1408` | Comparación encadenada. |
+| `PGS-E1501` | `?` en función que no devuelve `Option`/`Result`. |
+| `PGS-E1502` | Error de `?` incompatible. |
+| `PGS-W1501` | `unwrap`/`expect` en producción. |
+| `PGS-E1504` | `Option`/`Result` usado como valor directo. |
+| `PGS-E1505` | `Result` sin tipo de error concreto. |
+| `PGS-E1506` | `panic` en una rama que debía devolver valor. |
+| `PGS-E1507` | `err` sin tipo de éxito. |
+| `PGS-E1508` | `none` sin tipo. |
+| `PGS-E1601` | `foreign` con cuerpo. |
+| `PGS-E1602` | Llamada a `foreign` fuera de `curse`. |
+| `PGS-E1603` | `curse` sin comentario `-- SAFETY:`. |
+| `PGS-E1604` | Tipo no representable en C. |
+| `PGS-E1605` | ABI desconocido. |
+| `PGS-E1606` | Exportación de función PenguScript a C. |
+| `PGS-E1607` | `curse` usado fuera de FFI. |
+| `PGS-E1608` | `CString` sin manejo de `NulError`. |
+| `PGS-E1701` | `@@test` con parámetros. |
+| `PGS-E1702` | `@@test` con retorno distinto de `Unit`. |
+| `PGS-E1703` | `should_panic` sin mensaje. |
+| `PGS-E1704` | `assert_eq` con tipos incompatibles. |
+| `PGS-E1705` | Doc test que no compila. |
+| `PGS-E1706` | `@@test` duplicado. |
+| `PGS-E1802` | Versión de `pengu` incompatible. |
+| `PGS-E1803` | Dependencia o librería de `[link]` no encontrada. |
+| `PGS-E1804` | Lockfile desactualizado. |
+| `PGS-E1805` | `pengu fmt` no puede formatear. |
+| `PGS-E1806` | Dependencia git sin `tag`/`branch`/`rev` o ref inválido. |
+| `PGS-E1807` | Conflicto de dependencias por nombre, fuente o features. |
+| `PGS-E1808` | `Tome.lock` inválido o con checksum incorrecto. |
+| `PGS-E1901` | Error de sintaxis. |
+| `PGS-E2001` | No se encuentra `Tome.toml`. |
+| `PGS-E2002` | Falta `main.pengu` o `lib.pengu`. |
+| `PGS-E2003` | Módulo no encontrado. |
+| `PGS-E2004` | `summon` de un nombre inexistente. |
+| `PGS-E2005` | Import duplicado. |
+| `PGS-E2006` | Item privado usado fuera del módulo. |
+| `PGS-E2007` | `unveil` inválido en este contexto. |
+| `PGS-E2008` | `grimoire` duplicado. |
+| `PGS-E2009` | `grimoire` ausente en un binario. |
+| `PGS-E2010` | `Tome.toml` inválido. |
+| `PGS-E2011` | Dependencia no declarada. |
+| `PGS-E2012` | Ciclo de módulos. |
+| `PGS-E2013` | Módulo duplicado o ambiguo. |
+| `PGS-E2014` | Error del backend sin mapeo a PenguScript. |
+| `PGS-E2020` | `.d.pengu` sin cabecera `abi`. |
+| `PGS-E2021` | `.d.pengu` con cuerpo, `sigil` o `relic`. |
+| `PGS-E2022` | `abi "js"` en 0.6.0; backend JS diferido. |
+| `PGS-E2023` | `abi "C"`/`"system"` sin entrada `[link]` o librería no enlazada. |
+| `PGS-E2024` | `abi "pengu"` sin implementación. |
+| `PGS-E2025` | `Ptr[T]` fuera de `.d.pengu`/`foreign`/`curse`. |
+| `PGS-E2026` | `grimoire` en `.d.pengu`. |
+| `PGS-E2027` | `unveil` en `.d.pengu`. |
+| `PGS-E3001` | Tipos incompatibles. |
+| `PGS-E3002` | No se puede inferir el tipo. |
+| `PGS-E3003` | El tipo no existe. |
+| `PGS-E3004` | Genérico sin bound requerido. |
+| `PGS-E3005` | Bound no satisfecho. |
+| `PGS-E3006` | Referencia en posición prohibida. |
+| `PGS-E3007` | `?T` usado con un tipo que no es `Option`. |
+| `PGS-E3008` | `Result` con error no concreto. |
+| `PGS-E3009` | Alias recursivo. |
+| `PGS-E3010` | Newtype sin campo. |
+| `PGS-E3101` | Índice fuera de rango en tiempo de compilación. |
+| `PGS-E3102` | `Map` con clave sin `Eq`/`Hash`. |
+| `PGS-E3103` | `Set` con elemento sin `Eq`/`Hash`. |
+| `PGS-E3104` | `Vec` con tipo no inferido. |
+| `PGS-E3105` | Literal de mapa con entrada inválida. |
+| `PGS-E3106` | `push` sobre un binding inmutable. |
+| `PGS-E4101` | Uso de un valor movido. |
+| `PGS-E4102` | Préstamo inmutable y mutable simultáneos. |
+| `PGS-E4103` | Asignación a un binding inmutable. |
+| `PGS-E4104` | Referencia que escapa del scope. |
+| `PGS-E4105` | Referencia en campo/variante/retorno, o método `@`/`@mut` que devuelve un campo no-`Copy` sin `@own`. |
+| `PGS-E4106` | Movimiento de un valor prestado. |
+| `PGS-E4107` | `Rc`/`Arc` usado sin importar. |
+| `PGS-E4108` | Destrucción de un valor todavía prestado. |
+| `PGS-E4109` | No se puede inferir la vida de una referencia. |
+| `PGS-W1101` | Binding local no usado. |
+| `PGS-W1102` | Sombreado de un binding. |
+| `PGS-W2001` | Import no usado. |
+| `PGS-W6001` | Código inalcanzable. |
+| `PGS-W6002` | Condición de bucle constante. |
+| `PGS-E6001` | Condición que no es `Bool`. |
+| `PGS-E6002` | Ramas de `if` con tipos incompatibles. |
+| `PGS-E6003` | `else` sin `if`. |
+| `PGS-E6004` | `break`/`continue` fuera de un bucle. |
+| `PGS-E6005` | `break` con valor fuera de `loop`. |
+| `PGS-E6006` | `return` con valor en función `Unit`. |
+| `PGS-E6007` | `loop` sin `break` usado como valor. |
+| `PGS-E6008` | `match` no exhaustivo. |
+| `PGS-E7001` | Falta el tipo de retorno. |
+| `PGS-E7002` | Retorno incompatible con la firma. |
+| `PGS-E7003` | Parámetro sin tipo. |
+| `PGS-E7004` | `return`, `?` o consumo de una captura en una closure. |
+| `PGS-E7005` | Llamada con número de argumentos incorrecto. |
+| `PGS-E7006` | Tipo de argumento incorrecto. |
+| `PGS-E7007` | Función usada como valor sin tipo. |
+| `PGS-E7008` | `Never` en una posición que requiere valor. |
+| `PGS-E8001` | Campo duplicado. |
+| `PGS-E8002` | Campo faltante en la construcción. |
+| `PGS-E8003` | Campo desconocido. |
+| `PGS-E8004` | Variante duplicada. |
+| `PGS-E8005` | `..base` con tipo incompatible. |
+| `PGS-E8006` | `@@derive` desconocido. |
+| `PGS-E8007` | `@@derive` imposible para un campo. |
+| `PGS-E8008` | `Option`/`Result` redeclarados. |
+| `PGS-E9001` | Patrón no exhaustivo. |
+| `PGS-W9001` | Brazo de `match` inalcanzable. |
+| `PGS-E9003` | Patrón incompatible con el tipo. |
+| `PGS-E9004` | Guard que no es `Bool`. |
+| `PGS-E9005` | `bind ... else` sin divergencia. |
+| `PGS-E9006` | `..` en posición inválida. |
+| `PGS-E9007` | Binding duplicado en un patrón. |
+| `PGS-E9008` | `else` después de un brazo exhaustivo. |
+
+### 20.3 Reglas
+
+- Un código no cambia de significado entre versiones menores.
+- Un código retirado no se reutiliza.
+- `pengu explain <código>` muestra la explicación y un ejemplo.
+- Los warnings se pueden silenciar con `pengu lint --allow <código>`.
+
+[↑ Volver al índice](#indice)
+---
+
+<a id="sec-21"></a>
+## 21. Garantías del lenguaje
+
+### 21.1 Qué garantiza PenguScript
+
+| Aspecto | Estado | Nota |
+|---|---|---|
+| Sin `null` | Core | La ausencia se modela con `Option[T]`. |
+| Sin lectura de memoria liberada | Core | Ownership y préstamos. |
+| Sin carreras de datos en código seguro | Core | Sin hilos en el núcleo; `std.concurrent` expone concurrencia segura. |
+| Sin recolección de basura | Core | Destrucción determinista al final del scope. |
+| Sin conversiones implícitas | Core | `as`, `.parse[T]()` y `.to_string()` son explícitos. |
+| Sin excepciones | Core | `Result[T, E]` y `?`. |
+| Sin truthiness | Core | Las condiciones son `Bool`. |
+| Sin `switch` con fallthrough | Core | `match` exhaustivo. |
+| Sin macros de usuario | Core | Solo `@@derive` y `@@test`. |
+| Sin despacho dinámico | Core | Sums + `match`. |
+| Sin anotaciones de vida | Core | El compilador infiere y prohíbe escapes. |
+| Sin `unsafe` general | Core | `curse` solo para FFI. |
+| Sin estado global mutable | Core | `sigil` y `relic` son inmutables. |
+| Sin imports globales | Core | `summon` explícito. |
+| Sin dependencias ocultas | Core | `Tome.toml` declara todo. |
+| Sin código generado editable | Core | El backend es invisible. |
+| Sin hilos/atomics en el núcleo | Diferido | `std.concurrent`. |
+| Sin `Rc`/`Arc` en la prelude | Std | Se importan. |
+| `Box` en la prelude | Core | `Box[T]` está disponible. |
+| `Vec`/`Map`/`Set` en la prelude | Core | Están disponibles por defecto. |
+| Sin `CStr`/`CString` en la prelude | Std | Se importan para FFI. |
+| Sin `BTreeMap`/`BTreeSet` | Std | `std.collections`. |
+| Sin `VecDeque`/`LinkedList`/`BinaryHeap` | Std | `std.collections`. |
+| Sin `Cell`/`RefCell`/`Mutex`/`RwLock` | Std | `std.cell`/`std.concurrent`. |
+| Sin `format!`/`print!` visibles | Core | `print`/`format` son funciones del compilador. |
+| Sin `assert!`/`panic!` visibles | Core | `assert`/`panic` son funciones. |
+| Sin `derive` externos | Core | Solo los nueve built-in. |
+| Sin tests por atributos múltiples | Core | `@@test` con opciones. |
+| Sin ABI estable de PenguScript | No soportado | Solo `foreign "C"` de entrada. |
+| Sin exportación a C | No soportado | v1. |
+| Sin genéricos de rango superior | No soportado | Fuera del núcleo. |
+| Sin `const` genéricos | No soportado | Arrays con `N` literal. |
+| Sin especialización | No soportado | Fuera del núcleo. |
+
+### 21.2 Límites
+
+- PenguScript no garantiza un layout de memoria estable.
+- No garantiza un ABI estable entre versiones.
+- No garantiza que el backend produzca el mismo código máquina entre
+  versiones; sí garantiza el mismo comportamiento observable.
+- La cobertura de tests no es una garantía de corrección.
+
+### 21.3 Lo que el usuario puede asumir
+
+1. Un programa que compila no tiene lecturas de memoria liberada, carreras de
+   datos en código seguro ni `null`.
+2. Los errores esperables se modelan con `Result`; los bugs con `panic`.
+3. Un `match` sin `else` es exhaustivo.
+4. Un binding `bind` no cambia; uno `morph` sí.
+5. Un valor se mueve o se copia de forma predecible.
+6. El backend no filtra tipos, atributos ni sintaxis a la superficie.
+
+[↑ Volver al índice](#indice)
+---
+
+<a id="sec-22"></a>
+## 22. Diferido y no soportado
+
+Esta sección **no es normativa para el código de usuario**. Lista lo que queda
+fuera del núcleo y su alternativa.
+
+### 22.1 Fuera del núcleo
+
+| Área | Estado | Alternativa |
+|---|---|---|
+| Anotaciones de vida (`'a`, `'static`) | No soportado | Referencias solo en parámetros/locales; el compilador infiere. |
+| `for<'a>` / rango superior | No soportado | Usar funciones concretas o sums. |
+| `where` | No soportado | Bounds en la cabecera `[T: Pact]`. |
+| Tipos asociados | No soportado | Usar un parámetro de tipo o un `enchanting`. |
+| GATs | No soportado | Usar `Vec`/`String` owned. |
+| `dyn` / objetos de trait | No soportado | `enchanting` + `match`. |
+| `impl Trait` | No soportado | Tipo concreto, `Box[T]` o `enchanting`. |
+| `async` / `await` | Diferido | `std.async` con runtime externo. |
+| Backend JS / `abi "js"` | Diferido | En 0.6.0 solo existe el backend Rust. |
+| Hilos, canales, atomics | Diferido | `std.concurrent`. |
+| `Rc` / `Arc` en la prelude | Std | `summon std::rc::Rc` / `std::sync::Arc`. |
+| `Cell` / `RefCell` | Std | `std.cell`, explícito. |
+| `Mutex` / `RwLock` | Std | `std.concurrent`, explícito. |
+| `Box` en la prelude | Core | Disponible. |
+| `Pin` / `Future` | Diferido | `std.async`. |
+| `unsafe` general | No soportado | `curse` solo para FFI. |
+| Punteros crudos | No soportado | Sin acceso directo a memoria. |
+| `transmute` / uniones / asm | No soportado | Reestructurar el código. |
+| Macros de usuario | No soportado | Funciones y `std.meta` no existe en v1. |
+| Atributos generales | No soportado | Solo `@@derive` y `@@test`. |
+| `repr` / layout estable | No soportado | El backend decide. |
+| Build scripts | Diferido | `std.build` o un crate externo. |
+| `I128` / `U128` | Std | `std.int`. |
+| `BTreeMap` / `BTreeSet` | Std | `std.collections`. |
+| `VecDeque` / `LinkedList` / `BinaryHeap` | Std | `std.collections`. |
+| `Cow` | Std | `std.borrow`. |
+| `Weak` | Std | `std.rc`/`std.sync`. |
+| `Index` / `IndexMut` sobrecargables | No soportado | Método `.at(i)` o `get`. |
+| `Deref` / `DerefMut` | No soportado | Acceso explícito a campos. |
+| `From` / `Into` implícitos | No soportado | `.to_string()`, `.parse[T]()`, `as`. |
+| `Display` / `Debug` sobrecargables | No soportado | `Show` y `@@derive(Debug)`. |
+| `Drop` visible | No soportado | Destrucción automática. |
+| Exportar funciones a C | No soportado | v1. |
+| Variádicas C | No soportado | Funciones C concretas. |
+| Bench/fuzz/property testing | Std | Herramientas externas. |
+| `cfg` / `test` / `inline` / `must_use` | No soportado | El backend decide. |
+
+### 22.2 Por qué
+
+El criterio es siempre el mismo: si una feature no da potencia para el 95% del
+código, no entra. Las que sí entran se simplifican hasta caber en una línea.
+
+### 22.3 Lo que se puede importar
+
+La librería estándar es chica:
+
+`std.io`, `std.fs`, `std.process`, `std.env`, `std.time`, `std.math`,
+`std.string`, `std.collections`, `std.iter`, `std.ffi`, `std.rc`, `std.sync`,
+`std.cell`, `std.async`, `std.test`, `std.ops`.
+
+Todo lo demás es un crate externo.
+
+[↑ Volver al índice](#indice)
+---
+
+<a id="sec-23"></a>
+## 23. Glosario
+
+**Backend filoso.** El compilador que traduce PenguScript a código máquina.
+Es invisible para el usuario; no se edita ni se ve.
+
+**Karambit.** Metáfora del lenguaje: chico, curvo, filoso, capaz. No una navaja
+suiza.
+
+**Núcleo.** Los ~15 conceptos de §1. Todo lo demás es `std` o no existe.
+
+**Prelude.** Nombres disponibles sin `summon`: tipos primitivos, `Option`,
+`Result`, `Vec`, `Map`, `Set`, `String`, `Box`, `print`, `format`, `panic`,
+`assert`, `Show`, `Ordering`, `none`, `some`, `ok`, `err`.
+
+**Binding.** Nombre que posee un valor. `bind` es inmutable; `morph` es mutable.
+
+**Record.** Tipo producto con campos con nombre. Se declara con `rune`.
+
+**Sum.** Tipo con variantes. Se declara con `enchanting`.
+
+**Newtype.** Record de un solo campo; no se convierte solo en su campo.
+
+**Pact.** Contrato de métodos con receptor. Se declara con `pact`.
+
+**Ritual.** Implementación de métodos o de un pact. Se declara con `ritual`.
+
+**`Show`.** Único pact de la prelude; lo usan `print` y `format`.
+
+**`Ordering`.** Sum de la prelude con `Less`, `Equal` y `Greater`; resultado de
+`Ord.cmp`.
+
+**Tome.** Unidad de compilación; su manifiesto es `Tome.toml`.
+
+**Scroll.** Módulo. Puede ser inline o un archivo.
+
+**Summon.** Import explícito de un nombre o módulo.
+
+**Unveil.** Visibilidad pública (o acotada con `(tome)`/`(scroll)`).
+
+**Grimoire.** Punto de entrada del binario.
+
+**Ownership.** Regla de un único dueño para los valores owned.
+
+**Préstamo.** Referencia temporal `&T`/`&mut T`; no escapa del scope.
+
+**Move.** Transferencia de propiedad; el origen deja de ser usable.
+
+**Copy.** Copia implícita de tipos simples.
+
+**Clone.** Copia profunda explícita con `.clone()`.
+
+**Option.** Tipo que representa ausencia: `some(T)` o `none`.
+
+**Result.** Tipo que representa éxito o error: `ok(T)` o `err(E)`.
+
+**`?`.** Operador que propaga `none`/`err` al caller.
+
+**Patrón.** Forma que se compara con un valor en `match` o `bind ... else`.
+
+**Exhaustivo.** Un `match` que cubre todos los casos sin `else`.
+
+**FFI.** Frontera con C. Se declara con `foreign` o un `.d.pengu` y se llama
+dentro de `curse`.
+
+**Curse.** Bloque auditado que permite llamar a FFI.
+
+**`.d.pengu`.** Archivo de declaraciones sin implementación; distribuye tipos y
+firmas para FFI, JS o headers PenguScript.
+
+**`abi`.** Cabecera obligatoria de un `.d.pengu`: `"C"`, `"system"`, `"js"` o
+`"pengu"`.
+
+**`Ptr[T]`.** Puntero opaco de FFI; solo existe en `.d.pengu`, `foreign` y
+`curse`.
+
+**Diferido.** Fuera del núcleo por ahora; puede volver en una versión mayor.
+
+[↑ Volver al índice](#indice)
+---
+
+<a id="sec-24"></a>
+## 24. Cookbook
+
+### 24.1 Hola
+
+```pengu
+grimoire
+    print("hola, pengu")
+```
+
+### 24.2 Argumentos
+
+```pengu
+summon std::env
+
+grimoire
+    bind args = env.args()
+    if args.len() > 1 then
+        print(args[1])
+    else
+        print("sin argumentos")
+```
+
+### 24.3 Leer un archivo
+
+```pengu
+summon std::fs
+
+enchanting ReadError
+    Missing(path: String)
+    Invalid
+
+read_config = (path: &Str) -> Result[String, ReadError]
+    bind ok(text) = fs.read_to_string(path) else
+        return err(Missing(String.from(path)))
+    ok(text)
+```
+
+### 24.4 Propagar errores
+
+```pengu
+enchanting AppError
+    Read(ReadError)
+    Parse
+
+load = (path: &Str) -> Result[String, AppError]
+    bind text = read_config(path).map_err((e: ReadError) => Read(e))?
+    ok(text)
+```
+
+### 24.5 CLI con código de salida
+
+```pengu
+grimoire: Result[Unit, AppError]
+    bind text = load("app.toml")?
+    print(text)
+    ok(())
+```
+
+Si el `Result` es `err`, el backend imprime el error y sale con código 1.
+
+### 24.6 Records y sums
+
+```pengu
+rune User
+    name: String
+    age: Int
+
+enchanting Role
+    Admin
+    Member
+    Guest
+
+describe = (user: User, role: Role) -> String
+    match role
+        when Admin then "#{user.name} (admin)"
+        when Member then "#{user.name} (member)"
+        when Guest then "#{user.name} (invitado)"
+```
+
+### 24.7 Colecciones
+
+```pengu
+morph counts = { "a": 1, "b": 2 }
+counts.insert("c", 3)
+
+morph names = Vec["ana", "pengu"]
+names.push("lua")
+
+morph tags = Set["magic", "static"]
+tags.insert("sharp")
+
+for (key, value) in counts do
+    print("#{key} = #{value}")
+```
+
+### 24.8 Patrones
+
+```pengu
+bind (x, y) = (1, 2)
+bind Point(px, py) = Point(x: 3.0, y: 4.0)
+
+bind status = match result
+    when ok(value) then "ok: #{value}"
+    when err(reason) then "error: #{reason}"
+```
+
+### 24.9 Un método
+
+```pengu
+rune Counter
+    value: Int
+
+ritual Counter
+    bump = (@mut) -> Unit
+        @.value = @.value + 1
+
+    get = (@) -> Int
+        @.value
+
+morph counter = Counter(value: 0)
+counter.bump()
+print(counter.get())
+```
+
+### 24.10 FFI
+
+```pengu
+summon std::ffi::CString
+
+foreign "C"
+    puts = (text: &CStr) -> Int
+
+grimoire
+    bind ok(message) = CString.new("hola") else
+        panic("NUL")
+    curse
+        -- SAFETY: el CString vive hasta después de puts y puts no retiene el puntero.
+        puts(&message)
+```
+
+### 24.11 Test
+
+```pengu
+add = (a: Int, b: Int) -> Int
+    a + b
+
+@@test
+adds = () -> Unit
+    assert_eq(add(1, 2), 3)
+```
+
+### 24.12 Librería
+
+```pengu
+-- lib.pengu
+unveil rune Greeting
+    unveil text: String
+
+unveil greet = (name: &Str) -> Greeting
+    Greeting(text: "hola, #{name}")
+```
+
+### 24.13 Métodos sobre primitivos
+
+```pengu
+grimoire
+    bind name = "  pengu  ".trim()
+    bind parts = "a,b,c".split(",")
+    print(name)
+    print(parts.len())
+```
+
+### 24.14 `.d.pengu`
+
+```pengu
+-- libc.d.pengu
+abi "C"
+
+rune FILE
+    _private: [U8; 0]
+
+puts = (text: &CStr) -> Int
+fopen = (path: &CStr, mode: &CStr) -> Ptr[FILE]
+fclose = (file: Ptr[FILE]) -> Int
+```
+
+[↑ Volver al índice](#indice)
+---
+
+<a id="sec-25"></a>
+## 25. Decisiones de diseño (ADR)
+
+### 25.1 ADR anteriores
+
+Las decisiones D0–D25 de la spec `1.0.0-rc.1` quedan **superadas** por el nuevo
+rumbo. Se conservan en `scratch/legacy/LANGUAGE_rc1.md` como historia, no como
+norma. Ninguna se cita en las secciones normativas de este documento.
+
+### D26. Lenguaje propio con backend invisible
+
+**Contexto:** la spec anterior se presentaba como un lenguaje que compilaba a
+otro lenguaje y exponía sus tipos.
+
+**Decisión:** PenguScript es un lenguaje propio. El backend es un detalle de
+implementación; el usuario no escribe ni ve su código.
+
+**Alternativas:** seguir siendo un transpilador; generar código directamente.
+
+**Consecuencias:** la superficie se juzga por sí misma, no por paridad. Los
+errores del backend se traducen a diagnósticos propios.
+
+### D27. Minimalismo de ~15 conceptos
+
+**Contexto:** la spec anterior tenía 71 secciones y más de 400 diagnósticos.
+
+**Decisión:** el núcleo tiene los conceptos de §1. Todo lo demás es `std`, una
+herramienta externa o no existe.
+
+**Consecuencias:** se eliminan familias enteras de features y se recorta el
+catálogo a 160 códigos como máximo.
+
+### D28. Referencias sin anotaciones de vida
+
+**Contexto:** el usuario no debe aprender un sistema de vidas para escribir
+código de sistemas.
+
+**Decisión:** `&T`/`&mut T` solo en parámetros y locales. El compilador infiere;
+si la referencia escapa, error `PGS-E4109`. No se guardan referencias en
+records, sums, retornos ni alias.
+
+**Alternativas:** exigir anotaciones; copiar siempre; usar solo valores owned.
+
+**Consecuencias:** se pierden vistas persistentes; se ganan reglas simples y
+un backend que puede inferir el resto.
+
+### D29. Operadores minimalistas
+
+**Contexto:** la sobrecarga de operadores puede volverse un lenguaje dentro del
+lenguaje.
+
+**Decisión:** solo `Add`, `Sub`, `Mul`, `Div`, `Rem`, `Neg`, `Eq` y `Ord`, con
+`Self` contra `Self`, en `std.ops`. Sin tipos asociados. `[]`, `Deref`, `From`
+y `Display` no se sobrecargan.
+
+**Consecuencias:** menos magia; los tipos que necesitan indexación usan
+métodos con nombre.
+
+### D30. FFI de entrada
+
+**Contexto:** exportar funciones a C obliga a estabilizar ABI y tipos.
+
+**Decisión:** v1 solo importa funciones C con `foreign "C"`. No exporta
+funciones PenguScript. `curse` es la frontera auditada.
+
+**Consecuencias:** FFI como puerta, no como grieta. La exportación se difiere.
+
+### D31. Sin macros ni atributos generales
+
+**Contexto:** las macros y los atributos son una superficie enorme.
+
+**Decisión:** no hay macros de usuario. Solo `@@derive` y `@@test`. El resto de
+los atributos son detalles del backend.
+
+**Consecuencias:** se pierde metaprogramación; se gana un lenguaje que se lee
+completo.
+
+### D32. `?T` sí, `!T` no
+
+**Contexto:** dos azúcares para `Option` y `Result` duplican conceptos.
+
+**Decisión:** `?T` es `Option[T]`. Los errores se escriben `Result[T, E]`
+explícito.
+
+**Consecuencias:** una sola forma corta; el error siempre tiene tipo concreto.
+
+### D33. `Rc`/`Arc` fuera de la prelude
+
+**Contexto:** compartir con contadores es una decisión de costo visible.
+
+**Decisión:** `Rc` y `Arc` se importan de `std`. La prelude solo tiene `Box`,
+`Vec`, `String`, `Map`, `Set` y `Option`/`Result`. `Box` se queda porque es
+propiedad única, no compartición: no introduce contadores ni ciclos.
+
+**Consecuencias:** el costo de compartir se ve en el import.
+
+### D34. Karambit
+
+**Contexto:** la tentación de agregar features “porque el backend puede”.
+
+**Decisión:** la ausencia de features es una feature. Cada adición debe pagar
+su costo en superficie, diagnóstico y documentación.
+
+**Consecuencias:** el documento se mantiene corto; las features dudosas van a
+§22.
+
+### D35. Rituales inherentes sobre primitivos solo en `std`
+
+**Contexto:** los métodos sobre primitivos mejoran la ergonomía, pero las
+extension methods de usuario rompen la coherencia y la predictibilidad.
+
+**Decisión:** `ritual Primitivo` inherente solo se permite en `std`. Un
+`ritual Primitivo for PactoLocal` se permite en cualquier parte porque el pacto
+es local. Fuera de `std`, el inherente es `PGS-E1210`; una colisión de nombres
+emite `PGS-W1210`.
+
+**Consecuencias:** `std` gana métodos naturales; el usuario no puede agregar
+métodos a tipos ajenos.
+
+### D36. `.d.pengu` y `Ptr[T]`
+
+**Contexto:** hace falta distribuir declaraciones de FFI, JS y librerías sin
+implementación, sin abrir raw pointers en el lenguaje.
+
+**Decisión:** `.d.pengu` declara tipos y firmas con una cabecera `abi`; no
+genera código y todo es público implícito. Los opacos de C usan `Ptr[T]`, un
+tipo de borde permitido solo en `.d.pengu`, `foreign` y `curse`.
+
+**Consecuencias:** FFI y headers se distribuyen; `Ptr[T]` no contamina el
+código normal.
+
+### D37. Dependencias git/path, sin registry
+
+**Contexto.** El lenguaje no tiene un registry central y el usuario pidió
+dependencias por git. Un registry añade infraestructura, versionado y
+publicación que no existen en 0.6.0.
+
+**Decisión.** `[dependencies]` solo acepta entradas git (`tag`, `branch` o
+`rev`) o `path`. `Tome.lock` fija commit y checksum. No hay `pengu publish`.
+La resolución no usa rangos SemVer ni SAT: un ref/commit por nombre.
+
+**Alternativas.** Registry propio (descartado por infraestructura y
+publicación); libgit2 (descartado por licencia y portabilidad); rangos
+SemVer sobre tags (diferido, no necesario para v1).
+
+**Consecuencias.** `pengu update` mueve branches/tags; los tags deberían ser
+inmutables. La reproducibilidad depende de commit + checksum. El costo es
+que no hay un índice central de paquetes.
+
+[↑ Volver al índice](#indice)
+---
+
+<a id="sec-26"></a>
+## 26. Changelog
+
+### 26.1 Versión
+
+| Componente | Versión |
+|---|---|
+| Spec | `0.6.0` |
+| Compilador | `0.6.0` |
+| Edición | `2024` |
+| Backend mínimo | `1.85.0` |
+
+`0.5.0` fue una reescritura mayor, no un release candidate. `0.6.0` agrega
+features y cambia el modelo de paquetes; ver §26.4.
+
+### 26.2 `0.6.0` — métodos en primitivos y `.d.pengu`
+
+- `ritual` inherente sobre primitivos solo dentro de `std`; un pact local
+  sobre un primitivo se permite en cualquier parte. Códigos `PGS-E1210` y
+  `PGS-W1210`.
+- `.d.pengu` para distribuir declaraciones con cabecera `abi "C"`, `"system"`,
+  `"js"` o `"pengu"`; sin cuerpos, sin `grimoire`, sin `sigil`/`relic`, sin
+  `unveil`.
+- `Ptr[T]` como puntero opaco de FFI, solo en `.d.pengu`, `foreign` y `curse`.
+- `[declarations]` y `[link]` en `Tome.toml`; `abi "C"`/`"system"` exige
+  entrada de enlace (`PGS-E2023`).
+- Casts `as` con tabla explícita (truncado entero, saturación flotante,
+  `NaN` -> 0) y misma semántica en const eval.
+- `?` prohibido en closures; `PGS-E7004` cubre `return`, `?` y consumo de
+  capturas.
+- `abi "js"` diferido; en 0.6.0 siempre `PGS-E2022`. Solo backend Rust.
+- `sigil`/`relic` no se permiten en `pact`/`ritual`; `PGS-E1204`.
+- `panic` desenrolla, ejecuta `Drop` y termina; cruzar FFI aborta.
+- `sigil` solo acepta literales, casts, operadores, constructores, arrays,
+  tuplas, `some`/`none`/`ok`/`err` y otros `sigil`; sin llamadas.
+- `.d.pengu` de módulos distintos pueden repetir nombres; conflicto solo por
+  módulo duplicado (`PGS-E2013`) o import sin alias (`PGS-E2005`).
+- Dependencias **git o path**, sin registry ni crates; `Tome.lock` registra
+  commit y checksum; `pengu publish` se retira y `PGS-E1806` pasa a ref git
+  inválido.
+- Cierre de huecos semánticos: overflow comprobado siempre, comparaciones
+  IEEE de `Float`, formato y resolución de `Tome.lock`, mapeo de errores del
+  backend, módulos duplicados, `CStr` en `std.ffi`, firmas completas de
+  `Option`/`Result`, `match` sobre `Bool`, `return` en `grimoire`,
+  `bind ... else` en cuerpos de bucle y visibilidad de variantes.
+- Cierre de parser/checker: `Vec[...]`/`Map[...]` en la gramática; closures
+  nunca `FnOnce` y sin consumo de capturas (`PGS-E7004`); `@@derive` en
+  `enchanting` sin `Default`; `@@test` solo devuelve `Unit`.
+- Catálogo de 160 códigos (152 errores, 8 warnings); límite de 160.
+- ADR D35, D36 y D37.
+
+### 26.3 `0.5.0` — reescritura de misión
+
+- PenguScript deja de presentarse como un transpilador y pasa a ser un lenguaje
+  propio con backend invisible.
+- Núcleo reducido a ~15 conceptos.
+- Referencias sin anotaciones de vida; prohibidas en records, sums, retornos y
+  alias.
+- Pacts minimalistas: solo métodos con receptor, un superpact como máximo, sin
+  tipos asociados.
+- Operadores limitados a `std.ops`; sin `Index`, `Deref`, `From` ni `Display`
+  sobrecargables.
+- `?T` se mantiene; `!T` se elimina.
+- Sin macros de usuario; solo `@@derive` y `@@test`.
+- FFI solo de entrada; sin exportación a C.
+- Sin build scripts.
+- Catálogo de diagnósticos reducido a 150 códigos como máximo.
+- Matriz de garantías reducida a 50 filas como máximo.
+- Nuevas ADR D26–D34.
+- Apéndice Z con las features eliminadas.
+
+### 26.4 Compatibilidad
+
+- Un programa `1.0.0-rc.1` no compila en `0.5.0` si usa lifetimes escritos,
+  `where`, tipos asociados, GATs, `dyn`, `impl Trait`, async, macros, atributos
+  generales, `rust` blocks o exportación FFI.
+- El compilador `0.5.x` rechaza la sintaxis retirada con `PGS-E1010` o con el
+  diagnóstico de la sección correspondiente.
+- Las versiones `0.5.x` son compatibles entre sí en el núcleo; una feature
+  nueva solo entra en una versión menor si no rompe programas existentes.
+- `0.6.0` conserva la semántica de `0.5.0`; agrega métodos de primitivos en
+  `std`, archivos `.d.pengu` y cambia el modelo de paquetes de registry a
+  git/path. Un `Tome.toml` con dependencias de registry debe migrarse.
+
+### 26.5 Política
+
+- `0.x`: cambios mayores permitidos; se documentan en este changelog.
+- `1.x`: solo adiciones compatibles; las eliminaciones requieren `2.0`.
+- Un diagnóstico retirado no se reutiliza.
+- Una feature diferida puede volver en una versión mayor, nunca en un parche.
+
+[↑ Volver al índice](#indice)
+---
+
+<a id="sec-27"></a>
+## 27. Referencias
+
+### 27.1 Especificaciones
+
+- The Rust Reference — semántica del backend, tipos y préstamos.
+- The Rustonomicon — solo para implementar el backend, no para el usuario.
+- The Cargo Book — formato de manifiesto y resolución de dependencias.
+- The rustc Book — edición 2024 y MSRV.
+- Rust Standard Library — documentación de `std` que se reexporta.
+- MoonScript — inspiración de indentación y sintaxis.
+- CoffeeScript — inspiración de funciones y expresiones.
+- V — inspiración de simplicidad y ausencia de globales.
+- Kotlin — inspiración de inferencia local.
+- Gleam — inspiración de sums y ausencia de `null`.
+- Zig — inspiración de disciplina y FFI.
+- Lua — inspiración de embebibilidad y stdlib chica.
+- Go — inspiración de módulos y compilación rápida.
+
+### 27.2 Normas
+
+- RFC 2119 / RFC 8174 — niveles de exigencia (`DEBE`, `DEBERÍA`, `PUEDE`).
+- Unicode Standard Annex #31 — identificadores XID.
+- Unicode Standard — escalares y UTF-8.
+- Semantic Versioning 2.0.0 — versiones del lenguaje y de los paquetes.
+- TOML 1.0.0 — `Tome.toml`.
+- IEEE 754 — `Float`/`F32`/`F64`.
+- System V ABI / C ABI — `foreign "C"`.
+
+### 27.3 Herramientas
+
+- `pengu` — compilador, formatter, linter, LSP y gestor de paquetes.
+- `git` — control de versiones.
+- `pengu explain` — explicación de diagnósticos.
+
+[↑ Volver al índice](#indice)
+<a id="sec-28"></a>
+## 28. Apéndice Z: qué se eliminó y por qué
+
+Este apéndice es histórico y no normativo. Explica las features que la spec
+`1.0.0-rc.1` tenía y que `0.5.0` deja fuera.
+
+| Feature eliminada | Por qué |
+|---|---|
+| Anotaciones `'a`, `'static` | El usuario no debe aprender vidas; el compilador infiere y prohíbe escapes. |
+| `for<'a>` / rango superior | No da potencia para el 95% del código; fuera del núcleo. |
+| `where` | Los bounds caben en la cabecera `[T: Pact]`. |
+| Tipos asociados | Duplican los parámetros de tipo y complican los pacts. |
+| GATs | Superficie enorme para casos raros. |
+| `dyn` / objetos de trait | Un `enchanting` + `match` es más explícito. |
+| `impl Trait` | El tipo de retorno debe ser visible. |
+| `Pin` / `Future` | Async no es del núcleo. |
+| `async` / `await` | Diferido a `std.async`; el núcleo es síncrono. |
+| `dream` / `awaken` | Nombres de la etapa async, eliminada. |
+| Hilos / canales / atomics | `std.concurrent`, no el lenguaje. |
+| `Send` / `Sync` visibles | Detalle del backend; el usuario no los escribe. |
+| `Rc` / `Arc` en la prelude | Compartir debe ser explícito; van a `std`. |
+| `Cell` / `RefCell` / `Mutex` / `RwLock` | Mutabilidad interior fuera del núcleo. |
+| `Cow` / `Weak` | Casos avanzados; `std`. |
+| Punteros crudos | Sin acceso directo a memoria en código seguro. |
+| `transmute` / uniones / asm | Sin `unsafe` general; `curse` solo para FFI. |
+| `MaybeUninit` / `ManuallyDrop` / `UnsafeCell` | Detalles que el usuario no debe tocar. |
+| `PhantomData` / ZST / DST | Detalles de representación; el backend decide. |
+| `repr` / layout estable | No se garantiza; no es parte del contrato. |
+| `cfg` / `inline` / `must_use` | Atributos del backend, no del usuario. |
+| Macros (`macro_rules!`, `incantation`) | Superficie enorme; no hay metaprogramación. |
+| Atributos generales | Solo `@@derive` y `@@test`. |
+| `rust` block | El backend es invisible; no hay escape de código. |
+| Exportar funciones a C | v1 solo importa FFI; exportar exige ABI estable. |
+| Build scripts | El 99% no los necesita; diferidos a `std.build`. |
+| `I128` / `U128` | Rango raro; `std.int`. |
+| `BTreeMap` / `BTreeSet` | `std.collections`. |
+| `VecDeque` / `LinkedList` / `BinaryHeap` | `std.collections`. |
+| `Index` / `IndexMut` sobrecargables | Requieren tipo asociado; se usa `.at(i)`/`get`. |
+| `Deref` / `DerefMut` | Coerción automática; se accede de forma explícita. |
+| `From` / `Into` | Conversiones implícitas; se usan métodos explícitos. |
+| `Display` / `Debug` sobrecargables | Solo `Show` para imprimir. |
+| `Drop` visible | La destrucción es automática. |
+| `spell` | La función se declara con `->`. |
+| `spirit` | El receptor es `@`. |
+| `class` / `this` | No hay clases; records y métodos. |
+| `null` / `nil` | `Option[T]` y `none`. |
+| `try` / `catch` / `throw` | `Result[T, E]` y `?`. |
+| `switch` con fallthrough | `match` exhaustivo. |
+| Bench / fuzz / property testing | Herramientas externas; no el núcleo. |
+
+### 28.1 Regla de eliminación
+
+Una feature se elimina si:
+
+1. no resuelve el 95% de los casos;
+2. se puede reemplazar por un concepto del núcleo;
+3. su costo de superficie supera su potencia.
+
+Si una feature eliminada vuelve, vuelve en una versión mayor y con una ADR
+nueva.
+
+[↑ Volver al índice](#indice)
+---
 

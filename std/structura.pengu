@@ -1,0 +1,77 @@
+-- structura — colecciones que `capsa`/`tabula`/`fasciculus` no cubren:
+-- pila (LIFO), cola (FIFO), cola doble y contenedores ordenados.
+--
+-- Todas las operaciones son **funciones libres genéricas** sobre `Vec[T]`: el
+-- lenguaje aún no emite `impl` de rituales genéricos (N62), y las funciones
+-- libres se monomorfizan sin problemas. El patrón de uso es
+-- `xs = structura::pila_push(xs, 1)`.
+--
+-- Nota (N69): la condición de un `if` que presta el receptor sigue viva en las
+-- ramas; por eso las extracciones guardan antes `bind vacia = out.is_empty()`.
+--
+-- Nota: las consultas que devolverían un elemento *sin* extraerlo (`peek`,
+-- `get`) necesitarían clonar `T` y el lenguaje no exige `T: Clone` (N64), así
+-- que se ofrecen solo las que mueven el valor.
+
+scroll structura
+
+    -- --- Pila (LIFO) ---------------------------------------------------------
+
+    unveil pila_push = [T](items: Vec[T], value: T) -> Vec[T]
+        morph out = items
+        out.push(value)
+        out
+
+    unveil pila_pop = [T](items: Vec[T]) -> Option[T]
+        morph out = items
+        out.pop()
+
+    unveil pila_clear = [T](items: Vec[T]) -> Vec[T]
+        morph out = items
+        out.clear()
+        out
+
+    -- --- Cola (FIFO) ---------------------------------------------------------
+
+    unveil cola_push = [T](items: Vec[T], value: T) -> Vec[T]
+        morph out = items
+        out.push(value)
+        out
+
+    unveil cola_pop = [T](items: Vec[T]) -> Option[T]
+        morph out = items
+        bind vacia = out.is_empty()
+        if vacia then
+            none
+        else
+            some(out.remove(0_usize))
+
+    -- --- Cola doble ----------------------------------------------------------
+
+    unveil duplex_push_front = [T](items: Vec[T], value: T) -> Vec[T]
+        morph out = items
+        out.insert(0_usize, value)
+        out
+
+    unveil duplex_push_back = [T](items: Vec[T], value: T) -> Vec[T]
+        morph out = items
+        out.push(value)
+        out
+
+    unveil duplex_pop_front = [T](items: Vec[T]) -> Option[T]
+        morph out = items
+        bind vacia = out.is_empty()
+        if vacia then
+            none
+        else
+            some(out.remove(0_usize))
+
+    unveil duplex_pop_back = [T](items: Vec[T]) -> Option[T]
+        morph out = items
+        out.pop()
+
+    -- Los contenedores ordenados (mapa/conjunto/montículo clave-valor) necesitan
+    -- comparar e igualar valores genéricos: `==` exige el bound `Eq` y hoy no se
+    -- puede pasar un `T` por valor dos veces sin moverlo (N67). Llegan cuando el
+    -- lenguaje tenga `Clone`/`Copy` en bounds; mientras tanto `tabula` (Map) y
+    -- `fasciculus` (Set) cubren el caso con claves `Str`.

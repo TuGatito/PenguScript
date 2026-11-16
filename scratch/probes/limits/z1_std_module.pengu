@@ -1,0 +1,7 @@
+scroll std
+    ritual Float
+        name2 = (@own) -> Str
+            "float"
+
+grimoire
+    print(1.0)

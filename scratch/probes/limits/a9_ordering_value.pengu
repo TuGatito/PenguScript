@@ -1,0 +1,3 @@
+grimoire
+    bind o = Less
+    print(1)

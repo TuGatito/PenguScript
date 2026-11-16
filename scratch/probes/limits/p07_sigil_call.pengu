@@ -1,0 +1,6 @@
+scroll demo
+    foreign "C"
+        ff = () -> Float
+    unveil sigil INF: Float = ff()
+grimoire
+    print(1)

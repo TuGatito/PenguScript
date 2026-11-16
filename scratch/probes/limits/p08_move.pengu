@@ -1,0 +1,5 @@
+summon std::verbum::String
+grimoire
+    bind a = String.from("x")
+    bind b = a
+    print(a.len())

@@ -1,0 +1,3 @@
+grimoire
+    print(Int.MAXIMO)
+    print(Int.BITS)

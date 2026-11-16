@@ -1,0 +1,6 @@
+scroll demo
+    foreign "pengu"
+        takes = (xs: &[U8]) -> Usize
+grimoire
+    bind xs = [1, 2, 3]
+    print(1)

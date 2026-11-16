@@ -1,0 +1,181 @@
+-- std/capsa.pengu — Vec[T]
+--
+-- S3. Los métodos de `Vec` son *paso directo* al método nativo de Rust (clase
+-- T3 del plan): el cuerpo de cada método es un marcador `panic("passthrough")`
+-- que el backend nunca emite, y la llamada se traduce a `vec.metodo(args)`.
+-- Ventaja para un lenguaje de sistemas: cero indirección y exactamente la
+-- semántica (y el coste) del `Vec` de Rust.
+--
+-- Los callbacks reciben `T` por valor (como en la spec) y el runtime los
+-- adapta al `&T` de Rust copiando (`T: Clone`); para `Int`/`Float`/`Char`/`Bool`
+-- y punteros la copia es gratuita.
+--
+-- Diferidos a S7 (necesitan `Iter[T]`, `Range[Usize]`, `Drain[T]`, `Splice[T]`):
+-- `iter`, `iter_mut`, `into_iter`, `drain`, `splice`, `chunks`, `windows`.
+-- Diferidos por necesitar genéricos de método (`K` aparte de `T`):
+-- `sort_by_key`, `sort_unstable_by_key`, `is_sorted_by_key`, `dedup_by_key`,
+-- `binary_search_by_key`.
+scroll capsa
+    ritual[T] Vec[T]
+        new = () -> Vec[T]
+            panic("passthrough")
+
+        with_capacity = (n: Usize) -> Vec[T]
+            panic("passthrough")
+
+        len = (@) -> Usize
+            panic("passthrough")
+
+        is_empty = (@) -> Bool
+            panic("passthrough")
+
+        push = (@mut, value: T) -> Unit
+            panic("passthrough")
+
+        pop = (@mut) -> Option[T]
+            panic("passthrough")
+
+        get = (@, index: Usize) -> Option[&T]
+            panic("passthrough")
+
+        get_mut = (@mut, index: Usize) -> Option[&mut T]
+            panic("passthrough")
+
+        first = (@) -> Option[&T]
+            panic("passthrough")
+
+        first_mut = (@mut) -> Option[&mut T]
+            panic("passthrough")
+
+        last = (@) -> Option[&T]
+            panic("passthrough")
+
+        last_mut = (@mut) -> Option[&mut T]
+            panic("passthrough")
+
+        insert = (@mut, index: Usize, value: T) -> Unit
+            panic("passthrough")
+
+        remove = (@mut, index: Usize) -> T
+            panic("passthrough")
+
+        clear = (@mut) -> Unit
+            panic("passthrough")
+
+        truncate = (@mut, len: Usize) -> Unit
+            panic("passthrough")
+
+        resize = (@mut, new_len: Usize, value: T) -> Unit
+            panic("passthrough")
+
+        resize_with = (@mut, new_len: Usize, f: () -> T) -> Unit
+            panic("passthrough")
+
+        fill = (@mut, value: T) -> Unit
+            panic("passthrough")
+
+        reserve = (@mut, additional: Usize) -> Unit
+            panic("passthrough")
+
+        capacity = (@) -> Usize
+            panic("passthrough")
+
+        shrink_to_fit = (@mut) -> Unit
+            panic("passthrough")
+
+        swap = (@mut, a: Usize, b: Usize) -> Unit
+            panic("passthrough")
+
+        swap_remove = (@mut, index: Usize) -> T
+            panic("passthrough")
+
+        split_off = (@mut, at: Usize) -> Vec[T]
+            panic("passthrough")
+
+        append = (@mut, other: &mut Vec[T]) -> Unit
+            panic("passthrough")
+
+        extend = (@mut, other: Vec[T]) -> Unit
+            panic("passthrough")
+
+        retain = (@mut, f: (T) -> Bool) -> Unit
+            panic("passthrough")
+
+        reverse = (@mut) -> Unit
+            panic("passthrough")
+
+        rotate_left = (@mut, mid: Usize) -> Unit
+            panic("passthrough")
+
+        rotate_right = (@mut, mid: Usize) -> Unit
+            panic("passthrough")
+
+        sort = (@mut) -> Unit
+            panic("passthrough")
+
+        sort_unstable = (@mut) -> Unit
+            panic("passthrough")
+
+        sort_by = (@mut, cmp: (T, T) -> Ordering) -> Unit
+            panic("passthrough")
+
+        sort_unstable_by = (@mut, cmp: (T, T) -> Ordering) -> Unit
+            panic("passthrough")
+
+        is_sorted = (@) -> Bool
+            panic("passthrough")
+
+        is_sorted_by = (@, cmp: (T, T) -> Ordering) -> Bool
+            panic("passthrough")
+
+        contains = (@, value: &T) -> Bool
+            panic("passthrough")
+
+        binary_search = (@, value: &T) -> Result[Usize, Usize]
+            panic("passthrough")
+
+        binary_search_by = (@, cmp: (T) -> Ordering) -> Result[Usize, Usize]
+            panic("passthrough")
+
+        partition_point = (@, pred: (T) -> Bool) -> Usize
+            panic("passthrough")
+
+        dedup = (@mut) -> Unit
+            panic("passthrough")
+
+        dedup_by = (@mut, same_bucket: (T, T) -> Bool) -> Unit
+            panic("passthrough")
+
+        as_slice = (@) -> &[T]
+            panic("passthrough")
+
+        as_mut_slice = (@mut) -> &mut[T]
+            panic("passthrough")
+
+        into_boxed_slice = (@own) -> Box[[T]]
+            panic("passthrough")
+
+        split_at = (@, mid: Usize) -> (&[T], &[T])
+            panic("passthrough")
+
+        starts_with = (@, prefix: &[T]) -> Bool
+            panic("passthrough")
+
+        ends_with = (@, suffix: &[T]) -> Bool
+            panic("passthrough")
+
+        join = (@, sep: &Str) -> String
+            panic("passthrough")
+
+        concat = (@) -> Vec[T]
+            panic("passthrough")
+
+        -- `sum`/`min`/`max`/`product` no se declaran aquí: en Rust no existen como
+        -- métodos de `Vec`. Se usan sobre un iterador: `xs.iter().sum()`.
+        -- (ver docs/STDLIB.md §6 y §22).
+
+        clone = (@) -> Vec[T]
+            panic("passthrough")
+
+        to_string = (@) -> String
+            panic("passthrough")

@@ -1,0 +1,277 @@
+-- std/floatem.pengu — módulo `floatem`: métodos de `Float`.
+--
+-- `Float` es f64 (IEEE 754 de doble precisión). La aritmética de coma flotante
+-- no hace panic: los desbordamientos producen `Infinity`, y las operaciones
+-- inválidas producen `NaN`.
+--
+-- Convención: los intrínsecos van prefijados con `f_` para no chocar con los
+-- nombres de la superficie (`sqrt` → `f_sqrt`).
+
+scroll floatem
+    -- Clasificación IEEE 754 de un `Float`.
+    unveil enchanting FloatClass
+        NaN
+        Infinite
+        Zero
+        Subnormal
+        Normal
+
+    foreign "pengu"
+        f_abs = (x: Float) -> Float
+        f_sqrt = (x: Float) -> Float
+        f_pow = (x: Float, exp: Float) -> Float
+        f_powi = (x: Float, exp: Int) -> Float
+        f_sin = (x: Float) -> Float
+        f_cos = (x: Float) -> Float
+        f_tan = (x: Float) -> Float
+        f_asin = (x: Float) -> Float
+        f_acos = (x: Float) -> Float
+        f_atan = (x: Float) -> Float
+        f_atan2 = (y: Float, x: Float) -> Float
+        f_sinh = (x: Float) -> Float
+        f_cosh = (x: Float) -> Float
+        f_tanh = (x: Float) -> Float
+        f_asinh = (x: Float) -> Float
+        f_acosh = (x: Float) -> Float
+        f_atanh = (x: Float) -> Float
+        f_floor = (x: Float) -> Float
+        f_ceil = (x: Float) -> Float
+        f_round = (x: Float) -> Float
+        f_trunc = (x: Float) -> Float
+        f_fract = (x: Float) -> Float
+        f_round_ties_even = (x: Float) -> Float
+        f_min = (a: Float, b: Float) -> Float
+        f_max = (a: Float, b: Float) -> Float
+        f_exp = (x: Float) -> Float
+        f_exp2 = (x: Float) -> Float
+        f_exp_m1 = (x: Float) -> Float
+        f_ln = (x: Float) -> Float
+        f_log2 = (x: Float) -> Float
+        f_log10 = (x: Float) -> Float
+        f_ln_1p = (x: Float) -> Float
+        f_cbrt = (x: Float) -> Float
+        f_hypot = (a: Float, b: Float) -> Float
+        f_recip = (x: Float) -> Float
+        f_signum = (x: Float) -> Float
+        f_copysign = (x: Float, sign: Float) -> Float
+        f_mul_add = (a: Float, b: Float, c: Float) -> Float
+        f_sin_cos = (x: Float) -> (Float, Float)
+        f_is_infinite = (x: Float) -> Bool
+        f_is_finite = (x: Float) -> Bool
+        f_is_sign_positive = (x: Float) -> Bool
+        f_is_sign_negative = (x: Float) -> Bool
+        f_to_bits = (x: Float) -> U64
+        f_from_bits = (bits: U64) -> Float
+        f_next_up = (x: Float) -> Float
+        f_next_down = (x: Float) -> Float
+        f_total_cmp = (a: Float, b: Float) -> Ordering
+        f_to_int = (x: Float) -> Int
+        f_to_string = (x: Float) -> String
+        f_from_str = (s: &Str) -> Option[Float]
+
+    ritual Float
+        -- Constantes asociadas (equivalentes a `f64::EPSILON` y compañía).
+        sigil EPSILON: Float = 2.220446049250313e-16
+        sigil MIN: Float = -1.7976931348623157e308
+        sigil MAX: Float = 1.7976931348623157e308
+        sigil MIN_POSITIVE: Float = 2.2250738585072014e-308
+        sigil NAN: Float = 0.0 / 0.0
+        sigil INFINITY: Float = 1.0 / 0.0
+        sigil NEG_INFINITY: Float = -1.0 / 0.0
+
+        -- Parsea un flotante decimal; `none` si el texto no es válido.
+        from_str = (s: &Str) -> Option[Float]
+            f_from_str(s)
+
+        -- Reconstruye un flotante a partir de sus bits IEEE-754.
+        from_bits = (bits: U64) -> Float
+            f_from_bits(bits)
+
+        abs = (@own) -> Float
+            f_abs(@)
+
+        sqrt = (@own) -> Float
+            f_sqrt(@)
+
+        pow = (@own, exp: Float) -> Float
+            f_pow(@, exp)
+
+        powi = (@own, exp: Int) -> Float
+            f_powi(@, exp)
+
+        sin = (@own) -> Float
+            f_sin(@)
+
+        cos = (@own) -> Float
+            f_cos(@)
+
+        tan = (@own) -> Float
+            f_tan(@)
+
+        asin = (@own) -> Float
+            f_asin(@)
+
+        acos = (@own) -> Float
+            f_acos(@)
+
+        atan = (@own) -> Float
+            f_atan(@)
+
+        atan2 = (@own, x: Float) -> Float
+            f_atan2(@, x)
+
+        sinh = (@own) -> Float
+            f_sinh(@)
+
+        cosh = (@own) -> Float
+            f_cosh(@)
+
+        tanh = (@own) -> Float
+            f_tanh(@)
+
+        asinh = (@own) -> Float
+            f_asinh(@)
+
+        acosh = (@own) -> Float
+            f_acosh(@)
+
+        atanh = (@own) -> Float
+            f_atanh(@)
+
+        floor = (@own) -> Float
+            f_floor(@)
+
+        ceil = (@own) -> Float
+            f_ceil(@)
+
+        round = (@own) -> Float
+            f_round(@)
+
+        round_ties_even = (@own) -> Float
+            f_round_ties_even(@)
+
+        trunc = (@own) -> Float
+            f_trunc(@)
+
+        fract = (@own) -> Float
+            f_fract(@)
+
+        min = (@own, other: Float) -> Float
+            f_min(@, other)
+
+        max = (@own, other: Float) -> Float
+            f_max(@, other)
+
+        clamp = (@own, lo: Float, hi: Float) -> Float
+            if @ < lo then
+                lo
+            elseif @ > hi then
+                hi
+            else
+                @
+
+        lerp = (@own, other: Float, t: Float) -> Float
+            @ + (other - @) * t
+
+        smoothstep = (@own, edge0: Float, edge1: Float) -> Float
+            bind t = ((@ - edge0) / (edge1 - edge0)).clamp(0.0, 1.0)
+            t * t * (3.0 - 2.0 * t)
+
+        exp = (@own) -> Float
+            f_exp(@)
+
+        exp2 = (@own) -> Float
+            f_exp2(@)
+
+        exp_m1 = (@own) -> Float
+            f_exp_m1(@)
+
+        ln = (@own) -> Float
+            f_ln(@)
+
+        log2 = (@own) -> Float
+            f_log2(@)
+
+        log10 = (@own) -> Float
+            f_log10(@)
+
+        ln_1p = (@own) -> Float
+            f_ln_1p(@)
+
+        log = (@own, base: Float) -> Float
+            f_ln(@) / f_ln(base)
+
+        cbrt = (@own) -> Float
+            f_cbrt(@)
+
+        hypot = (@own, other: Float) -> Float
+            f_hypot(@, other)
+
+        recip = (@own) -> Float
+            f_recip(@)
+
+        signum = (@own) -> Float
+            f_signum(@)
+
+        copysign = (@own, sign: Float) -> Float
+            f_copysign(@, sign)
+
+        mul_add = (@own, a: Float, b: Float) -> Float
+            f_mul_add(@, a, b)
+
+        sin_cos = (@own) -> (Float, Float)
+            f_sin_cos(@)
+
+        is_nan = (@own) -> Bool
+            @ != @
+
+        is_infinite = (@own) -> Bool
+            f_is_infinite(@)
+
+        is_finite = (@own) -> Bool
+            f_is_finite(@)
+
+        is_sign_positive = (@own) -> Bool
+            f_is_sign_positive(@)
+
+        is_sign_negative = (@own) -> Bool
+            f_is_sign_negative(@)
+
+        is_normal = (@own) -> Bool
+            f_is_finite(@) and @ != 0.0 and f_abs(@) >= 2.2250738585072014e-308
+
+        classify = (@own) -> FloatClass
+            if @ != @ then
+                FloatClass.NaN
+            elseif f_is_infinite(@) then
+                FloatClass.Infinite
+            elseif @ == 0.0 then
+                FloatClass.Zero
+            elseif f_abs(@) < 2.2250738585072014e-308 then
+                FloatClass.Subnormal
+            else
+                FloatClass.Normal
+
+        to_bits = (@own) -> U64
+            f_to_bits(@)
+
+        next_up = (@own) -> Float
+            f_next_up(@)
+
+        next_down = (@own) -> Float
+            f_next_down(@)
+
+        total_cmp = (@own, other: Float) -> Ordering
+            f_total_cmp(@, other)
+
+        to_radians = (@own) -> Float
+            @ * 0.017453292519943295
+
+        to_degrees = (@own) -> Float
+            @ * 57.29577951308232
+
+        to_int = (@own) -> Int
+            f_to_int(@)
+
+        to_string = (@) -> String
+            f_to_string(@)

@@ -1,0 +1,23 @@
+[package]
+name = "pengu-build"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+
+[dependencies]
+pengu-check = { path = "../pengu-check" }
+pengu-codegen = { path = "../pengu-codegen" }
+pengu-diag = { path = "../pengu-diag" }
+pengu-hir = { path = "../pengu-hir" }
+pengu-json = { path = "../pengu-json" }
+pengu-lir = { path = "../pengu-lir" }
+pengu-project = { path = "../pengu-project" }
+pengu-sha256 = { path = "../pengu-sha256" }
+pengu-std = { path = "../pengu-std" }
+pengu-span = { path = "../pengu-span" }
+pengu-syntax = { path = "../pengu-syntax" }
+pengu-types = { path = "../pengu-types" }
+
+[dev-dependencies]
+pengu-fmt = { path = "../pengu-fmt" }
+pengu-lint = { path = "../pengu-lint" }

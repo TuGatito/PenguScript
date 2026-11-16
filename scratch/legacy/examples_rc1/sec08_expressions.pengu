@@ -1,0 +1,15 @@
+grimoire
+    bind value = if true
+        10
+    else
+        20
+
+    bind label = do
+        bind base = "value"
+        base
+
+    bind result = loop
+        break value + 1
+
+    print(label)
+    print(result)

@@ -1,0 +1,9 @@
+add = (a: Int, b: Int) -> Int
+    a + b
+
+@@test
+add_works = () -> Unit
+    assert_eq(add(2, 3), 5)
+
+grimoire
+    assert_eq(add(2, 3), 5)

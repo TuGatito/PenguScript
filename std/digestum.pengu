@@ -1,0 +1,74 @@
+-- std/digestum.pengu — hashes y codificaciones.
+--
+-- S8. Implementación en Rust del runtime (`digest_*`), sin dependencias.
+scroll digestum
+    foreign "pengu"
+        digest_sha256 = (data: Vec[U8]) -> Vec[U8]
+        digest_sha256_hex = (data: Vec[U8]) -> String
+        digest_sha512 = (data: Vec[U8]) -> Vec[U8]
+        digest_sha512_hex = (data: Vec[U8]) -> String
+        digest_hmac_sha256 = (key: Vec[U8], data: Vec[U8]) -> Vec[U8]
+        digest_constant_time_eq = (left: Vec[U8], right: Vec[U8]) -> Bool
+        digest_sha1 = (data: Vec[U8]) -> Vec[U8]
+        digest_sha1_hex = (data: Vec[U8]) -> String
+        digest_crc32 = (data: Vec[U8]) -> U32
+        digest_fnv1a = (data: Vec[U8]) -> U64
+        digest_hex = (data: Vec[U8]) -> String
+        digest_unhex = (text: Str) -> Option[Vec[U8]]
+
+    unveil sha256 = (data: Vec[U8]) -> Vec[U8]
+        digest_sha256(data)
+
+    unveil sha256_hex = (data: Vec[U8]) -> String
+        digest_sha256_hex(data)
+
+    unveil sha512 = (data: Vec[U8]) -> Vec[U8]
+        digest_sha512(data)
+
+    unveil sha512_hex = (data: Vec[U8]) -> String
+        digest_sha512_hex(data)
+
+    -- HMAC-SHA-256 (RFC 2104) para firmar webhooks o tokens.
+    unveil hmac_sha256 = (key: Vec[U8], data: Vec[U8]) -> Vec[U8]
+        digest_hmac_sha256(key, data)
+
+    -- Comparación de digests en tiempo constante (no filtra el prefijo común).
+    unveil constant_time_eq = (left: Vec[U8], right: Vec[U8]) -> Bool
+        digest_constant_time_eq(left, right)
+
+    unveil sha1 = (data: Vec[U8]) -> Vec[U8]
+        digest_sha1(data)
+
+    unveil sha1_hex = (data: Vec[U8]) -> String
+        digest_sha1_hex(data)
+
+    unveil crc32 = (data: Vec[U8]) -> U32
+        digest_crc32(data)
+
+    unveil fnv1a = (data: Vec[U8]) -> U64
+        digest_fnv1a(data)
+
+    unveil hex = (data: Vec[U8]) -> String
+        digest_hex(data)
+
+    unveil unhex = (text: &Str) -> Option[Vec[U8]]
+        digest_unhex(text)
+
+    -- Atajos para texto: UTF-8 a bytes, hash y vuelta a hexadecimal.
+    unveil sha256_text = (text: &Str) -> String
+        digest_sha256_hex(text.as_bytes())
+
+    unveil sha512_text = (text: &Str) -> String
+        digest_sha512_hex(text.as_bytes())
+
+    unveil hmac_sha256_text = (key: &Str, text: &Str) -> String
+        digest_hex(digest_hmac_sha256(key.as_bytes(), text.as_bytes()))
+
+    unveil sha1_text = (text: &Str) -> String
+        digest_sha1_hex(text.as_bytes())
+
+    unveil crc32_text = (text: &Str) -> U32
+        digest_crc32(text.as_bytes())
+
+    unveil fnv1a_text = (text: &Str) -> U64
+        digest_fnv1a(text.as_bytes())

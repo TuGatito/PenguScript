@@ -1,0 +1,10 @@
+-- fragmento didáctico: se asume dentro de un `grimoire`; no es un módulo completo.
+largest = [T: PartialOrd + Copy](items: &[T]) -> T
+    morph best = items[0]
+    for item in items
+        if item > best
+            best = *item
+    best
+
+bind nums = [3, 7, 2]
+print(largest(&nums))

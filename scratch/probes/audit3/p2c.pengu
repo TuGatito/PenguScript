@@ -1,0 +1,9 @@
+grimoire
+    morph xs = Vec[1, 2, 3]
+    morph i = 0
+    match xs.get(i)
+        when some(v)
+            i = v
+        when none
+            i = 0
+    print(i)

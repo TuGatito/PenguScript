@@ -1,0 +1,205 @@
+-- std/tempus.pengu — módulo `tempus`: relojes y duraciones.
+--
+-- S5. `Duration`, `Instant` y `SystemTime` son runes numéricos con resolución
+-- de milisegundos (`Duration.millis`, `SystemTime.millis`) o microsegundos
+-- (`Instant.micros`): el runtime solo lee el reloj y la aritmética vive aquí.
+-- Para medidas de alta resolución está `now_micros` y `monotonic_micros`.
+scroll tempus
+    unveil rune Duration
+        unveil millis: Int
+
+    unveil rune Instant
+        unveil micros: Int
+
+    unveil rune SystemTime
+        unveil millis: Int
+
+    unveil rune SystemTimeError
+        unveil message: String
+        unveil duration_millis: Int
+
+    unveil ritual Duration for Show
+        show = (@) -> String
+            format("Duration(#{@.millis} ms)")
+
+    unveil ritual Instant for Show
+        show = (@) -> String
+            format("Instant(#{@.micros} us)")
+
+    unveil ritual SystemTime for Show
+        show = (@) -> String
+            format("SystemTime(#{@.millis} ms)")
+
+    unveil ritual SystemTimeError for Show
+        show = (@) -> String
+            @.message.to_string()
+
+    unveil ritual SystemTimeError
+        duration = (@) -> Duration
+            Duration(millis: @.duration_millis)
+
+    foreign "pengu"
+        tempus_now_millis = () -> Int
+        tempus_now_micros = () -> Int
+        tempus_monotonic_micros = () -> Int
+        tempus_sleep_millis = (millis: Int) -> Unit
+        tempus_sleep_nanos = (nanos: U64) -> Unit
+
+    -- Reloj ----------------------------------------------------------------
+
+    unveil now = () -> SystemTime
+        SystemTime(millis: tempus_now_millis())
+
+    unveil now_micros = () -> Int
+        tempus_now_micros()
+
+    unveil monotonic_micros = () -> Int
+        tempus_monotonic_micros()
+
+    unveil sleep_ms = (millis: Int) -> Unit
+        tempus_sleep_millis(millis)
+
+    unveil sleep_nanos = (nanos: U64) -> Unit
+        tempus_sleep_nanos(nanos)
+
+    unveil unix_epoch = () -> SystemTime
+        SystemTime(millis: 0)
+
+    unveil duration_secs = (seconds: Int) -> Duration
+        Duration(millis: seconds * 1000)
+
+    unveil duration_millis = (millis: Int) -> Duration
+        Duration(millis: millis)
+
+    -- `Duration` -----------------------------------------------------------
+
+    unveil ritual Duration
+        from_secs = (seconds: Int) -> Duration
+            Duration(millis: seconds * 1000)
+
+        from_millis = (millis: Int) -> Duration
+            Duration(millis: millis)
+
+        from_micros = (micros: Int) -> Duration
+            Duration(millis: micros / 1000)
+
+        from_nanos = (nanos: Int) -> Duration
+            Duration(millis: nanos / 1000000)
+
+        as_secs = (@) -> Int
+            @.millis / 1000
+
+        as_millis = (@) -> Int
+            @.millis
+
+        as_micros = (@) -> Int
+            @.millis * 1000
+
+        as_nanos = (@) -> Int
+            @.millis * 1000000
+
+        secs = (@) -> Int
+            @.millis / 1000
+
+        subsec_millis = (@) -> Int
+            @.millis % 1000
+
+        is_zero = (@) -> Bool
+            @.millis == 0
+
+        checked_add = (@, other: Duration) -> Option[Duration]
+            some(Duration(millis: @.millis + other.millis))
+
+        saturating_add = (@, other: Duration) -> Duration
+            Duration(millis: @.millis + other.millis)
+
+        checked_sub = (@, other: Duration) -> Option[Duration]
+            if other.millis > @.millis then
+                none
+            else
+                some(Duration(millis: @.millis - other.millis))
+
+        saturating_sub = (@, other: Duration) -> Duration
+            if other.millis > @.millis then
+                Duration(millis: 0)
+            else
+                Duration(millis: @.millis - other.millis)
+
+        from_secs_f64 = (secs: Float) -> Duration
+            Duration(millis: (secs * 1000.0).round().to_int())
+
+        from_secs_f32 = (secs: Float) -> Duration
+            Duration(millis: (secs * 1000.0).round().to_int())
+
+        as_secs_f64 = (@) -> Float
+            @.millis.to_float() / 1000.0
+
+        as_secs_f32 = (@) -> Float
+            @.millis.to_float() / 1000.0
+
+        subsec_micros = (@) -> Int
+            bind resto = @.millis % 1000
+            if resto < 0 then
+                (resto + 1000) * 1000
+            else
+                resto * 1000
+
+        subsec_nanos = (@) -> Int
+            bind resto = @.millis % 1000
+            if resto < 0 then
+                (resto + 1000) * 1000000
+            else
+                resto * 1000000
+
+        mul_f64 = (@, factor: Float) -> Duration
+            Duration(millis: (@.millis.to_float() * factor).round().to_int())
+
+        div_f64 = (@, divisor: Float) -> Duration
+            Duration(millis: (@.millis.to_float() / divisor).round().to_int())
+
+    -- `Instant` ------------------------------------------------------------
+
+    unveil ritual Instant
+        now = () -> Instant
+            Instant(micros: tempus_monotonic_micros())
+
+        elapsed = (@) -> Duration
+            bind delta = tempus_monotonic_micros() - @.micros
+            if delta < 0 then
+                Duration(millis: 0)
+            else
+                Duration(millis: delta / 1000)
+
+        duration_since = (@, earlier: Instant) -> Duration
+            bind delta = @.micros - earlier.micros
+            if delta < 0 then
+                Duration(millis: 0)
+            else
+                Duration(millis: delta / 1000)
+
+        checked_add = (@, duration: Duration) -> Instant
+            Instant(micros: @.micros + duration.as_micros())
+
+    -- `SystemTime` ---------------------------------------------------------
+
+    unveil ritual SystemTime
+        now = () -> SystemTime
+            SystemTime(millis: tempus_now_millis())
+
+        duration_since = (@, earlier: SystemTime) -> Result[Duration, SystemTimeError]
+            if @.millis < earlier.millis then
+                err(SystemTimeError(message: format("el instante es anterior"), duration_millis: earlier.millis - @.millis))
+            else
+                ok(Duration(millis: @.millis - earlier.millis))
+
+        elapsed = (@) -> Result[Duration, SystemTimeError]
+            if @.millis > tempus_now_millis() then
+                err(SystemTimeError(message: format("el reloj retrocedió"), duration_millis: @.millis - tempus_now_millis()))
+            else
+                ok(Duration(millis: tempus_now_millis() - @.millis))
+
+        checked_add = (@, duration: Duration) -> SystemTime
+            SystemTime(millis: @.millis + duration.as_millis())
+
+        checked_sub = (@, duration: Duration) -> SystemTime
+            SystemTime(millis: @.millis - duration.as_millis())

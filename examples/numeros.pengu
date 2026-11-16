@@ -1,0 +1,12 @@
+--! Estadística básica: fold, filter, collect y aritmética formateada.
+
+grimoire
+    bind valores = Vec[3, 1, 4, 1, 5, 9, 2, 6]
+    bind total = valores.iter().fold(0, (acc: Int, x: Int) => acc + x)
+    bind pares = valores.iter().filter((x: Int) => x % 2 == 0).collect()
+    bind mayor = valores.iter().max()
+    bind cuantos = valores.len() as Int
+    print("suma: #{total}")
+    print("pares: #{pares}")
+    print("media: #{total / cuantos}")
+    print("mayor: #{mayor}")

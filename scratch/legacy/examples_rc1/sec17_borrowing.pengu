@@ -1,0 +1,11 @@
+grimoire
+    bind text = String.from("pengu")
+    bind a = &text
+    bind b = &text
+    print(a.len() + b.len())
+
+    morph numbers = [1, 2, 3, 4]
+    bind (left, right) = numbers.split_at_mut(2)
+    left[0] = 10
+    right[0] = 30
+    print(numbers[0], numbers[1], numbers[2], numbers[3])

@@ -1,5 +1,0 @@
-import src.lib
-
-weave main into int:
-    var n as int is calling twice with 2
-    return n

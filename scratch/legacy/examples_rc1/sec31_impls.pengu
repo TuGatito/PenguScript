@@ -1,0 +1,14 @@
+-- fragmento didáctico: se asume dentro de un `grimoire`; no es un módulo completo.
+rune Point
+    x: Float
+    y: Float
+
+ritual Point
+    new = (x: Float, y: Float) -> Point
+        Point(x: x, y: y)
+
+    length = (@) -> Float
+        (@.x * @.x + @.y * @.y).sqrt()
+
+bind p = Point.new(3.0, 4.0)
+print(p.length())

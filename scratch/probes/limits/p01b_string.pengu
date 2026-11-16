@@ -1,0 +1,4 @@
+grimoire
+    bind a = String.new()
+    bind c = Char.from_u32(65)
+    print(a.len())

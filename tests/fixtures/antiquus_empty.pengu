@@ -1,6 +1,0 @@
-antiquus noop with x as int into void:
-    """
-"""
-
-weave main into int:
-    return 0

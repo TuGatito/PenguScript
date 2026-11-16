@@ -1,0 +1,5 @@
+values = [1, 2, 3, 4, 5]
+
+grimoire
+    bind doubled = values.iter().map((x: &Int) => *x * 2).collect[Vec[Int]]()
+    print(doubled)

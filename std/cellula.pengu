@@ -1,0 +1,32 @@
+-- std/cellula.pengu — valores inicializados una sola vez.
+--
+-- S9. Sin hilos ni tipos opacos, la celda se guarda en el runtime como un mapa
+-- global `nombre -> String`; `Cell[T]` no puede ser genérica todavía, así que
+-- la API trabaja con texto (serializa antes de guardar). Ver N43.
+scroll cellula
+    foreign "pengu"
+        cellula_get = (key: Str) -> Option[String]
+        cellula_set_once = (key: Str, value: Str) -> Bool
+        cellula_set = (key: Str, value: Str) -> Unit
+        cellula_remove = (key: Str) -> Bool
+        cellula_clear = () -> Unit
+        cellula_keys = () -> Vec[String]
+
+    unveil get = (key: &Str) -> Option[String]
+        cellula_get(key)
+
+    -- Inicializa solo si no existía; `false` si ya había valor.
+    unveil set_once = (key: &Str, value: &Str) -> Bool
+        cellula_set_once(key, value)
+
+    unveil set = (key: &Str, value: &Str) -> Unit
+        cellula_set(key, value)
+
+    unveil remove = (key: &Str) -> Bool
+        cellula_remove(key)
+
+    unveil clear = () -> Unit
+        cellula_clear()
+
+    unveil keys = () -> Vec[String]
+        cellula_keys()

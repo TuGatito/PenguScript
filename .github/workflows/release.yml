@@ -2,47 +2,159 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    tags:
+      - "v*"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Versión a publicar (sin la v), por ejemplo 0.1.0"
+        required: true
+        type: string
 
 permissions:
-  contents: read
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
-  package:
-    name: Package (Linux)
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
+  publish:
+    name: Empaquetar (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-13
+            target: x86_64-apple-darwin
+          - os: macos-14
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build bootstrap compiler
-        shell: bash
-        # The latest published release still ships the legacy `pengu` CLI,
-        # which cannot compile this tree in reasonable time. The checked-in
-        # stage0 bundle gives a native `psc` with only a C compiler.
-        run: bash ./tools/build_bootstrap.sh
+      - name: Instalar Rust
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Build compiler
+      - name: Caché de compilación
+        uses: Swatinem/rust-cache@v2
+
+      - name: Leer la versión
+        id: version
         shell: bash
         run: |
-          set -euo pipefail
-          stage0=./build/psc-stage0
-          if [ -f "$stage0.exe" ]; then stage0="$stage0.exe"; fi
-          "$stage0" build .
-          psc_bin=./build/psc
-          if [ -f "$psc_bin.exe" ]; then psc_bin="$psc_bin.exe"; fi
-          "$psc_bin" version
+          if [ -n "${{ inputs.version }}" ]; then
+            version="${{ inputs.version }}"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Versión: $version"
 
-      - name: Package portable/FHS
+      - name: Comprobar que la versión del binario coincide
         shell: bash
         run: |
-          set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}" \
-          PENGU_BIND="${PENGU_BIND:-build/pengu-bind}" \
-          tools/release.sh
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' crates/pengu-cli/Cargo.toml | head -1)
+          if [ "$version" != "${{ steps.version.outputs.version }}" ]; then
+            echo "error: el tag dice ${{ steps.version.outputs.version }} y el crate $version" >&2
+            exit 1
+          fi
+
+      - name: Compilar el binario
+        run: cargo build --release --locked -p pengu-cli
+
+      - name: Empaquetar (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          ./scripts/package.sh --skip-build \
+            --version "${{ steps.version.outputs.version }}" \
+            --target "${{ matrix.target }}" \
+            --out dist
+
+      - name: Empaquetar (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $target = "${{ matrix.target }}"
+          $prefix = "pengu-$version-$target"
+          New-Item -ItemType Directory -Force -Path "dist/$prefix" | Out-Null
+          Copy-Item "target/release/pengu.exe" "dist/$prefix/pengu.exe"
+          if (Test-Path "LICENSE") { Copy-Item "LICENSE" "dist/$prefix/LICENSE" }
+          if (Test-Path "README.md") { Copy-Item "README.md" "dist/$prefix/README.md" }
+          Set-Content -Path "dist/$prefix/VERSION" -Value $version
+          Compress-Archive -Path "dist/$prefix" -DestinationPath "dist/$prefix.zip" -Force
+          $hash = (Get-FileHash -Algorithm SHA256 "dist/$prefix.zip").Hash.ToLower()
+          Set-Content -Path "dist/SHA256SUMS" -Value "$hash  ./$prefix.zip"
+          Set-Content -Path "dist/VERSION" -Value $version
+          $metadata = cargo metadata --no-deps --format-version 1 | ConvertFrom-Json
+          $packages = @($metadata.packages |
+            ForEach-Object {
+              [ordered]@{
+                name = $_.name
+                version = $_.version
+                license = $(if ($_.license) { $_.license } else { "MIT" })
+              }
+            } | Sort-Object name)
+          [ordered]@{ format = "pengu-sbom-1"; packages = $packages } |
+            ConvertTo-Json -Depth 5 | Out-File -Encoding utf8 "dist/sbom.json"
+
+      - name: Comprobar el artefacto
+        shell: bash
+        run: |
+          ls -l dist
+          test -f dist/SHA256SUMS
+          test -f dist/VERSION
 
       - uses: actions/upload-artifact@v4
         with:
-          name: pengu-release
+          name: pengu-${{ matrix.target }}
           path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publicar
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Unir artefactos y sumas
+        shell: bash
+        run: |
+          mkdir -p dist
+          find artifacts -type f \( -name '*.tar.gz' -o -name '*.zip' \) -exec cp {} dist/ \;
+          for file in $(find artifacts -type f -name 'sbom.json'); do
+            target=$(echo "$file" | sed -n 's|artifacts/pengu-\(.*\)/sbom.json|\1|p')
+            cp "$file" "dist/sbom-${target}.json"
+          done
+          version=$(find artifacts -type f -name VERSION -exec cat {} \; | head -1)
+          echo "version=$version" >> "$GITHUB_ENV"
+          echo "$version" > dist/VERSION
+          if command -v sha256sum >/dev/null 2>&1; then
+            ( cd dist && sha256sum ./*.tar.gz ./*.zip 2>/dev/null || true ) | sort > dist/SHA256SUMS
+          fi
+          ls -l dist
+
+      - name: Crear la release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          tag="v$version"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/* --clobber
+          else
+            gh release create "$tag" dist/* \
+              --title "PenguScript $version" \
+              --notes "Instaladores y extension para VS Code en los assets. Para instalar: descarga el archivo de tu plataforma y ejecuta scripts/install.sh (o scripts/install.bat en Windows) con --version $version." \
+              --generate-notes
+          fi

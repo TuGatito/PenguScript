@@ -1,0 +1,12 @@
+grimoire
+    bind ready = true
+    bind paused = false
+    bind can_run = ready and not paused
+    bind either = ready or paused
+    bind neither = not (ready or paused)
+    bind in_range = 1 <= 2 and 2 <= 3
+
+    print(can_run)
+    print(either)
+    print(neither)
+    print(in_range)

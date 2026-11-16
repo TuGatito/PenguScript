@@ -1,0 +1,6 @@
+grimoire
+    bind ys = [1, 2].map(fun (x: Int) -> Int
+        match x
+            when 1 then 10
+            when _ then 0)
+    print(1)

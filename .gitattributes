@@ -1,4 +1,8 @@
 # Auto detect text files and perform LF normalization
-*.pengu linguist-language=PenguScript
-*.d.pengu linguist-language=PenguScript
+* text=auto
 
+# Los scripts de Windows necesitan CRLF al hacer checkout.
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+# Los de Unix necesitan LF aunque se editen en Windows.
+*.sh text eol=lf

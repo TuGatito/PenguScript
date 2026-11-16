@@ -1,0 +1,3 @@
+grimoire
+    bind s = "hola"
+    print(s.get(0..2))

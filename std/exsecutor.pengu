@@ -1,0 +1,235 @@
+-- std/exsecutor.pengu — módulo `exsecutor`: procesos, comandos y salidas.
+--
+-- S5. Capas:
+--   * funciones libres (`exsecutor::run`, `exsecutor::status`, …) que lanzan
+--     un programa con una lista de argumentos;
+--   * `Command`, un constructor mutable para no repetir listas de argumentos;
+--   * `Output` y `ExitStatus` como runes de datos;
+--   * `Child` para procesos en segundo plano (el descriptor vive en el
+--     runtime, igual que `File` en `via`).
+--
+-- Los errores viajan en `ExsecutorError.message`; cada módulo de `std` declara
+-- el suyo porque los módulos no pueden importarse entre sí.
+scroll exsecutor
+    unveil rune ExsecutorError
+        unveil message: String
+
+    unveil rune ExitStatus
+        unveil code: Option[Int]
+        unveil success: Bool
+
+    unveil rune Output
+        unveil status: ExitStatus
+        unveil stdout: Vec[U8]
+        unveil stderr: Vec[U8]
+
+    unveil rune Stdio
+        unveil mode: Int
+
+    unveil rune Command
+        unveil program: String
+        unveil args: Vec[String]
+        unveil cwd: Option[String]
+        unveil envs: Vec[String]
+        unveil clear_env: Bool
+        unveil stdin_mode: Int
+        unveil stdout_mode: Int
+        unveil stderr_mode: Int
+
+    unveil rune Child
+        unveil handle: U64
+
+    unveil ritual ExsecutorError for Show
+        show = (@) -> String
+            @.message.to_string()
+
+    unveil ritual ExitStatus for Show
+        show = (@) -> String
+            format("ExitStatus(code: #{@.code}, success: #{@.success})")
+
+    unveil ritual Output for Show
+        show = (@) -> String
+            format("Output(status: #{@.status}, stdout: #{@.stdout.len()} bytes, stderr: #{@.stderr.len()} bytes)")
+
+    unveil ritual Command for Show
+        show = (@) -> String
+            format("Command(program: #{@.program}, args: #{@.args.len()}, cwd: #{@.cwd})")
+
+    unveil ritual Stdio for Show
+        show = (@) -> String
+            if @.mode == 1 then
+                "Stdio(piped)"
+            elseif @.mode == 2 then
+                "Stdio(null)"
+            elseif @.mode == 3 then
+                "Stdio(inherit)"
+            else
+                "Stdio(default)"
+
+    unveil ritual Stdio
+        stdio_inherit = () -> Stdio
+            Stdio(mode: 3)
+
+        stdio_piped = () -> Stdio
+            Stdio(mode: 1)
+
+        stdio_discard = () -> Stdio
+            Stdio(mode: 2)
+
+    unveil ritual Child for Show
+        show = (@) -> String
+            format("Child(handle: #{@.handle})")
+
+    foreign "pengu"
+        exsec_run = (program: Str, args: Vec[String], cwd: Option[String], envs: Vec[String], clear_env: Bool, stdin_mode: Int, stdout_mode: Int, stderr_mode: Int) -> Result[Output, ExsecutorError]
+        exsec_status = (program: Str, args: Vec[String], cwd: Option[String], envs: Vec[String], clear_env: Bool, stdin_mode: Int, stdout_mode: Int, stderr_mode: Int) -> Result[ExitStatus, ExsecutorError]
+        exsec_spawn = (program: Str, args: Vec[String], cwd: Option[String], envs: Vec[String], clear_env: Bool, stdin_mode: Int, stdout_mode: Int, stderr_mode: Int) -> Result[Child, ExsecutorError]
+        exsec_child_wait = (handle: U64) -> Result[ExitStatus, ExsecutorError]
+        exsec_child_try_wait = (handle: U64) -> Result[Option[ExitStatus], ExsecutorError]
+        exsec_child_kill = (handle: U64) -> Result[Unit, ExsecutorError]
+        exsec_child_id = (handle: U64) -> Result[U64, ExsecutorError]
+        exsec_child_write_stdin = (handle: U64, data: Vec[U8]) -> Result[U64, ExsecutorError]
+        exsec_child_close_stdin = (handle: U64) -> Result[Unit, ExsecutorError]
+        exsec_child_read_stdout = (handle: U64, count: U64) -> Result[Vec[U8], ExsecutorError]
+        exsec_child_read_stderr = (handle: U64, count: U64) -> Result[Vec[U8], ExsecutorError]
+        exsec_child_wait_with_output = (handle: U64) -> Result[Output, ExsecutorError]
+        exsec_which = (program: Str) -> Option[String]
+        exsec_argv = () -> Vec[String]
+        exsec_exit = (code: Int) -> Unit
+
+    -- Funciones libres -------------------------------------------------------
+
+    unveil run = (program: &Str) -> Result[Output, ExsecutorError]
+        exsec_run(program, Vec.new(), none, Vec.new(), false, 0, 0, 0)
+
+    unveil run_args = (program: &Str, args: Vec[String]) -> Result[Output, ExsecutorError]
+        exsec_run(program, args, none, Vec.new(), false, 0, 0, 0)
+
+    unveil status = (program: &Str) -> Result[ExitStatus, ExsecutorError]
+        exsec_status(program, Vec.new(), none, Vec.new(), false, 0, 0, 0)
+
+    unveil status_args = (program: &Str, args: Vec[String]) -> Result[ExitStatus, ExsecutorError]
+        exsec_status(program, args, none, Vec.new(), false, 0, 0, 0)
+
+    unveil which = (program: &Str) -> Option[String]
+        exsec_which(program)
+
+    unveil exit = (code: Int) -> Unit
+        exsec_exit(code)
+
+    unveil args = () -> Vec[String]
+        exsec_argv()
+
+    -- `Command`: constructor mutable ----------------------------------------
+
+    unveil ritual Command
+        new = (program: &Str) -> Command
+            Command(program: String.from(program), args: Vec.new(), cwd: none, envs: Vec.new(), clear_env: false, stdin_mode: 0, stdout_mode: 0, stderr_mode: 0)
+
+        arg = (@mut, value: &Str) -> Unit
+            @.args.push(String.from(value))
+
+        args = (@mut, values: Vec[String]) -> Unit
+            for value in values
+                @.args.push(value)
+
+        env = (@mut, key: &Str, value: &Str) -> Unit
+            @.envs.push(String.from(key))
+            @.envs.push(String.from(value))
+
+        env_clear = (@mut) -> Unit
+            @.envs = Vec.new()
+            @.clear_env = true
+
+        current_dir = (@mut, path: &Str) -> Unit
+            @.cwd = some(String.from(path))
+
+        env_remove = (@mut, key: &Str) -> Unit
+            morph mutado: Vec[String] = Vec.new()
+            morph saltar = false
+            for valor in @.envs
+                if saltar then
+                    saltar = false
+                elseif valor.as_str() == key then
+                    saltar = true
+                else
+                    mutado.push(valor)
+            @.envs = mutado
+
+        envs = (@mut, values: Vec[String]) -> Unit
+            for value in values
+                @.envs.push(value)
+
+        stdin = (@mut, stdio: Stdio) -> Unit
+            @.stdin_mode = stdio.mode
+
+        stdout = (@mut, stdio: Stdio) -> Unit
+            @.stdout_mode = stdio.mode
+
+        stderr = (@mut, stdio: Stdio) -> Unit
+            @.stderr_mode = stdio.mode
+
+        get_args = (@) -> Vec[String]
+            morph copia: Vec[String] = Vec.new()
+            for valor in @.args
+                copia.push(valor)
+            copia
+
+        get_envs = (@) -> Vec[String]
+            morph copia: Vec[String] = Vec.new()
+            for valor in @.envs
+                copia.push(valor)
+            copia
+
+        get_current_dir = (@) -> Option[String]
+            match @.cwd
+                when some(texto) then some(texto.clone())
+                when none then none
+
+        get_program = (@) -> String
+            @.program.to_string()
+
+        program_name = (@) -> String
+            @.program.to_string()
+
+        run = (@own) -> Result[Output, ExsecutorError]
+            bind programa = @.program.clone()
+            exsec_run(programa.as_str(), @.args, @.cwd, @.envs, @.clear_env, @.stdin_mode, @.stdout_mode, @.stderr_mode)
+
+        status = (@own) -> Result[ExitStatus, ExsecutorError]
+            bind programa = @.program.clone()
+            exsec_status(programa.as_str(), @.args, @.cwd, @.envs, @.clear_env, @.stdin_mode, @.stdout_mode, @.stderr_mode)
+
+        spawn = (@own) -> Result[Child, ExsecutorError]
+            bind programa = @.program.clone()
+            exsec_spawn(programa.as_str(), @.args, @.cwd, @.envs, @.clear_env, @.stdin_mode, @.stdout_mode, @.stderr_mode)
+
+    -- `Child`: proceso en segundo plano -------------------------------------
+
+    unveil ritual Child
+        wait = (@mut) -> Result[ExitStatus, ExsecutorError]
+            exsec_child_wait(@.handle)
+
+        try_wait = (@mut) -> Result[Option[ExitStatus], ExsecutorError]
+            exsec_child_try_wait(@.handle)
+
+        kill = (@mut) -> Result[Unit, ExsecutorError]
+            exsec_child_kill(@.handle)
+
+        process_id = (@) -> Result[U64, ExsecutorError]
+            exsec_child_id(@.handle)
+
+        write_stdin = (@mut, data: Vec[U8]) -> Result[U64, ExsecutorError]
+            exsec_child_write_stdin(@.handle, data)
+
+        close_stdin = (@mut) -> Result[Unit, ExsecutorError]
+            exsec_child_close_stdin(@.handle)
+
+        read_stdout = (@mut, count: U64) -> Result[Vec[U8], ExsecutorError]
+            exsec_child_read_stdout(@.handle, count)
+
+        read_stderr = (@mut, count: U64) -> Result[Vec[U8], ExsecutorError]
+            exsec_child_read_stderr(@.handle, count)
+
+        wait_with_output = (@mut) -> Result[Output, ExsecutorError]
+            exsec_child_wait_with_output(@.handle)

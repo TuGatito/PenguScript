@@ -1,0 +1,18 @@
+grimoire
+    bind score = 75
+    bind category = if score >= 90
+        "excelente"
+    elseif score >= 60
+        "aprobado"
+    else
+        "reprobado"
+
+    bind parity = if score % 2 == 0 then "par" else "impar"
+    bind max = if score > 100 then score else 100
+
+    unless score < 0
+        print("puntaje válido")
+
+    print(category)
+    print(parity)
+    print(max)

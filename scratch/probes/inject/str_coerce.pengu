@@ -1,0 +1,3 @@
+ritual Float
+    texto = (@own) -> String
+        "1.0"

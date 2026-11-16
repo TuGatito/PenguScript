@@ -1,3 +1,0 @@
-weave main into int:
-    var c as char is 'ab'
-    return 0

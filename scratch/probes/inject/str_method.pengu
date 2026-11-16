@@ -1,0 +1,3 @@
+ritual Str
+    cabeza = (@) -> Str
+        s_trim(@)

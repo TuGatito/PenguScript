@@ -1,1589 +1,1993 @@
-# The PenguScript Standard Library
+# STDLIB.md — Biblioteca estándar de PenguScript
 
-All 70 modules of `std/` in `psc` 0.60.0: what each one is for, when to reach for
-it, when to reach for something else, and where its generated API lives.
+**Versión:** `0.3.0` (mapa completo; módulos de auto-hospedaje añadidos)
+**Estado:** especificación de superficie; los módulos marcados **CORE** se implementan primero para probar el compilador.
+**Convención de nombres:** cada módulo lleva un nombre latino que evoca su función (`integrum` = entero, `floatem` = flotante, `verbum` = palabra, `capsa` = caja, `tabula` = tabla, `fasciculus` = conjunto, `numerus` = número, `fluxus` = flujo, `via` = camino, `exsecutor` = ejecutor, `ambitus` = entorno, `tempus` = tiempo, `nexus` = conexión, `vinculum` = vínculo, `frenum` = freno, `cellula` = célula, `somnium` = sueño, `proba` = prueba, `opera` = obras, `funis` = cuerda, `structura` = estructura; `libra` = balanza/TOML, `iason` = JSON, `digestum` = resumen/hash, `versio` = versión, `terminus` = límite/terminal, `globus` = esfera/glob, `archivum` = archivo, `rete` = red). La magia está en el nombre; la descripción está en los métodos. Los módulos de formato/protocolo conservan un alias funcional (`std.toml`, `std.json`, `std.digest`, `std.semver`, `std.term`, `std.glob`, `std.archive`, `std.net`) para que el código de aplicación no dependa del nombre latino.
 
-It is the *catalogue* document of the documentation set:
+**Criterio de cobertura:** la superficie se auditó contra Python 3.12, Rust 1.85, Kotlin 2.x, Go 1.22 y V 0.4. Incluye los métodos que un programa de aplicación usa de verdad; no copia APIs exóticas de plataforma ni traits de iteradores de Rust. Las operaciones de cada tipo se agrupan por familia (consulta, transformación, mutación, conversión) para que el mapa sea comparable entre lenguajes.
 
-| Document | Answers |
-| --- | --- |
-| [LANGUAGE.md](LANGUAGE.md) | How do I write this construct, and what does it become in C? |
-| [PENGUNIC.md](PENGUNIC.md) | How do I write PenguScript that is safe, idiomatic and fast? |
-| **STDLIB.md** (this file) | Which standard module do I use, and where is its API? |
+**Regla de encadenamiento:** los métodos de transformación que no consumen el receptor (`@` o `@mut`) devuelven `Self`, `&Self` o `&mut Self`; los de consulta devuelven su valor (`Bool`, `Usize`, `Option[...]`). Los métodos `@own` consumen el valor y no se encadenan después de ellos.
 
-Spanish: [STDLIB.es.md](STDLIB.es.md).
+---
 
-Every module links to a page in [`docs/api/`](api/), generated from the module's
-own `##` comments by `psc doc --include-std`.
+## Índice
 
-<!-- toc -->
-- [0. How to use this catalogue](#0-how-to-use-this-catalogue)
-- [1. The shape of the standard library](#1-the-shape-of-the-standard-library)
-- [2. Choosing a module by task](#2-choosing-a-module-by-task)
-- [3. Core and memory](#3-core-and-memory)
-  - [`std.spark` — process I/O, conversions and control](#stdspark-process-io-conversions-and-control)
-  - [`std.memoria` — raw heap blocks](#stdmemoria-raw-heap-blocks)
-  - [`std.consortium` — shared ownership by reference count](#stdconsortium-shared-ownership-by-reference-count)
-  - [`std.oracle` — `maybe` and `result`](#stdoracle-maybe-and-result)
-  - [`std.builder` — `StringBuilder`](#stdbuilder-stringbuilder)
-  - [`std.arena` — bump allocator](#stdarena-bump-allocator)
-  - [`std.functor` — functions with context](#stdfunctor-functions-with-context)
-  - [`std.sourcemap` — byte offsets ↔ line/column](#stdsourcemap-byte-offsets-linecolumn)
-  - [`std.bitset` — fixed-length dense bit set](#stdbitset-fixed-length-dense-bit-set)
-  - [`std.diagnostic` — spans, labels and renderers](#stddiagnostic-spans-labels-and-renderers)
-- [4. Text and numbers](#4-text-and-numbers)
-  - [`std.scrolls` — strings, byte-oriented](#stdscrolls-strings-byte-oriented)
-  - [`std.lingua` — UTF-8 over codepoints](#stdlingua-utf-8-over-codepoints)
-  - [`std.littera` — methods on `char`](#stdlittera-methods-on-char)
-  - [`std.logica` — methods on `bool`](#stdlogica-methods-on-bool)
-  - [`std.integrum` — methods on integers](#stdintegrum-methods-on-integers)
-  - [`std.fractio` — methods on floats](#stdfractio-methods-on-floats)
-  - [`std.numerus` — methods on every number](#stdnumerus-methods-on-every-number)
-  - [`std.arithmancy` — vectors, matrices, quaternions](#stdarithmancy-vectors-matrices-quaternions)
-  - [`std.lot` — pseudo-random numbers](#stdlot-pseudo-random-numbers)
-- [5. Collections](#5-collections)
-  - [`std.loom` — list algorithms, safe family](#stdloom-list-algorithms-safe-family)
-  - [`std.tally` — list algorithms, concrete family](#stdtally-list-algorithms-concrete-family)
-  - [`std.atlas` — maps](#stdatlas-maps)
-  - [`std.coven` — sets](#stdcoven-sets)
-  - [`std.ordinal` — CC-backed containers](#stdordinal-cc-backed-containers)
-- [6. Formats and encodings](#6-formats-and-encodings)
-  - [`std.json` — strict JSON (RFC 8259)](#stdjson-strict-json-rfc-8259)
-  - [`std.cipher` — encodings and checksums](#stdcipher-encodings-and-checksums)
-  - [`std.carmen` — fixed-layout binary records](#stdcarmen-fixed-layout-binary-records)
-  - [`std.toml` — TOML 1.0](#stdtoml-toml-10)
-  - [`std.yaml` — the legacy manifest subset](#stdyaml-the-legacy-manifest-subset)
-  - [`std.ledger` — CSV and TSV](#stdledger-csv-and-tsv)
-  - [`std.compressus` — gzip, zlib, deflate](#stdcompressus-gzip-zlib-deflate)
-  - [`std.digest` — SHA-256 and friends](#stddigest-sha-256-and-friends)
-  - [`std.regulus` — small regular expressions](#stdregulus-small-regular-expressions)
-- [7. System, time and diagnostics](#7-system-time-and-diagnostics)
-  - [`std.archivum` — the file system](#stdarchivum-the-file-system)
-  - [`std.compass` — paths](#stdcompass-paths)
-  - [`std.rites` — the operating system](#stdrites-the-operating-system)
-  - [`std.invoke` — typed command-line parsing](#stdinvoke-typed-command-line-parsing)
-  - [`std.io` — byte-exact standard I/O](#stdio-byte-exact-standard-io)
-  - [`std.net` — TCP sockets](#stdnet-tcp-sockets)
-  - [`std.chronicle` — clocks and calendars](#stdchronicle-clocks-and-calendars)
-  - [`std.chrono` — instants and durations (vaqt)](#stdchrono-instants-and-durations-vaqt)
-  - [`std.whisper` — leveled logging](#stdwhisper-leveled-logging)
-- [8. Testing](#8-testing)
-  - [`std.ward` — assertions for tests and guards](#stdward-assertions-for-tests-and-guards)
-  - [`std.trial` — suites and reporting](#stdtrial-suites-and-reporting)
-- [9. Concurrency](#9-concurrency)
-  - [`std.filum` — threads and synchronization](#stdfilum-threads-and-synchronization)
-  - [`std.coro` — stackful coroutines](#stdcoro-stackful-coroutines)
-  - [`std.reactor` — explicit event loop](#stdreactor-explicit-event-loop)
-- [10. Network services](#10-network-services)
-  - [`std.petitio` — HTTP client](#stdpetitio-http-client)
-  - [`std.jsonrpc` — JSON-RPC 2.0](#stdjsonrpc-json-rpc-20)
-- [11. Interop and native code](#11-interop-and-native-code)
-  - [`std.ffi` — C buffers and strings](#stdffi-c-buffers-and-strings)
-  - [`std.ffi_call` — libffi dynamic calls (optional)](#stdffi_call-libffi-dynamic-calls-optional)
-  - [`std.dynlib` — dynamic library loading](#stddynlib-dynamic-library-loading)
-  - [`std.secrets` — libsodium primitives (optional)](#stdsecrets-libsodium-primitives-optional)
-- [12. WebAssembly](#12-webassembly)
-  - [`std.web` — the browser bridge](#stdweb-the-browser-bridge)
-  - [`std.web.js` — JavaScript interop](#stdwebjs-javascript-interop)
-  - [`std.web.dom` — elements and listeners](#stdwebdom-elements-and-listeners)
-  - [`std.web.event` — typed event accessors](#stdwebevent-typed-event-accessors)
-  - [`std.web.canvas` — Canvas 2D](#stdwebcanvas-canvas-2d)
-  - [`std.web.browser` — window APIs](#stdwebbrowser-window-apis)
-  - [`std.web.location` — `window.location`](#stdweblocation-windowlocation)
-  - [`std.web.history` — `window.history`](#stdwebhistory-windowhistory)
-  - [`std.web.router` — hash routing](#stdwebrouter-hash-routing)
-  - [`std.web.http` — `fetch`](#stdwebhttp-fetch)
-  - [`std.web.npm` — NPM facade](#stdwebnpm--npm-facade)
-  - [`std.web.capacitor` — Capacitor adapter](#stdwebcapacitor--capacitor-adapter)
-  - [`std.web.websocket` — typed WebSocket client](#stdwebwebsocket-typed-websocket-client)
-  - [`std.web.storage` — localStorage and sessionStorage](#stdwebstorage-localstorage-and-sessionstorage)
-  - [`std.web.file` — picking, reading, downloading](#stdwebfile-picking-reading-downloading)
-  - [`std.web.clipboard` — system clipboard](#stdwebclipboard-system-clipboard)
-  - [`std.web.crypto` — browser cryptography](#stdwebcrypto-browser-cryptography)
-  - [`std.web.url` — URL parsing and encoding (also native)](#stdweburl-url-parsing-and-encoding-also-native)
-  - [`std.web.security` — defensive string helpers (also native)](#stdwebsecurity-defensive-string-helpers-also-native)
-- [13. Optional and native dependencies](#13-optional-and-native-dependencies)
-  - [Internal binding files](#internal-binding-files)
-- [14. The complete index](#14-the-complete-index)
-- [Appendix A — Import cheat sheet](#appendix-a-import-cheat-sheet)
-- [Appendix B — Ownership when calling the standard library](#appendix-b-ownership-when-calling-the-standard-library)
-  - [Copy-on-write containers](#copy-on-write-containers)
-- [Appendix C — Naming conventions in the standard library](#appendix-c-naming-conventions-in-the-standard-library)
-<!-- /toc -->
+1. [Sección CORE](#core)
+2. [`integrum` — Int](#integrum)
+3. [`floatem` — Float](#floatem)
+4. [`littera` — Char](#littera)
+5. [`verbum` — String / Str](#verbum)
+6. [`capsa` — Vec](#capsa)
+7. [`tabula` — Map](#tabula)
+8. [`fasciculus` — Set](#fasciculus)
+9. [`numerus` — Matemáticas](#numerus)
+10. [`fluxus` — IO](#fluxus)
+11. [`via` — FS](#via)
+12. [`exsecutor` — Process](#exsecutor)
+13. [`ambitus` — Env](#ambitus)
+14. [`tempus` — Time](#tempus)
+15. [`nexus` — FFI](#nexus)
+16. [`vinculum` — Rc / Arc](#vinculum)
+17. [`frenum` — Sync](#frenum)
+18. [`cellula` — Cell / RefCell](#cellula)
+19. [`somnium` — Async (diferido)](#somnium)
+20. [`proba` — Test](#proba)
+21. [`opera` — Ops](#opera)
+22. [`funis` — Iter](#funis)
+23. [`structura` — Colecciones avanzadas](#structura)
+24. [`libra` — TOML](#libra)
+25. [`iason` — JSON](#iason)
+26. [`digestum` — Hash y checksums](#digestum)
+27. [`versio` — SemVer](#versio)
+28. [`terminus` — Terminal](#terminus)
+29. [`globus` — Glob](#globus)
+30. [`archivum` — Archivos tar/zip](#archivum)
+31. [`rete` — Red, TLS y HTTP](#rete)
+32. [Notas de implementación](#implementacion)
 
-Every module that ships with `psc` 0.60.0: what it is for, when to reach for
-it, and where its generated API lives.
+---
 
-## 0. How to use this catalogue
+<a id="core"></a>
+## 1. Sección CORE
 
-The standard library is documented twice, on purpose:
+Estos módulos y métodos son **indispensables** para que el lenguaje compile y ejecute programas reales. Se implementan primero, en este orden:
 
-| Layer | Answers | Where |
-| --- | --- | --- |
-| **This catalogue** | Which module do I use, and why? When should I *not* use it? | `docs/STDLIB.md` |
-| **Generated API** | What is the exact signature of `scrolls.substring`? | [`docs/api/std_scrolls.md`](api/std_scrolls.md) |
+1. `integrum` (Int): operaciones básicas, `abs`, `pow`, `min`, `max`, `clamp`, `to_float`.
+2. `floatem` (Float): aritmética, `sqrt`, `pow`, `abs`, `floor`, `ceil`, `round`, `sin`, `cos`, `tan`, `clamp`, `lerp`.
+3. `verbum` (String/Str): `len`, `is_empty`, `chars`, `trim`, `split`, `contains`, `starts_with`, `ends_with`, `replace`, `parse`, `to_string`.
+4. `capsa` (Vec): `new`, `with_capacity`, `push`, `pop`, `get`, `insert`, `remove`, `len`, `is_empty`, `iter`, `sort`, `contains`, `retain`.
+5. `tabula` (Map): `new`, `insert`, `get`, `get_mut`, `remove`, `contains_key`, `len`, `iter`.
+6. `fasciculus` (Set): `new`, `insert`, `contains`, `remove`, `len`, `iter`.
+7. `fluxus` (IO): `print`, `println`, `format`, `read_line`, `stdin`, `stdout`, `stderr`.
+8. `numerus` (Math): constantes `PI`, `E`, `TAU`; `sqrt`, `pow`, `sin`, `cos`, `tan`, `abs`, `floor`, `ceil`, `round`, `min`, `max`, `clamp`.
+9. `proba` (Test): `assert`, `assert_eq`, `assert_ne`, `panic`.
 
-The generated pages are produced by `psc doc --include-std` from the `##`
-comments in `std/*.pengu`; they are regenerated by `tools/docs/gen_api.sh` and
-checked in CI. This catalogue is hand-written and links to them.
+### 1.1 CORE de auto-hospedaje (H3/H4)
 
-Every entry has the same shape:
+Estos módulos no bloquean el compilador inicial, pero sí el CLI auto-hospedado:
 
-```
-### `std.name` — one line
-**Use it when** …
-**Avoid it when** …
-**Highlights** the five function names you will type most
-**API** [link to the generated page] · [source]
-```
+1. `libra` (TOML): `parse`, `stringify`, `TomlTable.get`, `TomlTable.insert`.
+2. `iason` (JSON): `parse`, `stringify`, `JsonObject.get`.
+3. `digestum` (hash): `sha256`, `Sha256`, `sha256_hex`.
+4. `versio` (SemVer): `Version.parse`, `VersionReq.parse`, `VersionReq.matches`.
+5. `terminus` (terminal): `is_tty`, `size`, `enable_raw_mode`, `read_key`.
+6. `globus` (glob): `glob`, `glob_in`.
+7. `archivum` (archivos): `list`, `extract`, `create`, `ArchiveWriter.add_file`, `finish`.
+8. `rete` (red): `TcpListener.bind`, `TcpStream.connect`, `TcpStream.read/write`, `TlsStream.connect`, `HttpClient.get`.
+9. ~~`via.walk` (FS): recorrido recursivo para `globus`, `archivum` y el CLI.~~ Hecho en T1
+   (`WalkOptions` + `walk`/`walk_files`/`walk_dirs`).
+10. ~~`exsecutor` (Process): `which` y `Child.wait_with_output`.~~ Hecho en T3, junto con
+    `Stdio` y la redirección de los tres flujos.
 
-**Version.** This catalogue describes `psc` 0.60.0 and the `std/` tree in the
-same commit. A module version constant (`TRIAL_VERSION`, `CARMEN_VERSION`, …)
-is the module's own API version, not the compiler's.
+Todo lo demás puede diferirse sin bloquear un “hello world” y un CLI básico.
 
-**Importing.** Standard modules are imported explicitly:
+---
+
+<a id="integrum"></a>
+## 2. `integrum` — Int
+
+**Archivo:** `std/integrum.pengu`
+**Implementación:** `ritual Int` en `std` (permitido por D35). Núcleo: métodos intrínsecos del compilador.
+
+> **Nota de implementación (A1).** En las firmas, `UInt` es el entero sin signo del
+> ancho de `Int`, es decir `U32`; el nombre `UInt` sigue reservado como alias
+> documental hasta que la sintaxis de alias de `std` lo cubra (fase A2). Las
+> constantes `Int.MIN/MAX/BITS` y las funciones asociadas
+> `Int.from_str`/`Int.from_str_radix` ya están implementadas.
+
+| Método | Firma | Descripción | CORE |
+|---|---|---|---|
+| `abs` | `(@own) -> Int` | Valor absoluto; panic si es `MIN`. | ✅ |
+| `pow` | `(@own, exp: UInt) -> Int` | Potencia entera; panic si desborda. | ✅ |
+| `min` | `(@own, other: Int) -> Int` | Mínimo. | ✅ |
+| `max` | `(@own, other: Int) -> Int` | Máximo. | ✅ |
+| `clamp` | `(@own, lo: Int, hi: Int) -> Int` | Restringe al rango `[lo, hi]`. | ✅ |
+| `signum` | `(@own) -> Int` | `-1`, `0` o `1`. | |
+| `is_even` | `(@own) -> Bool` | Par. | |
+| `is_odd` | `(@own) -> Bool` | Impar. | |
+| `is_power_of_two` | `(@own) -> Bool` | Potencia de dos. | |
+| `div_ceil` | `(@own, other: Int) -> Int` | División hacia arriba. | |
+| `unsigned_abs` | `(@own) -> UInt` | Valor absoluto como `UInt`. | |
+| `is_positive` | `(@own) -> Bool` | `> 0`. | |
+| `is_negative` | `(@own) -> Bool` | `< 0`. | |
+| `to_octal` | `(@) -> String` | Representación octal. | |
+| `to_radix` | `(@, radix: UInt) -> String` | Representación en base 2..=36. | |
+| `from_str_radix` | `(s: &Str, radix: UInt) -> Option[Int]` | Parseo en base explícita. | ✅ |
+| `div_euclid` | `(@own, other: Int) -> Int` | División euclidiana. | |
+| `rem_euclid` | `(@own, other: Int) -> Int` | Resto euclidiano. | |
+| `abs_diff` | `(@own, other: Int) -> UInt` | Diferencia absoluta sin desbordar. | |
+| `checked_div` | `(@own, other: Int) -> Option[Int]` | División con comprobación. | |
+| `checked_rem` | `(@own, other: Int) -> Option[Int]` | Resto con comprobación. | |
+| `checked_neg` | `(@own) -> Option[Int]` | Negación con comprobación. | |
+| `checked_abs` | `(@own) -> Option[Int]` | Valor absoluto con comprobación. | |
+| `checked_pow` | `(@own, exp: UInt) -> Option[Int]` | Potencia con comprobación. | |
+| `wrapping_div` | `(@own, other: Int) -> Int` | División envolvente. | |
+| `wrapping_rem` | `(@own, other: Int) -> Int` | Resto envolvente. | |
+| `wrapping_neg` | `(@own) -> Int` | Negación envolvente. | |
+| `wrapping_pow` | `(@own, exp: UInt) -> Int` | Potencia envolvente. | |
+| `saturating_div` | `(@own, other: Int) -> Int` | División saturada. | |
+| `saturating_pow` | `(@own, exp: UInt) -> Int` | Potencia saturada. | |
+| `overflowing_add` | `(@own, other: Int) -> (Int, Bool)` | Suma y bandera de desbordamiento. | |
+| `overflowing_sub` | `(@own, other: Int) -> (Int, Bool)` | Resta y bandera. | |
+| `overflowing_mul` | `(@own, other: Int) -> (Int, Bool)` | Producto y bandera. | |
+| `overflowing_neg` | `(@own) -> (Int, Bool)` | Negación y bandera. | |
+| `count_ones` | `(@own) -> UInt` | Bits en 1. | |
+| `count_zeros` | `(@own) -> UInt` | Bits en 0. | |
+| `leading_zeros` | `(@own) -> UInt` | Ceros iniciales. | |
+| `trailing_zeros` | `(@own) -> UInt` | Ceros finales. | |
+| `rotate_left` | `(@own, n: UInt) -> Int` | Rotación a la izquierda. | |
+| `rotate_right` | `(@own, n: UInt) -> Int` | Rotación a la derecha. | |
+| `swap_bytes` | `(@own) -> Int` | Intercambia bytes. | |
+| `reverse_bits` | `(@own) -> Int` | Invierte bits. | |
+| `next_power_of_two` | `(@own) -> Int` | Siguiente potencia de 2. | |
+| `checked_next_power_of_two` | `(@own) -> Option[Int]` | Siguiente potencia o `none`. | |
+| `ilog2` | `(@own) -> UInt` | Logaritmo base 2 entero. | |
+| `ilog10` | `(@own) -> UInt` | Logaritmo base 10 entero. | |
+| `BITS` | `sigil` | Ancho en bits. | ✅ |
+| `to_float` | `(@own) -> Float` | Conversión a `Float`. | ✅ |
+| `to_string` | `(@) -> String` | Representación decimal. | ✅ |
+| `to_hex` | `(@) -> String` | Representación hexadecimal. | |
+| `to_binary` | `(@) -> String` | Representación binaria. | |
+| `checked_add` | `(@own, other: Int) -> Option[Int]` | Suma con comprobación. | |
+| `checked_sub` | `(@own, other: Int) -> Option[Int]` | Resta con comprobación. | |
+| `checked_mul` | `(@own, other: Int) -> Option[Int]` | Producto con comprobación. | |
+| `wrapping_add` | `(@own, other: Int) -> Int` | Suma envolvente. | |
+| `wrapping_sub` | `(@own, other: Int) -> Int` | Resta envolvente. | |
+| `wrapping_mul` | `(@own, other: Int) -> Int` | Producto envolvente. | |
+| `saturating_add` | `(@own, other: Int) -> Int` | Suma saturada. | |
+| `saturating_sub` | `(@own, other: Int) -> Int` | Resta saturada. | |
+| `saturating_mul` | `(@own, other: Int) -> Int` | Producto saturado. | |
+| `gcd` | `(@own, other: Int) -> Int` | Máximo común divisor. | |
+| `lcm` | `(@own, other: Int) -> Int` | Mínimo común múltiplo. | |
+| `factorial` | `(@own) -> Int` | Factorial; panic si desborda. | |
+| `digits` | `(@own) -> Vec[U8]` | Dígitos decimales. | |
+| `from_str` | `(s: &Str) -> Option[Int]` | Parseo; `none` si no es válido. | ✅ |
+| `MIN` / `MAX` | `sigil` | Límites del tipo. | ✅ |
+
+**Encadenamiento:** `42.abs().to_string().len()` funciona porque `abs` devuelve `Int`, `to_string` devuelve `String` y `len` es de `verbum`.
+
+---
+
+<a id="floatem"></a>
+## 3. `floatem` — Float
+
+**Archivo:** `std/floatem.pengu`
+**Implementación:** `ritual Float` en `std`. Núcleo: intrínsecos.
+
+| Método | Firma | Descripción | CORE |
+|---|---|---|---|
+| `abs` | `(@own) -> Float` | Valor absoluto. | ✅ |
+| `sqrt` | `(@own) -> Float` | Raíz cuadrada. | ✅ |
+| `pow` | `(@own, exp: Float) -> Float` | Potencia. | ✅ |
+| `powi` | `(@own, exp: Int) -> Float` | Potencia entera. | |
+| `sin` / `cos` / `tan` | `(@own) -> Float` | Trigonometría (radianes). | ✅ |
+| `asin` / `acos` / `atan` | `(@own) -> Float` | Inversas. | |
+| `atan2` | `(@own, x: Float) -> Float` | Ángulo de `(x, y)`. | |
+| `sinh` / `cosh` / `tanh` | `(@own) -> Float` | Hiperbólicas. | |
+| `floor` | `(@own) -> Float` | Suelo. | ✅ |
+| `ceil` | `(@own) -> Float` | Techo. | ✅ |
+| `round` | `(@own) -> Float` | Redondeo al más cercano. | ✅ |
+| `trunc` | `(@own) -> Float` | Parte entera. | |
+| `fract` | `(@own) -> Float` | Parte fraccionaria. | |
+| `min` / `max` | `(@own, other: Float) -> Float` | Mínimo / máximo. | ✅ |
+| `clamp` | `(@own, lo: Float, hi: Float) -> Float` | Restringe. | ✅ |
+| `lerp` | `(@own, other: Float, t: Float) -> Float` | Interpolación lineal: `self + (other - self) * t`. | ✅ |
+| `smoothstep` | `(@own, edge0: Float, edge1: Float) -> Float` | Suavizado de Hermite. | |
+| `is_nan` | `(@own) -> Bool` | `NaN`. | |
+| `is_infinite` | `(@own) -> Bool` | Infinito. | |
+| `is_finite` | `(@own) -> Bool` | Finito. | |
+| `is_sign_positive` | `(@own) -> Bool` | Signo positivo (incluye `+0.0`). | |
+| `is_sign_negative` | `(@own) -> Bool` | Signo negativo (incluye `-0.0`). | |
+| `classify` | `(@own) -> FloatClass` | `NaN`, `Infinite`, `Zero`, `Subnormal`, `Normal`. | |
+| `to_bits` | `(@own) -> U64` | Representación IEEE 754. | |
+| `from_bits` | `(bits: U64) -> Float` | Reconstruye desde bits. | ✅ |
+| `next_up` | `(@own) -> Float` | Siguiente valor representable. | |
+| `next_down` | `(@own) -> Float` | Valor representable anterior. | |
+| `round_ties_even` | `(@own) -> Float` | Redondeo bancario. | |
+| `exp` | `(@own) -> Float` | `e^self`. | |
+| `exp2` | `(@own) -> Float` | `2^self`. | |
+| `ln` | `(@own) -> Float` | Logaritmo natural. | |
+| `log2` | `(@own) -> Float` | Logaritmo base 2. | |
+| `log10` | `(@own) -> Float` | Logaritmo base 10. | |
+| `log` | `(@own, base: Float) -> Float` | Logaritmo en base arbitraria. | |
+| `ln_1p` | `(@own) -> Float` | `ln(1 + self)` preciso. | |
+| `exp_m1` | `(@own) -> Float` | `e^self - 1` preciso. | |
+| `cbrt` | `(@own) -> Float` | Raíz cúbica. | |
+| `hypot` | `(@own, other: Float) -> Float` | `sqrt(self² + other²)` sin desbordar. | |
+| `recip` | `(@own) -> Float` | `1 / self`. | |
+| `signum` | `(@own) -> Float` | `-1.0`, `0.0` o `1.0`. | |
+| `copysign` | `(@own, sign: Float) -> Float` | Magnitud propia, signo de `sign`. | |
+| `mul_add` | `(@own, a: Float, b: Float) -> Float` | `self * a + b` con una sola operación. | |
+| `sin_cos` | `(@own) -> (Float, Float)` | Seno y coseno a la vez. | |
+| `asinh` | `(@own) -> Float` | Seno hiperbólico inverso. | |
+| `acosh` | `(@own) -> Float` | Coseno hiperbólico inverso. | |
+| `atanh` | `(@own) -> Float` | Tangente hiperbólica inversa. | |
+| `EPSILON` | `sigil` | Diferencia mínima representable. | ✅ |
+| `MIN` / `MAX` | `sigil` | Valores finitos mínimo/máximo. | ✅ |
+| `MIN_POSITIVE` | `sigil` | Menor positivo normal. | ✅ |
+| `to_radians` | `(@own) -> Float` | Grados → radianes. | |
+| `to_degrees` | `(@own) -> Float` | Radianes → grados. | |
+| `to_int` | `(@own) -> Int` | Trunca a entero. | ✅ |
+| `to_string` | `(@) -> String` | Representación decimal. | ✅ |
+| `total_cmp` | `(@, other: &Float) -> Ordering` | Orden total (maneja `NaN`). | |
+| `NAN` / `INFINITY` / `NEG_INFINITY` | `sigil` | Constantes. | ✅ |
+| `from_str` | `(s: &Str) -> Option[Float]` | Parseo; `none` si no es válido. | ✅ |
+
+`FloatClass` es un `enchanting` de `std.floatem`: `NaN`, `Infinite`, `Zero`, `Subnormal`, `Normal`.
+
+> **Nota de implementación (A1–A2).** Las constantes asociadas
+> (`Float.EPSILON`, `Float.MAX`, …), las funciones asociadas
+> (`Float.from_str`, `Float.from_bits`) y las variantes calificadas
+> (`FloatClass.NaN` en expresión y en patrón) ya están implementadas.
+> `classify` devuelve `FloatClass.NaN`/`Infinite`/`Zero`/`Subnormal`/`Normal`, y
+> un `match` sobre el resultado es exhaustivo sin `else`.
+
+**Encadenamiento:** `(3.0).sqrt().lerp(4.0, 0.5).to_int()`.
+
+---
+
+<a id="littera"></a>
+## 4. `littera` — Char
+
+**Archivo:** `std/littera.pengu`
+**Implementación:** `ritual Char` en `std`.
+
+| Método | Firma | Descripción | CORE |
+|---|---|---|---|
+| `is_ascii` | `(@own) -> Bool` | ASCII. | |
+| `is_alphabetic` | `(@own) -> Bool` | Letra Unicode. | |
+| `is_numeric` | `(@own) -> Bool` | Dígito Unicode. | |
+| `is_alphanumeric` | `(@own) -> Bool` | Letra o dígito. | |
+| `is_whitespace` | `(@own) -> Bool` | Espacio. | |
+| `is_uppercase` | `(@own) -> Bool` | Mayúscula. | |
+| `is_lowercase` | `(@own) -> Bool` | Minúscula. | |
+| `to_uppercase` | `(@own) -> Char` | Mayúscula. | |
+| `to_lowercase` | `(@own) -> Char` | Minúscula. | |
+| `to_digit` | `(@own, radix: UInt) -> Option[UInt]` | Valor numérico. | |
+| `to_string` | `(@) -> String` | String de un carácter. | ✅ |
+| `len_utf8` | `(@own) -> Usize` | Bytes UTF-8. | |
+| `len_utf16` | `(@own) -> Usize` | Unidades UTF-16. | |
+| `encode_utf8` | `(@own, buf: &mut [U8]) -> Usize` | Codifica en un buffer. | |
+| `escape_default` | `(@own) -> String` | Escape legible para depuración. | |
+| `escape_unicode` | `(@own) -> String` | Escape `\u{...}`. | |
+| `is_control` | `(@own) -> Bool` | Carácter de control. | |
+| `is_punctuation` | `(@own) -> Bool` | Puntuación Unicode. | |
+| `is_symbol` | `(@own) -> Bool` | Símbolo Unicode. | |
+| `is_math` | `(@own) -> Bool` | Símbolo matemático. | |
+| `is_currency` | `(@own) -> Bool` | Símbolo monetario. | |
+| `is_ascii_digit` | `(@own) -> Bool` | Dígito ASCII. | |
+| `is_ascii_alphabetic` | `(@own) -> Bool` | Letra ASCII. | |
+| `is_ascii_alphanumeric` | `(@own) -> Bool` | Letra o dígito ASCII. | |
+| `is_ascii_whitespace` | `(@own) -> Bool` | Espacio ASCII. | |
+| `is_ascii_control` | `(@own) -> Bool` | Control ASCII. | |
+| `is_ascii_punctuation` | `(@own) -> Bool` | Puntuación ASCII. | |
+| `is_ascii_hexdigit` | `(@own) -> Bool` | Dígito hexadecimal ASCII. | |
+| `is_ascii_graphic` | `(@own) -> Bool` | ASCII imprimible no espacio. | |
+| `is_ascii_uppercase` | `(@own) -> Bool` | Mayúscula ASCII. | |
+| `is_ascii_lowercase` | `(@own) -> Bool` | Minúscula ASCII. | |
+| `to_ascii_uppercase` | `(@own) -> Char` | Mayúscula ASCII. | |
+| `to_ascii_lowercase` | `(@own) -> Char` | Minúscula ASCII. | |
+| `eq_ignore_ascii_case` | `(@own, other: Char) -> Bool` | Igualdad sin distinguir mayúsculas. | |
+| `from_u32` | `(code: U32) -> Option[Char]` | Desde escalar Unicode. | ✅ |
+| `from_digit` | `(digit: U32, radix: UInt) -> Option[Char]` | Desde dígito en base. | ✅ |
+
+> **Nota de implementación (A1).** `Char.from_u32` y `Char.from_digit` ya están
+> implementadas como funciones asociadas. `encode_utf8` sigue diferido porque
+> necesita un slice mutable (`&mut [U8]`), pendiente de la fase A5.
+
+---
+
+<a id="veritas"></a>
+## 4.1. `veritas` — Bool
+
+**Archivo:** `std/veritas.pengu`
+**Implementación:** `ritual Bool` en `std`.
+
+| Método | Firma | Descripción |
+|---|---|---|
+| `switch` | `(@own) -> Bool` | Negación como método (`not @`). |
+| `to_int` | `(@own) -> Int` | `1` si es `true`, `0` si no. |
+| `to_string` | `(@) -> String` | `"true"` / `"false"`. |
+| `xor` | `(@own, other: Bool) -> Bool` | O exclusivo. |
+| `implies` | `(@own, other: Bool) -> Bool` | Implicación lógica (`not @ or other`). |
+| `nand` | `(@own, other: Bool) -> Bool` | `not (@ and other)`. |
+| `nor` | `(@own, other: Bool) -> Bool` | `not (@ or other)`. |
+| `then_int` | `(@own, when_true: Int, when_false: Int) -> Int` | Elige un entero. |
+| `to_float` | `(@own) -> Float` | `1.0` / `0.0`. |
+
+> **Nota de implementación (S1).** `to_string` es intrínseco (`b_to_string`)
+> porque un literal `"true"` es `Str` y el retorno declarado es `String`: la
+> coerción `Str → String` todavía no existe (riesgo R1 del plan). El resto de
+> métodos son cuerpo Pengu puro.
+
+---
+
+<a id="verbum"></a>
+## 5. `verbum` — String / Str
+
+**Archivo:** `std/verbum.pengu`
+**Implementación:** `ritual Str` (vista) y `ritual String` (owned) en `std`. `String` delega en `Str` cuando es posible.
+
+### 5.1 `Str` (vista prestada)
+
+| Método | Firma | Descripción | CORE |
+|---|---|---|---|
+| `len` | `(@) -> Usize` | Longitud en bytes. | ✅ |
+| `is_empty` | `(@) -> Bool` | Vacío. | ✅ |
+| `chars` | `(@) -> Iter[Char]` | Iterador de caracteres. | ✅ |
+| `bytes` | `(@) -> Iter[U8]` | Iterador de bytes. | ✅ |
+| `char_indices` | `(@) -> Iter[(Usize, Char)]` | Índice + carácter. | ✅ |
+| `trim` | `(@) -> Str` | Sin espacios al inicio/fin. | ✅ |
+| `trim_start` | `(@) -> Str` | Sin espacios al inicio. | |
+| `trim_end` | `(@) -> Str` | Sin espacios al final. | |
+| `split` | `(@, sep: &Str) -> Vec[Str]` | Divide por separador. | ✅ |
+| `split_whitespace` | `(@) -> Vec[Str]` | Divide por espacios. | ✅ |
+| `lines` | `(@) -> Vec[Str]` | Líneas. | |
+| `starts_with` | `(@, prefix: &Str) -> Bool` | Prefijo. | ✅ |
+| `ends_with` | `(@, suffix: &Str) -> Bool` | Sufijo. | ✅ |
+| `contains` | `(@, pat: &Str) -> Bool` | Subcadena. | ✅ |
+| `find` | `(@, pat: &Str) -> Option[Usize]` | Posición de la primera aparición. | |
+| `rfind` | `(@, pat: &Str) -> Option[Usize]` | Última aparición. | |
+| `replace` | `(@, from: &Str, to: &Str) -> String` | Reemplazo. | ✅ |
+| `to_lowercase` | `(@) -> String` | Minúsculas. | ✅ |
+| `to_uppercase` | `(@) -> String` | Mayúsculas. | ✅ |
+| `parse[T]` | `(@) -> Result[T, ParseError]` | Parseo genérico. | ✅ |
+| `get` | `(@, range: Range[Usize]) -> Option[Str]` | Subcadena por bytes. | ✅ |
+| `chars_count` | `(@) -> Usize` | Número de caracteres. | |
+| `splitn` | `(@, n: Usize, sep: &Str) -> Vec[Str]` | Divide como máximo en `n` partes. | |
+| `rsplit` | `(@, sep: &Str) -> Vec[Str]` | Divide desde el final. | |
+| `rsplitn` | `(@, n: Usize, sep: &Str) -> Vec[Str]` | Divide desde el final, máximo `n`. | |
+| `split_terminator` | `(@, sep: &Str) -> Vec[Str]` | Como `split`, sin el vacío final. | |
+| `split_ascii_whitespace` | `(@) -> Vec[Str]` | Divide por espacios ASCII. | |
+| `matches` | `(@, pat: &Str) -> Iter[Str]` | Apariciones solapadas no. | |
+| `match_indices` | `(@, pat: &Str) -> Iter[(Usize, Str)]` | Posición y aparición. | |
+| `replacen` | `(@, from: &Str, to: &Str, n: Usize) -> String` | Reemplaza como máximo `n`. | |
+| `strip_prefix` | `(@, prefix: &Str) -> Option[Str]` | Quita prefijo si existe. | |
+| `strip_suffix` | `(@, suffix: &Str) -> Option[Str]` | Quita sufijo si existe. | |
+| `trim_matches` | `(@, ch: Char) -> Str` | Recorta el carácter en ambos extremos. | |
+| `trim_start_matches` | `(@, ch: Char) -> Str` | Recorta al inicio. | |
+| `trim_end_matches` | `(@, ch: Char) -> Str` | Recorta al final. | |
+| `is_char_boundary` | `(@, index: Usize) -> Bool` | Índice cae en frontera UTF-8. | |
+| `as_bytes` | `(@) -> Vec[U8]` | Bytes UTF-8 (copia: no hay slices en la superficie). | ✅ |
+| `to_ascii_lowercase` | `(@) -> String` | Minúsculas solo ASCII. | |
+| `to_ascii_uppercase` | `(@) -> String` | Mayúsculas solo ASCII. | |
+| `eq_ignore_ascii_case` | `(@, other: &Str) -> Bool` | Igualdad ASCII sin mayúsculas. | |
+| `capitalize` | `(@) -> String` | Primera letra mayúscula, resto minúsculas. | |
+| `title` | `(@) -> String` | Capitaliza cada palabra. | |
+| `center` | `(@, width: Usize, fill: Char) -> String` | Centra en `width`. | |
+| `ljust` | `(@, width: Usize, fill: Char) -> String` | Alinea a la izquierda. | |
+| `rjust` | `(@, width: Usize, fill: Char) -> String` | Alinea a la derecha. | |
+| `zfill` | `(@, width: Usize) -> String` | Rellena con ceros a la izquierda. | |
+| `partition` | `(@, sep: &Str) -> (Str, Str, Str)` | Antes, separador y después. | |
+| `rpartition` | `(@, sep: &Str) -> (Str, Str, Str)` | Partición desde el final. | |
+| `splitlines` | `(@) -> Vec[Str]` | Líneas sin terminadores. | |
+| `isalpha` | `(@) -> Bool` | Solo letras. | |
+| `isdigit` | `(@) -> Bool` | Solo dígitos. | |
+| `isalnum` | `(@) -> Bool` | Letras o dígitos. | |
+| `isspace` | `(@) -> Bool` | Solo espacios. | |
+| `islower` | `(@) -> Bool` | Tiene minúsculas y ninguna mayúscula. | |
+| `isupper` | `(@) -> Bool` | Tiene mayúsculas y ninguna minúscula. | |
+| `istitle` | `(@) -> Bool` | Formato título. | |
+| `starts_with_ignore_case` | `(@, prefix: &Str) -> Bool` | Prefijo sin distinguir mayúsculas. | |
+| `to_string` | `(@) -> String` | Copia owned. | ✅ |
+
+### 5.2 `String` (owned)
+
+| Método | Firma | Descripción | CORE |
+|---|---|---|---|
+| `new` | `() -> String` | Vacío. | ✅ |
+| `with_capacity` | `(n: Usize) -> String` | Capacidad reservada. | |
+| `from` | `(s: &Str) -> String` | Copia. | ✅ |
+| `push` | `(@mut, c: Char)` | Añade carácter. | ✅ |
+| `push_str` | `(@mut, s: &Str)` | Añade string. | ✅ |
+| `pop` | `(@mut) -> Option[Char]` | Quita último carácter. | |
+| `clear` | `(@mut)` | Vacía. | |
+| `insert` | `(@mut, idx: Usize, c: Char)` | Inserta carácter. | |
+| `insert_str` | `(@mut, idx: Usize, s: &Str)` | Inserta string. | |
+| `remove` | `(@mut, idx: Usize) -> Char` | Quita carácter. | |
+| `truncate` | `(@mut, new_len: Usize)` | Trunca. | |
+| `as_str` | `(@) -> &Str` | Vista. | ✅ |
+| `into_bytes` | `(@own) -> Vec[U8]` | Bytes. | |
+| `from_utf8` | `(bytes: Vec[U8]) -> Result[String, FromUtf8Error]` | Desde bytes. | |
+| `repeat` | `(@, n: Usize) -> String` | Repite. | |
+| `reserve` | `(@mut, additional: Usize)` | Reserva capacidad. | |
+| `shrink_to_fit` | `(@mut)` | Ajusta capacidad. | |
+| `capacity` | `(@) -> Usize` | Capacidad actual. | |
+| `as_bytes` | `(@) -> Vec[U8]` | Bytes UTF-8 (copia: no hay slices en la superficie). | ✅ |
+| `split_at` | `(@, mid: Usize) -> (Str, Str)` | Divide en dos vistas. | ✅ |
+| `split_off` | `(@mut, at: Usize) -> String` | Divide y devuelve la cola. | |
+| `drain` | `(@mut, range: Range[Usize]) -> Drain[Char]` | Extrae un rango. | |
+| `replace_range` | `(@mut, range: Range[Usize], replace_with: &Str)` | Reemplaza un rango. | |
+| `retain` | `(@mut, f: (Char) -> Bool)` | Conserva caracteres que cumplen. | |
+| `from_utf8_lossy` | `(bytes: &[U8]) -> String` | Decodifica reemplazando inválidos. | |
+| `extend` | `(@mut, other: &Str)` | Añade otro string. | |
+
+**Encadenamiento:** `"  hola, mundo  ".trim().split(",").len()`.
+
+**Nota de implementación (S2, A6).** `std/verbum.pengu` implementa 53 métodos de
+`Str` y 22 de `String` como intrínsecos `abi "pengu"` (`s_*`/`str_*`): en esta
+fase no hay `funis` (S7) para iterar `chars()`, así que la clase dominante es
+intrínseca en lugar de cuerpo puro. `get(range)`, `split_at`, `replace_range` y
+`as_bytes` ya usan `Range[Usize]` (los límites se escriben `0_usize..4_usize`).
+Desde S7 `chars`, `bytes` y `char_indices` devuelven un `Iter[…]` (ver §22).
+Siguen diferidos por necesitar tipos que aún no existen: `matches`/`match_indices`
+(iterador de `Str` con vida ligada al origen), `parse[T]` (genérico de método),
+`split_at`/`get(range)` sobre `Range` no contiguo, `String.from_utf8*`,
+`String.drain` y `String.retain`.
+
+---
+
+<a id="capsa"></a>
+### 5.3 `optio` — `Option[T]` y `Result[T, E]`
+
+**Archivo:** `std/optio.pengu`
+**Estado:** parcial en S5. `Option[T]` y `Result[T, E]` son tipos integrados; hasta S5 no
+tenían **ningún** método declarado, así que ni siquiera `is_some()` compilaba. Este módulo
+declara los métodos cuyo nombre y firma coinciden con un método de Rust, de forma que el
+backend los pasa directamente (clase T3, cuerpo `panic("passthrough")`).
+
+| Elemento | Firma | Descripción |
+|---|---|---|
+| `Option.is_some` | `(@) -> Bool` | Tiene valor. |
+| `Option.is_none` | `(@) -> Bool` | Está vacío. |
+| `Option.unwrap_or` | `(@, fallback: T) -> T` | Valor o sustituto. |
+| `Option.unwrap_or_default` | `(@) -> T` | Valor o `T.default()`. |
+| `Option.take` | `(@mut) -> Option[T]` | Extrae y deja `none`. |
+| `Option.replace` | `(@mut, value: T) -> Option[T]` | Sustituye y devuelve el anterior. |
+| `Result.is_ok` | `(@) -> Bool` | Es `ok`. |
+| `Result.is_err` | `(@) -> Bool` | Es `err`. |
+| `Result.unwrap_or` | `(@, fallback: T) -> T` | Valor o sustituto. |
+| `Result.unwrap_or_default` | `(@) -> T` | Valor o `T.default()`. |
+
+`map`, `and_then`, `ok_or`, `unwrap`, `expect`, `or_with`/`and_with` y el resto de la
+superficie de Rust quedan para S7 (limitación N34): necesitan un trait de extensión en el
+prelude (`impl<T> Option<T>` es `E0116` en Rust) y, varios de ellos, un parámetro de tipo
+propio del método. Para consumir un `Option`/`Result` hoy se usa `match` con los patrones
+`some(v)` / `none` / `ok(v)` / `err(e)`, que sí funcionan desde S5.
+
+---
+
+## 6. `capsa` — Vec
+
+**Archivo:** `std/capsa.pengu`
+**Implementación:** `ritual[T] Vec[T]` en `std`. Paso directo a `Vec` de Rust.
+
+| Método | Firma | Descripción | CORE |
+|---|---|---|---|
+| `new` | `() -> Vec[T]` | Vacío. | ✅ |
+| `with_capacity` | `(n: Usize) -> Vec[T]` | Capacidad. | ✅ |
+| `push` | `(@mut, value: T)` | Añade al final. | ✅ |
+| `pop` | `(@mut) -> Option[T]` | Quita del final. | ✅ |
+| `get` | `(@, index: Usize) -> Option[&T]` | Acceso seguro. | ✅ |
+| `get_mut` | `(@mut, index: Usize) -> Option[&mut T]` | Acceso mutable seguro. | ✅ |
+| `insert` | `(@mut, index: Usize, value: T)` | Inserta en posición. | ✅ |
+| `remove` | `(@mut, index: Usize) -> T` | Quita en posición. | ✅ |
+| `len` | `(@) -> Usize` | Longitud. | ✅ |
+| `is_empty` | `(@) -> Bool` | Vacío. | ✅ |
+| `clear` | `(@mut)` | Vacía. | |
+| `truncate` | `(@mut, len: Usize)` | Trunca. | |
+| `reserve` | `(@mut, additional: Usize)` | Reserva. | |
+| `capacity` | `(@) -> Usize` | Capacidad. | |
+| `shrink_to_fit` | `(@mut)` | Ajusta capacidad. | |
+| `first` | `(@) -> Option[&T]` | Primer elemento. | |
+| `last` | `(@) -> Option[&T]` | Último elemento. | |
+| `iter` | `(@) -> Iter[&T]` | Iterador. | ✅ |
+| `iter_mut` | `(@mut) -> Iter[&mut T]` | Iterador mutable. | |
+| `into_iter` | `(@own) -> Iter[T]` | Iterador que consume. | |
+| `sort` | `(@mut)` | Ordena (requiere `Ord`). | ✅ |
+| `sort_by` | `(@mut, cmp: (T, T) -> Ordering)` | Ordena con comparador. | |
+| `sort_by_key` | `(@mut, key: (T) -> K)` | Ordena por clave. | |
+| `contains` | `(@, value: &T) -> Bool` | Contiene (requiere `Eq`). | ✅ |
+| `first_mut` | `(@mut) -> Option[&mut T]` | Primer elemento mutable. | |
+| `last_mut` | `(@mut) -> Option[&mut T]` | Último elemento mutable. | |
+| `as_slice` | `(@) -> &[T]` | Vista como slice. | |
+| `as_mut_slice` | `(@mut) -> &mut [T]` | Vista mutable. | |
+| `into_boxed_slice` | `(@own) -> Box[[T]]` | Convierte en slice boxed. | |
+| `swap` | `(@mut, a: Usize, b: Usize)` | Intercambia dos posiciones. | |
+| `swap_remove` | `(@mut, index: Usize) -> T` | Quita intercambiando con el último. | |
+| `resize` | `(@mut, new_len: Usize, value: T)` | Redimensiona rellenando. | |
+| `resize_with` | `(@mut, new_len: Usize, f: () -> T)` | Redimensiona generando valores. | |
+| `fill` | `(@mut, value: T)` | Rellena todo. | |
+| `drain` | `(@mut, range: Range[Usize]) -> Drain[T]` | Extrae un rango. | |
+| `splice` | `(@mut, range: Range[Usize], replace_with: Vec[T]) -> Splice[T]` | Reemplaza un rango. | |
+| `split_off` | `(@mut, at: Usize) -> Vec[T]` | Divide y devuelve la cola. | |
+| `append` | `(@mut, other: &mut Vec[T])` | Mueve todos los elementos. | |
+| `sort_unstable` | `(@mut)` | Ordena sin estabilidad. | |
+| `sort_unstable_by` | `(@mut, cmp: (T, T) -> Ordering)` | Ordena con comparador. | |
+| `sort_unstable_by_key` | `(@mut, key: (T) -> K)` | Ordena por clave. | |
+| `binary_search_by` | `(@, cmp: (T) -> Ordering) -> Result[Usize, Usize]` | Búsqueda binaria con comparador. | |
+| `binary_search_by_key` | `(@, key: &K, f: (T) -> K) -> Result[Usize, Usize]` | Búsqueda por clave. | |
+| `dedup_by` | `(@mut, same_bucket: (T, T) -> Bool)` | Deduplica con comparador. | |
+| `dedup_by_key` | `(@mut, key: (T) -> K)` | Deduplica por clave. | |
+| `rotate_left` | `(@mut, mid: Usize)` | Rota a la izquierda. | |
+| `rotate_right` | `(@mut, mid: Usize)` | Rota a la derecha. | |
+| `is_sorted` | `(@) -> Bool` | Está ordenado. | |
+| `is_sorted_by` | `(@, cmp: (T, T) -> Ordering) -> Bool` | Ordenado según comparador. | |
+| `is_sorted_by_key` | `(@, key: (T) -> K) -> Bool` | Ordenado por clave. | |
+| `partition_point` | `(@, pred: (T) -> Bool) -> Usize` | Punto de partición binario. | |
+| `starts_with` | `(@, prefix: &[T]) -> Bool` | Prefijo. | |
+| `ends_with` | `(@, suffix: &[T]) -> Bool` | Sufijo. | |
+| `concat` | `(@) -> Vec[T]` | Concatena `Vec[Vec[T]]`. | |
+| `retain` | `(@mut, f: (T) -> Bool)` | Conserva los que cumplen. | ✅ |
+| `dedup` | `(@mut)` | Elimina duplicados consecutivos. | |
+| `binary_search` | `(@, value: &T) -> Result[Usize, Usize]` | Búsqueda binaria. | |
+| `reverse` | `(@mut)` | Invierte. | |
+| `extend` | `(@mut, other: Vec[T])` | Extiende. | |
+| `split_at` | `(@, mid: Usize) -> (&[T], &[T])` | Divide. | |
+| `chunks` | `(@, size: Usize) -> Iter[&[T]]` | Tramos. | |
+| `windows` | `(@, size: Usize) -> Iter[&[T]]` | Ventanas. | |
+| `join` | `(@, sep: &Str) -> String` | Une strings (requiere `T: Show`). | |
+| ~~`sum`~~ | — | Se usa `xs.iter().sum()` (§22). | |
+| ~~`product`~~ | — | Se usa `xs.iter().product()` (pendiente). | |
+| ~~`min` / `max`~~ | — | Se usan `xs.iter().min()` / `.max()` (§22). | |
+| `clone` | `(@) -> Vec[T]` | Copia profunda. | ✅ |
+| `to_string` | `(@) -> String` | Representación (requiere `Show`). | |
+
+**Nota de implementación (S3).** `std/capsa.pengu` implementa 55 métodos como
+**paso directo** al `Vec` de Rust: el cuerpo es un marcador `panic("passthrough")`
+que el backend nunca emite y la llamada se traduce a `(vec).metodo(args)` o a un
+ayudante genérico del runtime (`vec_sum`, `vec_join`, `vec_sort_by`…). Cero
+indirección: el coste y la semántica son exactamente los de Rust. Los callbacks
+reciben `T` por valor (como en esta tabla) y el runtime los adapta al `&T` de
+Rust copiando (`T: Clone`); para `Int`, `Float`, `Char`, `Bool` y punteros la
+copia es gratuita. Se difieren a S7: `iter`, `iter_mut`, `into_iter`, `drain`,
+`splice`, `chunks`, `windows`. Se difieren por necesitar genéricos de método
+(`K` además de `T`): `sort_by_key`, `sort_unstable_by_key`, `is_sorted_by_key`,
+`dedup_by_key`, `binary_search_by_key`.
+
+Los comparadores de `sort_by`, `sort_unstable_by`, `max_by`, `min_by`, etc.
+devuelven `Ordering` y hoy se pueden escribir con lambdas (fase A3):
 
 ```pengu
-import std.json
-import std.scrolls
+bind xs = Vec[3, 1, 4, 2]
+xs.sort_by((a: Int, b: Int) =>
+    if a < b then
+        Less
+    elseif a > b then
+        Greater
+    else
+        Equal
+)
 ```
 
-`std.*` modules are always resolvable, are never vendored into `lib/`, and are
-pruned by the dead-code eliminator when unused: importing a module you do not
-call costs nothing in the binary. Import what you read.
-
-**Reading an entry.** "Use it when" is the positive case; "Avoid it when" names
-the module you probably want instead. When a module has an optional native
-dependency (`libcurl`, `libffi`, `libsodium`, `dl`), the entry says so.
-
-## 1. The shape of the standard library
-
-The library is layered: everything rests on a small core, and specialised
-modules never pull the whole world in.
-
-```
-spark            process I/O, parsing, panic, exit
-├── memoria      raw heap blocks
-├── oracle       maybe / result
-├── scrolls      strings (bytes)
-│   └── lingua   UTF-8 over codepoints
-├── builder      StringBuilder
-├── arena        bump allocator
-├── ordinal      CC-backed containers
-├── loom/tally   list algorithms
-├── atlas/coven  maps and sets
-└── …
-```
-
-| Layer | Modules | You will use it |
-| --- | --- | --- |
-| Core | `spark`, `memoria`, `oracle`, `builder` | always |
-| Text | `scrolls`, `lingua`, `littera`, `logica` | constantly |
-| Numbers | `integrum`, `fractio`, `numerus`, `arithmancy`, `lot` | often |
-| Collections | `loom`, `tally`, `atlas`, `coven`, `ordinal`, `bitset` | often |
-| Memory helpers | `arena`, `functor` | sometimes |
-| Formats | `json`, `cipher`, `carmen`, `toml`, `yaml`, `ledger`, `compressus`, `digest`, `regulus` | often |
-| System | `archivum`, `compass`, `rites`, `invoke`, `io`, `net`, `chronicle`, `chrono`, `whisper`, `diagnostic`, `sourcemap`, `dynlib` | often |
-| Concurrency | `filum` | sometimes |
-| Testing | `ward`, `trial` | in every project |
-| Interop | `ffi`, `ffi_call`, `dynlib`, `secrets` | at the edges |
-| Services | `petitio`, `net`, `jsonrpc` | for tools and servers |
-| WebAssembly | `web` + `std/web/*` (16 modules) | browser builds only |
-
-**Rule of thumb.** If a module is in the "Core" or "Text" layer, import it
-freely. If it is in "Interop" or "Services", read its "Avoid it when" first: it
-may bring a native dependency.
-
-## 2. Choosing a module by task
-
-| I need to… | Use | Not |
-| --- | --- | --- |
-| print, parse an int, exit | `std.spark` | — |
-| build a string in a loop | `std.builder` | `+` in a loop |
-| split, trim, replace, compare strings | `std.scrolls` | hand-written loops |
-| count characters, not bytes | `std.lingua` | `s.len` on UTF-8 |
-| classify a `char` | `std.littera` | ranges written by hand |
-| do math on all numeric types | `std.numerus` | one function per type |
-| do integer-only math | `std.integrum` | `numerus` when you need `%` |
-| do float-only math | `std.fractio` | `numerus` |
-| vectors, matrices, quaternions | `std.arithmancy` | hand-rolled structs |
-| random numbers | `std.lot` | `time()` seeded ad hoc |
-| iterate, chunk, zip, fold | `std.loom` | index loops |
-| reduce, search, sort a list | `std.tally` | `loom` for int-only paths |
-| map / set | `std.atlas`, `std.coven` | parallel lists |
-| ordered map, linked list | `std.ordinal` | sorting a map each time |
-| membership over a bounded range | `std.bitset` | `map of int to bool` |
-| allocate many short-lived objects | `std.arena` | one `alloc` each |
-| pass a callback with context | `std.functor` | a global |
-| JSON | `std.json` | `std.cipher.parse_json` (legacy, flat) |
-| TOML / YAML / CSV | `std.toml`, `std.yaml`, `std.ledger` | regex |
-| binary records | `std.carmen` | manual byte offsets |
-| base64, hex, CRC-32 | `std.cipher` | hand-written tables |
-| gzip / zlib / deflate | `std.compressus` | shelling out to `gzip` |
-| SHA-256 | `std.digest` | CRC-32 |
-| regular expressions | `std.regulus` | string splitting |
-| files, directories, walking | `std.archivum` | `system("ls")` |
-| paths | `std.compass` | string concatenation |
-| environment, argv, exec | `std.rites` | `getenv` through FFI |
-| typed CLI flags | `std.invoke` | parsing `argv` by hand |
-| read exactly N bytes | `std.io` | `std.spark.input` |
-| TCP sockets and async I/O | `std.net` + `std.reactor` | FFI to `socket()` |
-| HTTP client | `std.petitio` | `net` + hand-written HTTP |
-| JSON-RPC 2.0 | `std.jsonrpc` | hand-rolled framing |
-| time and dates | `std.chronicle` | `time()` through FFI |
-| nanoseconds, ISO 8601 | `std.chrono` | `chronicle` floats |
-| logging | `std.whisper` | `print` with prefixes |
-| source positions | `std.sourcemap` | counting newlines |
-| compiler-style errors | `std.diagnostic` | ad-hoc strings |
-| tests | `std.ward` + `std.trial` | `assert` from `spark` |
-| mutexes, atomics, channels | `std.filum` | — |
-| cooperative coroutines | `std.coro` + `std.reactor` | threads + state |
-| call a C library | `std.ffi` | `antiquus` everywhere |
-| call a function by name at runtime | `std.ffi_call` | `dynlib` alone |
-| load a `.so`/`.dll` | `std.dynlib` | — |
-| random bytes, wipe memory | `std.secrets` | `std.lot` |
-| DOM, canvas, fetch in the browser | `std.web.*` | — |
-
-## 3. Core and memory
-
-### `std.spark` — process I/O, conversions and control
-
-**Use it when** you need the console (`print`, `println`, `eprint`), a scalar to
-text conversion (`str_int`, `str_float`), a parse (`parse_int`, `parse_float`),
-an integer range (`range`), a panicking assertion at a true invariant, or
-`exit`.
-
-**Avoid it when** the output is a data stream: `print` is line-oriented and
-formats values; use `std.io` for bytes and `std.whisper` for logs.
-
-**Highlights** `print`, `println`, `eprintln`, `flush`, `parse_int`, `panic`,
-`exit`.
-
-**API** [`api/std_spark.md`](api/std_spark.md) · [source](../std/spark.pengu)
-
-### `std.memoria` — raw heap blocks
-
-**Use it when** you are implementing a container, a buffer protocol or a
-binding, and need `alloc`, `alloc_array`, `resize_array`, `copy`, `fill`,
-`zero`, `swap` or `compare` over untyped memory.
-
-**Avoid it when** a value type already covers the case: `list`, `map`,
-`StringBuilder` and `arena` own their memory and free it with one `banish`.
-
-**Highlights** `alloc of T`, `alloc_array of T with n`, `copy`, `zero`,
-`resize_array`.
-
-**API** [`api/std_memoria.md`](api/std_memoria.md) · [source](../std/memoria.pengu)
-
-### `std.consortium` — shared ownership by reference count
-
-**Use it when** several parts of a program must observe the same value and you
-cannot tell which one dies last: `Rc of T` (single thread, implicit cheap copy),
-`Arc of T` (crosses threads, `.clone()` is the only copy), `WeakRc`/`WeakArc`
-to break cycles. `get` hands out `ref to frozen T`; mutation goes through
-`get_mut` (exclusivity) or `make_mut` (copy-on-write).
-
-**Avoid it when** the value has one owner: `derive Drop` (layer 1) is faster and
-the cost stays visible in the type. Do not use `Rc` inside a hot loop as an
-allocator, and do not reach for `Arc` when the threads can exchange a plain
-value.
-
-**Highlights** `Rc.new`, `Rc.get`, `Rc.get_mut`, `Rc.make_mut`, `downgrade`,
-`WeakRc.upgrade`, `Arc.clone`, `strong_count`, `weak_count`.
-
-**API** [`api/std_consortium.md`](api/std_consortium.md) · [source](../std/consortium.pengu)
-
-### `std.oracle` — `maybe` and `result`
-
-**Use it when** a computation can be absent (`maybe T`) or fail with a reason
-(`result of T to E`), and you want the full toolbox: builders (`some_of`,
-`none_of`, `ok_of`, `err_of`), inspection (`is_present`, `is_ok`, `is_err`),
-transformation (`map`, `and_then`, `map_err`), recovery (`unwrap_or`,
-`unwrap_or_else`) and conversion.
-
-**Avoid it when** the absence is impossible by construction: return `T`.
-
-**Highlights** `some_of`, `none_of`, `ok_of`, `err_of`, `unwrap_or`.
-
-**API** [`api/std_oracle.md`](api/std_oracle.md) · [source](../std/oracle.pengu)
-
-### `std.builder` — `StringBuilder`
-
-**Use it when** a string is assembled from more than two pieces, especially in a
-loop: `append`, `append_int`, `append_char`, `append_slice`, `finish`.
-
-**Avoid it when** you are joining a list you already have: `scrolls.join` is
-shorter and equally linear.
-
-**Highlights** `new`, `append`, `append_int`, `append_char`, `finish`.
-
-**API** [`api/std_builder.md`](api/std_builder.md) · [source](../std/builder.pengu)
-
-### `std.arena` — bump allocator
-
-**Use it when** you build a large object graph with one lifetime (a request, a
-frame, a parse tree) and want to free it all at once: `Arena.new`,
-`arena_alloc of T`, `reset`, `free`.
-
-**Avoid it when** objects have independent lifetimes, or one object outlives the
-arena: the arena frees everything together.
-
-**Highlights** `Arena.new`, `arena_alloc of T`, `arena_alloc_one`, `reset`.
-
-**API** [`api/std_arena.md`](api/std_arena.md) · [source](../std/arena.pengu)
-
-### `std.functor` — functions with context
-
-**Use it when** a callback must remember state and a `concept` would be
-overkill: `Fn0`–`Fn3` carry a function pointer plus an explicit context, with
-`make_fn0`–`make_fn3` and `call`.
-
-**Avoid it when** the callback is stateless: pass the function pointer.
-
-**Highlights** `Fn1`, `make_fn1`, `call`.
-
-**API** [`api/std_functor.md`](api/std_functor.md) · [source](../std/functor.pengu)
-
-### `std.sourcemap` — byte offsets ↔ line/column
-
-**Use it when** you report positions in source text: diagnostics, stack traces,
-LSP responses, formatters. `SourceMap` indexes line starts once and answers both
-directions.
-
-**Avoid it when** you only ever print one position: counting newlines is cheaper.
-
-**Highlights** `SourceMap.from_source`, `position_at`, `offset_of`.
-
-**API** [`api/std_sourcemap.md`](api/std_sourcemap.md) · [source](../std/sourcemap.pengu)
-
-### `std.bitset` — fixed-length dense bit set
-
-**Use it when** membership is over a bounded integer universe (visited flags,
-feature masks, dependency closure) and you want O(1) per bit and word-at-a-time
-set algebra (`and_with`, `or_with`, `xor_with`, `and_not_with`, `not`).
-
-**Avoid it when** the universe is sparse or unbounded: use `std.coven`.
-
-**Highlights** `BitSet.new`, `set`, `get`, `count_ones`, `and_with`.
-
-**API** [`api/std_bitset.md`](api/std_bitset.md) · [source](../std/bitset.pengu)
-
-### `std.diagnostic` — spans, labels and renderers
-
-**Use it when** you build a tool that reports problems in source text and you
-want the familiar shape: severity, code, message, primary and secondary spans,
-and a renderer with carets.
-
-**Avoid it when** the message has no source location: `whisper` or `spark`.
-
-**Highlights** `Diagnostic`, `Span`, `Label`, `Severity`, `render`.
-
-**API** [`api/std_diagnostic.md`](api/std_diagnostic.md) · [source](../std/diagnostic.pengu)
-
-## 4. Text and numbers
-
-### `std.scrolls` — strings, byte-oriented
-
-**Use it when** the text is ASCII, or you are slicing bytes on purpose: `len`,
-`substring`, `split`, `join`, `trim`, `strip`, `replace`, `index_of`,
-`starts_with`, `lower`, `upper`, `pad_left`, case conversion
-(`to_snake_case`, `pascal_case`, …) and ASCII classification.
-
-**Avoid it when** the text is UTF-8 and you care about characters: `len` counts
-bytes, `char_at` returns one byte and `reverse` reverses bytes. Use
-`std.lingua` for codepoints.
-
-**Highlights** `substring`, `split`, `join`, `trim`, `replace`, `starts_with`.
-
-**API** [`api/std_scrolls.md`](api/std_scrolls.md) · [source](../std/scrolls.pengu)
-
-### `std.lingua` — UTF-8 over codepoints
-
-**Use it when** user-visible text must be measured or traversed in characters:
-`codepoint_count`, `codepoint_at`, `next_codepoint`, `prev_codepoint`, `encode`,
-`decode`, `validate`, `grapheme_count`, and the `Codepoint` seal.
-
-**Avoid it when** the input is known ASCII and hot: the byte functions in
-`std.scrolls` are cheaper.
-
-**Highlights** `codepoint_count`, `codepoint_at`, `next_codepoint`, `validate`.
-
-**API** [`api/std_lingua.md`](api/std_lingua.md) · [source](../std/lingua.pengu)
-
-### `std.littera` — methods on `char`
-
-**Use it when** you classify or convert a single ASCII character: `is_digit`,
-`is_alpha`, `is_alnum`, `is_space`, `is_hex_digit`, `is_printable`, `to_lower`,
-`to_upper`, `digit_value`, `to_int`.
-
-**Avoid it when** the character may be multi-byte: that is a codepoint, not a
-`char`.
-
-**Highlights** `is_digit`, `is_alpha`, `to_lower`, `to_upper`, `digit_value`.
-
-**API** [`api/std_littera.md`](api/std_littera.md) · [source](../std/littera.pengu)
-
-### `std.logica` — methods on `bool`
-
-**Use it when** a boolean expression reads better as a named connective:
-`and_with`, `or_with`, `xor`, `nand`, `nor`, `implies`, `iff`, `toggle`,
-`to_int`.
-
-**Avoid it when** the operator is already clear: `a and b` beats
-`a.and_with with b`.
-
-**Highlights** `xor`, `implies`, `toggle`, `to_int`.
-
-**API** [`api/std_logica.md`](api/std_logica.md) · [source](../std/logica.pengu)
-
-### `std.integrum` — methods on integers
-
-**Use it when** the computation is integer-only: `is_even`, `is_odd`,
-`is_prime`, `gcd`, `lcm`, `factorial`, `bit_count`, `bit_length`,
-`leading_zeros`, `trailing_zeros`, `div_floor`, `mod_floor`, `div_rem`,
-`next_power_of_two`, `to_hex`, `to_bin`, `to_oct`.
-
-**Avoid it when** the value is floating point: `std.fractio`.
-
-**Highlights** `is_even`, `gcd`, `div_floor`, `to_hex`, `bit_count`.
-
-**API** [`api/std_integrum.md`](api/std_integrum.md) · [source](../std/integrum.pengu)
-
-### `std.fractio` — methods on floats
-
-**Use it when** the computation is floating point: `sqrt`, `cbrt`, `pow`,
-`exp`, `ln`, `log2`, `log10`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`,
-`atan2`, `hypot`, `degrees`, `radians`, `lerp`, `approx_eq`, `is_nan`,
-`is_finite`, `is_infinite`.
-
-**Avoid it when** exact decimal arithmetic matters: no binary float is exact;
-scale to integers and use `std.integrum`.
-
-**Highlights** `sqrt`, `pow`, `approx_eq`, `is_nan`, `lerp`.
-
-**API** [`api/std_fractio.md`](api/std_fractio.md) · [source](../std/fractio.pengu)
-
-### `std.numerus` — methods on every number
-
-**Use it when** the code must work for both integers and floats through the
-`Num` concept: `abs`, `min_with`, `max_with`, `clamp`, `signum`, `round`,
-`floor`, `ceil`, `truncate`, `square`, `cube`, `pow_int`, `is_zero`,
-`is_between`, `to_i64`, `to_f64`.
-
-**Avoid it when** you need integer-only operations (`%`, bit tricks): those are
-on `std.integrum`.
-
-**Highlights** `abs`, `clamp`, `min_with`, `max_with`, `round`.
-
-**API** [`api/std_numerus.md`](api/std_numerus.md) · [source](../std/numerus.pengu)
-
-### `std.arithmancy` — vectors, matrices, quaternions
-
-**Use it when** you do geometry or graphics: `Vec2`, `Vec3`, `Vec4`, `Mat4`,
-`Quat`, with `dot`, `cross`, `normalize`, `length`, `distance`, `lerp`,
-`reflect`, `mat4_perspective`, `mat4_look_at`, `mat4_rotate`, `quat_from_euler`,
-`quat_from_axis_angle`, `slerp`.
-
-**Avoid it when** a single scalar operation is enough: `std.fractio`.
-
-**Highlights** `Vec3`, `Mat4`, `Quat`, `dot`, `normalize`, `mat4_perspective`.
-
-**API** [`api/std_arithmancy.md`](api/std_arithmancy.md) · [source](../std/arithmancy.pengu)
-
-### `std.lot` — pseudo-random numbers
-
-**Use it when** you need randomness or sampling: `rand_int`, `rand_float`,
-`rand_bool`, `rand_range`, `rand_bytes`, `rand_normal`, `rand_exp`,
-`rand_poisson`, `choice`, `choice_weighted`, `permutation`, `rand_password`.
-The generator is PCG32 and the seed is explicit.
-
-**Avoid it when** the bytes must be cryptographically secure: `std.secrets`
-(libsodium) or `std.web.crypto` in the browser. `lot` is reproducible, not
-secret.
-
-**Highlights** `rand_int`, `rand_float`, `rand_bytes`, `choice`, `rand_range`.
-
-**API** [`api/std_lot.md`](api/std_lot.md) · [source](../std/lot.pengu)
-
-## 5. Collections
-
-### `std.loom` — list algorithms, safe family
-
-**Use it when** you transform a list and want a `maybe`/`list` answer instead of
-a sentinel: generation (`range`, `repeat`, `unfold_range`), slicing (`take`,
-`skip`, `chunks`, `windows`, `pairwise`), combination (`chain`, `zip_with`,
-`enumerate`, `interleave`, `intersperse`, `rotate`), folds (`fold`, `scan_left`,
-`sum`, `product_num`, `min_max`, `mean`, `running_*`), `map`, `filter`,
-`flat_map`, `find_first`, `any_ctx`, `all_ctx`.
-
-**Avoid it when** the list is `list of int` and you want the compact concrete
-API: `std.tally` has 15 names in common with different signatures — they are not
-interchangeable.
-
-**Highlights** `map`, `filter`, `fold`, `chunks`, `zip_with`, `enumerate`.
-
-**API** [`api/std_loom.md`](api/std_loom.md) · [source](../std/loom.pengu)
-
-### `std.tally` — list algorithms, concrete family
-
-**Use it when** the list holds `int` (or a type with the required bounds) and you
-want the direct, allocation-light API: `sum`, `average`, `max_val`, `min_val`,
-`argmax`, `argmin`, `sort`, `dedup`, `contains`, `count_of`, `frequencies`,
-`group_count`, `chunk`, `flatten`, `is_sorted_*`.
-
-**Avoid it when** you need `maybe` answers or floats: `std.tally` collapses to a
-sentinel (`0`, `""`, `false`) and truncates to `int`. Use `std.loom`.
-
-**Highlights** `sum`, `average`, `sort`, `contains`, `frequencies`.
-
-**API** [`api/std_tally.md`](api/std_tally.md) · [source](../std/tally.pengu)
-
-### `std.atlas` — maps
-
-**Use it when** you key values by string or int: `get_safe`, `get_or`,
-`has_key`, `put`, `remove`, `entries`, `keys`, `values`, `count`,
-`filter_entries`, `from_pairs`, `from_lists`, plus the generic
-`map of K to V` methods.
-
-**Avoid it when** the keys are a small dense integer range: `std.bitset`, or
-`list` indexed directly.
-
-**Highlights** `get_safe`, `get_or`, `has_key`, `entries`, `from_pairs`.
-
-**API** [`api/std_atlas.md`](api/std_atlas.md) · [source](../std/atlas.pengu)
-
-### `std.coven` — sets
-
-**Use it when** membership and uniqueness matter: `SetString`, `SetInt` and the
-generic `Set of T`, with `add`, `contains`, `remove`, `union`, `intersect`,
-`difference`, `symmetric_difference`, `is_subset`, `is_superset`,
-`is_disjoint`.
-
-**Avoid it when** the universe is a bounded integer range: `std.bitset` is
-denser and faster.
-
-**Highlights** `add`, `contains`, `union`, `intersect`, `to_list`.
-
-**API** [`api/std_coven.md`](api/std_coven.md) · [source](../std/coven.pengu)
-
-### `std.ordinal` — CC-backed containers
-
-**Use it when** you need a container the built-ins do not provide:
-`LinkedList of T`, `UnorderedSet of T`, `OrderedSet of T`, `OrderedMap of K and
-V` — with `push_back`, `push_front`, `pop_front`, `put`, `get`, `has`,
-`remove`, `keys`, `values`, `size`.
-
-**Avoid it when** `list`, `map` or `Set` already fits: the CC containers exist
-for the cases where ordering or node stability is the point.
-
-**Highlights** `new_linked_list`, `new_ordered_map`, `push_back`, `put`, `get`.
-
-**API** [`api/std_ordinal.md`](api/std_ordinal.md) · [source](../std/ordinal.pengu)
-
-## 6. Formats and encodings
-
-### `std.json` — strict JSON (RFC 8259)
-
-**Use it when** you parse or produce JSON and need a real DOM: `parse`,
-`stringify`, `JsonValue` with `as_object`, `as_array`, `as_string`, `as_int`,
-`as_float`, `as_bool`, `get`, `at`, insertion-order preservation, JSON Pointer
-(RFC 6901), deep merge and schema validation.
-
-**Avoid it when** the document is a flat `{"key": "value"}` map and you want the
-0.14-era shortcut: `std.cipher.parse_json` returns `map of string to string` and
-loses types.
-
-**Highlights** `parse`, `stringify`, `as_object`, `as_string`, `get`.
-
-**Ownership** `JsonValue.clone` is a deep, independent copy and
-`JsonValue.free` releases the whole tree (both walk nested arrays and objects);
-`free_values`/`free_entries` release a list produced by `as_array`/`as_object`.
-A `result of JsonValue to JsonError` still owns its boxed payload: `banish` it
-when you take the value out.
-
-**Deriving instead of walking** for a typed DTO, `derive Json` generates the codec
-in C with no dependency on this module — see
-[LANGUAGE.md §9.7.1](LANGUAGE.md#971-derive-json). Use `std.json` when the shape
-is not known at compile time.
-
-**API** [`api/std_json.md`](api/std_json.md) · [source](../std/json.pengu)
-
-### `std.cipher` — encodings and checksums
-
-**Use it when** you move bytes as text or verify integrity: `encode_base64`,
-`decode_base64` (standard, URL-safe, unpadded), `encode_hex`, `decode_hex`,
-Base32/Base58/Base85/Z85, `encode_url`, `decode_url`, `crc32`.
-
-**Avoid it when** you need a cryptographic digest: `std.digest` (SHA-256). CRC-32
-detects accidents, not attacks.
-
-**Highlights** `encode_base64`, `decode_base64`, `encode_hex`, `crc32`,
-`encode_url`.
-
-**API** [`api/std_cipher.md`](api/std_cipher.md) · [source](../std/cipher.pengu)
-
-### `std.carmen` — fixed-layout binary records
-
-**Use it when** a binary format has fixed offsets and you want it described, not
-hand-coded: a formula string (`>I4sH`) plus `CarmenWriter`/`CarmenReader`,
-`calcsize`, `format`, endianness, native and Python-compatible modes.
-
-**Avoid it when** the format is self-describing or nested: `std.json` or
-`std.toml`.
-
-**Highlights** `CarmenWriter`, `CarmenReader`, `calcsize`, `format`.
-
-**API** [`api/std_carmen.md`](api/std_carmen.md) · [source](../std/carmen.pengu)
-
-### `std.toml` — TOML 1.0
-
-**Use it when** you read or write configuration and manifests: `parse`,
-`parse_file`, `stringify`, `get`, `get_int`, `get_bool`, `get_float`,
-`get_array`, `keys_with_prefix`, over `TomlEntry` dotted keys.
-
-**Avoid it when** the data is already JSON: converting costs more than it saves.
-
-**Highlights** `parse`, `parse_file`, `get_int`, `stringify`.
-
-**API** [`api/std_toml.md`](api/std_toml.md) · [source](../std/toml.pengu)
-
-### `std.yaml` — the legacy manifest subset
-
-**Use it when** you must read `pengu.yaml`/`pengu.yml`-style files: `parse`,
-`parse_file`, `get`, `get_array`. It implements exactly the indentation-walker
-subset the old compiler accepted, not full YAML.
-
-**Avoid it when** you control the format: TOML (`std.toml`) is the canonical
-manifest format and is a real parser.
-
-**Highlights** `parse`, `parse_file`, `get`.
-
-**API** [`api/std_yaml.md`](api/std_yaml.md) · [source](../std/yaml.pengu)
-
-### `std.ledger` — CSV and TSV
-
-**Use it when** you exchange tabular text: `parse_csv`, `parse_tsv`, `read_csv`,
-`read_tsv`, `to_csv_string`, `CsvTable` with `row_count`, `column_count`,
-`column`, `row_as_map`, `transpose`, quoting modes (RFC 4180, backslash, none).
-
-**Avoid it when** the file is a database export with nested types: normalise to
-JSON first.
-
-**Highlights** `parse_csv`, `read_csv`, `row_as_map`, `to_csv_string`.
-
-**API** [`api/std_ledger.md`](api/std_ledger.md) · [source](../std/ledger.pengu)
-
-### `std.compressus` — gzip, zlib, deflate
-
-**Use it when** you compress or decompress bytes: `gzip_compress`,
-`gzip_decompress`, `zlib_compress`, `zlib_decompress`, `deflate_compress`,
-`inflate_decompress`, `detect_format`, file variants, `crc32`, `adler32`. The
-wrapper adds the gzip container (RFC 1952) over vendored miniz.
-
-**Avoid it when** the bytes are already compressed (images, video): recompressing
-costs CPU and gains nothing. Prefer `output = "static"`/`small` profiling before
-adding compression to a binary.
-
-**Highlights** `gzip_compress`, `gzip_decompress`, `deflate_compress`,
-`detect_format`.
-
-**API** [`api/std_compressus.md`](api/std_compressus.md) · [source](../std/compressus.pengu)
-
-### `std.digest` — SHA-256 and friends
-
-**Use it when** you need a cryptographic digest: `sha256_hex`, `sha256_raw`,
-`sha256_file`, `hmac_sha256_hex`, `hmac_sha256_raw`, or the cheap `fnv1a64` for
-hash tables.
-
-**Avoid it when** you only need error detection: `std.cipher.crc32`.
-
-**Highlights** `sha256_hex`, `sha256_raw`, `sha256_file`, `hmac_sha256_hex`.
-
-**API** [`api/std_digest.md`](api/std_digest.md) · [source](../std/digest.pengu)
-
-### `std.regulus` — small regular expressions
-
-**Use it when** you match a short, well-understood pattern: `Regex`,
-`find_first`, `match`, `is_match`, `matches`, `match_at`, `replace_first`,
-`replace_all`, `split`, `escape`. The engine is deliberately not PCRE: no
-backtracking surprises, one compiled block per pattern.
-
-**Avoid it when** the input is structured data: regexes for JSON, HTML or email
-are a category error. Use `std.json`, a DOM, or a validator.
-
-**Highlights** `find_first`, `replace_all`, `split`, `escape`.
-
-**API** [`api/std_regulus.md`](api/std_regulus.md) · [source](../std/regulus.pengu)
-
-## 7. System, time and diagnostics
-
-### `std.archivum` — the file system
-
-**Use it when** you read, write, inspect or walk files: `read_text`,
-`read_bytes`, `write_text`, `append_file`, `delete_file`, `exists`, `is_file`, `is_dir`,
-`file_size`, `create_dir`, `remove_dir`, `read_dir`, `copy_file`, `copy_tree`,
-`find_files`, `find_dirs`, `glob`, `dir_size`, and the `*_result` variants that
-say *why* an operation failed. Inside a `std.reactor` worker,
-`read_text_async`, `write_text_async`, `read_bytes_async`, `write_bytes_async`,
-`append_file_async`, `delete_file_async`, `exists_async`, `create_dir_async`,
-`remove_dir_async`, `read_dir_async`, `copy_file_async` and `file_size_async`
-run the work on the loop pool without blocking the other tasks.
-
-**Avoid it when** the operation is about a path, not the file system: that is
-`std.compass`, which is pure and testable.
-
-**Highlights** `read_text`, `write_text`, `exists`, `read_file_result`,
-`find_files`.
-
-**API** [`api/std_archivum.md`](api/std_archivum.md) · [source](../std/archivum.pengu)
-
-### `std.compass` — paths
-
-**Use it when** you join, split or normalise a path: `join`, `basename`,
-`dirname`, `ext`, `stem`, `normalize`, `absolute`, `relative_to`, `components`,
-`expand_user`, `cwd`, `matches`, and the `Path` rune.
-
-**Avoid it when** you need to touch the disk: `std.archivum`.
-
-**Highlights** `join`, `basename`, `dirname`, `normalize`, `absolute`.
-
-**API** [`api/std_compass.md`](api/std_compass.md) · [source](../std/compass.pengu)
-
-### `std.rites` — the operating system
-
-**Use it when** you need the process environment: `getenv`, `has_env`,
-`get_args`, `arg_at_or`, `get_flag_value`, `parse_flags`, `exec`, `exec_ok`,
-`home_dir`, `config_dir`, `cache_dir`, `data_dir`, `getpid`, `hostname`,
-`is_windows`, `is_linux`, `is_macos`, `chdir`, `expand_env`.
-
-**Avoid it when** you parse a typed command line: `std.invoke` handles flags,
-defaults and usage.
-
-**Highlights** `getenv`, `get_args`, `exec`, `home_dir`, `is_windows`.
-
-**API** [`api/std_rites.md`](api/std_rites.md) · [source](../std/rites.pengu)
-
-### `std.invoke` — typed command-line parsing
-
-**Use it when** a CLI has flags, options, positionals or subcommands:
-`new_parser`, `add_flag`, `add_option`, `add_option_int`, `add_option_bool`,
-`add_positional`, `add_subcommand`, `parse`, `get_int`, `get_bool`, `get_or`,
-`usage_string`, `full_help`.
-
-**Avoid it when** the program takes one argument: `rites.get_args`.
-
-**Highlights** `new_parser`, `add_flag`, `add_option`, `parse`, `get_int`.
-
-**API** [`api/std_invoke.md`](api/std_invoke.md) · [source](../std/invoke.pengu)
-
-### `std.io` — byte-exact standard I/O
-
-**Use it when** a protocol needs exact bytes: `read_stdin_exact`,
-`read_stdin_all`, `read_stdin_line`, `write_stdout`, `write_stderr`,
-`flush_stdout`, `is_tty` — without losing embedded NULs or adding newlines.
-
-**Avoid it when** the text is human-facing lines: `std.spark.print`.
-
-**Highlights** `read_stdin_exact`, `read_stdin_all`, `write_stdout`, `is_tty`.
-
-**API** [`api/std_io.md`](api/std_io.md) · [source](../std/io.pengu)
-
-### `std.net` — TCP sockets
-
-**Use it when** you implement a server or client protocol over TCP: `listen`,
-`accept`, `connect`, `read`, `read_exact`, `write`, `close`, `is_open`, over a
-plain `Socket` rune holding the descriptor.
-
-**Avoid it when** you speak HTTP: `std.petitio` (client) or a purpose-built
-server. Re-implementing HTTP framing is how bugs get shipped.
-
-Inside a `std.reactor` worker, `accept_async`, `connect_async`, `read_async`,
-`read_exact_async` and `write_async` have the same return types as their
-synchronous counterparts and suspend the coroutine until the descriptor is
-ready. The sockets must be non-blocking: `set_nonblocking` marks them,
-`is_nonblocking` reports it, and `accept_async` / `connect_async` return
-non-blocking sockets. A `*_async` call that receives a blocking socket panics
-instead of silently blocking the loop. `connect_async` resolves DNS
-blockingly (documented limitation); `local_port` returns a listener's ephemeral
-port.
-
-**Highlights** `listen`, `accept`, `connect`, `read_exact`, `write`,
-`accept_async`, `read_async`, `write_async`.
-
-**API** [`api/std_net.md`](api/std_net.md) · [source](../std/net.pengu)
-
-### `std.chronicle` — clocks and calendars
-
-**Use it when** you need ordinary time: `time`, `monotonic`, `now_ms`,
-`sleep_ms`, `DateTime`, `datetime_utc`, `datetime_local`, `format`,
-`from_iso`, `add_days`, `days_between`, `is_weekend`, `start_of_day`,
-`end_of_month`, `diff_seconds`, `elapsed_ms`.
-
-**Avoid it when** you need nanoseconds or true calendar arithmetic: `std.chrono`
-(`Instant`/`Duration`, ISO 8601 round-trips). `chronicle` timestamps are
-`float`, and `float` is 32-bit, so resolution at modern epochs is coarse.
-
-**Highlights** `time`, `monotonic`, `sleep_ms`, `DateTime`, `format`.
-
-**API** [`api/std_chronicle.md`](api/std_chronicle.md) · [source](../std/chronicle.pengu)
-
-### `std.chrono` — instants and durations (vaqt)
-
-**Use it when** precision matters: `Instant`, `Duration`, `now`, `to_iso`,
-`parse_iso`, `plus_days`, `add_duration`, `to_unix_nano`, `weekday`,
-`format_datetime`. Backed by the vendored vaqt library; opt-in.
-
-**Avoid it when** `chronicle` already covers the case: `chrono` adds a native
-dependency and a bigger API for the same wall clock.
-
-**Highlights** `Instant`, `Duration`, `now`, `to_iso`, `to_unix_nano`.
-
-**API** [`api/std_chrono.md`](api/std_chrono.md) · [source](../std/chrono.pengu)
-
-### `std.whisper` — leveled logging
-
-**Use it when** the program needs logs a human or a machine will read:
-`debug`, `info`, `warn`, `error`, `fatal`, `log`, `log_json` (JSON lines),
-`named_logger` (child loggers), `set_level` through the default logger, ANSI
-colours, timestamps and file/stderr redirection.
-
-**Avoid it when** the output is the program's actual result: logs go to stderr,
-results go to stdout.
-
-**Highlights** `info`, `error`, `log_json`, `named_logger`, `flush`.
-
-**API** [`api/std_whisper.md`](api/std_whisper.md) · [source](../std/whisper.pengu)
-
-## 8. Testing
-
-### `std.ward` — assertions for tests and guards
-
-**Use it when** a test must stop on the first wrong value: `assert`,
-`assert_msg`, `assert_true`, `assert_false`, `assert_eq_int`,
-`assert_eq_string`, `assert_eq_bool`, `assert_eq_float` (with epsilon),
-`assert_ne_*`, `assert_gt_*`, `assert_ge_*`, `assert_lt_*`, `assert_le_*`,
-`assert_in_range_*`, list and map variants, `assert_maybe_present`,
-`assert_maybe_none`, `assert_ok_*`, `assert_err_*`.
-
-**Avoid it when** the condition is a production invariant: `spark.assert` or an
-explicit `result`. `ward` is a test dependency.
-
-**Highlights** `assert`, `assert_eq_int`, `assert_eq_string`, `assert_eq_float`.
-
-**API** [`api/std_ward.md`](api/std_ward.md) · [source](../std/ward.pengu)
-
-### `std.trial` — suites and reporting
-
-**Use it when** a test binary grows past a handful of `test` blocks: `TestSuite`,
-`new_suite`, `test_case`, `test`, `summary`. Re-exports the common `ward`
-assertions so a test file needs one import.
-
-**Avoid it when** the project has one or two tests: bare `test` blocks are
-enough and `psc test` already runs them.
-
-**Highlights** `new_suite`, `test_case`, `test`, `summary`.
-
-**API** [`api/std_trial.md`](api/std_trial.md) · [source](../std/trial.pengu)
-
-## 9. Concurrency
-
-### `std.filum` — threads and synchronization
-
-**Use it when** you need to run work on another thread, or coordinate threads:
-`filum.start` / `start0` / `start2` / `start3` return a `Thread`; `join` returns
-`result of void to ThreadError`, `detach` lets it run, and `free` releases the
-handle. `Thread` is a copyable handle (an id, not a raw pointer), so passing it
-to a supervisor is safe.
-
-Arguments move into the worker: owning values (`string`, `list`, `map`,
-`maybe`, `result`, runes) must be local bindings and are unusable afterwards;
-scalars are copied. A `ref to T` is accepted only when `T` is declared
-`@shared`; the compiler checks that boundary, but not the locking inside `T`.
-
-TLS (`Tls`, `tls_set`, `tls_get`), a worker `Pool` (`submit`, `wait`, `free`),
-`parallel_for`, and the coordination primitives remain available: `Mutex`,
-`WaitGroup`, `Once`, `Cond`, `AtomicInt`, and typed channels (`ChanInt`,
-`ChanString`, `ChanFloat`, `ChanBool`, `Chan`) with `send` → `bool` and
-`recv` → `maybe`.
-
-**Avoid it when** you need a result back from the worker: `Thread` is
-`into void`; send the result through a channel or a shared structure. To wait
-without blocking a reactor task, use `Thread.is_finished` and
-`reactor.await_thread`; `std.filum` has no coroutine-suspending channels (those
-belong to `std.coro`/`std.reactor`).
-
-**Highlights** `start`, `Thread.join`, `Thread.is_finished`, `@shared`, `Tls`, `Pool`,
-`parallel_for`, `Mutex`, `chan_int`.
-
-**API** [`api/std_filum.md`](api/std_filum.md) · [source](../std/filum.pengu)
-
-### `std.coro` — stackful coroutines
-
-**Use it when** you need to suspend a task and resume it later without creating
-another thread: generators, lazy iterators, cooperative producers/consumers, or
-a state machine written linearly.
+`Less`, `Equal` y `Greater` son valores de `Ordering` (fase A2). Dentro de los
+paréntesis de la llamada las líneas son continuación, así que también vale la
+forma de una línea:
+`xs.sort_by((a: Int, b: Int) => if a < b then Less elseif a > b then Greater else Equal)`.
+
+---
+
+<a id="tabula"></a>
+## 7. `tabula` — Map
+
+**Archivo:** `std/tabula.pengu`
+**Implementación:** `ritual[K, V] Map[K, V]` en `std`. Claves: `K: Eq + Hash`.
+Paso directo a `HashMap` de Rust.
+
+| Método | Firma | Descripción | CORE |
+|---|---|---|---|
+| `new` | `() -> Map[K, V]` | Vacío. | ✅ |
+| `with_capacity` | `(n: Usize) -> Map[K, V]` | Capacidad. | |
+| `insert` | `(@mut, key: K, value: V) -> Option[V]` | Inserta. | ✅ |
+| `get` | `(@, key: &K) -> Option[&V]` | Acceso. | ✅ |
+| `get_mut` | `(@mut, key: &K) -> Option[&mut V]` | Acceso mutable. | ✅ |
+| `remove` | `(@mut, key: &K) -> Option[V]` | Quita. | ✅ |
+| `contains_key` | `(@, key: &K) -> Bool` | Contiene clave. | ✅ |
+| `len` | `(@) -> Usize` | Número de pares. | ✅ |
+| `is_empty` | `(@) -> Bool` | Vacío. | ✅ |
+| `clear` | `(@mut)` | Vacía. | |
+| `capacity` | `(@) -> Usize` | Capacidad. | |
+| `reserve` | `(@mut, additional: Usize)` | Reserva capacidad. | |
+| `shrink_to_fit` | `(@mut)` | Ajusta capacidad. | |
+| `retain` | `(@mut, f: (K, &V) -> Bool)` | Conserva pares que cumplen. | |
+| `drain` | `(@mut) -> Iter[(K, V)]` | Extrae todos los pares. | |
+| `remove_entry` | `(@mut, key: &K) -> Option[(K, V)]` | Quita y devuelve clave/valor. | |
+| `get_key_value` | `(@, key: &K) -> Option[(&K, &V)]` | Clave y valor. | |
+| `get_or_insert` | `(@mut, key: K, default: V) -> &mut V` | Inserta si falta. | |
+| `get_or_insert_with` | `(@mut, key: K, f: () -> V) -> &mut V` | Inserta si falta, con closure. | |
+| `keys` | `(@) -> Iter[&K]` | Claves. | |
+| `values` | `(@) -> Iter[&V]` | Valores. | |
+| `values_mut` | `(@mut) -> Iter[&mut V]` | Valores mutables. | |
+| `iter` | `(@) -> Iter[(&K, &V)]` | Pares. | ✅ |
+| `iter_mut` | `(@mut) -> Iter[(&K, &mut V)]` | Pares mutables. | |
+| `entry` | `(@mut, key: K) -> Entry[K, V]` | Entrada para `or_insert`. | |
+| `extend` | `(@mut, other: Map[K, V])` | Extiende. | |
+| `clone` | `(@) -> Map[K, V]` | Copia profunda (requiere `K: Clone, V: Clone`). | |
+
+**Nota de implementación (S3).** `std/tabula.pengu` implementa 20 métodos como
+paso directo a `HashMap` (más `to_string`, que muestra `{clave: valor}` con las
+entradas ordenadas). `retain` recibe `(K, V)` —la spec decía `(K, &V)`— porque
+`&V` no es utilizable sin auto-deref en esta fase; el runtime copia clave y
+valor (`K: Clone, V: Clone`). Se difieren a S7 (necesitan `Iter[T]`/`Entry`):
+`drain`, `keys`, `values`, `values_mut`, `iter`, `iter_mut`, `entry`.
+
+### 7.1 `Entry`
+
+| Método | Firma | Descripción |
+|---|---|---|
+| `key` | `(@) -> &K` | Clave de la entrada. |
+| `or_insert` | `(@own, default: V) -> &mut V` | Inserta si falta. |
+| `or_insert_with` | `(@own, f: () -> V) -> &mut V` | Inserta si falta, con closure. |
+| `or_default` | `(@own) -> &mut V` | Inserta `V.default()` si falta. |
+| `and_modify` | `(@own, f: (&mut V) -> Unit) -> Entry[K, V]` | Modifica si existe. |
+
+---
+
+<a id="fasciculus"></a>
+## 8. `fasciculus` — Set
+
+**Archivo:** `std/fasciculus.pengu`
+**Implementación:** `ritual Set[T]` en `std`. `T: Eq + Hash`.
+
+| Método | Firma | Descripción | CORE |
+|---|---|---|---|
+| `new` | `() -> Set[T]` | Vacío. | ✅ |
+| `with_capacity` | `(n: Usize) -> Set[T]` | Capacidad. | |
+| `insert` | `(@mut, value: T) -> Bool` | Inserta; `true` si era nuevo. | ✅ |
+| `contains` | `(@, value: &T) -> Bool` | Contiene. | ✅ |
+| `remove` | `(@mut, value: &T) -> Bool` | Quita. | ✅ |
+| `len` | `(@) -> Usize` | Tamaño. | ✅ |
+| `is_empty` | `(@) -> Bool` | Vacío. | ✅ |
+| `clear` | `(@mut)` | Vacía. | |
+| `iter` | `(@) -> Iter[&T]` | Iterador. | ✅ |
+| `get` | `(@, value: &T) -> Option[&T]` | Referencia al elemento. | |
+| `take` | `(@mut, value: &T) -> Option[T]` | Quita y devuelve el elemento. | |
+| `replace` | `(@mut, value: T) -> Option[T]` | Inserta y devuelve el anterior. | |
+| `drain` | `(@mut) -> Iter[T]` | Extrae todos los elementos. | |
+| `retain` | `(@mut, f: (T) -> Bool)` | Conserva los que cumplen. | |
+| `extend` | `(@mut, other: Set[T])` | Añade otro set. | |
+| `symmetric_difference` | `(@, other: &Set[T]) -> Set[T]` | Diferencia simétrica. | |
+| `is_disjoint` | `(@, other: &Set[T]) -> Bool` | Sin elementos comunes. | |
+| `difference_update` | `(@mut, other: &Set[T])` | Quita los de `other`. | |
+| `intersection_update` | `(@mut, other: &Set[T])` | Conserva la intersección. | |
+| `symmetric_difference_update` | `(@mut, other: &Set[T])` | Deja la diferencia simétrica. | |
+| `union` | `(@, other: &Set[T]) -> Set[T]` | Unión. | |
+| `intersection` | `(@, other: &Set[T]) -> Set[T]` | Intersección. | |
+| `difference` | `(@, other: &Set[T]) -> Set[T]` | Diferencia. | |
+| `is_subset` | `(@, other: &Set[T]) -> Bool` | Subconjunto. | |
+| `is_superset` | `(@, other: &Set[T]) -> Bool` | Superconjunto. | |
+| `clone` | `(@) -> Set[T]` | Copia. | |
+
+**Nota de implementación (S3).** `std/fasciculus.pengu` implementa 25 métodos
+como paso directo a `HashSet`. Las operaciones de conjunto (`union`,
+`intersection`, `difference`, `symmetric_difference` y sus `*_update`) se
+resuelven con ayudantes genéricos porque `HashSet` de Rust las expone como
+operadores o como métodos aún inestables en la versión mínima (1.85); se
+implementan con `retain` y los operadores `|`, `&`, `-`, `^` sobre referencias.
+`retain` recibe `(T) -> Bool` y copia (`T: Clone`). Se difieren a S7: `iter`,
+`drain`.
+
+---
+
+<a id="numerus"></a>
+## 9. `numerus` — Matemáticas
+
+**Archivo:** `std/numerus.pengu`
+**Implementación:** funciones libres en `std.numerus`; constantes en `sigil`.
+
+### 9.1 Constantes
+
+| Nombre | Tipo | Valor |
+|---|---|---|
+| `PI` | `Float` | `3.141592653589793` |
+| `E` | `Float` | `2.718281828459045` |
+| `TAU` | `Float` | `6.283185307179586` |
+| `INFINITY` | `Float` | `inf` |
+| `NEG_INFINITY` | `Float` | `-inf` |
+| `NAN` | `Float` | `NaN` |
+
+### 9.2 Funciones
+
+| Función | Firma | Descripción | CORE |
+|---|---|---|---|
+| `abs` | `(x: Float) -> Float` | Valor absoluto. | ✅ |
+| `sqrt` | `(x: Float) -> Float` | Raíz cuadrada. | ✅ |
+| `cbrt` | `(x: Float) -> Float` | Raíz cúbica. | |
+| `pow` | `(x: Float, y: Float) -> Float` | Potencia. | ✅ |
+| `exp` | `(x: Float) -> Float` | `e^x`. | |
+| `ln` | `(x: Float) -> Float` | Logaritmo natural. | |
+| `log10` / `log2` | `(x: Float) -> Float` | Logaritmos. | |
+| `sin` / `cos` / `tan` | `(x: Float) -> Float` | Trigonometría. | ✅ |
+| `asin` / `acos` / `atan` | `(x: Float) -> Float` | Inversas. | |
+| `atan2` | `(y: Float, x: Float) -> Float` | Ángulo. | |
+| `sinh` / `cosh` / `tanh` | `(x: Float) -> Float` | Hiperbólicas. | |
+| `floor` / `ceil` / `round` | `(x: Float) -> Float` | Redondeo. | ✅ |
+| `trunc` | `(x: Float) -> Float` | Parte entera. | |
+| `fract` | `(x: Float) -> Float` | Parte fraccionaria. | |
+| `min` / `max` | `(a: Float, b: Float) -> Float` | Mínimo / máximo. | ✅ |
+| `clamp` | `(x: Float, lo: Float, hi: Float) -> Float` | Restringe. | ✅ |
+| `lerp` | `(a: Float, b: Float, t: Float) -> Float` | Interpolación lineal. | ✅ |
+| `smoothstep` | `(edge0: Float, edge1: Float, x: Float) -> Float` | Suavizado. | |
+| `to_radians` / `to_degrees` | `(x: Float) -> Float` | Conversión. | |
+| `gcd` / `lcm` | `(a: Int, b: Int) -> Int` | MCD / MCM. | |
+| `factorial` | `(n: Int) -> Int` | Factorial. | |
+| `comb` / `perm` | `(n: Int, k: Int) -> Int` | Combinaciones / permutaciones. | |
+| `is_nan` / `is_infinite` / `is_finite` | `(x: Float) -> Bool` | Clasificación. | |
+| `signum` | `(x: Float) -> Float` | `-1.0`, `0.0`, `1.0`. | |
+| `copysign` | `(x: Float, y: Float) -> Float` | Signo de `y`, magnitud de `x`. | |
+| `hypot` | `(x: Float, y: Float) -> Float` | `sqrt(x² + y²)`. | |
+| `exp2` | `(x: Float) -> Float` | `2^x`. | |
+| `ln_1p` | `(x: Float) -> Float` | `ln(1 + x)` preciso. | |
+| `exp_m1` | `(x: Float) -> Float` | `e^x - 1` preciso. | |
+| `log` | `(x: Float, base: Float) -> Float` | Logaritmo en base arbitraria. | |
+| `log1p` | `(x: Float) -> Float` | `ln(1 + x)`; alias de `ln_1p`. | |
+| `recip` | `(x: Float) -> Float` | `1 / x`. | |
+| `mul_add` | `(a: Float, b: Float, c: Float) -> Float` | `a * b + c` con una operación. | |
+| `sin_cos` | `(x: Float) -> (Float, Float)` | Seno y coseno. | |
+| `asinh` / `acosh` / `atanh` | `(x: Float) -> Float` | Hiperbólicas inversas. | |
+| `fmod` | `(x: Float, y: Float) -> Float` | Resto con signo de `x`. | |
+| `remainder` | `(x: Float, y: Float) -> Float` | Resto IEEE. | |
+| `modf` | `(x: Float) -> (Float, Float)` | Parte entera y fraccionaria. | |
+| `frexp` | `(x: Float) -> (Float, Int)` | Mantisa y exponente. | |
+| `ldexp` | `(x: Float, exp: Int) -> Float` | `x * 2^exp`. | |
+| `nextafter` | `(x: Float, y: Float) -> Float` | Siguiente valor hacia `y`. | |
+| `isclose` | `(a: Float, b: Float, rel_tol: Float, abs_tol: Float) -> Bool` | Comparación aproximada. | |
+| `isqrt` | `(n: UInt) -> UInt` | Raíz cuadrada entera. | |
+| `prod` | `(values: &[Int]) -> Int` | Producto de una secuencia. | |
+| `dist` | `(a: (Float, Float), b: (Float, Float)) -> Float` | Distancia euclidiana; alias de `distance`. | |
+| `degrees` / `radians` | `(x: Float) -> Float` | Conversión angular. | |
+| `erf` / `erfc` | `(x: Float) -> Float` | Función error y complementaria. | |
+| `gamma` / `lgamma` | `(x: Float) -> Float` | Gamma y log-gamma. | |
+| `EPSILON` | `sigil` | Épsilon de `Float`. | |
+| `MIN` / `MAX` | `sigil` | Límites finitos. | |
+| `distance` | `(a: (Float, Float), b: (Float, Float)) -> Float` | Distancia euclidiana 2D. | |
+| `angle_between` | `(a: (Float, Float), b: (Float, Float)) -> Float` | Ángulo entre vectores 2D. | |
+| `normalize` | `(v: (Float, Float)) -> (Float, Float)` | Vector unitario 2D. | |
+| `dot` | `(a: (Float, Float), b: (Float, Float)) -> Float` | Producto punto 2D. | |
+| `cross` | `(a: (Float, Float), b: (Float, Float)) -> Float` | Producto cruz 2D (escalar). | |
+
+**Nota:** los vectores 3D y cuaterniones se pueden agregar más adelante; este mapa cubre lo esencial para físicas 2D y videojuegos.
+
+**Nota de implementación (S4).** `std/numerus.pengu` implementa las 9
+constantes `sigil` y 65 funciones libres. La clase de cada una:
+
+- **Intrínseco `abi "pengu"`** (43): las que dependen de `libm` o de bits del
+  `f64` — `sqrt`, `cbrt`, `pow`, `exp`, `exp2`, `exp_m1`, `ln`, `ln_1p`,
+  `log10`, `log2`, trigonométricas e hiperbólicas, `floor`, `ceil`, `round`,
+  `trunc`, `fract`, `copysign`, `hypot`, `mul_add`, `sin_cos`, `fmod`,
+  `remainder`, `modf`, `frexp`, `ldexp`, `nextafter`, `erf`, `erfc`, `gamma`,
+  `lgamma`, `isqrt`. `erf`/`erfc` usan la aproximación de Abramowitz–Stegun
+  7.1.26 y `gamma` usa Lanczos g=7 (9 coeficientes), porque Rust no las trae.
+- **Cuerpo PenguScript puro** (22): `abs`, `min`, `max`, `clamp`, `lerp`,
+  `smoothstep`, `to_radians`, `to_degrees`, `degrees`, `radians`, `signum`,
+  `log`, `log1p`, `recip`, `isclose`, `gcd`, `lcm`, `factorial`, `comb`,
+  `perm`, `distance`, `dist`, `dot`, `cross`, `angle_between`, `normalize`,
+  `is_nan`/`is_infinite`/`is_finite` (delegando en los métodos de `Float`).
+
+Todas las funciones y las constantes llevan `unveil` (los ítems de un `scroll`
+son privados por defecto). `sigil` no admite llamadas a funciones, así que
+`INFINITY`, `NEG_INFINITY` y `NAN` se escriben como divisiones constantes
+(`1.0 / 0.0`, `-1.0 / 0.0`, `0.0 / 0.0`).
+
+Los vectores 2D viajan como tuplas `(Float, Float)`; no hay tipo `Vec2` en la
+superficie.
+
+
+---
+
+<a id="fluxus"></a>
+## 10. `fluxus` — IO
+
+**Archivo:** `std/fluxus.pengu`
+**Implementación:** funciones intrínsecas del compilador (`print`, `println`, `format`) y `pact Reader`/`Writer` para streams.
+
+### 10.1 Funciones
+
+| Función | Firma | Descripción | CORE |
+|---|---|---|---|
+| `print` | `[T: Show](value: T)` | Escribe sin salto. | ✅ |
+| `println` | `[T: Show](value: T)` | Escribe con salto. | ✅ |
+| `format` | `(template: &Str) -> String` | Interpolación resuelta por el compilador. | ✅ |
+| `read_line` | `() -> Result[String, IoError]` | Lee una línea de stdin. | ✅ |
+| `stdin` | `() -> Stdin` | Lector de stdin (concreto). | ✅ |
+| `stdout` | `() -> Stdout` | Escritor de stdout (concreto). | ✅ |
+| `stderr` | `() -> Stderr` | Escritor de stderr (concreto). | ✅ |
+| `eprint` | `[T: Show](value: T)` | Escribe en stderr sin salto. | |
+| `eprintln` | `[T: Show](value: T)` | Escribe en stderr con salto. | |
+| `flush` | `() -> Result[(), IoError]` | Vacía stdout. | |
+| `read_to_string` | `[R: Reader](reader: &mut R) -> Result[String, IoError]` | Lee todo. | |
+| `read_to_end` | `[R: Reader](reader: &mut R, buf: &mut Vec[U8]) -> Result[Usize, IoError]` | Lee hasta EOF. | |
+| `write_all` | `[W: Writer](writer: &mut W, buf: &[U8]) -> Result[(), IoError]` | Escribe todo. | |
+| `copy` | `[R: Reader, W: Writer](reader: &mut R, writer: &mut W) -> Result[U64, IoError]` | Copia hasta EOF. | |
+
+### 10.2 `Reader`
+
+`pact Reader`:
+| Método | Firma | Descripción |
+|---|---|---|
+| `read` | `(@mut, buf: &mut [U8]) -> Result[Usize, IoError]` | Lee bytes. |
+| `read_to_string` | `(@mut, buf: &mut String) -> Result[Usize, IoError]` | Lee a string. |
+| `read_line` | `(@mut) -> Result[String, IoError]` | Lee línea. |
+| `read_to_end` | `(@mut, buf: &mut Vec[U8]) -> Result[Usize, IoError]` | Lee hasta EOF. |
+| `read_exact` | `(@mut, buf: &mut [U8]) -> Result[(), IoError]` | Lee exactamente el buffer. |
+| `bytes` | `(@mut) -> Iter[Result[U8, IoError]]` | Bytes. |
+| `lines` | `(@mut) -> Iter[Result[String, IoError]]` | Líneas. |
+
+### 10.3 `Writer`
+
+`pact Writer`:
+| Método | Firma | Descripción |
+|---|---|---|
+| `write` | `(@mut, buf: &[U8]) -> Result[Usize, IoError]` | Escribe bytes. |
+| `write_str` | `(@mut, s: &Str) -> Result[(), IoError]` | Escribe string. |
+| `flush` | `(@mut) -> Result[(), IoError]` | Vacía buffer. |
+| `write_all` | `(@mut, buf: &[U8]) -> Result[(), IoError]` | Escribe todo. |
+| `write_fmt` | `(@mut, template: &Str) -> Result[(), IoError]` | Escribe interpolación. |
+
+### 10.4 Buffered
+
+| Tipo | Firma | Descripción |
+|---|---|---|
+| `BufReader[T]` | `rune BufReader[T]` | Lector con buffer. |
+| `BufReader.new` | `(inner: T) -> BufReader[T]` | Crea. |
+| `BufReader.with_capacity` | `(capacity: Usize, inner: T) -> BufReader[T]` | Crea con capacidad. |
+| `BufReader.into_inner` | `(@own) -> T` | Devuelve el lector interno. |
+| `BufReader.buffer` | `(@) -> &[U8]` | Buffer pendiente. |
+| `BufReader.read` | `(@mut, buf: &mut [U8]) -> Result[Usize, IoError]` | Lee. |
+| `BufReader.read_line` | `(@mut) -> Result[String, IoError]` | Lee línea. |
+| `BufReader.lines` | `(@mut) -> Iter[Result[String, IoError]]` | Líneas. |
+| `BufWriter[T]` | `rune BufWriter[T]` | Escritor con buffer. |
+| `BufWriter.new` | `(inner: T) -> BufWriter[T]` | Crea. |
+| `BufWriter.with_capacity` | `(capacity: Usize, inner: T) -> BufWriter[T]` | Crea con capacidad. |
+| `BufWriter.into_inner` | `(@own) -> Result[T, IntoInnerError]` | Devuelve el escritor interno. |
+| `BufWriter.flush` | `(@mut) -> Result[(), IoError]` | Vacía el buffer. |
+| `BufWriter.write` | `(@mut, buf: &[U8]) -> Result[Usize, IoError]` | Escribe. |
+| `BufWriter.write_all` | `(@mut, buf: &[U8]) -> Result[(), IoError]` | Escribe todo. |
+
+### 10.5 Standard streams
+
+| Tipo | Firma | Descripción |
+|---|---|---|
+| `Stdin` | `rune` opaco | Lector de stdin. |
+| `Stdout` | `rune` opaco | Escritor de stdout. |
+| `Stderr` | `rune` opaco | Escritor de stderr. |
+| `Stdin.read_line` | `(@mut) -> Result[String, IoError]` | Lee línea. |
+| `Stdin.read` | `(@mut, buf: &mut [U8]) -> Result[Usize, IoError]` | Lee bytes. |
+| `Stdout.write` | `(@mut, buf: &[U8]) -> Result[Usize, IoError]` | Escribe bytes. |
+| `Stdout.flush` | `(@mut) -> Result[(), IoError]` | Vacía. |
+| `Stderr.write` | `(@mut, buf: &[U8]) -> Result[Usize, IoError]` | Escribe bytes. |
+| `Stderr.flush` | `(@mut) -> Result[(), IoError]` | Vacía. |
+
+`Stdin`/`Stdout`/`Stderr` y `File` implementan `Reader`/`Writer`; por eso se pueden pasar a funciones genéricas como `read_to_string[R: Reader]`. `BufReader[T]` requiere `T: Reader` y `BufWriter[T]` requiere `T: Writer`; el backend verifica el bound.
+
+---
+
+
+**Nota de implementación (S4).** `std/fluxus.pengu` implementa:
+
+- `rune IoError` con el campo `message: String` (público por `unveil`).
+- `read_line() -> Result[String, IoError]`, `read_stdin_to_string()`,
+  `write_stdout(text)`, `write_stderr(text)`, `flush_stdout()`,
+  `flush_stderr()`.
+- `pact Reader` (`read`, `read_to_string`, `read_line`) y `pact Writer`
+  (`write`, `write_str`, `flush`), declarados para que `via` los implemente.
+
+`print`, `println`, `eprint`, `eprintln` y `format` siguen siendo primitivas
+del lenguaje; no hacen falta importaciones.
+
+**Diferido a S5:** los tipos opacos `Stdin`/`Stdout`/`Stderr`, `BufReader[T]`,
+`BufWriter[T]`, `read_to_end`, `write_all`, `copy` y las implementaciones de
+`Reader`/`Writer`. Necesitan `via` (ficheros) y genéricos de `rune`, que llegan
+con la fase de sistema.
+
+---
+
+<a id="via"></a>
+## 11. `via` — FS
+
+**Archivo:** `std/via.pengu`
+**Estado:** implementado en S5. Las rutas son `&Str` (no hay todavía tipo `Path` opaco;
+ver limitación A5 en `scratch/LIMITATIONS_AUDIT.md`), así que las firmas usan texto.
+
+Tipos implementados: `unveil rune IoError { message: String }`, `unveil rune FileInfo { len: U64,
+is_file: Bool, is_dir: Bool, is_symlink: Bool, readonly: Bool, modified_ms: Option[Int] }`,
+`unveil rune File { handle: U64 }` y `unveil rune DirEntry { path: String, is_dir: Bool }`.
+Los cuatro implementan `Show` con `unveil ritual X for Show` (los runes no derivan `Show`).
+
+| Elemento | Firma | Descripción | CORE |
+|---|---|---|---|
+| `exists` | `(path: &Str) -> Bool` | Existe (sigue enlaces). | ✅ |
+| `metadata` | `(path: &Str) -> Result[FileInfo, IoError]` | Metadatos sin seguir el enlace final. | ✅ |
+| `read_to_string` | `(path: &Str) -> Result[String, IoError]` | Lee archivo como texto. | ✅ |
+| `read_bytes` | `(path: &Str) -> Result[Vec[U8], IoError]` | Lee bytes. | ✅ |
+| `write_string` | `(path: &Str, contents: &Str) -> Result[Unit, IoError]` | Escribe texto (trunca). | ✅ |
+| `write_bytes` | `(path: &Str, contents: Vec[U8]) -> Result[Unit, IoError]` | Escribe bytes. | ✅ |
+| `append_string` | `(path: &Str, contents: &Str) -> Result[Unit, IoError]` | Añade texto. | ✅ |
+| `create_dir` | `(path: &Str) -> Result[Unit, IoError]` | Crea un directorio. | ✅ |
+| `create_dir_all` | `(path: &Str) -> Result[Unit, IoError]` | Crea el árbol de directorios. | ✅ |
+| `remove_file` | `(path: &Str) -> Result[Unit, IoError]` | Borra archivo. | ✅ |
+| `remove_dir` | `(path: &Str) -> Result[Unit, IoError]` | Borra directorio vacío. | ✅ |
+| `remove_dir_all` | `(path: &Str) -> Result[Unit, IoError]` | Borra directorio recursivo. | ✅ |
+| `rename` | `(from: &Str, to: &Str) -> Result[Unit, IoError]` | Renombra/mueve. | ✅ |
+| `copy` | `(from: &Str, to: &Str) -> Result[U64, IoError]` | Copia y devuelve bytes. | ✅ |
+| `canonicalize` | `(path: &Str) -> Result[String, IoError]` | Ruta absoluta resuelta. | ✅ |
+| `read_link` | `(path: &Str) -> Result[String, IoError]` | Destino de un enlace. | ✅ |
+| `symlink` | `(original: &Str, link: &Str) -> Result[Unit, IoError]` | Enlace simbólico. | ✅ |
+| `hard_link` | `(original: &Str, link: &Str) -> Result[Unit, IoError]` | Enlace duro. | ✅ |
+| `is_file` / `is_dir` / `is_symlink` | `(path: &Str) -> Bool` | Consultas de tipo. | ✅ |
+| `set_readonly` | `(path: &Str, readonly: Bool) -> Result[Unit, IoError]` | Permisos de solo lectura. | ✅ |
+| `read_dir` | `(path: &Str) -> Result[Vec[DirEntry], IoError]` | Entradas de un directorio. | ✅ |
+| `walk_names` | `(root: &Str) -> Result[Vec[String], IoError]` | Rutas bajo `root` (ordenadas). | ✅ |
+| `walk_files` | `(root: &Str) -> Result[Vec[String], IoError]` | Solo archivos. | ✅ |
+| `walk_dirs` | `(root: &Str) -> Result[Vec[String], IoError>` | Solo directorios. | ✅ |
+| `current_dir` | `() -> Result[String, IoError]` | Directorio actual. | ✅ |
+| `set_current_dir` | `(path: &Str) -> Result[Unit, IoError]` | Cambia el directorio actual. | ✅ |
+| `temp_dir` | `() -> String` | Directorio temporal. | ✅ |
+| `which` | `(program: &Str) -> Option[String]` | Busca en `PATH`. | ✅ |
+| `join` | `(a: &Str, b: &Str) -> String` | Une rutas. | ✅ |
+| `parent` | `(path: &Str) -> Option[String]` | Directorio padre. | ✅ |
+| `file_name` | `(path: &Str) -> Option[String]` | Último componente. | ✅ |
+| `file_stem` | `(path: &Str) -> Option[String]` | Nombre sin extensión. | ✅ |
+| `extension` | `(path: &Str) -> Option[String]` | Extensión. | ✅ |
+| `is_absolute` | `(path: &Str) -> Bool` | Ruta absoluta. | ✅ |
+| `File.open` | `(path: &Str) -> Result[File, IoError]` | Abre para leer. | ✅ |
+| `File.create` | `(path: &Str) -> Result[File, IoError]` | Crea/trunca para escribir. | ✅ |
+| `File.append` | `(path: &Str) -> Result[File, IoError]` | Abre para añadir. | ✅ |
+| `File.read_to_string` | `(@mut) -> Result[String, IoError]` | Lee todo el archivo. | ✅ |
+| `File.read_to_end` | `(@mut) -> Result[Vec[U8], IoError]` | Lee bytes. | ✅ |
+| `File.write_str` | `(@mut, text: &Str) -> Result[Unit, IoError]` | Escribe texto. | ✅ |
+| `File.write_all` | `(@mut, data: Vec[U8]) -> Result[Unit, IoError]` | Escribe bytes. | ✅ |
+| `File.flush` | `(@mut) -> Result[Unit, IoError]` | Vacía el buffer. | ✅ |
+| `File.seek` | `(@mut, position: U64) -> Result[U64, IoError]` | Posiciona. | ✅ |
+| `File.seek_from_end` | `(@mut, offset: U64) -> Result<U64, IoError>` | Posiciona desde el final. | ✅ |
+| `File.set_len` | `(@mut, len: U64) -> Result[Unit, IoError]` | Trunca/expande. | ✅ |
+| `File.metadata` | `(@) -> Result[FileInfo, IoError]` | Metadatos. | ✅ |
+| `File.close` | `(@own)` | Cierra el descriptor. | ✅ |
+| `File.open_with` | `(path: &Str, options: OpenOptions) -> Result[File, IoError]` | Abre con opciones. | ✅ |
+| `File.read_bytes` | `(@mut, count: U64) -> Result[Vec[U8], IoError]` | Lee hasta `count` bytes. | ✅ |
+| `File.write_bytes` | `(@mut, data: Vec[U8]) -> Result[Usize, IoError]` | Escribe bytes y devuelve cuántos. | ✅ |
+| `File.sync_all` / `sync_data` | `(@mut) -> Result[Unit, IoError]` | Sincroniza con el disco. | ✅ |
+| `File.try_clone` | `(@) -> Result[File, IoError]` | Duplica el descriptor. | ✅ |
+| `File.modified_ms` | `(@) -> Result[Option[I64], IoError]` | Última modificación (ms desde la época). | ✅ |
+| `OpenOptions.new` | `() -> OpenOptions` | Opciones de apertura. | ✅ |
+| `OpenOptions.read` / `write` / `append` / `create` / `truncate` | `(@mut, allow: Bool) -> &mut OpenOptions` | Ajusta una bandera y devuelve el receptor para encadenar. | ✅ |
+| `OpenOptions.open` | `(@, path: &Str) -> Result[File, IoError]` | Abre con las banderas dadas. | ✅ |
+
+El registro de descriptores vive en el runtime (`VIA_FILES: Mutex<Vec<Option<std::fs::File>>>`)
+porque el lenguaje aún no tiene tipos opacos; `File` guarda un `U64` y `close` libera la entrada.
+
+**Nota (T1).** Además de la tabla anterior, `via` expone rutas y recorrido configurable:
+
+| Elemento | Firma | Descripción | CORE |
+|---|---|---|---|
+| `Path.new` | `(text: &Str) -> Path` | Construye una ruta. | ✅ |
+| `Path.join` | `(@, other: Path) -> PathBuf` | Une (el argumento se mueve). | ✅ |
+| `Path.parent` | `(@) -> Option[Path]` | Padre. | ✅ |
+| `Path.file_name` / `extension` / `file_stem` | `(@) -> Option[String]` | Componentes. | ✅ |
+| `Path.is_absolute` / `is_relative` | `(@) -> Bool` | Absoluta/relativa. | ✅ |
+| `Path.exists` / `is_file` / `is_dir` / `is_symlink` | `(@) -> Bool` | Consultas. | ✅ |
+| `Path.starts_with` | `(@, base: Path) -> Bool` | Prefijo. | ✅ |
+| `Path.ends_with` | `(@, suffix: &Str) -> Bool` | Sufijo. | ✅ |
+| `Path.strip_prefix` | `(@, base: Path) -> Option[Path]` | Quita prefijo. | ✅ |
+| `Path.components` | `(@) -> Vec[String]` | Componentes. | ✅ |
+| `Path.display` / `to_string_lossy` / `to_string` | `(@) -> String` | Texto. | ✅ |
+| `Path.as_path` / `input.metadata` / `read_to_string` … | varias | Atajos de FS sobre la ruta. | ✅ |
+| `PathBuf.new` / `from_path` | `(…) -> PathBuf` | Construcción. | ✅ |
+| `PathBuf.push` / `push_path` | `(@mut, …) -> Unit` | Añade componente. | ✅ |
+| `PathBuf.pop` | `(@mut) -> Bool` | Quita el último (devuelve si hubo). | ✅ |
+| `PathBuf.set_extension` | `(@mut, ext: &Str) -> Bool` | Cambia extensión. | ✅ |
+| `PathBuf.with_extension` | `(@, ext: &Str) -> PathBuf` | Copia con otra extensión. | ✅ |
+| `WalkOptions.new` | `() -> WalkOptions` | Opciones de recorrido. | ✅ |
+| `WalkOptions.follow_links` / `include_hidden` / `max_depth` | `(@mut, …) -> Unit` | Configuración. | ✅ |
+| `WalkOptions.walk` / `walk_files` / `walk_dirs` | `(@, root: &Str) -> Result[Vec[DirEntry], IoError]` | Recorrido ordenado; detecta ciclos si sigue enlaces. | ✅ |
+| `walk_with` | `(root: &Str, options: WalkOptions, mode: Int) -> Result[Vec[DirEntry], IoError]` | Recorrido con modo (0 todo, 1 ficheros, 2 directorios). | ✅ |
+| `DirEntry.file_name` / `is_file` / `is_symlink` / `len` | varias | Datos de la entrada. | ✅ |
+| `DirEntry.file_type` / `metadata` | `(@) -> …` | Tipo y metadatos. | ✅ |
+| `FileType.is_file` / `is_dir` / `is_symlink` | `(@) -> Bool` | Tipo. | ✅ |
+| `Permissions.readonly` | `(@) -> Bool` | Solo lectura. | ✅ |
+| `file_type` / `permissions` / `set_permissions` | `(path: &Str, …)` | Vistas y cambios de metadatos. | ✅ |
+| `modified_ms` / `created_ms` / `accessed_ms` | `(path: &Str) -> Result[Option[I64], IoError]` | Marcas en milisegundos desde la época Unix. | ✅ |
+
+`Path`/`PathBuf` guardan el texto y delegan en el runtime: el lenguaje no tiene
+prestatarios implícitos, así que las mutaciones (`pop`, `set_extension`) devuelven
+un `Bool` en vez de encadenar. La ruta se **mueve** al pasarla a `join`,
+`starts_with` o `strip_prefix`; hay variantes con texto si se quiere conservar.
+
+---
+
+<a id="exsecutor"></a>
+## 12. `exsecutor` — Process
+
+**Archivo:** `std/exsecutor.pengu`
+**Estado:** completo en T3 (S5b + T3). Acepta `Stdio` para redirigir los tres flujos.
+
+Tipos: `unveil rune ExsecutorError { message: String }`, `unveil rune ExitStatus { code: Option[Int],
+success: Bool }`, `unveil rune Output { status: ExitStatus, stdout: Vec[U8], stderr: Vec[U8] }`,
+`unveil rune Command { program: String, args: Vec[String], cwd: Option[String], envs: Vec[String],
+clear_env: Bool, stdin_mode: Int, stdout_mode: Int, stderr_mode: Int }`,
+`unveil rune Stdio { mode: Int }` y `unveil rune Child { handle: U64 }`. Todos implementan `Show`.
+
+`ExitStatus`, `Output` y `Command` exponen sus datos como **campos** (`out.status.success`,
+`out.stdout`), no como métodos.
+
+| Elemento | Firma | Descripción | CORE |
+|---|---|---|---|
+| `run` | `(program: &Str) -> Result[Output, ExsecutorError]` | Ejecuta y captura. | ✅ |
+| `run_args` | `(program: &Str, args: Vec[String]) -> Result[Output, ExsecutorError]` | Ejecuta con argumentos. | ✅ |
+| `status` | `(program: &Str) -> Result[ExitStatus, ExsecutorError]` | Ejecuta y espera. | ✅ |
+| `status_args` | `(program: &Str, args: Vec[String]) -> Result[ExitStatus, ExsecutorError]` | Igual con argumentos. | ✅ |
+| `which` | `(program: &Str) -> Option[String]` | Busca en `PATH`. | ✅ |
+| `exit` | `(code: Int) -> Unit` | Termina el proceso. | ✅ |
+| `args` | `() -> Vec[String]` | Argumentos (igual que `ambitus::args`). | ✅ |
+| `Stdio.stdio_piped` | `() -> Stdio` | Conecta el flujo a un pipe. | ✅ |
+| `Stdio.stdio_inherit` | `() -> Stdio` | Hereda el flujo del padre. | ✅ |
+| `Stdio.stdio_discard` | `() -> Stdio` | Descarta el flujo (`/dev/null`). | ✅ |
+| `Command.new` | `(program: &Str) -> Command` | Crea un comando (flujos por defecto). | ✅ |
+| `Command.arg` | `(@mut, value: &Str) -> Unit` | Añade un argumento. | ✅ |
+| `Command.args` | `(@mut, values: Vec[String]) -> Unit` | Añade varios. | ✅ |
+| `Command.env` | `(@mut, key: &Str, value: &Str) -> Unit` | Variable de entorno. | ✅ |
+| `Command.envs` | `(@mut, values: Vec[String]) -> Unit` | Variables en pares clave/valor. | ✅ |
+| `Command.env_remove` | `(@mut, key: &Str) -> Unit` | Quita una variable. | ✅ |
+| `Command.env_clear` | `(@mut) -> Unit` | Limpia el entorno heredado. | ✅ |
+| `Command.current_dir` | `(@mut, path: &Str) -> Unit` | Directorio de trabajo. | ✅ |
+| `Command.stdin` / `stdout` / `stderr` | `(@mut, stdio: Stdio) -> Unit` | Redirige el flujo. | ✅ |
+| `Command.get_program` | `(@) -> String` | Programa configurado. | ✅ |
+| `Command.get_args` | `(@) -> Vec[String]` | Argumentos configurados. | ✅ |
+| `Command.get_envs` | `(@) -> Vec[String]` | Entorno configurado. | ✅ |
+| `Command.get_current_dir` | `(@) -> Option[String]` | Directorio configurado. | ✅ |
+| `Command.program_name` | `(@) -> String` | Alias de `get_program`. | ✅ |
+| `Command.run` | `(@own) -> Result[Output, ExsecutorError]` | Ejecuta y captura. | ✅ |
+| `Command.status` | `(@own) -> Result[ExitStatus, ExsecutorError]` | Ejecuta y espera. | ✅ |
+| `Command.spawn` | `(@own) -> Result[Child, ExsecutorError]` | Lanza sin esperar. | ✅ |
+| `Child.wait` | `(@mut) -> Result[ExitStatus, ExsecutorError]` | Espera a que termine. | ✅ |
+| `Child.try_wait` | `(@mut) -> Result[Option[ExitStatus], ExsecutorError]` | Espera sin bloquear. | ✅ |
+| `Child.kill` | `(@mut) -> Result[Unit, ExsecutorError]` | Mata el proceso. | ✅ |
+| `Child.process_id` | `(@) -> Result[U64, ExsecutorError]` | PID del hijo (`id` es nombre reservado por la mono). | ✅ |
+| `Child.write_stdin` | `(@mut, data: Vec[U8]) -> Result[U64, ExsecutorError]` | Escribe en el pipe de entrada. | ✅ |
+| `Child.close_stdin` | `(@mut) -> Result[Unit, ExsecutorError]` | Cierra la entrada (envía EOF). | ✅ |
+| `Child.read_stdout` | `(@mut, count: U64) -> Result[Vec[U8], ExsecutorError]` | Lee hasta `count` bytes. | ✅ |
+| `Child.read_stderr` | `(@mut, count: U64) -> Result[Vec[U8], ExsecutorError]` | Igual sobre `stderr`. | ✅ |
+| `Child.wait_with_output` | `(@mut) -> Result[Output, ExsecutorError]` | Lee los pipes restantes y espera. | ✅ |
+
+Ejemplo (patrón `cat` con pipes):
 
 ```pengu
-import std.coro
+summon std::exsecutor
 
-weave step with out as ref to int into void:
-    set essence of out is 1
-    calling coro.yield
-    set essence of out is 2
-
-weave main into int:
-    var n as int is 0
-    var co as coro.Coroutine is calling coro.start with step, (sigil of n)
-    calling co.resume
-    calling co.resume
-    calling co.free
-    return n
+grimoire
+    morph cmd = exsecutor::Command.new("cat")
+    cmd.stdin(exsecutor::Stdio.stdio_piped())
+    cmd.stdout(exsecutor::Stdio.stdio_piped())
+    match cmd.spawn()
+        when ok(child) then
+            child.write_stdin(Vec[104_u8, 111_u8, 108_u8, 97_u8])
+            child.close_stdin()
+            match child.wait_with_output()
+                when ok(salida) then print(salida.stdout.len())
+                when err(e) then print(e.message)
+        when err(e) then print(e.message)
 ```
 
-`start`/`start0` create the coroutine suspended and move the owning argument;
-`resume` returns `CoroutineState.suspended` or `.finished`; `status` reads the
-state without running; `yield` suspends the current coroutine; `free` releases a
-finished one and `abandon` discards a suspended one. The coroutine lives on the
-thread that created it, so a `ref to T` does not need `@shared`. The stack is
-64 KiB and recycled from an arena. `std.coro` has no scheduler: the scheduling
-policy is explicit and lives in `std.reactor` (`EventLoop`); there is also no
-`async`/`await` syntax. The stdlib `*_async` variants are ordinary functions
-that suspend the current coroutine and must be called from a loop task.
+Notas de implementación: el modo `0` de `Stdio` significa «lo que decida Rust» (los flujos se
+redirigen a pipe en `run`/`status` y se heredan en `spawn`); `1` pipe, `2` descarte y `3` herencia.
+Los pipes viven en una tabla global `EXSEC_CHILDREN` junto al `Child`; leer o escribir mientras el
+proceso está bloqueado mantiene el mutex (no hay hilos todavía).
 
-**Avoid it when** you need real parallelism (use `std.filum`), or when the work
-must outlive its owner. It is not available on wasm: it needs Emscripten
-fibers/Asyncify.
+---
 
-**Highlights** `start`, `start0`, `resume`, `yield`, `CoroutineState`,
-`abandon`.
+<a id="ambitus"></a>
+## 13. `ambitus` — Env
 
-**API** [`api/std_coro.md`](api/std_coro.md) · [source](../std/coro.pengu)
+**Archivo:** `std/ambitus.pengu`
+**Estado:** implementado en S5. `VarError { message: String }` implementa `Show`.
 
-### `std.reactor` — explicit event loop
+| Función | Firma | Descripción | CORE |
+|---|---|---|---|
+| `var` | `(key: &Str) -> Result[String, VarError]` | Lee una variable. | ✅ |
+| `set_var` | `(key: &Str, value: &Str) -> Unit` | Escribe una variable. | ✅ |
+| `remove_var` | `(key: &Str) -> Unit` | Borra una variable. | ✅ |
+| `vars` | `() -> Vec[String]` | Todas, como `"CLAVE=valor"` ordenadas. | ✅ |
+| `var_os` | `(key: &Str) -> Option[String]` | Variable como `Option` (pérdida `lossy` si no es UTF-8). | ✅ |
+| `args` | `() -> Vec[String]` | Argumentos del programa. | ✅ |
+| `args_os` | `() -> Vec[String]` | Argumentos sin decodificar (pérdida `lossy`). | ✅ |
+| `current_dir` | `() -> Result[String, VarError]` | Directorio actual. | ✅ |
+| `set_current_dir` | `(path: &Str) -> Result[Unit, VarError]` | Cambia el directorio. | ✅ |
+| `temp_dir` | `() -> String` | Directorio temporal. | ✅ |
+| `home_dir` | `() -> Option[String]` | Home (`HOME`/`USERPROFILE`). | ✅ |
+| `current_exe` | `() -> Result[String, VarError]` | Ruta del ejecutable. | ✅ |
+| `join_paths` | `(parts: Vec[String]) -> Result[String, VarError]` | Une con el separador del sistema. | ✅ |
+| `split_paths` | `(paths: &Str) -> Vec[String]` | Separa una lista de rutas. | ✅ |
+| `os` | `() -> String` | `"linux"`, `"macos"`, `"windows"`… | ✅ |
+| `arch` | `() -> String` | `"x86_64"`, `"aarch64"`… | ✅ |
+| `family` | `() -> String` | `"unix"`, `"windows"`, `"wasm"`. | ✅ |
+| `exe_suffix` | `() -> String` | Sufijo de ejecutable (`.exe` en Windows). | ✅ |
+| `dll_prefix` / `dll_suffix` | `() -> String` | Prefijo/sufijo de biblioteca dinámica. | ✅ |
 
-**Use it when** you coordinate I/O and blocking work without one thread per
-task: `EventLoop.new`, `spawn`, `run`, `stop`, `close`, `park_read`,
-`park_write`, `sleep_ms`, `await_token`, `offload` and `await_thread`. The
-worker receives the loop and a `ref to A` to a loop-owned copy of its argument:
+**Nota:** `set_var`/`remove_var` mutan el entorno del proceso, que en Rust 2024 es `unsafe`
+porque otros hilos podrían leerlo. El lenguaje aún no tiene hilos, así que el runtime las
+ejecuta en un bloque `unsafe` interno documentado.
+
+---
+
+<a id="tempus"></a>
+## 14. `tempus` — Time
+
+**Archivo:** `std/tempus.pengu`
+**Estado:** implementado en S5 con resolución de milisegundos (`Duration` guarda `millis: Int`),
+lo que evita depender de conversiones `Int`↔`U64` que el lenguaje aún no tiene.
+
+Tipos: `unveil rune Duration { millis: Int }`, `unveil rune Instant { micros: Int }`,
+`unveil rune SystemTime { millis: Int }` y
+`unveil rune SystemTimeError { message: String, duration_millis: Int }`.
+Los cuatro implementan `Show`.
+
+| Elemento | Firma | Descripción | CORE |
+|---|---|---|---|
+| `now` | `() -> SystemTime` | Tiempo del sistema. | ✅ |
+| `now_micros` | `() -> Int` | Microsegundos desde la época Unix. | ✅ |
+| `monotonic_micros` | `() -> Int` | Microsegundos monótonos desde el arranque. | ✅ |
+| `sleep_ms` | `(millis: Int) -> Unit` | Duerme el hilo. | ✅ |
+| `sleep_nanos` | `(nanos: U64) -> Unit` | Duerme con precisión de nanosegundos. | ✅ |
+| `unix_epoch` | `() -> SystemTime` | Época Unix. | ✅ |
+| `duration_secs` | `(seconds: Int) -> Duration` | Azúcar de `Duration.from_secs`. | ✅ |
+| `duration_millis` | `(millis: Int) -> Duration` | Azúcar de `Duration.from_millis`. | ✅ |
+| `Duration.from_secs` | `(seconds: Int) -> Duration` | Segundos. | ✅ |
+| `Duration.from_millis` | `(millis: Int) -> Duration` | Milisegundos. | ✅ |
+| `Duration.from_micros` | `(micros: Int) -> Duration` | Microsegundos (truncados). | ✅ |
+| `Duration.from_secs_f64` / `from_secs_f32` | `(secs: Float) -> Duration` | Segundos en coma flotante. | ✅ |
+| `Duration.as_secs_f64` / `as_secs_f32` | `(@) -> Float` | Segundos en coma flotante. | ✅ |
+| `Duration.subsec_micros` / `subsec_nanos` | `(@) -> Int` | Fracción de segundo. | ✅ |
+| `Duration.mul_f64` / `div_f64` | `(@, factor: Float) -> Duration` | Escala la duración. | ✅ |
+| `SystemTimeError.duration` | `(@) -> Duration` | Cuánto se adelantó el instante. | ✅ |
+| `Duration.from_nanos` | `(nanos: Int) -> Duration` | Nanosegundos (truncados). | ✅ |
+| `Duration.as_secs` | `(@) -> Int` | Segundos enteros. | ✅ |
+| `Duration.as_millis` | `(@) -> Int` | Milisegundos. | ✅ |
+| `Duration.as_micros` | `(@) -> Int` | Microsegundos. | ✅ |
+| `Duration.as_nanos` | `(@) -> Int` | Nanosegundos. | ✅ |
+| `Duration.secs` | `(@) -> Int` | Segundos enteros (alias). | ✅ |
+| `Duration.subsec_millis` | `(@) -> Int` | Milisegundos fraccionarios. | ✅ |
+| `Duration.is_zero` | `(@) -> Bool` | Es cero. | ✅ |
+| `Duration.checked_add` | `(@, other: Duration) -> Option[Duration]` | Suma comprobada. | ✅ |
+| `Duration.checked_sub` | `(@, other: Duration) -> Option[Duration]` | Resta comprobada. | ✅ |
+| `Duration.saturating_add` | `(@, other: Duration) -> Duration` | Suma saturada. | ✅ |
+| `Duration.saturating_sub` | `(@, other: Duration) -> Duration` | Resta saturada. | ✅ |
+| `Instant.now` | `() -> Instant` | Instante actual monótono. | ✅ |
+| `Instant.elapsed` | `(@) -> Duration` | Tiempo transcurrido. | ✅ |
+| `Instant.duration_since` | `(@, earlier: Instant) -> Duration` | Diferencia. | ✅ |
+| `Instant.checked_add` | `(@, duration: Duration) -> Instant` | Suma. | ✅ |
+| `SystemTime.now` | `() -> SystemTime` | Tiempo del sistema. | ✅ |
+| `SystemTime.duration_since` | `(@, earlier: SystemTime) -> Result[Duration, SystemTimeError]` | Diferencia. | ✅ |
+| `SystemTime.elapsed` | `(@) -> Result[Duration, SystemTimeError]` | Tiempo desde entonces. | ✅ |
+| `SystemTime.checked_add` | `(@, duration: Duration) -> SystemTime` | Suma. | ✅ |
+| `SystemTime.checked_sub` | `(@, duration: Duration) -> SystemTime` | Resta. | ✅ |
+
+Diferidos a S7: `Duration.from_secs_f64/f32`, `as_secs_f64/f32`, `mul_f64`, `div_f64`,
+`subsec_micros/nanos` y `SystemTimeError.duration` (necesitan `Float` o división exacta).
+
+---
+
+
+## 15. `nexus` — FFI seguro
+
+**Archivo:** `std/nexus.pengu`
+**Estado:** ✅ S6. `CString` y `CStr` son **tipos integrados** del lenguaje y el backend los
+mapea a `std::ffi::CString` / `std::ffi::CStr`. En v1 no hay punteros crudos ni `unsafe`
+(§16 de `docs/LANGUAGE.md`), así que `Ptr[T]`, `from_raw`/`into_raw`/`as_ptr` quedan fuera
+por diseño (N38). La llamada a C sí existe: se declara `foreign "C"` y se invoca dentro de un
+bloque `curse`; este módulo pone la parte segura de las cadenas.
+
+Los errores se colapsan a `none`/`false` (no hay `NulError`/`IntoStringError`/`Utf8Error` en
+la superficie).
+
+**`CString` (propiedad)**
+
+| Función | Firma | Descripción | CORE |
+|---|---|---|---|
+| `cstring_new` | `(text: &Str) -> Option[CString]` | Crea con NUL final; `none` si hay NUL intermedio. | ✅ |
+| `cstring_from_bytes` | `(bytes: Vec[U8]) -> Option[CString]` | Igual desde bytes; añade el NUL si falta. | ✅ |
+| `cstring_into_string` | `(value: CString) -> Option[String]` | Consume y valida UTF-8. | ✅ |
+| `cstring_to_str` | `(value: &CString) -> Option[String]` | Copia validando UTF-8. | ✅ |
+| `cstring_to_string_lossy` | `(value: &CString) -> String` | Copia sustituyendo UTF-8 inválido por U+FFFD. | ✅ |
+| `cstring_as_bytes` | `(value: &CString) -> Vec[U8]` | Bytes sin el NUL final. | ✅ |
+| `cstring_len` | `(value: &CString) -> Usize` | Longitud sin el NUL. | ✅ |
+| `cstring_is_empty` | `(value: &CString) -> Bool` | Está vacía. | ✅ |
+| `cstring_clone` | `(value: &CString) -> CString` | Copia propia. | ✅ |
+| `cstring_as_c_str` | `(value: &CString) -> CStr` | Vista prestada sin copiar; es lo que consume una función C. | ✅ |
+
+**`CStr` (vista prestada de una cadena terminada en NUL)**
+
+| Función | Firma | Descripción | CORE |
+|---|---|---|---|
+| `cstr_to_str` | `(value: &CStr) -> Option[String]` | Copia validando UTF-8. | ✅ |
+| `cstr_to_string_lossy` | `(value: &CStr) -> String` | Copia sustituyendo UTF-8 inválido. | ✅ |
+| `cstr_as_bytes` | `(value: &CStr) -> Vec[U8]` | Bytes sin el NUL final. | ✅ |
+| `cstr_len` | `(value: &CStr) -> Usize` | Longitud sin el NUL. | ✅ |
+| `cstr_is_empty` | `(value: &CStr) -> Bool` | Está vacía. | ✅ |
+| `cstr_equals_str` | `(value: &CStr, text: &Str) -> Bool` | Compara con un `Str` sin asignar. | ✅ |
+| `cstr_to_cstring` | `(value: &CStr) -> CString` | Copia a cadena propia. | ✅ |
+
+Ejemplo completo (declaración C, función `curse` y uso de la vista):
 
 ```pengu
-import std.reactor
+summon std::ffi
 
-weave worker with loop as ref to reactor.EventLoop, n as ref to int into void:
-    calling loop.sleep_ms with 10
+foreign "C"
+    strlen = (text: &CStr) -> Usize
+    toupper = (c: Int) -> Int
 
-weave main into int:
-    var loop as reactor.EventLoop is calling reactor.EventLoop.new
-    calling loop.spawn with worker, 0
-    calling loop.run
-    calling loop.close
-    return 0
+-- SAFETY: la cadena pertenece al llamador y no se libera durante la llamada.
+c_len = (text: &Str) -> Usize
+    bind value = match ffi.cstring_new(text)
+        when some(cs) then cs
+        when none then
+            return 0_usize
+    curse
+        strlen(ffi.cstring_as_c_str(&value))
+
+describe = (text: &CStr) -> String
+    ffi.cstr_to_string_lossy(text)
+
+grimoire
+    print(c_len("abcde"))              -- 5
+    bind owned = match ffi.cstring_new("hola")
+        when some(v) then v
+        when none then
+            return
+    curse
+        print(toupper(97))                                  -- 65
+        print(ffi.cstr_len(ffi.cstring_as_c_str(&owned)))   -- 4
+        print(describe(ffi.cstring_as_c_str(&owned)))       -- hola
 ```
 
-The loop is explicit: `run` calls `epoll_wait`/`poll`, wakes ready tasks and
-`resume`s them; there is no hidden scheduler or implicit `await`. `spawn` does
-not run the worker inline: it starts on the next pass. `offload` sends blocking
-work to the loop pool and returns a token consumed by `await_token`; a task may have several offloads in flight, each identified by its token. `close` must be called outside a coroutine,
-abandons suspended tasks and does not close user descriptors.
-`new`/`spawn`/`run`/`stop`/`close` belong to the owner thread.
+**Limitación conocida (documentada en `scratch/LIMITATIONS_AUDIT.md`, N55):** una vista
+`CStr` **no puede guardarse en un `bind`** y usarse en sentencias posteriores: el state
+machine mueve la `CString` dueña al siguiente bloque y el préstamo no sobrevive
+(`error[E0597]: borrowed value does not live long enough`). Por eso `cstring_as_c_str(...)` se
+usa como **temporal dentro de la misma expresión o bloque `curse`**. Las conversiones que
+copian (`cstring_to_str`, `cstring_to_string_lossy`, `cstr_to_cstring`) no tienen ese
+problema.
 
-**Avoid it when** the work is pure CPU (use `std.filum` and its `Pool`) or the
-protocol is HTTP (`std.petitio`). On Windows the reactor uses `WSAEventSelect` +
-`WSAWaitForMultipleEvents` with a wake event; there is no fake backend.
+Pendiente para v2 (requiere `Ptr[T]` y verificación de seguridad de punteros):
+`CStr.from_ptr`, `CString.as_ptr`, `into_raw`/`from_raw`.
 
-**Highlights** `EventLoop.new`, `spawn`, `run`, `park_read`, `sleep_ms`,
-`offload`, `await_token`.
-
-**API** [`api/std_reactor.md`](api/std_reactor.md) · [source](../std/reactor.pengu)
-
-## 10. Network services
+---
 
 
-### `std.petitio` — HTTP client
+## 16. `vinculum` — Rc / Arc
 
-**Use it when** the program speaks HTTP: `get`, `post`, `put`, `delete`, `head`,
-`patch`, `options`, `fetch_many`, custom headers, JSON and form bodies,
-multipart, query strings, cookies, timeouts, auth (`auth_basic`, `auth_bearer`,
-`auth_digest`), and `result`-typed errors (`HttpError`).
+**Archivo:** `std/vinculum.pengu`
+**Implementación:** `rune Rc[T]`, `rune Arc[T]`, `rune Weak[T]`.
 
-**Avoid it when** the transport is not HTTP (raw TCP: `std.net`) or the client
-must live in the browser (`std.web.http`, which uses `fetch`).
+| Elemento | Firma | Descripción | CORE |
+|---|---|---|---|
+| `Rc.new` | `(value: T) -> Rc[T]` | Crea. | ✅ |
+| `Rc.clone` | `(@) -> Rc[T]` | Incrementa conteo. | ✅ |
+| `Rc.strong_count` | `(@) -> Usize` | Dueños. | |
+| `Rc.weak_count` | `(@) -> Usize` | Débiles. | |
+| `Rc.downgrade` | `(@) -> Weak[T]` | Crea débil. | |
+| `Rc.ptr_eq` | `(@, other: &Rc[T]) -> Bool` | Misma asignación. | |
+| `Rc.get_mut` | `(@mut) -> Option[&mut T]` | Acceso mutable si es único. | |
+| `Rc.make_mut` | `(@mut) -> &mut T` | Clona si hay más dueños. | |
+| `Rc.try_unwrap` | `(@own) -> Result[T, Rc[T]]` | Extrae si es único. | |
+| `Rc.into_raw` | `(@own) -> Ptr[T]` | Transfiere la propiedad. | |
+| `Rc.from_raw` | `(ptr: Ptr[T]) -> Rc[T]` | Recupera desde `into_raw`. | |
+| `Rc.increment_strong_count` | `(ptr: Ptr[T])` | Incrementa el conteo. | |
+| `Rc.decrement_strong_count` | `(ptr: Ptr[T])` | Decrementa el conteo. | |
+| `Weak.new` | `() -> Weak[T]` | Débil vacío. | |
+| `Weak.upgrade` | `(@) -> Option[Rc[T]]` | Recupera. | |
+| `Weak.strong_count` | `(@) -> Usize` | Dueños. | |
+| `Weak.weak_count` | `(@) -> Usize` | Débiles. | |
+| `Weak.ptr_eq` | `(@, other: &Weak[T]) -> Bool` | Misma asignación. | |
+| `Arc.new` | `(value: T) -> Arc[T]` | Crea. | ✅ |
+| `Arc.clone` | `(@) -> Arc[T]` | Incrementa. | ✅ |
+| `Arc.strong_count` | `(@) -> Usize` | Dueños. | |
+| `Arc.downgrade` | `(@) -> Weak[T]` | Crea débil. | |
+| `Weak.upgrade` | `(@) -> Option[Arc[T]]` | Recupera. | |
+| `Arc.get_mut` | `(@mut) -> Option[&mut T]` | Acceso mutable si es único. | |
+| `Arc.make_mut` | `(@mut) -> &mut T` | Clona si hay más dueños. | |
+| `Arc.try_unwrap` | `(@own) -> Result[T, Arc[T]]` | Extrae si es único. | |
+| `Arc.ptr_eq` | `(@, other: &Arc[T]) -> Bool` | Misma asignación. | |
 
-Inside a `std.reactor` worker, `get_async`, `send_async`,
-`send_to_file_async` and `fetch_many_async` suspend the coroutine. `send_async`,
-`fetch_many_async` and `Session.request_async` use one dispatcher per loop: a
-single `curl_multi` thread serves every in-flight request (`fetch_many_async`
-runs them concurrently, not serially). `send_to_file_async` still uses the loop
-pool. `Session` also has `request_async`, `get_async`, `post_json_async`
-and `post_form_async`, which merge cookies back on the loop thread. `Request`
-values do not cross threads: they are built and consumed on the loop thread.
+**Nota:** `Rc`/`Arc` no están en la prelude; se importan con `summon std::vinculum`.
 
-**Highlights** `get`, `post`, `Request`, `Response`, `HttpError`, `auth_bearer`,
-`get_async`, `fetch_many_async`, `Session.get_async`.
+---
 
-**API** [`api/std_petitio.md`](api/std_petitio.md) · [source](../std/petitio.pengu)
+<a id="frenum"></a>
+## 17. `frenum` — Sync
 
-### `std.jsonrpc` — JSON-RPC 2.0
+**Archivo:** `std/frenum.pengu`
+**Implementación:** `rune Mutex[T]`, `rune RwLock[T]`, `rune OnceLock[T]`.
 
-**Use it when** you implement JSON-RPC: `encode_request`, `encode_notification`,
-`encode_response_ok`, `encode_response_error`, `decode_message`, batch support,
-the five standard error codes, and LSP `Content-Length` framing
-(`encode_framed`, `decode_framed`).
+| Elemento | Firma | Descripción | CORE |
+|---|---|---|---|
+| `Mutex.new` | `(value: T) -> Mutex[T]` | Crea. | ✅ |
+| `Mutex.lock` | `(@mut) -> LockResult[MutexGuard[T]]` | Bloquea. | ✅ |
+| `MutexGuard` | `rune` | Guarda RAII. | ✅ |
+| `Mutex.try_lock` | `(@mut) -> TryLockResult[MutexGuard[T]]` | Intenta bloquear. | |
+| `Mutex.into_inner` | `(@own) -> LockResult[T]` | Extrae el valor. | |
+| `Mutex.get_mut` | `(@mut) -> LockResult[&mut T]` | Acceso sin bloquear. | |
+| `Mutex.is_poisoned` | `(@) -> Bool` | Estado de envenenamiento. | |
+| `Mutex.clear_poison` | `(@mut)` | Limpia el veneno. | |
+| `RwLock.new` | `(value: T) -> RwLock[T]` | Crea. | |
+| `RwLock.read` | `(@) -> LockResult[RwLockReadGuard[T]]` | Lectura. | |
+| `RwLock.write` | `(@mut) -> LockResult[RwLockWriteGuard[T]]` | Escritura. | |
+| `RwLock.try_read` | `(@) -> TryLockResult[RwLockReadGuard[T]]` | Intenta lectura. | |
+| `RwLock.try_write` | `(@mut) -> TryLockResult[RwLockWriteGuard[T]]` | Intenta escritura. | |
+| `RwLock.into_inner` | `(@own) -> LockResult[T]` | Extrae el valor. | |
+| `RwLock.get_mut` | `(@mut) -> LockResult[&mut T]` | Acceso sin bloquear. | |
+| `OnceLock.new` | `() -> OnceLock[T]` | Crea. | |
+| `OnceLock.set` | `(@mut, value: T) -> Result[(), T]` | Inicializa una vez. | |
+| `OnceLock.get` | `(@) -> Option[&T]` | Lee. | |
+| `OnceLock.get_or_init` | `(@mut, f: () -> T) -> &T` | Inicializa si falta. | |
+| `OnceLock.get_or_try_init` | `(@mut, f: () -> Result[T, E]) -> Result[&T, E]` | Inicializa o propaga error. | |
+| `OnceLock.take` | `(@mut) -> Option[T]` | Extrae el valor. | |
 
-**Avoid it when** the protocol is plain JSON over HTTP: `std.json` plus
-`std.petitio`.
+**Nota:** `Mutex`/`RwLock` requieren que `T: Send` en el backend, pero `Send`/`Sync` no son visibles en la superficie (la restricción la aplica el backend).
 
-**Highlights** `encode_request`, `decode_message`, `encode_framed`,
-`decode_framed`.
+---
 
-**API** [`api/std_jsonrpc.md`](api/std_jsonrpc.md) · [source](../std/jsonrpc.pengu)
+<a id="cellula"></a>
+## 18. `cellula` — Cell / RefCell
 
-## 11. Interop and native code
+**Archivo:** `std/cellula.pengu`
+**Implementación:** `rune Cell[T]`, `rune RefCell[T]`.
 
-### `std.ffi` — C buffers and strings
+| Elemento | Firma | Descripción | CORE |
+|---|---|---|---|
+| `Cell.new` | `(value: T) -> Cell[T]` | Crea. | |
+| `Cell.get` | `(@) -> T` | Copia (requiere `T: Copy`). | |
+| `Cell.set` | `(@, value: T)` | Reemplaza. | |
+| `Cell.replace` | `(@, value: T) -> T` | Reemplaza y devuelve anterior. | |
+| `Cell.take` | `(@) -> T` | Extrae y deja el valor por defecto. | |
+| `Cell.swap` | `(@, other: &Cell[T])` | Intercambia contenidos. | |
+| `Cell.update` | `(@, f: (T) -> T)` | Actualiza con una función. | |
+| `Cell.as_ptr` | `(@) -> Ptr[T]` | Puntero interno. | |
+| `Cell.into_inner` | `(@own) -> T` | Extrae el valor. | |
+| `RefCell.new` | `(value: T) -> RefCell[T]` | Crea. | |
+| `RefCell.borrow` | `(@) -> Ref[T]` | Préstamo compartido (runtime). | |
+| `RefCell.borrow_mut` | `(@) -> RefMut[T]` | Préstamo mutable (runtime). | |
+| `RefCell.try_borrow` | `(@) -> Result[Ref[T], BorrowError]` | Intenta. | |
+| `RefCell.try_borrow_mut` | `(@) -> Result[RefMut[T], BorrowMutError]` | Intenta. | |
+| `RefCell.replace` | `(@, value: T) -> T` | Reemplaza y devuelve anterior. | |
+| `RefCell.swap` | `(@, other: &RefCell[T])` | Intercambia contenidos. | |
+| `RefCell.take` | `(@) -> T` | Extrae y deja el valor por defecto. | |
+| `RefCell.into_inner` | `(@own) -> T` | Extrae el valor. | |
+| `Ref.clone` | `(@) -> Ref[T]` | Clona el préstamo. | |
+| `Ref.map` | `(@, f: (&T) -> &U) -> Ref[U]` | Proyecta el préstamo. | |
+| `RefMut.map` | `(@, f: (&mut T) -> &mut U) -> RefMut[U]` | Proyecta el préstamo mutable. | |
 
-**Use it when** a `declare`d C function takes or returns `char *`, `void *`, a
-length-prefixed buffer or a `T *` array and you must convert to and from
-PenguScript values: `cstr_from_string` (borrowed, must be freed with
-`cstr_free`), `bytes_from_string`, `is_null`, `ptr_add`, `ptr_offset`,
-`size_of`, `alignment_of`, `slice_from_ptr`, `list_from_ptr`,
-`map_from_ptr`, and the typed `list_of_*_from_ptr` family.
+**Nota:** `RefCell` puede hacer panic en runtime si se solapan préstamos; el linter puede advertir.
 
-**Avoid it when** a plain `ref to char` parameter accepts a string literal: the
-literal converts automatically, no bridge needed.
+---
 
-**Highlights** `cstr_from_string`, `cstr_free`, `is_null`, `size_of`,
-`slice_from_ptr`.
+<a id="somnium"></a>
+## 19. `somnium` — Async (diferido)
 
-**API** [`api/std_ffi.md`](api/std_ffi.md) · [source](../std/ffi.pengu)
+**Archivo:** `std/somnium.pengu`
+**Estado:** **Diferido**; no es CORE. El núcleo es síncrono. Se documenta para el mapa, pero no se implementa en la primera fase.
 
-### `std.ffi_call` — libffi dynamic calls (optional)
+| Elemento | Firma | Descripción |
+|---|---|---|
+| `Future[T]` | `pact` | Cálculo asíncrono. |
+| `poll` | `(@mut, cx: &mut Context) -> Poll[T]` | Sondea. |
+| `Poll` | `enchanting` | `Ready(T)` / `Pending`. |
+| `spawn` | `(f: () -> Future[T]) -> JoinHandle[T]` | Lanza tarea. |
+| `block_on` | `(f: Future[T]) -> T` | Ejecuta hasta completar. |
+| `sleep` | `(duration: Duration) -> Future[()]` | Duerme asíncrono. |
 
-**Use it when** the signature is only known at runtime: `FfiSignature`,
-`signature`, `call`, `ret_size`, `release`. Links `-lffi` only when imported.
+**Nota:** la implementación real requiere un executor y `Pin`/`Waker`, que la spec no expone. Se implementará en un módulo aparte o se delegará a un runtime externo.
 
-**Avoid it when** the signature is known at compile time: `declare` is faster,
-type-checked and needs no dependency.
+---
 
-**Highlights** `FfiSignature`, `signature`, `call`.
+<a id="proba"></a>
+## 20. `proba` — Test
 
-**API** [`api/std_ffi_call.md`](api/std_ffi_call.md) · [source](../std/ffi_call.pengu)
+**Archivo:** `std/proba.pengu`
 
-### `std.dynlib` — dynamic library loading
+| Función | Firma | Descripción | CORE |
+|---|---|---|---|
+| `assert` | `(condition: Bool, message: &Str)` | Panic si es falso. | ✅ |
+| `assert_eq` | `(actual: T, expected: T)` | Igualdad (requiere `Debug + PartialEq`). | ✅ |
+| `assert_ne` | `(actual: T, unexpected: T)` | Desigualdad. | ✅ |
+| `panic` | `(message: &Str) -> Never` | Aborta. | ✅ |
+| `should_panic` | atributo `@@test(should_panic: "...")` | Test que debe fallar. | ✅ |
+| `assert_eq_msg` | `(actual: T, expected: T, message: &Str)` | Igualdad con mensaje. | |
+| `assert_ne_msg` | `(actual: T, unexpected: T, message: &Str)` | Desigualdad con mensaje. | |
+| `assert_approx_eq` | `(actual: Float, expected: Float, tolerance: Float)` | Igualdad numérica aproximada. | |
+| `debug_assert` | `(condition: Bool, message: &Str)` | Assert solo en debug. | |
+| `debug_assert_eq` | `(actual: T, expected: T)` | Igualdad solo en debug. | |
+| `fail` | `(message: &Str) -> Never` | Falla el test. | |
 
-**Use it when** a plugin or an optional dependency is loaded at runtime:
-`Library`, `open`, `symbol`, `close`. Portability is handled (`dlopen` on POSIX,
-`LoadLibraryA` on Windows).
+**Nota de implementación (S4).** `std/proba.pengu` implementa las aserciones
+como intrínsecos `abi "pengu"`: `assert`, `assert_eq`, `assert_ne`,
+`assert_eq_msg`, `assert_ne_msg`, `assert_approx_eq`, `debug_assert`,
+`debug_assert_eq` y `fail`. El mensaje se construye en el backend con el trait
+`Show` del runtime, así que las aserciones funcionan con cualquier tipo sin
+bounds en la superficie (`assert_eq = [T](actual: T, expected: T) -> Unit`).
 
-**Avoid it when** the library is a build dependency: `link "name"` plus
-`declare` is checked at build time and prunes correctly.
+`panic(message)` y `fail(message)` devuelven `Never`. `should_panic` es el
+atributo `@@test(should_panic: "...")`, no una función: los tests se declaran
+con `@@test` y el runner ya los ejecuta.
 
-**Highlights** `Library`, `open`, `symbol`, `close`.
 
-**API** [`api/std_dynlib.md`](api/std_dynlib.md) · [source](../std/dynlib.pengu)
+---
 
-### `std.secrets` — libsodium primitives (optional)
+<a id="opera"></a>
+## 21. `opera` — Ops
 
-**Use it when** you need secrets, not randomness: `init`, `random_bytes`,
-`sha256_raw`, `wipe` (secure zeroing) and `compare` (constant-time). Requires
-`links = ["sodium"]`.
+**Archivo:** `std/opera.pengu`
+**Implementación:** `pact Add`, `Sub`, `Mul`, `Div`, `Rem`, `Neg`, `Eq`, `Ord`. Se importan con `summon std::opera::Add`.
 
-**Avoid it when** libsodium is not linked, or the bytes are not secret: `std.lot`
-is reproducible and dependency-free.
+| Pact | Método | Firma |
+|---|---|---|
+| `Add` | `add` | `(@own, other: Self) -> Self` |
+| `Sub` | `sub` | `(@own, other: Self) -> Self` |
+| `Mul` | `mul` | `(@own, other: Self) -> Self` |
+| `Div` | `div` | `(@own, other: Self) -> Self` |
+| `Rem` | `rem` | `(@own, other: Self) -> Self` |
+| `Neg` | `neg` | `(@own) -> Self` |
+| `Eq` | `eq` | `(@, other: &Self) -> Bool` |
+| `Ord` | `cmp` | `(@, other: &Self) -> Ordering` |
 
-**Highlights** `init`, `random_bytes`, `wipe`, `compare`.
+> **Nota de implementación (S1).** Los ocho pactos viven en
+> `std/opera.pengu`. Un operador sobre un tipo de usuario se baja a la llamada
+> del pacto (`std::opera::Add::add(a, b)`), no al operador de Rust: así hay una
+> sola definición de operadores en el lenguaje y no se depende de los traits de
+> `std::ops`. El pacto `Show` sigue siendo el único de la prelude; estos se
+> importan con `summon`.
 
-**API** [`api/std_secrets.md`](api/std_secrets.md) · [source](../std/secrets.pengu)
+---
 
-## 12. WebAssembly
+<a id="funis"></a>
+## 22. `funis` — Iter
 
-Everything in this section requires `--target wasm` and an Emscripten toolchain.
-`std.web.url` and `std.web.security` are the exception: they are pure
-PenguScript and also run in native builds.
+**Archivo:** `std/funis.pengu` (declarativo) + backend
+**Estado:** ✅ S7a. Implementado sobre `Iterator` de Rust. En PenguScript un `Iter[T]` es el
+valor que devuelven `Vec.iter()`, `Vec.map(…)`, `Map.iter()`, `Set.iter()`, `Str.chars()`, etc.;
+no hay todavía un `rune Iter[T]` propio (N36), así que el checker resuelve
+los métodos con la tabla de `Ty::Iterator` y el backend emite el adaptador homónimo de Rust.
 
-Protect browser-only code with `when wasm:`; the inactive branch is removed
-before C is emitted.
+`iter()` recorre **por valor** (`clone().into_iter()` en el Rust generado): el contenedor
+sigue siendo utilizable después. `into_iter()` lo consume. Los adaptadores que devuelven un
+iterador nuevo se envuelven en `Box::new(…)`, así que un `Iter[T]` se puede guardar en un
+`bind`:
 
 ```pengu
-import std.web.dom
-import std.web.event
-
-when wasm:
-    weave mount into void:
-        let root as dom.Element is calling dom.create with "div"
-        calling dom.set_text with root, "hello"
+bind it = xs.iter().filter((x: Int) => x % 2 == 0)
+print(it.map((x: Int) => x * 10).collect())
 ```
 
-### `std.web` — the browser bridge
-
-**Use it when** you need the pieces every wasm build has: `console_log`,
-`console_warn`, `console_error`, `console_trace`, `set_main_loop` (keeps the
-runtime alive for callbacks), and the shared handle type.
-
-**Avoid it when** a specialised module covers the area: `std.web.dom` for
-elements, `std.web.http` for requests.
-
-**Highlights** `console_log`, `console_error`, `set_main_loop`.
-
-**API** [`api/std_web.md`](api/std_web.md) · [source](../std/web.pengu)
-
-### `std.web.js` — JavaScript interop
-
-**Use it when** you must call into JavaScript directly: `JsValue` handles,
-`global`, `get`, `call_method`, `call`, `eval`, `import_module`, `from_string`,
-`from_int`, `from_f64`, `array`, `object`, `retain`, `release`. Handles are
-owned: release what you create, retain what you keep past a callback.
-
-**Avoid it when** the operation has a typed wrapper (`dom`, `canvas`, `http`):
-typed wrappers carry the ownership rules.
-
-**Highlights** `JsValue`, `global`, `call_method`, `retain`, `release`.
-
-**API** [`api/std_web_js.md`](api/std_web_js.md) · [source](../std/web/js.pengu)
-
-### `std.web.dom` — elements and listeners
-
-**Use it when** you build or mutate UI: `document`, `body`, `query`, `create`,
-`create_text`, `append`, `set_text`, `html`, `on`, `off`, `Listener`,
-`add_class`, `has_class`, `set_attr`, `get_attr`, `form_data`, `click`,
-`focus`, `free`.
-
-**Avoid it when** you need drawing: `std.web.canvas`.
-
-**Highlights** `query`, `create`, `set_text`, `on`, `add_class`.
-
-**API** [`api/std_web_dom.md`](api/std_web_dom.md) · [source](../std/web/dom.pengu)
-
-### `std.web.event` — typed event accessors
-
-**Use it when** a `dom.on` callback must read the event: `key`, `code`,
-`client_x`, `client_y`, `page_x`, `page_y`, `button`, `target`,
-`current_target`, `prevent_default`, `stop_propagation`, `is_shift`,
-`is_ctrl`, `is_alt`, `is_meta`, `data`, `clipboard_text`.
-
-**Avoid it when** you only need the fact that the event fired.
-
-**Highlights** `key`, `target`, `prevent_default`, `stop_propagation`.
-
-**API** [`api/std_web_event.md`](api/std_web_event.md) · [source](../std/web/event.pengu)
-
-### `std.web.canvas` — Canvas 2D
-
-**Use it when** you draw: `context2d`, `fill_rect`, `clear_rect`, `begin_path`,
-`move_to`, `line_to`, `arc`, `fill`, `stroke`, `fill_text`, `measure_text`,
-`draw_image`, `get_image_data`, `fit_display`. Every method returns a `result`;
-a missing element or a browser exception becomes `JsError`.
-
-**Avoid it when** the output is DOM structure: `std.web.dom`.
-
-**Highlights** `context2d`, `fill_rect`, `fill_text`, `draw_image`.
-
-**API** [`api/std_web_canvas.md`](api/std_web_canvas.md) · [source](../std/web/canvas.pengu)
-
-### `std.web.browser` — window APIs
-
-**Use it when** you need window-level behaviour: `inner_width`, `inner_height`,
-`device_pixel_ratio`, `scroll_to`, `scroll_by`, `scroll_x`, `scroll_y`,
-`open_url`, `reload`, `alert`, `confirm`, `prompt`, `match_media`,
-`visibility_state`, `on_resize`, `on_scroll`, `on_visibility`.
-
-**Avoid it when** the URL change must be routed: `std.web.router`.
-
-**Highlights** `inner_width`, `scroll_to`, `open_url`, `on_resize`.
-
-**API** [`api/std_web_browser.md`](api/std_web_browser.md) · [source](../std/web/browser.pengu)
-
-### `std.web.location` — `window.location`
-
-**Use it when** you read or change the address: `href`, `origin`, `protocol`,
-`host`, `hostname`, `port`, `pathname`, `search`, `hash`, `assign`, `replace`,
-`reload`, `set_hash`, `search_params`. `assign`/`replace` reject schemes outside
-the security allow-list.
-
-**Avoid it when** you parse a URL you already have as a string: `std.web.url`.
-
-**Highlights** `href`, `hash`, `search`, `assign`, `set_hash`.
-
-**API** [`api/std_web_location.md`](api/std_web_location.md) · [source](../std/web/location.pengu)
-
-### `std.web.history` — `window.history`
-
-**Use it when** the app manages navigation state: `push_state`, `replace_state`,
-`state`, `back`, `forward`, `go`, `length`, `on_pop`.
-
-**Avoid it when** routes are hash-based and declarative: `std.web.router`.
-
-**Highlights** `push_state`, `state`, `back`, `on_pop`.
-
-**API** [`api/std_web_history.md`](api/std_web_history.md) · [source](../std/web/history.pengu)
-
-### `std.web.router` — hash routing
-
-**Use it when** a single-page app needs routes: `on_change`, `navigate`,
-`match`, `current_path`, `param`, `off`, `free_params`. Patterns support
-literals, `:name` captures and a trailing `*`.
-
-**Avoid it when** the app has one screen.
-
-**Highlights** `on_change`, `match`, `navigate`, `param`.
-
-**API** [`api/std_web_router.md`](api/std_web_router.md) · [source](../std/web/router.pengu)
-
-### `std.web.npm` — NPM facade
-
-**Use it when** a bundled NPM package is exposed as `window.PenguNpm`:
-`root`, `get_path`, `call`, `call_json`, `call_json_text`, `call_async`,
-`has_path`, `has_method`. The bundle is built by the user (esbuild/Vite) and
-injected with `[web]`; PenguScript never evaluates JS or resolves NPM modules.
-
-**Avoid it when** the browser API is already covered by `std.web.*`.
-
-**Highlights** `root`, `call_json_text`, `call_async`.
-
-**API** [`api/std_web_npm.md`](api/std_web_npm.md) · [source](../std/web/npm.pengu) · [guide](NPM.md)
-
-### `std.web.capacitor` — Capacitor adapter
-
-**Use it when** the same web build runs inside Capacitor 8: `platform`,
-`is_native`, `is_available`, `plugin`, `call_json`, `call_async`, plus adapters
-for Camera, Device, Network, Preferences, Share, Haptics and LocalNotifications.
-Callbacks are one-shot and receive borrowed handles.
-
-**Avoid it when** the target is a plain PWA with no native shell.
-
-**Highlights** `platform`, `is_native`, `device_info`, `camera_take_photo`.
-
-**API** [`api/std_web_capacitor.md`](api/std_web_capacitor.md) · [source](../std/web/capacitor.pengu) · [guide](CAPACITOR.md)
-
-### `std.web.http` — `fetch`
-
-**Use it when** the browser must call an HTTP API: `request`, `get`, `post`,
-`post_json`, `put`, `delete`, `json`, `header`, `Response`, `response_from`,
-`free`. Asynchronous: the bridge delivers the response through a callback.
-
-**Avoid it when** the code also runs natively: `std.petitio` covers both sides
-of the wire on the server.
-
-**Highlights** `get`, `post_json`, `json`, `response_from`.
-
-**API** [`api/std_web_http.md`](api/std_web_http.md) · [source](../std/web/http.pengu)
-
-### `std.web.websocket` — typed WebSocket client
-
-**Use it when** the app needs a live channel: `open`, `send`, `close`, `state`,
-`count`. Keep the runtime alive with `set_main_loop`.
-
-**Avoid it when** polling is enough: `std.web.http`.
-
-**Highlights** `open`, `send`, `close`, `state`.
-
-**API** [`api/std_web_websocket.md`](api/std_web_websocket.md) · [source](../std/web/websocket.pengu)
-
-### `std.web.storage` — localStorage and sessionStorage
-
-**Use it when** you persist small values in the browser: `local_get`,
-`local_set`, `local_remove`, `local_keys`, `local_clear`, the `_json` variants,
-and the `session_*` mirror. Missing keys return `none`.
-
-**Avoid it when** the data is large or structured: IndexedDB through
-`std.web.js`.
-
-**Highlights** `local_get`, `local_set`, `local_keys`, `session_set`.
-
-**API** [`api/std_web_storage.md`](api/std_web_storage.md) · [source](../std/web/storage.pengu)
-
-### `std.web.file` — picking, reading, downloading
-
-**Use it when** the user selects or saves a file: `pick_text`, `read_text`,
-`read_data_url`, `save_text`, `text_from`. Reading is asynchronous; `save_text`
-triggers a normal download.
-
-**Avoid it when** the bytes are already in memory.
-
-**Highlights** `pick_text`, `read_text`, `save_text`.
-
-**API** [`api/std_web_file.md`](api/std_web_file.md) · [source](../std/web/file.pengu)
-
-### `std.web.clipboard` — system clipboard
-
-**Use it when** you copy or paste text: `read`, `write`. Both directions are
-asynchronous and permission-gated by the browser.
-
-**Avoid it when** the text is inside the page: `dom.set_text`.
-
-**Highlights** `read`, `write`.
-
-**API** [`api/std_web_clipboard.md`](api/std_web_clipboard.md) · [source](../std/web/clipboard.pengu)
-
-### `std.web.crypto` — browser cryptography
-
-**Use it when** the browser must generate or hash secrets: `random_bytes`,
-`random_int`, `uuid_v4`, `sha256_hex`, `hmac_sha256_hex`. Randomness comes from
-`crypto.getRandomValues`, never `Math.random`; digests are asynchronous.
-
-**Avoid it when** the code runs natively: `std.secrets` or `std.digest`.
-
-**Highlights** `random_bytes`, `uuid_v4`, `sha256_hex`, `hmac_sha256_hex`.
-
-**API** [`api/std_web_crypto.md`](api/std_web_crypto.md) · [source](../std/web/crypto.pengu)
-
-### `std.web.url` — URL parsing and encoding (also native)
-
-**Use it when** you parse or build a URL: `parse`, `to_string`, `origin`,
-`params`, `param`, `query_get`, `query_set`, `query_remove`, `encode_component`,
-`decode_component`, `with_path`, `with_query`, `Url`.
-
-**Avoid it when** you need to navigate: `std.web.location`.
-
-**Highlights** `parse`, `to_string`, `encode_component`, `query_get`.
-
-**API** [`api/std_web_url.md`](api/std_web_url.md) · [source](../std/web/url.pengu)
-
-### `std.web.security` — defensive string helpers (also native)
-
-**Use it when** user text reaches HTML, a URL or an attribute: `escape_html`,
-`is_safe_url` (rejects `javascript:`, `vbscript:`, control characters and
-executable `data:` URLs), `starts_with_ignore_case`, `ends_with_ignore_case`.
-
-**Avoid it when** the value never leaves the program.
-
-**Highlights** `escape_html`, `is_safe_url`.
-
-**API** [`api/std_web_security.md`](api/std_web_security.md) · [source](../std/web/security.pengu)
-
-## 13. Optional and native dependencies
-
-Most of the standard library is pure PenguScript. A few modules bind native code,
-and only those bring a linker dependency — and only when imported, because the
-dead-code eliminator removes the `declare`s of an unused module.
-
-| Module | Native dependency | How it is enabled |
-| --- | --- | --- |
-| `std.petitio` | libcurl | `links = ["curl"]` in `pengu.toml` |
-| `std.secrets` | libsodium | `links = ["sodium"]` in `pengu.toml` |
-| `std.ffi_call` | libffi | `links = ["ffi"]` in `pengu.toml` |
-| `std.dynlib` | `dl` (POSIX) / `kernel32` (Windows) | automatic |
-| `std.chrono` | vaqt | vendored in `std_c/vaqt/` |
-| `std.compressus` | miniz 3.1.2 | vendored in `std_c/miniz/` |
-| `std.lingua` | utf8.h | vendored header in `std_c/` |
-| `std.regulus` | tiny-regex-c | vendored in `std_c/re.c` |
-| `std.ffi` | none (runtime helpers) | automatic |
-
-**Vendored** means the source ships in `std_c/` and is compiled into the
-program; **linked** means the system must provide the library.
-
-### Internal binding files
-
-Four modules keep their C declarations in a separate `.d.pengu`:
-
-| Wrapper (import this) | Declaration file (do not import) |
-| --- | --- |
-| `std.compressus` | `std/compressus.d.pengu` |
-| `std.lingua` | `std/lingua.d.pengu` |
-| `std.petitio` | `std/petitio.d.pengu` |
-| `std.regulus` | `std/regulus.d.pengu` |
-
-The declaration file only contains `include`, `link`, `declare` and layout
-types. The wrapper owns the public API, the error model and the ownership rules.
-Importing the `.d` file directly skips all of that.
-
-## 14. The complete index
-
-All 70 modules, alphabetically. The layer matches section 1; the API column goes
-to the page generated by `psc doc --include-std`.
-
-| Module | Layer | What it gives you | API |
-| --- | --- | --- | --- |
-| `std.archivum` | System | read, write, copy, walk files and directories | [`std_archivum`](api/std_archivum.md) |
-| `std.arena` | Core | bump allocator for object graphs with one lifetime | [`std_arena`](api/std_arena.md) |
-| `std.arithmancy` | Numbers | `Vec2`/`Vec3`/`Vec4`, `Mat4`, `Quat`, geometry helpers | [`std_arithmancy`](api/std_arithmancy.md) |
-| `std.atlas` | Collections | maps: `get_safe`, `put`, `entries`, filtering | [`std_atlas`](api/std_atlas.md) |
-| `std.bitset` | Collections | dense fixed-length bit set and set algebra | [`std_bitset`](api/std_bitset.md) |
-| `std.builder` | Core | `StringBuilder`: linear string assembly | [`std_builder`](api/std_builder.md) |
-| `std.carmen` | Formats | fixed-layout binary records described by a formula | [`std_carmen`](api/std_carmen.md) |
-| `std.chronicle` | System | wall clock, calendars, `DateTime`, durations | [`std_chronicle`](api/std_chronicle.md) |
-| `std.chrono` | System | `Instant`/`Duration` with nanosecond precision (vaqt) | [`std_chrono`](api/std_chrono.md) |
-| `std.cipher` | Formats | Base64/Hex/Base32/Base58/Base85, URL encoding, CRC-32 | [`std_cipher`](api/std_cipher.md) |
-| `std.compass` | System | path join/split/normalise, `Path` rune | [`std_compass`](api/std_compass.md) |
-| `std.compressus` | Formats | gzip, zlib and raw deflate | [`std_compressus`](api/std_compressus.md) |
-| `std.consortium` | Core | shared ownership: `Rc`, `Arc`, `Weak` with reference counts | [`std_consortium`](api/std_consortium.md) |
-| `std.coven` | Collections | sets: membership, union, intersect | [`std_coven`](api/std_coven.md) |
-| `std.diagnostic` | Core | spans, labels and compiler-style rendering | [`std_diagnostic`](api/std_diagnostic.md) |
-| `std.digest` | Formats | SHA-256, HMAC-SHA-256, FNV-1a | [`std_digest`](api/std_digest.md) |
-| `std.dynlib` | Interop | `dlopen`/`LoadLibrary` plugin loading | [`std_dynlib`](api/std_dynlib.md) |
-| `std.ffi` | Interop | C string, buffer and pointer conversions | [`std_ffi`](api/std_ffi.md) |
-| `std.ffi_call` | Interop | libffi dynamic calls (optional) | [`std_ffi_call`](api/std_ffi_call.md) |
-| `std.filum` | Concurrency | threads, `Mutex`, `WaitGroup`, `Once`, `Cond`, atomics, channels | [`std_filum`](api/std_filum.md) |
-| `std.coro` | Concurrency | `Coroutine`, `start`, `resume`, `yield`, `current`, `abandon` | [`std_coro`](api/std_coro.md) |
-| `std.reactor` | Concurrency | `EventLoop`, `spawn`, `run`, `park_*`, `offload` | [`std_reactor`](api/std_reactor.md) |
-| `std.fractio` | Numbers | float methods: `sqrt`, `pow`, trigonometry | [`std_fractio`](api/std_fractio.md) |
-| `std.functor` | Core | `Fn0`–`Fn3`: function pointer plus context | [`std_functor`](api/std_functor.md) |
-| `std.integrum` | Numbers | integer methods: gcd, primes, bits, radix | [`std_integrum`](api/std_integrum.md) |
-| `std.invoke` | System | typed CLI parser: flags, options, subcommands | [`std_invoke`](api/std_invoke.md) |
-| `std.io` | System | byte-exact stdin/stdout | [`std_io`](api/std_io.md) |
-| `std.json` | Formats | strict JSON parser, DOM, JSON Pointer | [`std_json`](api/std_json.md) |
-| `std.jsonrpc` | Services | JSON-RPC 2.0 messages, batches, LSP framing | [`std_jsonrpc`](api/std_jsonrpc.md) |
-| `std.ledger` | Formats | CSV and TSV tables | [`std_ledger`](api/std_ledger.md) |
-| `std.lingua` | Text | UTF-8 codepoints, validation, grapheme count | [`std_lingua`](api/std_lingua.md) |
-| `std.littera` | Text | `char` classification and case conversion | [`std_littera`](api/std_littera.md) |
-| `std.logica` | Text | `bool` connectives: `xor`, `implies`, `nand` | [`std_logica`](api/std_logica.md) |
-| `std.loom` | Collections | safe list algorithms returning `maybe`/`list` | [`std_loom`](api/std_loom.md) |
-| `std.lot` | Numbers | PCG32 randomness, distributions, sampling | [`std_lot`](api/std_lot.md) |
-| `std.memoria` | Core | raw heap blocks: `alloc`, `copy`, `resize_array` | [`std_memoria`](api/std_memoria.md) |
-| `std.net` | System | TCP sockets and `*_async` variants | [`std_net`](api/std_net.md) |
-| `std.numerus` | Numbers | numeric methods over the `Num` concept | [`std_numerus`](api/std_numerus.md) |
-| `std.oracle` | Core | `maybe`/`result` toolbox | [`std_oracle`](api/std_oracle.md) |
-| `std.ordinal` | Collections | `LinkedList`, `OrderedMap`/`OrderedSet`, `UnorderedSet` | [`std_ordinal`](api/std_ordinal.md) |
-| `std.petitio` | Services | HTTP client on libcurl | [`std_petitio`](api/std_petitio.md) |
-| `std.regulus` | Formats | small, explicit regular expressions | [`std_regulus`](api/std_regulus.md) |
-| `std.rites` | System | environment, argv, `exec`, platform detection | [`std_rites`](api/std_rites.md) |
-| `std.scrolls` | Text | byte-oriented strings: split, trim, replace, join | [`std_scrolls`](api/std_scrolls.md) |
-| `std.secrets` | Interop | libsodium randomness and secure wipe (optional) | [`std_secrets`](api/std_secrets.md) |
-| `std.sourcemap` | Core | byte offset ↔ line/column | [`std_sourcemap`](api/std_sourcemap.md) |
-| `std.spark` | Core | console I/O, parsing, `panic`, `exit` | [`std_spark`](api/std_spark.md) |
-| `std.tally` | Collections | concrete list algorithms for `list of int` | [`std_tally`](api/std_tally.md) |
-| `std.toml` | Formats | TOML 1.0 parse and stringify | [`std_toml`](api/std_toml.md) |
-| `std.trial` | Testing | test suites and summaries | [`std_trial`](api/std_trial.md) |
-| `std.ward` | Testing | assertions with informative messages | [`std_ward`](api/std_ward.md) |
-| `std.web` | WebAssembly | console, main loop, shared browser bridge | [`std_web`](api/std_web.md) |
-| `std.whisper` | System | leveled logging, JSON lines, child loggers | [`std_whisper`](api/std_whisper.md) |
-| `std.yaml` | Formats | legacy manifest subset | [`std_yaml`](api/std_yaml.md) |
-| `std.web.browser` | WebAssembly | window geometry, scrolling, dialogs | [`std_web_browser`](api/std_web_browser.md) |
-| `std.web.canvas` | WebAssembly | Canvas 2D drawing | [`std_web_canvas`](api/std_web_canvas.md) |
-| `std.web.clipboard` | WebAssembly | clipboard read and write | [`std_web_clipboard`](api/std_web_clipboard.md) |
-| `std.web.crypto` | WebAssembly | CSPRNG, UUID v4, SHA-256, HMAC | [`std_web_crypto`](api/std_web_crypto.md) |
-| `std.web.dom` | WebAssembly | elements, attributes, listeners | [`std_web_dom`](api/std_web_dom.md) |
-| `std.web.event` | WebAssembly | typed event accessors | [`std_web_event`](api/std_web_event.md) |
-| `std.web.file` | WebAssembly | file pick, read and download | [`std_web_file`](api/std_web_file.md) |
-| `std.web.history` | WebAssembly | history push/replace/pop | [`std_web_history`](api/std_web_history.md) |
-| `std.web.http` | WebAssembly | `fetch`-based HTTP | [`std_web_http`](api/std_web_http.md) |
-| `std.web.js` | WebAssembly | `JsValue` handles and JavaScript calls | [`std_web_js`](api/std_web_js.md) |
-| `std.web.location` | WebAssembly | `window.location` | [`std_web_location`](api/std_web_location.md) |
-| `std.web.router` | WebAssembly | hash routing | [`std_web_router`](api/std_web_router.md) |
-| `std.web.security` | WebAssembly | `escape_html`, `is_safe_url` (also native) | [`std_web_security`](api/std_web_security.md) |
-| `std.web.storage` | WebAssembly | localStorage and sessionStorage | [`std_web_storage`](api/std_web_storage.md) |
-| `std.web.url` | WebAssembly | URL parse, build, encode (also native) | [`std_web_url`](api/std_web_url.md) |
-| `std.web.websocket` | WebAssembly | WebSocket client | [`std_web_websocket`](api/std_web_websocket.md) |
-## Appendix A — Import cheat sheet
-
-```pengu-fragment
-# Core
-import std.spark
-import std.memoria
-import std.oracle
-import std.builder
-import std.arena
-import std.functor
-import std.bitset
-import std.sourcemap
-import std.diagnostic
-
-# Text and numbers
-import std.scrolls
-import std.lingua
-import std.littera
-import std.logica
-import std.integrum
-import std.fractio
-import std.numerus
-import std.arithmancy
-import std.lot
-
-# Collections
-import std.loom
-import std.tally
-import std.atlas
-import std.coven
-import std.ordinal
-
-# Formats
-import std.json
-import std.cipher
-import std.carmen
-import std.toml
-import std.yaml
-import std.ledger
-import std.compressus
-import std.digest
-import std.regulus
-
-# System
-import std.archivum
-import std.compass
-import std.rites
-import std.invoke
-import std.io
-import std.net
-import std.chronicle
-import std.chrono
-import std.whisper
-
-# Testing and concurrency
-import std.ward
-import std.trial
-import std.filum
-
-# Services and interop
-import std.petitio
-import std.jsonrpc
-import std.ffi
-import std.ffi_call
-import std.dynlib
-import std.secrets
-
-# WebAssembly
-import std.web
-import std.web.dom
-import std.web.event
-import std.web.http
-import std.web.js
+`std/funis.pengu` es **declarativo**: mientras no exista un `rune Iter[T]` (N36) no puede
+aportar métodos propios, así que la superficie vive en el checker (`Ty::Iterator`). El
+archivo documenta los adaptadores para que `summon std::funis` sea válido y para que la
+tabla de abajo tenga un único origen de verdad.
+
+`summon std::iter` es opcional (los métodos están disponibles sin importar); sirve para
+declarar de dónde viene la superficie. El módulo `std/funis.pengu` es solo documentación: la
+superficie no se puede declarar en PenguScript hasta que `Iter[T]` sea un tipo nominal.
+
+| Método | Firma | Descripción | CORE |
+|---|---|---|---|
+| `map` | `(@, f: (T) -> U) -> Iter[U]` | Transforma. | ✅ |
+| `filter` | `(@, f: (T) -> Bool) -> Iter[T]` | Filtra. | ✅ |
+| `fold` | `(@, init: U, f: (U, T) -> U) -> U` | Acumula. | ✅ |
+| `collect` | `(@) -> Vec[T]` | Materializa. | ✅ |
+| `count` | `(@) -> Usize` | Cuenta. | ✅ |
+| `any` | `(@, f: (T) -> Bool) -> Bool` | Algún elemento. | ✅ |
+| `all` | `(@, f: (T) -> Bool) -> Bool` | Todos. | ✅ |
+| `find` | `(@, f: (T) -> Bool) -> Option[T]` | Primer match. | ✅ |
+| `position` | `(@, f: (T) -> Bool) -> Option[Usize]` | Posición del primer match. | ✅ |
+| `take` | `(@, n: Usize) -> Iter[T]` | Primeros `n`. | ✅ |
+| `skip` | `(@, n: Usize) -> Iter[T]` | Omite `n`. | ✅ |
+| `step_by` | `(@, step: Usize) -> Iter[T]` | Cada `step`. | ✅ |
+| `rev` | `(@) -> Iter[T]` | Invierte (doble extremo). | ✅ |
+| `enumerate` | `(@) -> Iter[(Usize, T)]` | Índice + valor. | ✅ |
+| `zip` | `(@, other: Iter[U]) -> Iter[(T, U)]` | Empareja. | ✅ |
+| `nth` | `(@, n: Usize) -> Option[T]` | Enésimo elemento. | ✅ |
+| `last` | `(@) -> Option[T]` | Último. | ✅ |
+| `sum` | `(@) -> T` | Suma (numéricos). | ✅ |
+| `max` / `min` | `(@) -> Option[T]` | Extremos (`Ord`). | ✅ |
+
+| `filter_map` | `(@, f: (T) -> Option[U]) -> Iter[U]` | Transforma y descarta. | ✅ |
+| `flat_map` | `(@, f: (T) -> Vec[U]) -> Iter[U]` | Aplana lo que devuelve el cierre. | ✅ |
+| `flatten` | `(@) -> Iter[U]` | Aplana un iterador de iterables. | ✅ |
+| `chain` | `(@, other: Iter[T]) -> Iter[T]` | Concatena. | ✅ |
+| `take_while` | `(@, f: (T) -> Bool) -> Iter[T]` | Mientras se cumpla. | ✅ |
+| `skip_while` | `(@, f: (T) -> Bool) -> Iter[T]` | Salta mientras se cumpla. | ✅ |
+| `reduce` | `(@, f: (T, T) -> T) -> Option[T]` | Acumula sin valor inicial. | ✅ |
+| `product` | `(@) -> T` | Producto (numéricos). | ✅ |
+| `for_each` | `(@, f: (T) -> Unit) -> Unit` | Ejecuta por elemento. | ✅ |
+| `inspect` | `(@, f: (T) -> Unit) -> Iter[T]` | Observa sin consumir. | ✅ |
+| `fuse` | `(@) -> Iter[T]` | Termina tras el primer `none`. | ✅ |
+| `max_by` / `min_by` | `(@, f: (T, T) -> Ordering) -> Option[T]` | Extremos con comparador. | ✅ |
+
+Notas de implementación (S7):
+
+- `flat_map` recibe un cierre que devuelve `Vec[U]` (en Rust es `IntoIterator`).
+- `rev` **materializa** el iterador (`collect::<Vec<_>>().into_iter().rev()`): `Box<dyn
+  Iterator>` no implementa `DoubleEndedIterator`. Mismo resultado, coste O(n) de memoria.
+- `take_while`, `skip_while`, `inspect` y `max_by`/`min_by` reciben `&T` en Rust y el backend
+  copia con `T: Clone`.
+- Pendientes con motivo: `peekable` (necesita un `rune Peekable[T]`), `cycle` (el iterador
+  debe ser `Clone`, y `Box<dyn Iterator>` no lo es) y `try_*` (falta un pacto de conversión).
+  Todos necesitan el `rune Iter[T]` propio (N36).
+
+`Str` también produce iteradores desde S7: `chars() -> Iter[Char]`, `bytes() -> Iter[U8]` y
+`char_indices() -> Iter[(Usize, Char)]` (ver §5).
+
+Ejemplos:
+
+```pengu
+bind xs = Vec[1, 2, 3, 4, 5]
+print(xs.iter().filter((x: Int) => x % 2 == 0).map((x: Int) => x * 10).collect())
+print(xs.iter().sum())                     -- 15; el Vec sigue vivo
+print(xs.iter().rev().take(2).collect())   -- [5, 4]
 ```
 
-## Appendix B — Ownership when calling the standard library
+---
 
-The generated page for each symbol carries an ownership note in its `##` text.
-The conventions are consistent:
 
-| The function returns | Who frees it |
-| --- | --- |
-| `string` built from parts | the caller, with `banish` |
-| `list of T`, `map`, `Set` | the caller; free elements first if they are `string` |
-| `maybe T` / `result of T to E` | the caller owns the payload when present |
-| a `*_view`, `bytes_view`, `source`, `html`, a `dom` handle borrowed by an event | nobody — it is a view or a borrowed handle |
-| a handle (`JsValue`, `Element`, `Listener`, `Socket`) | the caller, with the matching `free`/`close`/`off` |
+## 23. `structura` — Colecciones avanzadas
 
-When a function takes ownership, its name or its `##` note says so
-(`take_*`, `consume_*`, `_owned`). When in doubt, read the note on the generated
-page before writing the `banish`.
+**Archivo:** `std/structura.pengu`
+**Estado:** ✅ pila, cola y cola doble (C2). Los contenedores ordenados quedan
+bloqueados por N67.
 
-### Copy-on-write containers
+### 23.1 Por qué son funciones libres
 
-`string`, `list of T` and `map of K to V` are copy-on-write since 0.52. Copying
-a binding is O(1): both bindings share one buffer with a counter, and the first
-mutation clones it (`ensure_unique`). Three methods make that visible:
+El backend no puede emitir todavía el `impl` de un `ritual` genérico con
+funciones asociadas: Rust no admite dos `new` en impls distintos y la plantilla
+`impl<T> Pila<T>` choca con el `enum __State` interno de cada método (N62). La
+superficie se ofrece, por tanto, con **funciones libres genéricas** que el
+monomorfizador instancia (`pila_push__Int`, `pila_push__Str`, …). El patrón es:
 
-| Method | On | What it does |
-| --- | --- | --- |
-| `is_shared` | `list`, `map`, `string` | `true` when another binding shares the buffer |
-| `ref_count` | `list`, `map`, `string` | number of bindings sharing the buffer |
-| `make_unique` | `list`, `map`, `string` | clones now, so the next mutation is in place |
+```pengu
+morph xs: Vec[Int] = Vec.new()
+xs = std::structura::pila_push(xs, 1)
+match std::structura::pila_pop(xs)
+    when some(v) then print(v)
+    when none then print("vacia")
+```
 
-Copy-then-mutate inside a loop is the one pattern where COW costs more than
-plain copies; `psc check --lint=cow` flags it (`W0008`, informational).
-A pristine container still has no automatic destructor: `banish` it when you
-are done, exactly as before.
+El contenedor es un `Vec[T]` normal, así que `xs.len()`, `xs[index]`, `for` y los
+métodos de `capsa` siguen disponibles.
 
-## Appendix C — Naming conventions in the standard library
+### 23.2 Pila (LIFO)
 
-| Pattern | Meaning |
-| --- | --- |
-| `get_*` | may fail; returns `maybe` |
-| `get_or` | takes a fallback |
-| `*_safe` | bounds-checked, returns `maybe` |
-| `*_result` | returns `result` with an error omen |
-| `is_*`, `has_*` | predicates, `bool` |
-| `to_*` | conversion that may lose information |
-| `*_view` | borrowed view, never free |
-| `*_owned` | an owned copy; the caller frees |
-| `*_file` | reads or writes a path instead of a buffer |
-| `*_raw` | bytes instead of an encoded string |
+| Función | Firma | Descripción |
+|---|---|---|
+| `pila_push` | `[T](Vec[T], T) -> Vec[T]` | Apila al final. |
+| `pila_pop` | `[T](Vec[T]) -> Option[T]` | Desapila; `none` si está vacía. |
+| `pila_clear` | `[T](Vec[T]) -> Vec[T]` | Vacía conservando la capacidad. |
+
+### 23.3 Cola (FIFO)
+
+| Función | Firma | Descripción |
+|---|---|---|
+| `cola_push` | `[T](Vec[T], T) -> Vec[T]` | Encola al final. |
+| `cola_pop` | `[T](Vec[T]) -> Option[T]` | Desencola del principio; `none` si está vacía. |
+
+### 23.4 Cola doble
+
+| Función | Firma | Descripción |
+|---|---|---|
+| `duplex_push_front` | `[T](Vec[T], T) -> Vec[T]` | Inserta al principio. |
+| `duplex_push_back` | `[T](Vec[T], T) -> Vec[T]` | Inserta al final. |
+| `duplex_pop_front` | `[T](Vec[T]) -> Option[T]` | Extrae del principio. |
+| `duplex_pop_back` | `[T](Vec[T]) -> Option[T]` | Extrae del final. |
+
+### 23.5 Pendiente (N67)
+
+`VecDeque`, `BTreeMap`, `BTreeSet`, `BinaryHeap` y `LinkedList` necesitan
+comparar o clonar valores genéricos: `==` exige el bound `Eq` y no se puede pasar
+un `T` por valor dos veces sin moverlo, y sacar un elemento de un `Vec` por índice
+exige `Copy`. Llegan cuando los bounds admitan `Clone`/`Copy`. Mientras tanto,
+`tabula` (Map) y `fasciculus` (Set) cubren el caso con claves `Str`, y los
+adaptadores de `funis` (§22) cubren el recorrido ordenado de un `Vec` ya ordenado.
+
+## 24. `libra` — TOML
+
+**Archivo:** `std/libra.pengu`
+**Estado:** implementado en S8b con un documento **aplanado**: cada hoja queda como
+`clave.punteada -> texto` con su tipo (`string`, `integer`, `float`, `bool`, `array`). Es
+deliberado: un árbol recursivo no se puede compartir con `iason` (los módulos de `std` no se
+importan entre sí, N42) y para configuración el acceso por clave es lo que se usa.
+
+| Función / método | Firma | Descripción | CORE |
+|---|---|---|---|
+| `parse` | `(text: &Str) -> Result[Table, LibraError]` | Parsea TOML. | ✅ |
+| `parse_file` | `(path: &Str) -> Result[Table, LibraError]` | Lee y parsea. | ✅ |
+| `table.get` | `(@, key: &Str) -> Option[String]` | Texto de la clave. | ✅ |
+| `table.get_int` | `(@, key: &Str) -> Option[Int]` | Entero. | ✅ |
+| `table.get_float` | `(@, key: &Str) -> Option[Float]` | Flotante. | ✅ |
+| `table.get_bool` | `(@, key: &Str) -> Option[Bool]` | Booleano. | ✅ |
+| `table.get_array` | `(@, key: &Str) -> Option[Vec[String]]` | Elementos de un array. | ✅ |
+| `table.has` | `(@, key: &Str) -> Bool` | ¿Existe? | ✅ |
+| `table.kind_of` | `(@, key: &Str) -> Option[String]` | Tipo declarado. | ✅ |
+| `table.keys_of` | `(@, prefix: &Str) -> Vec[String]` | Claves bajo un prefijo. | ✅ |
+| `table.len` | `(@) -> Usize` | Número de hojas. | ✅ |
+
+Soporta comentarios `#`, tablas `[seccion]` y arrays de tablas `[[seccion]]` (se aplanan
+con un índice por instancia: `seccion.0.campo`, `seccion.1.campo`), claves punteadas, tablas
+en línea (`{ a = 1, b = "x" }`, anidadas incluidas, aplanadas como `clave.a`), cadenas
+básicas y literales (con `"""`), enteros, flotantes, booleanos, arrays de escalares y
+fechas/horas (se conservan como texto y `kind_of` devuelve `date`, `time` o `datetime`).
+
+`get` devuelve el array formateado (`"1, 2, 3"`) y `get_array` sus elementos por separado.
+Los valores de un array se guardan con un separador interno, así que un elemento puede
+contener comas.
+
+```pengu
+bind features = config.get_array("deps.serde.features").unwrap_or(Vec.new())
+```
+
+```pengu
+match std::libra::parse_file("config.toml")
+    when ok(config) then
+        bind port = config.get_int("server.port").unwrap_or(8080)
+        print("escuchando en #{port}")
+    when err(e) then
+        print(e)
+```
+
+---
+
+
+## 25. `iason` — JSON
+
+**Archivo:** `std/iason.pengu`
+**Estado:** implementado en S8. `Json` es un `rune` plano: `kind` dice el tipo de nodo y
+cada etiqueta usa unos campos (`flag`, `integer`, `number`, `text`), con `items` para los
+hijos y `keys` para las claves del objeto (en el mismo orden). Los árboles recursivos se
+pueden declarar porque la recursión pasa por `Vec`.
+
+| Función | Firma | Descripción | CORE |
+|---|---|---|---|
+| `parse` | `(text: &Str) -> Result[Json, IasonError]` | Parser completo (escapes, `\uXXXX`, números). | ✅ |
+| `to_string` | `(value: &Json) -> String` | Serializa compacto. | ✅ |
+| `pretty` | `(value: &Json, indent: Int) -> String` | Serializa con sangría (`2` típico). | ✅ |
+| `null_value` | `() -> Json` | Nodo nulo. | ✅ |
+| `bool_value` | `(value: Bool) -> Json` | Nodo booleano. | ✅ |
+| `int_value` | `(value: Int) -> Json` | Nodo entero. | ✅ |
+| `float_value` | `(value: Float) -> Json` | Nodo real. | ✅ |
+| `string_value` | `(value: &Str) -> Json` | Nodo cadena. | ✅ |
+| `array_value` | `(items: Vec[Json]) -> Json` | Nodo array. | ✅ |
+| `object_value` | `(keys: Vec[String], items: Vec[Json]) -> Json` | Nodo objeto. | ✅ |
+
+Métodos de `Json`: `kind_of`, `is_null`, `is_bool`, `is_number`, `is_int`, `is_float`,
+`is_string`, `is_array`, `is_object`, `as_bool`, `as_int`, `as_float`, `as_string`, `len`,
+`at`, `get`, `get_path`, `has`, `keys_of`, `items_of`, `equals`, `push`, `insert`, `set`,
+`remove`, `to_string`, `pretty_string`, `copy`.
+
+- `get_path("a.b.0")` recorre objeto/array por ruta punteada.
+- `equals(&other)` compara en profundidad: en los objetos el orden de las claves no
+  importa; `int` y `float` son tipos distintos (`1` ≠ `1.0`).
+- `push(&item)` añade a un array; `insert(&key, &item)` añade a un objeto; `set` inserta o
+  reemplaza; `remove(&key)` devuelve `true` si existía. Son `@mut`, así que el `Json` debe
+  estar en un `morph`.
+
+Los parámetros de tipo `&Json` se pasan con `&` en la llamada (`doc.equals(&other)`).
+
+```pengu
+match std::iason::parse("{\"nombre\": \"ana\", \"edad\": 30}")
+    when ok(v) then
+        match v.get("nombre")
+            when some(n) then
+                print(n.as_string())
+            when none then
+                print("sin nombre")
+    when err(e) then
+        print(e.message)
+```
+
+`Json` no implementa el pacto `Eq` (los pactos de `std.opera` son para tipos del usuario):
+para comparar hay `equals`. `IasonError.offset` se rellena con la posición del fallo.
+
+---
+
+
+## 26. `digestum` — Hash y checksums
+
+**Archivo:** `std/digestum.pengu`
+**Estado:** implementado en S8 (Rust puro en el runtime, sin dependencias). Las funciones
+de texto son atajos que codifican UTF-8 y delegan en `str.as_bytes()`.
+
+| Función | Firma | Descripción | CORE |
+|---|---|---|---|
+| `sha256` | `(data: Vec[U8]) -> Vec[U8]` | SHA-256 (32 bytes). | ✅ |
+| `sha256_hex` | `(data: Vec[U8]) -> String` | SHA-256 en hexadecimal. | ✅ |
+| `sha512` / `sha512_hex` | `(data: Vec[U8]) -> Vec[U8]` / `String` | SHA-512 (64 bytes) y hexadecimal. | ✅ |
+| `hmac_sha256` | `(key: Vec[U8], data: Vec[U8]) -> Vec[U8]` | HMAC-SHA-256 (RFC 2104). | ✅ |
+| `constant_time_eq` | `(left: Vec[U8], right: Vec[U8]) -> Bool` | Compara sin filtrar el prefijo común. | ✅ |
+| `sha1` / `sha1_hex` | `(data: Vec[U8]) -> Vec[U8]` / `String` | SHA-1 (20 bytes) y hexadecimal. | ✅ |
+| `crc32` | `(data: Vec[U8]) -> U32` | CRC-32 (IEEE). | ✅ |
+| `fnv1a` | `(data: Vec[U8]) -> U64` | FNV-1a de 64 bits. | ✅ |
+| `hex` | `(data: Vec[U8]) -> String` | Codifica en hexadecimal. | ✅ |
+| `unhex` | `(text: &Str) -> Option[Vec[U8]]` | Decodifica; `none` si no es hexadecimal. | ✅ |
+| `sha256_text` | `(text: &Str) -> String` | SHA-256 de una cadena. | ✅ |
+| `sha512_text` | `(text: &Str) -> String` | SHA-512 de una cadena. | ✅ |
+| `hmac_sha256_text` | `(key: &Str, text: &Str) -> String` | HMAC-SHA-256 en hexadecimal. | ✅ |
+| `sha1_text` | `(text: &Str) -> String` | SHA-1 de una cadena. | ✅ |
+| `crc32_text` | `(text: &Str) -> U32` | CRC-32 de una cadena. | ✅ |
+| `fnv1a_text` | `(text: &Str) -> U64` | FNV-1a de una cadena. | ✅ |
+
+Las implementaciones están verificadas contra vectores conocidos
+(`sha256("abc") = ba7816bf…`, `sha512("abc") = ddaf35a1…`, HMAC con RFC 4231). No hay API
+de hash incremental (`Digest.update`): haría falta un tipo opaco con estado, como los de
+`exsecutor`.
+
+---
+
+
+## 27. `versio` — SemVer
+
+**Archivo:** `std/versio.pengu`
+**Estado:** implementado en S8. `Version` guarda `major`, `minor`, `patch`, `pre` y `build`
+(cadena vacía = ausente). La precedencia sigue SemVer 2.0.0: por números, una versión con
+pre-release es menor que la misma sin ella, y los identificadores de pre-release se
+comparan campo a campo (numérico si ambos son numéricos).
+
+| Función | Firma | Descripción | CORE |
+|---|---|---|---|
+| `parse` | `(text: &Str) -> Result[Version, SemverError]` | Parser estricto. | ✅ |
+| `version` | `(major: Int, minor: Int, patch: Int) -> Version` | Constructor sin pre/build. | ✅ |
+
+Métodos de `Version`: `major_value`, `minor_value`, `patch_value`, `prerelease`,
+`build_metadata`, `is_prerelease`, `is_stable`, `compare`, `lt`, `le`, `gt`, `ge`,
+`eq_version`, `satisfies`, `with_pre`, `with_build`, `without_pre`, `increment_major`,
+`increment_minor`, `increment_patch`, `to_string`.
+
+`compare` devuelve `Ordering` (`Less`/`Equal`/`Greater`), así que `sort_by` funciona
+directamente:
+
+```pengu
+bind mut versions = Vec.new()
+for text in Vec[String.from("1.10.0"), String.from("1.9.0"), String.from("1.9.0-rc.1")]
+    match std::versio::parse(text.as_str())
+        when ok(v) then
+            versions.push(v)
+        when err(e) then
+            print(e.message)
+versions.sort_by((a: Version, b: Version) => a.compare(&b))
+print(versions)
+```
+
+`satisfies` acepta: `*`, `x.y.z` exacto, `x.y`/`1.x`/`1.2.x` (comodín de cola), `^`, `~`,
+`>=`, `<=`, `>`, `<`, `=`, conjunciones separadas por espacios (`>=1.0.0 <2.0.0`) y uniones
+con `||` (`^1.2 || ^2.0`). Una versión incompleta con operador se rellena con ceros
+(`^1.2` = `^1.2.0`).
+
+---
+
+
+## 28. `terminus` — Terminal
+
+**Archivo:** `std/terminus.pengu`
+**Estado:** implementado en S9. Los estilos son constantes `Str` con las secuencias ANSI
+(`\u{1b}[…`), así que combinarlos no cuesta nada; la detección de terminal vive en el
+runtime.
+
+| Función | Firma | Descripción | CORE |
+|---|---|---|---|
+| `is_terminal` | `() -> Bool` | ¿La salida es una terminal? | ✅ |
+| `width` | `() -> Usize` | Ancho (`COLUMNS`, si no 80). | ✅ |
+| `supports_color` | `() -> Bool` | Respeta `NO_COLOR` y `TERM=dumb`. | ✅ |
+| `style` | `(text: &Str, code: &Str) -> String` | Aplica un código y `RESET`. | ✅ |
+| `rgb` | `(text: &Str, r: U8, g: U8, b: U8) -> String` | Color 24 bits. | ✅ |
+| `red`/`green`/`yellow`/`blue`/`magenta`/`cyan`/`white` | `(text: &Str) -> String` | Colores básicos. | ✅ |
+| `dim`/`bold`/`underline` | `(text: &Str) -> String` | Estilos. | ✅ |
+
+Constantes: `RESET`, `BOLD`, `DIM`, `ITALIC`, `UNDERLINE`, `BLINK`, `REVERSE`, `HIDDEN`,
+`STRIKETHROUGH`, los ocho colores básicos y los ocho brillantes (`BLACK`…`BRIGHT_WHITE`).
+
+```pengu
+if std::terminus::supports_color() then
+    print(std::terminus::red("error") + ": algo falló")
+```
+
+Control de pantalla y progreso (S9):
+
+| Función | Firma | Descripción |
+|---|---|---|
+| `clear_screen` | `() -> Unit` | Borra y lleva el cursor a (1, 1). |
+| `move_cursor` | `(row: Usize, column: Usize) -> Unit` | Posiciona el cursor (base 1). |
+| `hide_cursor` / `show_cursor` | `() -> Unit` | Oculta o restaura el cursor. |
+| `cursor_up` / `cursor_down` | `(n: Usize) -> Unit` | Mueve `n` filas. |
+| `cursor_left` / `cursor_right` | `(n: Usize) -> Unit` | Mueve `n` columnas. |
+| `progress_bar` | `(done: Usize, total: Usize, width: Usize) -> String` | `[####------]  42%`. |
+| `read_key` | `() -> Option[Char]` | Primer carácter de la entrada (ver N63). |
+
+`read_key` no pone el terminal en modo crudo: sin `termios` hay que pulsar Intro y
+devuelve el primer carácter de la línea.
+
+---
+
+
+## 29. `globus` — Glob
+
+**Archivo:** `std/globus.pengu`
+**Estado:** implementado en S9. Sintaxis: `*` (no cruza `/`), `**` (cruza), `?`, `[abc]`,
+`[a-z]`, `[!abc]` y `{a,b}`.
+
+| Función | Firma | Descripción | CORE |
+|---|---|---|---|
+| `matches` | `(pattern: &Str, path: &Str) -> Bool` | ¿Casa el patrón? | ✅ |
+| `find` | `(pattern: &Str, root: &Str) -> Vec[String]` | Rutas bajo `root` que casan, ordenadas. | ✅ |
+| `find_in` | `(pattern: &Str) -> Vec[String]` | Igual desde `.`. | ✅ |
+| `all_files` | `() -> Vec[String]` | `**/*`. | ✅ |
+| `rust_files` | `(root: &Str) -> Vec[String]` | `**/*.rs`. | ✅ |
+
+```pengu
+for path in std::globus::find("src/**/*.pengu", ".")
+    print(path)
+```
+
+Recorrido configurable (S9):
+
+| Función | Firma | Descripción |
+|---|---|---|
+| `find_with` | `(pattern: &Str, root: &Str, max_depth: Int, include_hidden: Bool, follow_links: Bool) -> Vec[String]` | Como `find`, con profundidad (`-1` sin límite), ocultos y enlaces simbólicos. |
+
+---
+
+
+## 30. `archivum` — Archivos tar/zip
+
+**Archivo:** `std/archivum.pengu`
+**Estado:** `tar` (ustar) implementado en S9b, sin dependencias y compatible con `tar -tf`
+del sistema. `zip` y `tar.gz` necesitan deflate y quedan para S9c.
+
+| Función | Firma | Descripción | CORE |
+|---|---|---|---|
+| `create` | `(archive: &Str, base: &Str, paths: Vec[String]) -> Result[Unit, ArchivumError]` | Crea un tar con rutas relativas a `base`. | ✅ |
+| `extract` | `(archive: &Str, dest: &Str) -> Result[Vec[String], ArchivumError]` | Extrae; devuelve las rutas. | ✅ |
+| `entries` | `(archive: &Str) -> Result[Vec[String], ArchivumError]` | Lista entradas. | ✅ |
+| `pack` | `(archive: &Str, base: &Str) -> Result[Unit, ArchivumError]` | Empaqueta todo lo que hay bajo `base`. | ✅ |
+| `unpack_count` | `(archive: &Str, dest: &Str) -> Result[Usize, ArchivumError]` | Extrae y cuenta. | ✅ |
+
+Los directorios se guardan con `/` final (`sub/`). La extracción rechaza rutas con `..`.
+
+```pengu
+match std::archivum::pack("copia.tar", "/home/ana/proyecto")
+    when ok(_) then print("empaquetado")
+    when err(e) then print(e)
+```
+
+Formatos comprimidos (S9c):
+
+| Función | Firma | Descripción |
+|---|---|---|
+| `create_targz` | `(archive: &Str, base: &Str, paths: Vec[String]) -> Result[Unit, ArchivumError]` | `tar.gz` (gzip + tar). |
+| `entries_targz` | `(archive: &Str) -> Result[Vec[String], ArchivumError]` | Lista el `tar.gz`. |
+| `extract_targz` | `(archive: &Str, dest: &Str) -> Result[Vec[String], ArchivumError]` | Extrae el `tar.gz`. |
+| `create_zip` | `(archive: &Str, base: &Str, paths: Vec[String]) -> Result[Unit, ArchivumError]` | Crea un `zip` (entradas almacenadas). |
+| `entries_zip` | `(archive: &Str) -> Result[Vec[String], ArchivumError]` | Lista el `zip`. |
+| `extract_zip` | `(archive: &Str, dest: &Str) -> Result[Vec[String], ArchivumError]` | Extrae el `zip` (almacenado o deflate). |
+| `compress_gz` | `(data: Vec[U8]) -> Vec[U8]` | Comprime en gzip. |
+| `decompress_gz` | `(data: Vec[U8]) -> Result[Vec[U8], ArchivumError]` | Descomprime gzip; comprueba CRC y longitud. |
+
+El gzip propio usa bloques deflate *stored* (formato válido y rápido, sin ratio); el
+lector sí implementa inflate completo (bloques fijos y dinámicos), así que acepta
+cualquier `.gz` y `.zip` generado por otras herramientas. Verificado con `unzip -t`,
+`gzip -t` y `tar -tzf`.
+
+Pendiente: `zstd`, `zip` con deflate comprimido al escribir y entradas con permisos
+extendidos.
+
+---
+
+
+## 31. `rete` — Red, TLS y HTTP
+
+**Archivo:** `std/rete.pengu`
+**Estado:** TCP implementado en S10. La API es **bloqueante** (el lenguaje aún no tiene
+hilos ni `async`); los sockets viven en registros globales del runtime y se identifican por
+un `handle`. TLS y HTTP quedan para S10b: necesitan una capa de transporte genérica.
+
+Runes: `ReteError { message }`, `PeerAddr { host: String, port: Int }`,
+`TcpListener { handle: U64 }`, `TcpStream { handle: U64 }` (todos con `Show`).
+
+| Función / método | Firma | Descripción | CORE |
+|---|---|---|---|
+| `TcpListener.listen` | `(host: &Str, port: Int) -> Result[TcpListener, ReteError]` | Escucha; `0` = puerto libre. | ✅ |
+| `listener.local_addr` | `(@) -> Result[PeerAddr, ReteError]` | Dirección asignada. | ✅ |
+| `listener.accept` | `(@own) -> Result[(TcpStream, PeerAddr), ReteError]` | Acepta una conexión. | ✅ |
+| `listener.close` | `(@own) -> Unit` | Cierra el listener. | ✅ |
+| `TcpStream.connect` | `(host: &Str, port: Int) -> Result[TcpStream, ReteError]` | Conecta. | ✅ |
+| `stream.peer_addr` | `(@) -> Result[PeerAddr, ReteError]` | Dirección del par. | ✅ |
+| `stream.read` | `(@mut, count: Usize) -> Result[Vec[U8], ReteError]` | Lee hasta `count` bytes. | ✅ |
+| `stream.read_to_string` | `(@mut) -> Result[String, ReteError]` | Lee hasta EOF. | ✅ |
+| `stream.write` / `write_str` | `(@mut, …) -> Result[Usize, ReteError]` | Escribe; devuelve bytes. | ✅ |
+| `stream.flush` | `(@mut) -> Result[Unit, ReteError]` | Vacía el buffer. | ✅ |
+| `stream.set_read_timeout` | `(@mut, millis: Int) -> Result[Unit, ReteError]` | Timeout de lectura. | ✅ |
+| `stream.shutdown` | `(@own) -> Unit` | Cierra el socket. | ✅ |
+
+```pengu
+match std::rete::TcpListener.listen("127.0.0.1", 8080)
+    when ok(listener) then
+        match listener.accept()
+            when ok(pair) then
+                bind (stream, peer) = pair
+                print("conectado #{peer}")
+                stream.write_str("hola\n")
+                stream.shutdown()
+            when err(e) then
+                print(e.message)
+    when err(e) then
+        print(e.message)
+```
+
+Pendiente (S10b): `UdpSocket`, TLS (`TlsStream`, necesita un backend de certificados),
+`HttpRequest`/`HttpResponse` y un servidor HTTP mínimo. `TcpListener.listen` se llamó
+`bind` en el diseño original, pero `bind` es palabra clave del lenguaje (N47).
+
+---
+
+
+## 32. Notas de implementación
+
+
+1. **Módulos CORE:** `integrum`, `floatem`, `verbum`, `capsa`, `tabula`, `fasciculus`, `fluxus`, `numerus`, `proba` son obligatorios para la primera implementación del compilador.
+2. **`std` escrita en PenguScript vs `.d.pengu`:** los métodos que requieren intrinsics (`sqrt`, `sin`, `push`, `lock`) se declaran en `.d.pengu` con `abi "pengu"` y el backend los resuelve a Rust. Los métodos que se pueden escribir en PenguScript puro (`trim`, `split`, `lerp`) se implementan en `.pengu` para dogfooding.
+3. **Encadenamiento:** los métodos de transformación que no consumen (`@`, `@mut`) devuelven `Self`, `&Self` o `&mut Self`; los de consulta devuelven su valor (`Bool`, `Usize`, `Option[...]`). Los métodos `@own` consumen y no se encadenan después.
+4. **Sin `Send`/`Sync` visibles:** `frenum` y `vinculum` existen pero no exponen esos traits; el backend aplica las restricciones.
+5. **Sin `dyn`:** `Iter[T]` es un `rune` opaco, no un trait object. `collect` se resuelve en tiempo de compilación.
+6. **Sin tipos asociados:** `Iterator` no es un pact; es un `rune` con métodos. `Entry` de `tabula` es un `rune` con métodos.
+7. **Nombres mágicos:** cada módulo usa un nombre latino; los métodos mantienen nombres descriptivos en inglés (`push`, `split`, `sqrt`) para que el código se lea sin diccionario.
+
+---
+
+### 32.1 Aliases y módulos diferidos
+
+La spec usa nombres funcionales (`std.int`, `std.string`, `std.io`); el mapa usa nombres latinos. La tabla fija la correspondencia:
+
+| Nombre de spec | Módulo del mapa | Estado |
+La columna de estado refleja el código de `std/` en este repositorio, no el objetivo a
+largo plazo: ✅ implementado y probado, 🚧 parcial, ⬜ planificado (fase indicada en
+`scratch/LIMITATIONS_AUDIT.md` §3).
+
+|---|---|---|
+| `std.int` | `integrum` | ✅ |
+| `std.option` / `std.result` | `optio` | 🚧 (solo métodos homónimos de Rust; ver N34) |
+| `std.string` | `verbum` | ✅ |
+| `std.collections` | `capsa` + `tabula` + `fasciculus` + `structura` | 🚧 (pila/cola/cola doble; ordenados en N67) |
+| `std.math` | `numerus` | ✅ |
+| `std.io` | `fluxus` | ✅ |
+| `std.fs` | `via` | ✅ |
+| `std.fs.walk` | `via.walk` | ✅ |
+| `std.process` | `exsecutor` | ✅ |
+| `std.env` | `ambitus` | ✅ |
+| `std.time` | `tempus` | ✅ |
+| `std.ffi` | `nexus` | ✅ (`CString` + `CStr`; sin punteros crudos, N38) |
+| `std.rc` | `vinculum` | ⬜ (S9b: necesita refcount/opacos) |
+| `std.sync` | `frenum` | ⬜ (S9b: el lenguaje no tiene hilos) |
+| `std.cell` | `cellula` | ✅ (S9: celdas `String` por clave, N46) |
+| `std.test` | `proba` | ✅ |
+| `std.ops` | `opera` | ✅ |
+| `std.iter` | `funis` | 🚧 (S7: 20 adaptadores; resto con `rune Iter[T]`, N36) |
+| `std.toml` | `libra` | ✅ (S8b: documento aplanado, N42) |
+| `std.json` | `iason` | ✅ (S8) |
+| `std.digest` | `digestum` | ✅ (S8) |
+| `std.semver` | `versio` | ✅ (S8) |
+| `std.term` | `terminus` | ✅ (S9) |
+| `std.glob` | `globus` | ✅ (S9) |
+| `std.archive` | `archivum` | 🚧 (S9b: `tar` ustar; `zip`/`tar.gz` en S9c) |
+| `std.net` | `rete` | ✅ (S10: TCP bloqueante) |
+| `std.tls` / `std.http` | `rete` | ⬜ (S10b) |
+| `std.async` | `somnium` | Diferido |
+| `std.concurrent` | — | Diferido; el núcleo no expone hilos/atomics. |
+| `std.borrow` | — | Diferido; `Cow` no está en 0.6.0. |
+| `std.build` | — | Diferido; los build scripts no están en 0.6.0. |
+| `std.meta` | — | No existe en v1; no hay macros de usuario. |
+
+**Fin del mapa.** Cualquier módulo no listado aquí no existe en `0.6.0`; si se necesita, va a `structura` o a un crate externo.

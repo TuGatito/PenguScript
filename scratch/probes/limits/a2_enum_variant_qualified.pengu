@@ -1,0 +1,4 @@
+grimoire
+    bind x = 1.0
+    if x.classify() == FloatClass.NaN then
+        print("nan")

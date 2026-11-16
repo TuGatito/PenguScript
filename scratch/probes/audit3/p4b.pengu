@@ -1,0 +1,6 @@
+unveil rune Caja[T]
+    unveil valor: T
+
+grimoire
+    bind c = Caja(valor: 1)
+    print(c.valor)

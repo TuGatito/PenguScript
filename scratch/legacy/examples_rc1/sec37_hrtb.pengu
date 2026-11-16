@@ -1,0 +1,7 @@
+first = (s: &Str) -> &Str
+    &s[..1]
+
+apply = [F](f: F, s: &Str) -> &Str where F: for<'a> Fn(&'a Str) -> &'a Str
+    f(s)
+
+print(apply(first, "pengu"))
