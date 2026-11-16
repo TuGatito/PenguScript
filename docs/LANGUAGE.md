@@ -95,7 +95,7 @@ PenguScript es un lenguaje:
 | 3 | Arrays y slices | `[T; N]`, `&[T]` |
 | 4 | Colecciones | `Vec[T]`, `Map[K, V]`, `Set[T]` |
 | 5 | Records | `rune` |
-| 6 | Sums | `enchanting` |
+| 6 | Sums (enums) | `enchanting` |
 | 7 | Funciones nombradas | `->` |
 | 8 | Closures | `=>` |
 | 9 | Genéricos con bounds simples | `[T: Pact]` |
@@ -1340,7 +1340,12 @@ bind q = Point(y: 5.0, ..p)
 `..p` copia los campos restantes de `p`. El tipo de `q` es el mismo que el de
 `p`. Los campos sobrescritos se evalúan una sola vez.
 
-### 8.5 Sums
+### 8.5 Sums (enums)
+
+`enchanting` declara el enum de PenguScript: una suma con nombre. No existe la
+palabra clave `enum`; el equivalente al `enum` de Rust se escribe
+`enchanting`. Frente a `rune`, que declara un record (producto), un
+`enchanting` declara una de varias variantes (suma).
 
 ```pengu
 enchanting Shape
@@ -1351,18 +1356,31 @@ enchanting Shape
 
 Un `enchanting` tiene variantes:
 
-- unitarias (`Point`);
+- unitarias (`Point`), sin payload;
 - con campos nombrados (`Circle(radius: Float)`);
 - con campos posicionales (`Rectangle(Float, Float)`).
 
-No hay discriminantes numéricos ni representación explícita. El backend elige la representación.
+No hay discriminantes numéricos ni representación explícita. El backend elige
+la representación.
 
 ### 8.6 Construcción y match
 
+Una variante con campos nombrados se construye con nombres
+(`Circle(radius: 2.0)`) o posicionalmente, en el orden de declaración
+(`Circle(2.0)`). Una variante declarada con campos posicionales solo admite la
+forma posicional.
+
 ```pengu
 bind c = Circle(radius: 2.0)
+bind c2 = Circle(2.0)                    # misma variante
 bind r = Rectangle(3.0, 4.0)
+bind r2 = Rectangle(width: 3.0, height: 4.0)
+```
 
+En los patrones se aplica la misma regla: `when Circle(radius)` liga el primer
+campo por posición y `when Circle(radius: r)` lo liga por nombre.
+
+```pengu
 bind name = match c
     when Circle(radius) then "círculo"
     when Rectangle(width, height) then "rectángulo"
@@ -1371,7 +1389,34 @@ bind name = match c
 
 El `match` debe ser exhaustivo o tener `else`. Los detalles están en §9.
 
-### 8.7 `Option` y `Result`
+### 8.7 Sums genéricos
+
+Los parámetros de tipo van entre `[]`, igual que en un `rune`:
+
+```pengu
+enchanting Maybe[T]
+    Just(value: T)
+    Nothing
+
+unwrap_or = [T](m: Maybe[T], fallback: T) -> T
+    match m
+        when Just(v) then v
+        when Nothing then fallback
+
+grimoire
+    bind m: Maybe[Int] = Just(41)
+    bind s: Maybe[String] = Just("hola")
+    print(unwrap_or(m, 0))
+    print(unwrap_or(s, "nada"))
+```
+
+La construcción infiere `T`: `Just(41)` es `Maybe[Int]`. Si el binding anota el
+tipo, el campo se instancia con ese argumento y el literal se adapta: en
+`Maybe[String]`, `Just("hola")` convierte el `Str` a `String` como cualquier
+otro campo `String`. El `match` liga los campos ya instanciados. Más sobre
+genéricos en §13.
+
+### 8.8 `Option` y `Result`
 
 `Option[T]` y `Result[T, E]` son sums de la prelude:
 
@@ -1387,7 +1432,7 @@ enchanting Result[T, E]
 
 No se pueden redeclarar. `?T` es azúcar para `Option[T]`.
 
-### 8.8 `@@derive`
+### 8.9 `@@derive`
 
 El único atributo general es `@@derive(...)`, y solo acepta:
 
@@ -1418,7 +1463,7 @@ Reglas:
 - Un derive imposible es `PGS-E8007`.
 - No hay derives externos en v1.
 
-### 8.9 Diagnósticos de records y sums
+### 8.10 Diagnósticos de records y sums
 
 | Código | Situación |
 |---|---|
@@ -1482,6 +1527,11 @@ bind label = match n
 
 Los literales numéricos de un patrón pueden ser negativos (`when -1`). No hay
 patrones de referencia, caja ni tipo.
+
+Una variante declarada con campos nombrados acepta tanto la forma nombrada
+(`when Circle(radius: r)`) como la posicional (`when Circle(radius)`), en el
+orden de declaración. Una variante con campos posicionales solo admite la
+forma posicional.
 
 Las variantes unitarias se pueden nombrar sin calificar (`when Zero`) si el
 nombre es único entre las sumas visibles, o calificadas con su tipo

@@ -90,7 +90,7 @@ python3 scratch/tools/check_pengu_blocks.py
 
 Cobertura actual:
 
-- 146 bloques `pengu` de la especificación: 141 válidos + 5 marcados
+- 148 bloques `pengu` de la especificación: 143 válidos + 5 marcados
   `-- ERROR PGS-` (semánticos).
 - Todas las producciones de §19 tienen parser y test (unidades + corpus).
 - 10M tokens de fuzz léxico sin pánico.

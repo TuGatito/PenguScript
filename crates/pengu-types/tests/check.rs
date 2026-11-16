@@ -945,3 +945,27 @@ fn own_receiver_can_return_generic_field() {
     );
     assert!(result.is_clean(), "{:?}", result.diagnostics);
 }
+
+#[test]
+fn match_on_generic_sum_binds_instantiated_fields() {
+    let result = check(
+        "enchanting Maybe[T]\n    Just(T)\n    Nothing\n\nunwrap_or = [T](m: Maybe[T], fallback: T) -> T\n    match m\n        when Just(v)\n            v\n        when Nothing\n            fallback\n\ngrimoire\n    bind m: Maybe[Int] = Just(41)\n    print(unwrap_or(m, 0))\n",
+    );
+    assert!(result.is_clean(), "{:?}", result.diagnostics);
+}
+
+#[test]
+fn positional_pattern_matches_named_variant() {
+    let result = check(
+        "enchanting Shape\n    Circle(radius: Float)\n    Point\n\nmeasure = (s: Shape) -> Float\n    match s\n        when Circle(radius)\n            radius * radius\n        when Point\n            0.0\n\ngrimoire\n    bind c = Circle(radius: 2.0)\n    print(measure(c))\n",
+    );
+    assert!(result.is_clean(), "{:?}", result.diagnostics);
+}
+
+#[test]
+fn generic_sum_string_field_accepts_coercion() {
+    let result = check(
+        "enchanting Maybe[T]\n    Just(T)\n    Nothing\n\nunwrap_or = [T](m: Maybe[T], fallback: T) -> T\n    match m\n        when Just(v)\n            v\n        when Nothing\n            fallback\n\ngrimoire\n    bind m: Maybe[String] = Just(\"hi\")\n    print(unwrap_or(m, \"no\"))\n",
+    );
+    assert!(result.is_clean(), "{:?}", result.diagnostics);
+}

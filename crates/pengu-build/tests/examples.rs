@@ -20,6 +20,7 @@ const EXAMPLES: &[(&str, &str)] = &[
         "archivos",
         "sin restos\ncreado\nescrito\nhola desde PenguScript\ntrue\n1\nborrado\n",
     ),
+    ("enums", "12\n12.566370614359172\n0\nhola\n"),
 ];
 
 fn examples_dir() -> PathBuf {

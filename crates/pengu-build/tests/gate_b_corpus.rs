@@ -26,10 +26,6 @@ const DECLARED_NON_EXECUTABLE: &[(usize, &str)] = &[
         "expresión suelta del doc §2 (rango `0..10`), no es un programa",
     ),
     (
-        739,
-        "cita §8: `Result[Int, String] = err(\"no\")`; el literal es `Str` y el constructor de variante no acepta la coerción Str→String",
-    ),
-    (
         984,
         "LIR: expresión de bloque en `bind` (`bind area =` + bloque indentado) no soportada (N71)",
     ),
@@ -38,27 +34,23 @@ const DECLARED_NON_EXECUTABLE: &[(usize, &str)] = &[
         "LIR: expresión `do … end` en `bind` no soportada (N71)",
     ),
     (
-        1998,
+        2048,
         "`ritual[T]` sobre `rune` genérico: `@.value` se tipa `<error>` (N72)",
     ),
     (
-        2079,
+        2129,
         "fuente de `std` (rituales sobre primitivos): solo válida dentro de `scroll std`",
     ),
     (
-        2193,
+        2243,
         "`ritual[T]` sobre `rune` genérico: `@.value` se tipa `<error>` (N72)",
     ),
     (
-        2477,
-        "cita §?: `Result[Int, String] = ok(3)`; misma limitación de coerción en variantes que 739",
-    ),
-    (
-        2576,
+        2626,
         "cita con `grimoire` que usa tipos definidos en la prosa (`ConfigError`, `read_config`)",
     ),
     (
-        3896,
+        3946,
         "cita con `grimoire` que usa tipos definidos en la prosa (`AppError`, `load`)",
     ),
 ];
@@ -171,7 +163,7 @@ fn corpus_is_fully_classified_with_known_backend_gaps() {
     let blocks = blocks();
     assert_eq!(
         blocks.len(),
-        146,
+        148,
         "the spec corpus changed; update the B8 report"
     );
     let mut errors = 0;
@@ -267,7 +259,7 @@ fn corpus_is_fully_classified_with_known_backend_gaps() {
     );
     assert_eq!(
         (compiled, declarations, fragments, backend_gaps, errors),
-        (68, 4, 56, 13, 5),
+        (71, 4, 57, 11, 5),
         "B8 classification changed; update GATE_B_CORPUS.md"
     );
     eprintln!(

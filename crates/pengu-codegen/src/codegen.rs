@@ -2054,8 +2054,11 @@ fn lower_expr(expr: &LExpr, krate: &HirCrate, program: &LProgram, function: &LFu
             } else {
                 format!("{path} {{ {field_name}: __v0, .. }}")
             };
+            // El patrón se aplica sobre `&valor`, así que `__v0` es una
+            // referencia al campo. Clonar evita mover un campo no-`Copy`
+            // (p. ej. `String`) fuera de un préstamo (E0507).
             format!(
-                "match &{} {{ {pattern} => *__v0, _ => unreachable!() }}",
+                "match &{} {{ {pattern} => __v0.clone(), _ => unreachable!() }}",
                 lower_borrowed(value, krate, program, function)
             )
         }
@@ -2072,13 +2075,29 @@ fn lower_expr(expr: &LExpr, krate: &HirCrate, program: &LProgram, function: &LFu
                 },
             );
             match args {
-                Some(args) => format!(
-                    "{name}({})",
-                    args.iter()
+                Some(args) => {
+                    let rendered = args
+                        .iter()
                         .map(|arg| lower_expr(arg, krate, program, function))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ),
+                        .collect::<Vec<_>>();
+                    // Una variante con campos nombrados construida de forma
+                    // posicional se emite con la sintaxis de struct de Rust.
+                    match variant_adt(krate, *def) {
+                        Some(variant) if !variant.tuple && !variant.fields.is_empty() => {
+                            let fields = variant
+                                .fields
+                                .iter()
+                                .zip(&rendered)
+                                .map(|(field, value)| {
+                                    format!("{}: {value}", rust_ident(&field.name))
+                                })
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            format!("{name} {{ {fields} }}")
+                        }
+                        _ => format!("{name}({})", rendered.join(", ")),
+                    }
+                }
                 None => name,
             }
         }

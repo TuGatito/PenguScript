@@ -2329,3 +2329,45 @@ grimoire
         "[####------]  42%\n[----]   0%\ntrue\nfalse\ndir\nwrite\n1\n0\n"
     );
 }
+
+#[test]
+fn executes_positional_named_variant_construction_and_pattern() {
+    let source = r#"
+enchanting Shape
+    Rect(width: Int, height: Int)
+    Point
+
+measure = (s: Shape) -> Int
+    match s
+        when Rect(w, h)
+            w * h
+        when Point
+            0
+
+grimoire
+    bind r = Rect(3, 4)
+    print(measure(r))
+"#;
+    assert_eq!(run_source(source), "12\n");
+}
+
+#[test]
+fn executes_generic_sum_with_string_payload() {
+    let source = r#"
+enchanting Maybe[T]
+    Just(value: T)
+    Nothing
+
+unwrap_or = [T](m: Maybe[T], fallback: T) -> T
+    match m
+        when Just(v)
+            v
+        when Nothing
+            fallback
+
+grimoire
+    bind m: Maybe[String] = Just("hi")
+    print(unwrap_or(m, "no"))
+"#;
+    assert_eq!(run_source(source), "hi\n");
+}

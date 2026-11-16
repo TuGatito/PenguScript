@@ -696,10 +696,6 @@ impl<'a> Checker<'a> {
         }
     }
 
-    fn ty_from_field(&mut self, field: &AdtField) -> Ty {
-        self.ty_from_field_with(field, HashMap::new())
-    }
-
     fn ty_from_field_with(&mut self, field: &AdtField, env: HashMap<DefId, Ty>) -> Ty {
         let previous = std::mem::take(&mut self.extra_resolutions);
         for resolution in &field.resolutions {
@@ -883,7 +879,11 @@ impl<'a> Checker<'a> {
                 if handles_nul {
                     self.nul_checked += 1;
                 }
-                let value_ty = self.check_expr(value);
+                let declared = ty.as_ref().map(|ty| self.ty_from_ast(ty));
+                let value_ty = match &declared {
+                    Some(declared) => self.check_expr_expected(value, Some(declared)),
+                    None => self.check_expr(value),
+                };
                 if handles_nul {
                     self.nul_checked -= 1;
                 }
@@ -894,8 +894,7 @@ impl<'a> Checker<'a> {
                         value.span,
                     );
                 }
-                let target_ty = if let Some(ty) = ty {
-                    let declared = self.ty_from_ast(ty);
+                let target_ty = if let Some(declared) = declared {
                     let place = matches!(
                         value.kind,
                         ExprKind::Path(_) | ExprKind::Field { .. } | ExprKind::Index { .. }
@@ -961,7 +960,7 @@ impl<'a> Checker<'a> {
                     );
                 }
                 let target_ty = self.check_expr(target);
-                let value_ty = self.check_expr(value);
+                let value_ty = self.check_expr_expected(value, Some(&target_ty));
                 let _ = self.unify_at(target_ty, value_ty, value.span, "PGS-E3001");
                 Ty::Unit
             }
@@ -1003,10 +1002,10 @@ impl<'a> Checker<'a> {
                 Ty::Unit
             }
             StmtKind::Return(value) => {
-                let value_ty = value
-                    .as_ref()
-                    .map_or(Ty::Unit, |expr| self.check_expr(expr));
                 let expected = self.return_ty.clone();
+                let value_ty = value.as_ref().map_or(Ty::Unit, |expr| {
+                    self.check_expr_expected(expr, Some(&expected))
+                });
                 let span = value.as_ref().map_or(stmt.span, |expr| expr.span);
                 let place = value.as_ref().is_some_and(|expr| {
                     matches!(
@@ -1076,12 +1075,15 @@ impl<'a> Checker<'a> {
                     }
                     return;
                 }
-                if let Some((fields, tuple, is_record)) = self.pattern_adt_fields(pattern.span) {
-                    if tuple || is_record {
-                        self.bind_field_patterns(&fields, true, args, named, HashMap::new());
+                if let Some((fields, tuple, _is_record)) = self.pattern_adt_fields(pattern.span) {
+                    let env = if let Some((owner, adt, _)) = self.adt_for(pattern.span) {
+                        let (_adt_args, env) = self.pattern_adt_args(owner, &adt, &ty);
+                        env
                     } else {
-                        self.bind_field_patterns(&fields, false, args, named, HashMap::new());
-                    }
+                        HashMap::new()
+                    };
+                    let positional = tuple || !args.is_empty();
+                    self.bind_field_patterns(&fields, positional, args, named, env);
                 }
             }
             PatternKind::Or(patterns) => {
@@ -1149,6 +1151,28 @@ impl<'a> Checker<'a> {
         None
     }
 
+    /// Argumentos genéricos que debe usar un patrón: los del tipo escrutado si
+    /// ya es `Adt(owner, ...)`; si no, variables frescas. Devuelve también el
+    /// entorno para sustituir los parámetros en los tipos de los campos.
+    fn pattern_adt_args(
+        &mut self,
+        owner: DefId,
+        adt: &AdtDef,
+        ty: &Ty,
+    ) -> (Vec<Ty>, HashMap<DefId, Ty>) {
+        let args = match self.infer.resolve(ty.clone()) {
+            Ty::Adt(def, args) if def == owner && args.len() == adt.generics.len() => args,
+            _ => adt.generics.iter().map(|_| self.infer.fresh()).collect(),
+        };
+        let env = adt
+            .generics
+            .iter()
+            .zip(args.iter())
+            .map(|(generic, arg)| (generic.def, arg.clone()))
+            .collect();
+        (args, env)
+    }
+
     fn iter_item_ty(&mut self, ty: Ty, span: Span) -> Ty {
         // Recorrer un préstamo es recorrer lo prestado (`for x in &values`).
         let ty = match self.infer.resolve(ty) {
@@ -1172,6 +1196,16 @@ impl<'a> Checker<'a> {
     }
 
     fn check_expr(&mut self, expr: &Expr) -> Ty {
+        self.check_expr_expected(expr, None)
+    }
+
+    /// Como [`Self::check_expr`], pero con el tipo que el contexto espera.
+    ///
+    /// Propaga el tipo esperado a los constructores (`Call` de una variante y
+    /// `Record`) y a los argumentos de una llamada: así se instancian sus
+    /// genéricos con los argumentos del tipo esperado y se acepta la coerción
+    /// `Str` → `String` en los campos (`bind m: Maybe[String] = Just("hi")`).
+    fn check_expr_expected(&mut self, expr: &Expr, expected: Option<&Ty>) -> Ty {
         let ty = match &expr.kind {
             ExprKind::Unit => Ty::Unit,
             ExprKind::Bool(_) => Ty::Bool,
@@ -1195,7 +1229,7 @@ impl<'a> Checker<'a> {
             ExprKind::String(lit) => self.string_ty(lit),
             ExprKind::Path(path) => self.path_ty(path, expr.span),
             ExprKind::Record { path, fields, base } => {
-                self.record_ty(path, fields, base.as_deref(), expr.span)
+                self.record_ty(path, fields, base.as_deref(), expected, expr.span)
             }
             ExprKind::SelfValue => self.self_ty.clone(),
             ExprKind::Tuple(items) => {
@@ -1305,7 +1339,7 @@ impl<'a> Checker<'a> {
                     to
                 }
             }
-            ExprKind::Call { callee, args } => self.call_ty(callee, args, expr.span),
+            ExprKind::Call { callee, args } => self.call_ty(callee, args, expected, expr.span),
             ExprKind::Index { base, index } => {
                 let checked_base = self.check_expr(base);
                 let base_ty = match self.infer.resolve(checked_base) {
@@ -1738,6 +1772,7 @@ impl<'a> Checker<'a> {
         _path: &[String],
         fields: &[(String, Expr)],
         base: Option<&Expr>,
+        expected: Option<&Ty>,
         span: Span,
     ) -> Ty {
         let Some((owner, adt, variant)) = self.adt_for(span) else {
@@ -1756,8 +1791,24 @@ impl<'a> Checker<'a> {
             self.error("PGS-E3003", "se esperaba una variante de la suma", span);
             return Ty::Error;
         }
-        let expected: &[AdtField] = variant.as_ref().map_or(&adt.fields, |v| &v.fields);
-        let (args, env) = self.adt_args(&adt);
+        let expected_fields: &[AdtField] = variant.as_ref().map_or(&adt.fields, |v| &v.fields);
+        // Si el contexto declara el tipo (`Wrap[String]`), instancia los
+        // genéricos con esos argumentos para que los campos acepten la
+        // coerción `Str` → `String`.
+        let (args, env) = match expected.map(|ty| self.infer.resolve(ty.clone())) {
+            Some(Ty::Adt(def, adt_args))
+                if def == owner && adt_args.len() == adt.generics.len() =>
+            {
+                let env = adt
+                    .generics
+                    .iter()
+                    .map(|generic| generic.def)
+                    .zip(adt_args.iter().cloned())
+                    .collect();
+                (adt_args, env)
+            }
+            _ => self.adt_args(&adt),
+        };
         let mut seen = HashSet::new();
         let mut provided = HashSet::new();
         for (name, value) in fields {
@@ -1765,7 +1816,7 @@ impl<'a> Checker<'a> {
                 self.error("PGS-E8001", format!("campo `{name}` duplicado"), value.span);
                 continue;
             }
-            let Some(field) = expected.iter().find(|field| field.name == *name) else {
+            let Some(field) = expected_fields.iter().find(|field| field.name == *name) else {
                 self.error(
                     "PGS-E8003",
                     format!("campo `{name}` desconocido"),
@@ -1774,8 +1825,8 @@ impl<'a> Checker<'a> {
                 continue;
             };
             provided.insert(name.clone());
-            let value_ty = self.check_expr(value);
             let field_ty = self.ty_from_field_with(field, env.clone());
+            let value_ty = self.check_expr_expected(value, Some(&field_ty));
             let place = matches!(
                 value.kind,
                 ExprKind::Path(_) | ExprKind::Field { .. } | ExprKind::Index { .. }
@@ -1796,7 +1847,7 @@ impl<'a> Checker<'a> {
                 "PGS-E8005",
             );
         } else {
-            for field in expected {
+            for field in expected_fields {
                 if !provided.contains(&field.name) {
                     self.error(
                         "PGS-E8002",
@@ -1956,10 +2007,26 @@ impl<'a> Checker<'a> {
         Some(ret)
     }
 
-    fn call_ty(&mut self, callee: &Expr, args: &[Expr], span: Span) -> Ty {
+    /// Comprueba `arg` contra `expected` aceptando la coerción `Str` →
+    /// `String` y devuelve el tipo con el que debe figurar el valor.
+    fn check_coerced_arg(&mut self, arg: &Expr, expected: &Ty) -> Ty {
+        let ty = self.check_expr_expected(arg, Some(expected));
+        let place = matches!(
+            arg.kind,
+            ExprKind::Path(_) | ExprKind::Field { .. } | ExprKind::Index { .. }
+        );
+        if let Some(coerced) = self.coerce_strings(expected, &ty, arg.span, place) {
+            return coerced;
+        }
+        let _ = self.unify_at(expected.clone(), ty.clone(), arg.span, "PGS-E3001");
+        ty
+    }
+
+    fn call_ty(&mut self, callee: &Expr, args: &[Expr], expected: Option<&Ty>, span: Span) -> Ty {
         if let Some(ty) = self.associated_call(callee, args, span) {
             return ty;
         }
+        let expected_ty = expected.map(|ty| self.infer.resolve(ty.clone()));
         let callee_is_item = match &callee.kind {
             // Una ruta cualificada por módulo (`std::via::exists`) también es una
             // función de item: sin esto no se instancian sus genéricos (N66).
@@ -1998,7 +2065,7 @@ impl<'a> Checker<'a> {
                             }
                             for (param, arg) in signature.params.iter().zip(args) {
                                 let param_ty = self.ty_from_ast(param);
-                                let arg_ty = self.check_expr(arg);
+                                let arg_ty = self.check_expr_expected(arg, Some(&param_ty));
                                 let place = matches!(
                                     arg.kind,
                                     ExprKind::Path(_)
@@ -2044,14 +2111,30 @@ impl<'a> Checker<'a> {
             if path.len() == 1 {
                 match path[0].as_str() {
                     "some" => {
-                        let arg = args.first().map_or(Ty::Error, |arg| self.check_expr(arg));
+                        let expected_inner = match &expected_ty {
+                            Some(Ty::Option(inner)) => Some((**inner).clone()),
+                            _ => None,
+                        };
+                        let arg = match (args.first(), &expected_inner) {
+                            (Some(arg), Some(inner)) => self.check_coerced_arg(arg, inner),
+                            (Some(arg), None) => self.check_expr(arg),
+                            (None, _) => Ty::Error,
+                        };
                         if args.len() != 1 {
                             self.error("PGS-E3001", "`some` espera un argumento", span);
                         }
                         return Ty::Option(Box::new(arg));
                     }
                     "ok" => {
-                        let ok = args.first().map_or(Ty::Error, |arg| self.check_expr(arg));
+                        let expected_ok = match &expected_ty {
+                            Some(Ty::Result(ok, _)) => Some((**ok).clone()),
+                            _ => None,
+                        };
+                        let ok = match (args.first(), &expected_ok) {
+                            (Some(arg), Some(ok)) => self.check_coerced_arg(arg, ok),
+                            (Some(arg), None) => self.check_expr(arg),
+                            (None, _) => Ty::Error,
+                        };
                         let err = self.infer.fresh();
                         if args.len() != 1 {
                             self.error("PGS-E3001", "`ok` espera un argumento", span);
@@ -2059,7 +2142,15 @@ impl<'a> Checker<'a> {
                         return Ty::Result(Box::new(ok), Box::new(err));
                     }
                     "err" => {
-                        let err = args.first().map_or(Ty::Error, |arg| self.check_expr(arg));
+                        let expected_err = match &expected_ty {
+                            Some(Ty::Result(_, err)) => Some((**err).clone()),
+                            _ => None,
+                        };
+                        let err = match (args.first(), &expected_err) {
+                            (Some(arg), Some(err)) => self.check_coerced_arg(arg, err),
+                            (Some(arg), None) => self.check_expr(arg),
+                            (None, _) => Ty::Error,
+                        };
                         let ok = self.infer.fresh();
                         if args.len() != 1 {
                             self.error("PGS-E3001", "`err` espera un argumento", span);
@@ -2148,7 +2239,7 @@ impl<'a> Checker<'a> {
                     return ret;
                 }
                 for (param, arg) in params.into_iter().zip(args) {
-                    let arg_ty = self.check_expr(arg);
+                    let arg_ty = self.check_expr_expected(arg, Some(&param));
                     let place = matches!(
                         arg.kind,
                         ExprKind::Path(_) | ExprKind::Field { .. } | ExprKind::Index { .. }
@@ -2236,8 +2327,36 @@ impl<'a> Checker<'a> {
                     );
                     return *ret;
                 }
-                for (param, arg) in params.into_iter().zip(args) {
-                    let arg_ty = self.check_expr(arg);
+                // Constructor de variante con tipo declarado: instancia sus
+                // parámetros genéricos con los argumentos del esperado, para
+                // que `Just("hi")` acepte `Str` → `String` si se declara
+                // `Maybe[String]`.
+                let variant_expected = match (&expected_ty, self.adt_for(callee.span)) {
+                    (Some(Ty::Adt(def, adt_args)), Some((owner, adt, Some(variant))))
+                        if *def == owner
+                            && adt_args.len() == adt.generics.len()
+                            && variant.fields.len() == args.len() =>
+                    {
+                        Some((
+                            adt.generics.clone(),
+                            adt_args.clone(),
+                            variant.fields.clone(),
+                        ))
+                    }
+                    _ => None,
+                };
+                for (index, (param, arg)) in params.into_iter().zip(args).enumerate() {
+                    let mut param = param;
+                    if let Some((generics, adt_args, fields)) = &variant_expected {
+                        let env: HashMap<DefId, Ty> = generics
+                            .iter()
+                            .map(|generic| generic.def)
+                            .zip(adt_args.iter().cloned())
+                            .collect();
+                        let field_ty = self.ty_from_field_with(&fields[index], env);
+                        param = self.unify_at(param, field_ty, arg.span, "PGS-E3001");
+                    }
+                    let arg_ty = self.check_expr_expected(arg, Some(&param));
                     let place = matches!(
                         arg.kind,
                         ExprKind::Path(_) | ExprKind::Field { .. } | ExprKind::Index { .. }
@@ -2249,7 +2368,11 @@ impl<'a> Checker<'a> {
                         let _ = self.unify_at(param, arg_ty, arg.span, "PGS-E7006");
                     }
                 }
-                *ret
+                if variant_expected.is_some() {
+                    expected_ty.unwrap_or(*ret)
+                } else {
+                    *ret
+                }
             }
             other => {
                 self.error("PGS-E3001", format!("`{other}` no es invocable"), span);
@@ -2375,7 +2498,7 @@ impl<'a> Checker<'a> {
             );
         } else {
             for (param, arg) in params.iter().cloned().zip(args) {
-                let arg_ty = self.check_expr(arg);
+                let arg_ty = self.check_expr_expected(arg, Some(&param));
                 let place = matches!(
                     arg.kind,
                     ExprKind::Path(_) | ExprKind::Field { .. } | ExprKind::Index { .. }
@@ -2938,7 +3061,7 @@ impl<'a> Checker<'a> {
                     self.bind_local(pattern.span, ty);
                 } else if let Res::Def(def) = self.res_at(pattern.span) {
                     if let Some(owner) = self.krate.variant_owner(def) {
-                        let Some(adt) = self.krate.adt(owner) else {
+                        let Some(adt) = self.krate.adt(owner).cloned() else {
                             return;
                         };
                         let Some(variant) = adt.variants.iter().find(|v| v.def == def) else {
@@ -2951,12 +3074,9 @@ impl<'a> Checker<'a> {
                                 pattern.span,
                             );
                         }
-                        let _ = self.unify_at(
-                            Ty::Adt(owner, Vec::new()),
-                            ty,
-                            pattern.span,
-                            "PGS-E9003",
-                        );
+                        let (adt_args, _env) = self.pattern_adt_args(owner, &adt, &ty);
+                        let _ =
+                            self.unify_at(Ty::Adt(owner, adt_args), ty, pattern.span, "PGS-E9003");
                     } else {
                         self.error("PGS-E9003", "el patrón no es una variante", pattern.span);
                     }
@@ -3032,7 +3152,8 @@ impl<'a> Checker<'a> {
                     }
                     return;
                 }
-                let Some((fields, tuple, is_record)) = self.pattern_adt_fields(pattern.span) else {
+                let Some((fields, tuple, _is_record)) = self.pattern_adt_fields(pattern.span)
+                else {
                     self.error(
                         "PGS-E9003",
                         "la variante no pertenece al tipo",
@@ -3040,7 +3161,22 @@ impl<'a> Checker<'a> {
                     );
                     return;
                 };
-                if tuple || (is_record && !args.is_empty()) {
+                // Instancia la suma con los argumentos del tipo escrutado
+                // (`Maybe[Int]`) para no dejar `T` genéricos sueltos en los
+                // campos del patrón.
+                let env = if let Some((owner, adt, _)) = self.adt_for(pattern.span) {
+                    let (adt_args, env) = self.pattern_adt_args(owner, &adt, &ty);
+                    let _ = self.unify_at(
+                        Ty::Adt(owner, adt_args),
+                        ty.clone(),
+                        pattern.span,
+                        "PGS-E9003",
+                    );
+                    env
+                } else {
+                    HashMap::new()
+                };
+                if tuple || !args.is_empty() {
                     if !named.is_empty() {
                         self.error(
                             "PGS-E9003",
@@ -3063,18 +3199,11 @@ impl<'a> Checker<'a> {
                             continue;
                         }
                         if let Some(field) = fields.get(index) {
-                            let field_ty = self.ty_from_field(field);
+                            let field_ty = self.ty_from_field_with(field, env.clone());
                             self.check_pattern(arg, field_ty);
                         }
                     }
                 } else {
-                    if !args.is_empty() && !is_record {
-                        self.error(
-                            "PGS-E9003",
-                            "la variante nombrada no acepta argumentos posicionales",
-                            pattern.span,
-                        );
-                    }
                     let mut seen = HashSet::new();
                     for (name, arg) in named {
                         if !seen.insert(name.as_str()) {
@@ -3082,7 +3211,7 @@ impl<'a> Checker<'a> {
                             continue;
                         }
                         if let Some(field) = fields.iter().find(|field| field.name == *name) {
-                            let field_ty = self.ty_from_field(field);
+                            let field_ty = self.ty_from_field_with(field, env.clone());
                             self.check_pattern(arg, field_ty);
                         } else {
                             self.error(
