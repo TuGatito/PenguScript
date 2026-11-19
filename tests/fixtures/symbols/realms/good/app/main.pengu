@@ -1,0 +1,8 @@
+realm app
+
+invoke "geometry/circles" as geom
+invoke {square_area as sq_area} from "geometry/squares"
+
+run_app = -> void
+  c = geom::circle_area(2.0)
+  s = sq_area(3.0)

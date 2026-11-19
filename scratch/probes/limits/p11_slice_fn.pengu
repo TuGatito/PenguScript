@@ -1,6 +1,0 @@
-scroll demo
-    unveil suma = (xs: &[Int]) -> Int
-        0
-grimoire
-    bind xs = [1, 2, 3]
-    print(1)

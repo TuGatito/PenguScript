@@ -1,0 +1,15 @@
+find_min = <T needs Ord>(items: ref<vector<T>>) -> T?
+  if #items == 0
+    none
+  else
+    mut min_val = items[0]
+    for x in items
+      if x < min_val
+        min_val = x
+    min_val
+
+describe = <T needs Ord, Display>(x: T) -> string
+  "comparable and printable"
+
+convert = <T needs Into<U>>(x: T) -> U
+  x as U

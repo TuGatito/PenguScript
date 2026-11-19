@@ -1,7 +1,0 @@
--- fragmento didáctico: se asume dentro de un `grimoire`; no es un módulo completo.
-min_max = (a: Int, b: Int) -> (Int, Int)
-    if a <= b then (a, b) else (b, a)
-
-bind (low, high) = min_max(7, 3)
-print(low)
-print(high)

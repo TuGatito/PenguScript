@@ -1,0 +1,8 @@
+realm geometry
+
+rune Point
+  x: double
+  y: double
+
+distance = (p1: Point, p2: Point) -> double
+  0.0

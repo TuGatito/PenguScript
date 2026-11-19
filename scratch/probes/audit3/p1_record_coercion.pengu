@@ -1,6 +1,0 @@
-summon std::iason
-summon std::iason::Json
-
-grimoire
-    bind j = Json(kind: "texto", flag: false, integer: 0, number: 0.0, text: String.new(), items: Vec.new(), keys: Vec.new())
-    print(j.kind_of())

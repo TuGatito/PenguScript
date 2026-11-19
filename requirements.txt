@@ -1,0 +1,10 @@
+lark
+rich
+pygls
+Jinja2
+Typer
+ruff
+mypy
+pytest
+pytest-asyncio          # tests del LSP
+types-toml

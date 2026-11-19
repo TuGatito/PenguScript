@@ -1,4 +1,0 @@
-summon std::opera::PartialOrd
-grimoire
-    bind o = Less
-    print(1)

@@ -1,0 +1,12 @@
+realm bad_self
+
+rune Widget
+    width: int
+
+    constructor(w: int)
+        @width = w
+        @height = 10
+        @missing_method()
+
+standalone = () -> void
+    @width = 5

@@ -1,3 +1,0 @@
-ritual Float
-    name = (@own) -> Str
-        "float"

@@ -1,0 +1,5 @@
+realm bad_indent
+
+func = -> void
+    x = 10
+  y = 20

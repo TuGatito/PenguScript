@@ -1,0 +1,4 @@
+realm geometry
+
+square_area = (s: double) -> double
+  s * s

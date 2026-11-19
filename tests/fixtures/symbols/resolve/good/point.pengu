@@ -1,0 +1,16 @@
+realm geom
+
+rune Point
+    x: double
+    y: double
+
+    constructor(x: double, y: double)
+        @x = x
+        @y = y
+
+enchanting Point
+    length = () -> double
+        @x + @y
+
+make_point = (x: double, y: double) -> Point
+    Point(x, y)

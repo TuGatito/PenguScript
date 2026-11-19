@@ -1,0 +1,102 @@
+-- Cheatsheet corpus fixture testing all language features together
+realm game_engine
+
+invoke "std/io" as io
+invoke {format, println} from "std/fmt"
+
+const MAX_ENTITIES: size_t = 10000
+const GRAVITY = 9.81
+const EPSILON = 1e-6
+const MASS_LIMIT = 1e20
+
+echo EntityId = int
+echo TransformMap = map<EntityId, Point>
+seal PlayerToken = int
+
+flags omen ComponentKind
+  Transform = 1,
+  Physics = 2,
+  Render = 4,
+  Collider = 8
+
+omen State
+  Idle,
+  Running,
+  Jumping,
+  Dead
+
+rune Point
+  x: double
+  y: double
+
+  constructor(x: double, y: double)
+    @x = x
+    @y = y
+
+  destructor
+    pass
+
+enchanting Point
+  operator + = (other: Point) -> Point
+    Point(@x + other.x, @y + other.y)
+
+  operator <=> = (other: Point) -> int
+    if @x < other.x
+      -1
+    else if @x > other.x
+      1
+    else
+      0
+
+rune Entity
+  id: EntityId
+  position: Point
+  active: bool
+
+  constructor(id: EntityId, position: Point)
+    @id = id
+    @position = position
+    @active = true
+
+enchanting Entity
+  mut move = (dx: double, dy: double) -> void
+    @position = Point(@position.x + dx, @position.y + dy)
+
+  is_alive = -> bool
+    @active
+
+  unsafe raw_ptr_op = (ptr: raw<int>) -> int
+    *ptr + 1
+
+update_entities = <T needs Ord>(entities: mut ref<vector<Entity>>, points: ref<vector<T>>) -> void
+  mut a, b, c = 1, 2, 3
+  coords = [e.position.x for e in entities if e.active]
+  scaled = [i * 2 for i = 0, 10, 2]
+
+  for e in entities
+    e.move(1.0, 2.0)
+    msg = "Entity #{e.id} moved"
+    fmsg = f"pos = ({@x}, {@y})"
+  else
+    io::println("No entities updated")
+
+  mut count = 0
+  while count < 10
+    count += 1
+    if count == 5
+      continue
+    if count == 9
+      break
+
+  found = if #coords > 0
+    coords[0]
+  else
+    0.0
+
+  status_str = if a > 0 then "positive" else if a < 0 then "negative" else "zero"
+
+run_simulation = -> int
+  p1 = Point(0.0, 0.0)
+  p2 = Point(10.0, 20.0)
+  p3 = p1 + p2
+  0

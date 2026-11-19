@@ -1,3 +1,0 @@
-ritual Int
-    sigil BITS: Int = 32
-    sigil MAXIMO: Int = 2147483647

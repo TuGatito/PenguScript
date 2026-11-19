@@ -1,0 +1,5 @@
+operator + = (a: int, b: Point) -> Point
+  Point(a + b.x, a + b.y)
+
+operator * = (a: double, b: Point) -> Point
+  Point(a * b.x, a * b.y)

@@ -1,0 +1,20 @@
+realm geometry
+
+invoke "math"
+invoke "utils/strings" as str
+invoke {sqrt, pow} from "math"
+
+const GLOBAL_CONSTANT = 100
+
+echo Entity = int
+seal UserId = int
+
+rune Point
+  x: double
+  y: double = 0.0
+
+enchanting Point
+  pass
+
+area = (r: double) -> double
+  math::pi * r * r

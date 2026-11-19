@@ -1,0 +1,12 @@
+int_val = 42
+hex_val = 0x2A
+float_val = 3.14159
+str_val = "hello world"
+bool_val = true
+none_val = none
+null_val = nullptr
+list_val = [1, 2, 3]
+typed_list = Vector<int>[1, 2, 3]
+map_val = {a: 1, b: 2}
+set_val = set{1, 2, 3}
+unset_val = unordered_set{4, 5}

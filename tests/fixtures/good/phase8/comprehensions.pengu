@@ -1,0 +1,10 @@
+-- List comprehensions: basic, with filter, numeric, nested, index binding, typed prefix
+
+squares = [x * x for x in items]
+evens = [x for x in items if x % 2 == 0]
+both = [x * x for x in items if x % 2 == 0]
+nums = [i for i in 0..<10]
+cubes = [i * i * i for i = 1, 10]
+pairs = [[x, y] for x in xs for y in ys]
+tagged = [f"{i}:{x}" for i, x in items]
+typed = vector<int>[x * 2 for x in items]

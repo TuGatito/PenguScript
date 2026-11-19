@@ -1,0 +1,4 @@
+for i = 1, 10
+  io::println(i)
+for i: size_t = 0, n - 1, 2
+  io::println(i)

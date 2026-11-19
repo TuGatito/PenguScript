@@ -1,8 +1,0 @@
-@@repr(C)
-rune Pair
-    a: U8
-    b: U32
-
-grimoire
-    print(size_of[Pair]())
-    print(align_of[Pair]())

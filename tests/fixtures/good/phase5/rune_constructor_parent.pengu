@@ -1,0 +1,6 @@
+rune Dog heir Animal
+  breed: string
+
+  constructor(name: string, breed: string, legs: int = 4)
+    parent(name, legs)
+    @breed = breed

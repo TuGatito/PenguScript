@@ -1,0 +1,5 @@
+for x in items
+  if x == target
+    break
+else
+  io::println("not found")

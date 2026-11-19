@@ -1,0 +1,15 @@
+identity = <T>(x: T) -> T
+  x
+
+pair = <A, B>(a: A, b: B) -> tuple<A, B>
+  (a, b)
+
+swap = <T>(mut a: T, mut b: T) -> void
+  temp = a
+  a = b
+  b = temp
+
+make_vector = <T>() -> vector<T>
+  []
+
+get_constant = <T>() -> 42

@@ -1,0 +1,17 @@
+realm bad_hierarchy
+
+rune Base
+    x: int
+
+    constructor(x: int)
+        parent(x)
+
+rune Sub heir Base
+    y: int
+
+    constructor(x: int, y: int)
+        @y = y
+        parent(x)
+
+orphan = () -> void
+    parent(1)

@@ -1,4 +1,0 @@
-summon std::floatem::FloatClass
-grimoire
-    bind c = FloatClass.NaN
-    print(1)

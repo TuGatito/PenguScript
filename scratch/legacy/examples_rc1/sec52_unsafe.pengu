@@ -1,8 +1,0 @@
-curse read = (ptr: *const Int) -> Int
-    -- SAFETY: el llamador garantiza que `ptr` es válido y está alineado.
-    *ptr
-
-grimoire
-    bind value = 41
-    bind ptr: *const Int = &value
-    print(read(ptr))

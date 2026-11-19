@@ -1,0 +1,4 @@
+realm test_realm
+
+const MAX_SIZE = 100
+const MAX_SIZE = 200

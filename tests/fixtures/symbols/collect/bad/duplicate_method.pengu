@@ -1,0 +1,11 @@
+realm test_realm
+
+rune Widget
+  id: int
+
+enchanting Widget
+  draw = -> void
+    pass
+
+  draw = -> void
+    pass

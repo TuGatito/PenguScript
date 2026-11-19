@@ -1,0 +1,20 @@
+print_name = (name: ref<string>) -> void
+  io::println(name)
+
+modify_buffer = (buf: mut ref<vector<int>>) -> void
+  pass
+
+rune Matrix
+  data: vector<double>
+
+enchanting Matrix
+  operator [] = (i: size_t) -> ref<double>
+    pass
+
+  mut operator [] = (i: size_t) -> mut ref<double>
+    pass
+
+nullable_int: int? = none
+nullable_box: Box<int>? = none
+opt_str: optional<string> = none
+nested_ref: ref<vector<string>> = none

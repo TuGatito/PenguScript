@@ -1,0 +1,18 @@
+-- Unsafe functions, unsafe blocks, raw pointers and dereferencing
+
+unsafe write_u8 = (p: raw<uint8_t>, v: uint8_t) -> void
+  *p = v
+
+read_and_advance = (p: raw<uint8_t>) -> uint8_t
+  total: uint8_t = 0
+  unsafe
+    total = *p
+    *p += 1
+  total
+
+enchanting Buffer
+  unsafe mut write = (val: uint8_t) -> void
+    *@ptr = val
+
+  unsafe operator + = (offset: int) -> raw<uint8_t>
+    @ptr + offset

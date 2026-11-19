@@ -1,9 +1,0 @@
--- fragmento didáctico: se asume dentro de un `grimoire`; no es un módulo completo.
-bind tasks = BinaryHeap.new()
-tasks.push(2)
-tasks.push(5)
-tasks.push(1)
-
-print(tasks.pop().unwrap())
-print(tasks.pop().unwrap())
-print(tasks.pop().unwrap())

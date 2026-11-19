@@ -1,0 +1,4 @@
+realm main
+
+invoke "mod_a" as collision_alias
+invoke "mod_b" as collision_alias

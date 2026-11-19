@@ -1,8 +1,0 @@
-find = (items: &[Int], target: Int) -> ?Usize
-    for (i, item) in items.iter().enumerate()
-        if *item == target
-            return some(i)
-    none
-
-grimoire
-    print(find(&[1, 2, 3], 2).unwrap())

@@ -1,0 +1,2 @@
+const GLOBAL_CONSTANT = 100
+const PI: double = 3.14159

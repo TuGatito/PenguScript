@@ -1,6 +1,0 @@
-scroll app
-    unveil answer = () -> Int
-        42
-
-grimoire
-    print(app.answer())

@@ -1,4 +1,0 @@
-rune Caja[T]
-    valor: T
-grimoire
-    print(1)

@@ -1,0 +1,8 @@
+realm math
+
+invoke "math/geometry" as geom
+
+const pi = 3.1415926535
+
+area = (r: double) -> double
+  pi * r * r

@@ -1,0 +1,10 @@
+rune Point
+  x: double
+  y: double
+
+  constructor(x: double, y: double)
+    @x = x
+    @y = y
+
+  destructor
+    io::println("Point destroyed")

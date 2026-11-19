@@ -1,5 +1,0 @@
-mean = (a: Float, b: Float) -> Float
-    (a + b) / 2.0
-
-grimoire
-    print(mean(1.0, 3.0))

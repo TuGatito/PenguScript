@@ -1,0 +1,7 @@
+enchanting Point
+  len = -> double
+    (@x * @x + @y * @y).sqrt()
+
+  mut translate = (dx: double, dy: double) -> void
+    @x += dx
+    @y += dy

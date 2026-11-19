@@ -1,0 +1,5 @@
+rune Counter
+  count: int
+
+  constructor
+    @count = 0

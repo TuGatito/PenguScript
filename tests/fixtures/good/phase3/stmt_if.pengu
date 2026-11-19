@@ -1,0 +1,6 @@
+if x > 0
+  io::println("positive")
+else if x < 0
+  io::println("negative")
+else
+  io::println("zero")

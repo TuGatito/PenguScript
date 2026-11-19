@@ -1,0 +1,4 @@
+realm test_realm
+
+pair_up = <T, T>(a: T, b: T) -> void
+  pass

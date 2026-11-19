@@ -1,0 +1,3 @@
+seal UserId = int
+seal Meters = double
+seal Wrapper<T> = T

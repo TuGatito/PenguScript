@@ -1,7 +1,0 @@
-incantation square
-    ($x:expr) => {
-        $x * $x
-    };
-
-grimoire
-    print(square!(5))

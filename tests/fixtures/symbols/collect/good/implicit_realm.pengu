@@ -1,0 +1,5 @@
+-- No explicit realm; should infer realm name 'implicit_realm'
+const VERSION = 1
+
+calculate = (x: int) -> int
+  x * 2

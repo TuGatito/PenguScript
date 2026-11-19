@@ -1,0 +1,5 @@
+realm cycle_b
+
+invoke "c" as c
+
+const VAL_B = 2

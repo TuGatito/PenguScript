@@ -1,0 +1,6 @@
+realm geometry
+
+const pi = 3.1415926535
+
+circle_area = (r: double) -> double
+  pi * r * r

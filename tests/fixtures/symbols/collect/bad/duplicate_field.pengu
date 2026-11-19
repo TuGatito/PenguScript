@@ -1,0 +1,6 @@
+realm test_realm
+
+rune Vector3
+  x: double
+  y: double
+  x: double

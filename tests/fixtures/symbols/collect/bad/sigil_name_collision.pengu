@@ -1,0 +1,4 @@
+realm test_realm
+
+rune Box<Box>
+  val: Box

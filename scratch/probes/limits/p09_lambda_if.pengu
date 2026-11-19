@@ -1,4 +1,0 @@
-grimoire
-    bind ys = [1, 2].map(fun (x: Int) -> Int
-        if x > 1 then x else 0)
-    print(1)

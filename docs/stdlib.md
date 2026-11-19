@@ -1,0 +1,99 @@
+## Standard Library
+---
+
+Every stdlib module must be imported with `invoke`. There are no builtins. Each module is one or two files:
+
+- **`<module>.d.pengu`** — declaration file. Signatures without bodies. The implementation is either a C++ primitive (FFI/intrinsic) or a `.pengu` file of the same name.
+- **`<module>.pengu`** — implementation file. Pure PenguScript.
+
+A module that has both uses the `.d.pengu` for its FFI/intrinsic layer and the `.pengu` for its safe public API. Users `invoke "<module>"` and get both realms merged.
+
+All FFI is **centralized** in `std/sys` (OS syscalls) and `std/ffi` (C++ library bindings). No other `.d.pengu` declares C functions. This makes the OS surface auditable in one place.
+
+### Layer 0 — FFI
+
+| Module | Files | Contents |
+|--------|-------|----------|
+| `std/sys` | `.d.pengu` | OS syscalls: `read`, `write`, `open`, `close`, `stat`, `lseek`, `mmap`, `munmap`, `exit`, `getpid`, `kill`, `signal`, `fork`, `execve`, `getenv`, `setenv`, `socket`, `bind`, `listen`, `accept`, `connect`. All `unsafe`. |
+| `std/ffi` | `.d.pengu` | C++ library bindings, organized by realm: `cmath` (`sqrt`, `sin`, `cos`, `pow`, `log`, `exp`…), `cstring` (`memcpy`, `memset`, `strlen`, `strcmp`), `cstdlib` (`malloc`, `free`, `qsort`), `ctime` (`clock_gettime`, `time`). All `unsafe`. |
+
+### Layer 1 — Intrinsics on built-in types
+
+These modules declare the methods the compiler already knows how to emit for primitive and container types. They are **documented intrinsics**: the compiler knows the C++ translation, and the `.d.pengu` is the visible signature.
+
+| Module | Files | Contents |
+|--------|-------|----------|
+| `std/core` | `.d.pengu` | Methods on `int`, `intN`, `uintN`, `float`, `double`, `bool`, `char`: `try_from`, `from`, `abs`, `min`, `max`, `is_nan`, `is_infinite`, `to_string`, `clamp`, `sign`. |
+| `std/string` | `.d.pengu` + `.pengu` | `.d`: `find`, `rfind`, `split`, `replace`, `substr`, `trim`, `starts_with`, `ends_with`, `chars`, `bytes`, `to_lowercase`, `to_uppercase`. `.p`: `join`, `format`, `escape`, `align`. |
+| `std/string_view` | `.d.pengu` | Methods on `string_view`: `substr`, `starts_with`, `ends_with`, `find`, `compare`, `to_string`. |
+| `std/vector` | `.d.pengu` | `push`, `pop`, `pop_opt`, `insert`, `remove_at`, `clear`, `sort`, `reverse`, `contains`, `index_of`, `resize`, `reserve`, `capacity`, `shrink_to_fit`. |
+| `std/array` | `.d.pengu` | `contains`, `index_of`, `reverse`, `sort`, `iter`. |
+| `std/map` | `.d.pengu` | `get`, `get_or`, `get_all`, `insert`, `insert_all`, `remove`, `remove_all`, `key_count`, `keys`, `values`. |
+| `std/set` | `.d.pengu` | `contains`, `insert`, `remove`, `union`, `intersection`, `difference`, `is_subset`, `is_superset`. |
+| `std/optional` | `.d.pengu` + `.pengu` | `.d`: `has_value`, `value`, `value_or`, `reset`. `.p`: `map`, `and_then`, `or_else`, `ok_or`. |
+| `std/memory` | `.d.pengu` | Methods on `unique<T>`, `shared<T>`, `weak<T>`: `get`, `release`, `reset`, `use_count`, `lock`, `expired`. |
+| `std/ordering` | `.d.pengu` | Methods on `Ordering`: `is_lt`, `is_eq`, `is_gt`, `reverse`, `then`, `then_with`. |
+
+### Layer 2 — Basic services (v0.1.0)
+
+All `.pengu`, built on `std/sys` and `std/ffi`.
+
+| Module | Files | Contents |
+|--------|-------|----------|
+| `std/io` | `.pengu` | `print`, `println`, `eprint`, `eprintln`, `read_line`, `read`, `write`, `flush`. `File` rune (`open`, `read`, `write`, `seek`, `close`). `BufReader`, `BufWriter`. |
+| `std/fs` | `.pengu` | `read_file`, `write_file`, `append_file`, `remove`, `rename`, `copy`, `exists`, `is_file`, `is_dir`, `mkdir`, `rmdir`, `read_dir`, `list_dir`, `symlink`, `read_link`, `canonicalize`, `metadata`. |
+| `std/path` | `.pengu` | `Path` rune: `join`, `parent`, `file_name`, `stem`, `extension`, `is_absolute`, `components`, `normalize`, `to_string`. |
+| `std/math` | `.pengu` | `<cmath>` wrappers: `sqrt`, `pow`, `cbrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `log`, `log2`, `log10`, `exp`, `floor`, `ceil`, `round`, `trunc`, `abs`, `min`, `max`, `clamp`. Constants: `pi`, `e`, `inf`, `nan`. Integers: `gcd`, `lcm`, `factorial`. |
+| `std/time` | `.pengu` | `Instant`, `Duration`, `SystemTime`. `now`, `elapsed`, `sleep`, `from_secs`, `from_millis`, `from_nanos`, `as_secs`, `as_millis`. |
+| `std/os` | `.pengu` | `args`, `getenv`, `setenv`, `home_dir`, `current_dir`, `temp_dir`, `exit`, `pid`, `sleep`. `Platform` and `Arch` omens. |
+| `std/random` | `.pengu` | `Rng` rune: `new`, `from_seed`, `next_u32`, `next_u64`, `next_f32`, `next_f64`, `gen_range`, `shuffle`, `choose`. |
+| `std/error` | `.pengu` | `Error` rune (`message`, `code`, `source`). `Result<T, E>` omen (`Ok`, `Err`). `?` operator integration. |
+| `std/assert` | `.pengu` | `assert`, `assert_eq`, `assert_ne`, `assert_throws`, `debug_assert`. |
+| `std/iter` | `.pengu` | Free functions over sequences: `map`, `filter`, `enumerate`, `zip`, `chain`, `take`, `skip`, `chunks`, `windows`, `fold`, `reduce`, `any`, `all`, `count`, `sum`, `product`, `collect`. |
+| `std/format` | `.pengu` | `pad_left`, `pad_right`, `pad_center`, `escape`, `align`, `number_with_separator`. |
+| `std/mem` | `.pengu` | `size_of`, `align_of`, `swap`, `zeroed`, `uninitialized` (unsafe). |
+| `std/log` | `.pengu` | `Level` omen, `Logger`, `log`, `info`, `warn`, `error`, `debug`. |
+
+### Layer 3 — Advanced modules (v0.1.0)
+
+All `.pengu`.
+
+| Module | Files | Contents |
+|--------|-------|----------|
+| `std/sort` | `.pengu` | `merge_sort`, `quick_sort`, `radix_sort`, `binary_search`, `lower_bound`, `upper_bound`, `is_sorted`. |
+| `std/encoding` | `.pengu` | `base64_encode`, `base64_decode`, `hex_encode`, `hex_decode`, `utf8_validate`, `url_encode`, `url_decode`. |
+| `std/json` | `.pengu` | `Json` omen (`Null`, `Bool`, `Number`, `String`, `Array`, `Object`). `parse`, `stringify`, `to_json`, `from_json`. |
+| `std/hash` | `.pengu` | `fnv1a_32`, `fnv1a_64`, `xxhash64`, `murmur3_32`, `murmur3_128`, `cityhash64`. |
+| `std/console` | `.pengu` | ANSI colors (`Color` omen), `bold`, `dim`, `italic`, `underline`, `cursor_up`, `cursor_down`, `clear_screen`, `terminal_size`. |
+| `std/debug` | `.pengu` | `stacktrace`, `backtrace`, `inspect` (dump any rune to string), `memory_stats`. |
+| `std/test` | `.pengu` | `TestSuite`, `run_tests`, `expect`, `expect_eq`, `expect_err`. |
+
+### Layer 4 — Concurrency and I/O (v0.1.0, optional)
+
+All `.pengu`. Not required for the language to be usable, but part of a "complete" stdlib.
+
+| Module | Files | Contents |
+|--------|-------|----------|
+| `std/atomic` | `.pengu` | `AtomicBool`, `AtomicInt`, `AtomicSize`. `load`, `store`, `swap`, `compare_exchange`, `fetch_add`, `fetch_sub`, `fetch_and`, `fetch_or`. |
+| `std/sync` | `.pengu` | `Mutex<T>`, `RwLock<T>`, `Condvar`, `Once`, `Barrier`, `Semaphore`. |
+| `std/thread` | `.pengu` | `Thread`, `spawn`, `join`, `sleep`, `current`, `thread_id`, `yield_now`, `available_parallelism`. |
+| `std/channel` | `.pengu` | `Channel<T>`, `Sender<T>`, `Receiver<T>`. `send`, `recv`, `try_recv`, `close`, `select` (function taking a list of channels). |
+| `std/net` | `.pengu` | `TcpListener`, `TcpStream`, `UdpSocket`, `Address`, `IpAddr` omen, `Port`. Uses `sys::socket`, `sys::bind`, `sys::listen`, `sys::accept`, `sys::connect`. |
+| `std/regex` | `.pengu` | `Regex`, `Match`. `find`, `find_all`, `replace`, `split`, `captures`. Thompson NFA implementation in PenguScript. |
+| `std/cli` | `.pengu` | `Args`, `Flag`, `Option`, `Subcommand`, `parse`. |
+| `std/crypto` | `.pengu` | `sha256`, `sha512`, `md5`, `blake3`. |
+
+### Future modules (post v0.1.0)
+
+| Module | Contents |
+|--------|----------|
+| `std/bigint` | Arbitrary-precision integers |
+| `std/decimal` | Arbitrary-precision decimals |
+| `std/complex` | Complex numbers (currently available via `std/ffi::cmath`) |
+| `std/matrix` | Linear algebra |
+| `std/compress` | gzip, zlib, zstd |
+| `std/http` | HTTP client/server |
+| `std/sql` | Database abstraction |
+| `std/uuid` | UUID generation and parsing |
+| `std/toml`, `std/yaml`, `std/csv`, `std/xml` | Format parsers |
+| `std/gui` | GUI bindings (out of scope) |

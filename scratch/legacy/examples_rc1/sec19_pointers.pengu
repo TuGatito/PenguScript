@@ -1,9 +1,0 @@
-curse read = (p: *const Int) -> Int
-    *p
-
-grimoire
-    bind value = 42
-    bind p = &raw const value
-    bind copy = curse
-        *p
-    print(copy)

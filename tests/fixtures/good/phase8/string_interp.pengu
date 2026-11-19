@@ -1,0 +1,14 @@
+-- String interpolation with #{} and f"{}"
+
+user = "Alex"
+age = 42
+msg1 = "Name: #{user}, Age: #{age}"
+msg2 = f"Name: {user}, Age: {age}"
+
+multiline_interp = "Hello #{user}
+  welcome back!"
+
+enchanting Counter
+  report = -> void
+    io::println(f"count = {@count}")
+    io::println(f"{@} instances")

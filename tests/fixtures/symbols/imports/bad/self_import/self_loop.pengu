@@ -1,0 +1,5 @@
+realm self_loop
+
+invoke "self_loop" as s
+
+const VALUE = 42

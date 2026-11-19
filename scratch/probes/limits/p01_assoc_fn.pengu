@@ -1,4 +1,0 @@
-summon std::verbum::String
-grimoire
-    bind a = String.new()
-    print(a.len())

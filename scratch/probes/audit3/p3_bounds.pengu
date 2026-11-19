@@ -1,7 +1,0 @@
-summon std::opera::Ord
-
-unveil maximo = [T: Ord](a: T, b: T) -> T
-    if a < b then b else a
-
-grimoire
-    print(maximo(1, 2))
