@@ -1,0 +1,46 @@
+-- Control de flujo como expresión.
+--
+-- `if`, `switch` y los bucles producen valores; en posición de
+-- sentencia el valor se descarta.
+
+invoke "std/io"
+
+main = ->
+  const n = 7
+
+  if n % 2 == 0
+    io::println("#{n} es par")
+  else
+    io::println("#{n} es impar")
+
+  const signo = if n > 0 then "positivo" else if n < 0 then "negativo" else "cero"
+  io::println("signo: #{signo}")
+
+  mut total = 0
+  for i = 1, 5
+    total += i
+  io::println("suma 1..5 = #{total}")
+
+  const cuadrados = [i * i for i in 0..5 if i % 2 == 1]
+  io::println("cuadrados impares: #{cuadrados}")
+
+  for c in "pengu"
+    io::print("#{c} ")
+  io::println("")
+
+  const color = switch n
+    when 1, 3, 5 then "impar pequeño"
+    when 7 then "siete"
+    else "otro"
+  io::println("switch: #{color}")
+
+  mut cuenta = 3
+  while cuenta > 0
+    io::print("#{cuenta} ")
+    cuenta -= 1
+  io::println("")
+
+  repeat
+    cuenta += 2
+  until cuenta >= 6
+  io::println("cuenta final: #{cuenta}")

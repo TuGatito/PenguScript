@@ -1,6 +1,0 @@
-for x in items
-  io::println(x)
-for mut x in items
-  x *= 2
-for i, x in items
-  io::println(i, x)

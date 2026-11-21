@@ -1,0 +1,5 @@
+realm assert
+
+declare
+  that = (condition: bool) -> void
+  fail = (message: string) -> void

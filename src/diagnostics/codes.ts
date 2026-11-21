@@ -1,0 +1,76 @@
+export const CODES = {
+  cli_usage: "E0001",
+  manifest_missing: "E0002",
+  manifest_invalid: "E0003",
+  project_empty: "E0004",
+  file_not_found: "E0005",
+
+  indent_mismatch: "E0101",
+  indent_mixed: "E0102",
+  unexpected_char: "E0103",
+  unterminated_string: "E0104",
+  invalid_escape: "E0105",
+  invalid_number: "E0106",
+  invalid_char: "E0107",
+  unterminated_interpolation: "E0108",
+  empty_interpolation: "E0109",
+
+  expected_token: "E0201",
+  expected_expression: "E0202",
+  unexpected_token: "E0203",
+  invalid_assignment: "E0204",
+  invalid_block: "E0205",
+  invalid_match_arm: "E0206",
+  duplicate_modifier: "E0207",
+  invalid_declaration: "E0208",
+
+  module_not_found: "E0301",
+  import_cycle: "E0302",
+  import_not_top_level: "E0303",
+  realm_duplicate: "E0304",
+  realm_after_import: "E0305",
+  realm_missing: "E0306",
+  unknown_symbol: "E0307",
+
+  duplicate_symbol: "E0401",
+  reserved_name: "E0402",
+  unknown_identifier: "E0403",
+  unknown_realm: "E0404",
+  private_symbol: "E0405",
+  mutable_required: "E0406",
+
+  type_mismatch: "E0501",
+  unknown_type: "E0502",
+  condition_not_bool: "E0503",
+  wrong_arity: "E0504",
+  not_callable: "E0505",
+  unknown_field: "E0506",
+  unknown_method: "E0507",
+  cannot_infer: "E0508",
+  invalid_cast: "E0509",
+  missing_return: "E0510",
+  unreachable_code: "E0511",
+
+  use_after_move: "E0601",
+  exclusive_borrow: "E0602",
+  unsafe_required: "E0603",
+  mutation_during_iteration: "E0604",
+  dangling_reference: "E0605",
+
+  omen_not_exhaustive: "E0701",
+  invalid_omen_variant: "E0702",
+  invalid_parent: "E0703",
+  field_shadow: "E0704",
+  method_shadow: "E0705",
+
+  cpp_emit_failed: "E0801",
+  toolchain_missing: "E0802",
+  compile_failed: "E0803",
+
+  lsp_protocol: "E0901",
+  bindgen_failed: "E0902",
+  bindgen_unsupported: "E0903",
+} as const;
+
+export type CodeName = keyof typeof CODES;
+export type DiagnosticCode = (typeof CODES)[CodeName];

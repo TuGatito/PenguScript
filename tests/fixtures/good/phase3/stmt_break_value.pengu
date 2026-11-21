@@ -1,3 +1,0 @@
-for x in items
-  if x > 100
-    break x

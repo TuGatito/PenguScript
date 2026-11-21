@@ -1,6 +1,0 @@
-realm test_realm
-
-flags omen Permissions
-  Read = 1,
-  Write = 2,
-  Invalid = 3

@@ -1,0 +1,9 @@
+realm numeros
+
+const LIMITE = 10
+
+doble = (x: int) -> int
+  x * 2
+
+es_par = (x: int) -> bool
+  x % 2 == 0

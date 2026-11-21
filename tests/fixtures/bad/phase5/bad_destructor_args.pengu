@@ -1,3 +1,0 @@
-rune Point
-  destructor(x: int)
-    pass

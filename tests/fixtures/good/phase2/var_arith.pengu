@@ -1,5 +1,0 @@
-x = (y + 1) / 2
-x += 3
-mut counter: int = 0
-counter *= 2
-@x = x + 1

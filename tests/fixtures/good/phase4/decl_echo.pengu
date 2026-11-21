@@ -1,3 +1,0 @@
-echo Entity = int
-echo Callback = function<(int) -> void>
-echo Pair<T> = tuple<T, T>

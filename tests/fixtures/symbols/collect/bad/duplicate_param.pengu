@@ -1,4 +1,0 @@
-realm test_realm
-
-sum = (x: int, x: int) -> int
-  x + x

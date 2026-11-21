@@ -1,0 +1,37 @@
+-- Runes: estructuras con métodos.
+--
+-- `rune` declara los campos; los métodos se añaden con `enchanting`.
+-- Dentro de un método, `@` es la instancia actual.
+
+invoke "std/io"
+
+rune Point
+  x: double
+  y: double
+
+  constructor(x: double, y: double)
+    @x = x
+    @y = y
+
+enchanting Point
+  len = -> double
+    math::sqrt(@x * @x + @y * @y)
+
+  mut translate = (dx: double, dy: double) -> void
+    @x += dx
+    @y += dy
+
+  operator + = (other: Point) -> Point
+    Point(@x + other.x, @y + other.y)
+
+main = ->
+  const p = Point(3.0, 4.0)
+  io::println("p = (#{p.x}, #{p.y})")
+  io::println("|p| = #{p.len()}")
+
+  mut q = p
+  q.translate(1.0, 2.0)
+  io::println("q = (#{q.x}, #{q.y})")
+
+  const r = p + q
+  io::println("r = (#{r.x}, #{r.y})")

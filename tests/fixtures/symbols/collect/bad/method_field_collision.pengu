@@ -1,8 +1,0 @@
-realm test_realm
-
-rune Account
-  balance: double
-
-enchanting Account
-  balance = -> double
-    @balance

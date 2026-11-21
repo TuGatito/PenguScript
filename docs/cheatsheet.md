@@ -1,13 +1,39 @@
-# PenguScript 0.1.0 - Language Guide
+# PenguScript 0.2.0 - Language Guide
 
 ## Whitespace
 ---
 
-PenguScript is a whitespace sensitive language. This means that instead of using do and end (or { and }) to delimit sections of code we use line-breaks and indentation.
+PenguScript is a whitespace sensitive language. This means that instead of using blocks and end (or { and }) to delimit sections of code we use line-breaks and indentation.
 
 This means that how you indent your code is important. Luckily PenguScript doesn’t care how you do it but only requires that you be consistent.
 
 An indent must be at least 1 space or 1 tab, but you can use as many as you like. All the code snippets on this page will use two spaces.
+
+## Language decisions (v0.2.0)
+---
+
+This guide is the source of truth for the language. These are the decisions the implementation must satisfy; later sections describe them in detail.
+
+| Area | Decision |
+|---|---|
+| Blocks | Indentation-based; no braces or `end`. |
+| Control as expression | `if`, `unless`, `switch`, `match`, `do`, both `for` forms, `while`, `until`, `repeat`, comprehensions, and function literals are expressions. In statement position their value is discarded. |
+| `return` | `return expr` exits the enclosing function immediately. The last expression of a body is still an implicit return. Both forms coexist. |
+| Optionals | `T?` ≡ `optional<T>`. Use `.value()`, `.value_or(default)`, `.is_some()`, `.is_none()`. There is no implicit unwrap and no `??`. |
+| Generics | Sigils on functions, runes, omens, echoes, and seals. Inference from arguments; explicit instantiation when a sigil appears only in the return type. |
+| Generic types | Generic `omen`, `echo`, and `seal` are supported alongside generic `rune` and functions. |
+| Memory | `ref<T>` borrows; `unique<T>` moves; `shared<T>` counts; `weak<T>` observes and must be promoted with `.lock()`; `raw<T>` is `unsafe` only. Law of Exclusivity prevents aliasing mutation and iterator invalidation at compile time. |
+| Concurrency | Structural `ThreadSafe` verification on `thread` captures/arguments; `static mut` access requires `unsafe`. Safe global mutable state uses `const` with `atomic<T>`, `mutex`, or `shared_mutex`. |
+| Unsafe casts | There is no `unsafe as` keyword. The same `as` operator is checked in safe code and unchecked inside an `unsafe` block or function. |
+| Module state | `const` is immutable and const-evaluable (or a non-reassignable synchronization primitive). `static mut` is `unsafe`-only mutable module-level state. There are no implicit globals. |
+| Characters | `char` has character literals (`'a'`, escapes). `string[i]` and `string_view[i]` return `char`. |
+| Functions as values | Function literals are first-class values of type `function<Sig>`. They support closures with safe capture by value/move by default, and non-escaping reference capture. |
+| Comprehensions | List → `vector<T>`, map → `map<K,V>`, set → `set<T>` / `unordered_set<T>`. |
+| `do` / `switch` / `match` | All are expressions and statements. `switch` has constant patterns, no fallthrough, and optional `else`. `match` destructures algebraic omens with optional `if` guards and mandatory compile-time exhaustiveness. `do` creates a lexical scope and yields its last expression. |
+| Display | Interpolation `"#{expr}"` requires `Display`; runes opt in with a const `to_string = -> string`. |
+| Inheritance | Single inheritance; slicing is forbidden; a child field may not shadow an inherited field (method shadowing is allowed). |
+| Platform | Primitive widths are portable by default (intersection of LP64 and LLP64); the project may pin `lp64` or `llp64`. |
+| Not in v0.2.0 | No exceptions, no virtual dispatch, no user-defined constraints, no operator overloading on omens, no borrow-checker lifetime annotations (`'a`). |
 
 ## Types
 ---
@@ -20,7 +46,7 @@ Table convention:
 
 ### Primitives (without includes)
 
-| PenguScript | C++20 | Notas |
+| PenguScript | C++20 | Notes |
 |---|---|---|
 | `void` | `void` | keyword |
 | `bool` | `bool` | |
@@ -55,18 +81,46 @@ Table convention:
 | `intptr_t` / `uintptr_t` | `std::intptr_t` / `std::uintptr_t` | `<cstdint>` |
 | `byte` | `std::byte` | `<cstddef>` |
 
+Multi-word primitive names are **one type token** in the source: `unsigned int`, `long long`, `signed char`, `unsigned char`, and `long double` are written exactly as shown, not as two identifiers.
+
+### Platform model
+
+`int`, `long`, pointers, and `size_t` are not assumed to have one fixed width across operating systems. By default PenguScript uses the **portable intersection** of LP64 (Linux/macOS) and LLP64 (Windows):
+
+| Type | Portable guarantee |
+|---|---|
+| `int` | 32 bits |
+| `long` | at least 32 bits; 32 on LLP64, 64 on LP64 |
+| `long long` | 64 bits |
+| pointer / `size_t` | 64 bits on 64-bit targets |
+| `int8_t` … `uint64_t` | exact width, always |
+
+A conversion such as `int as long` is **not** lossless under the portable model, and is therefore not a safe `as`. The project may pin a concrete model with `platform = "lp64"` or `platform = "llp64"` in `pengu.toml`; a cast that is lossless only in the active model is a warning (`W3316`), or an error in strict mode. Use the fixed-size types when the width is part of the contract.
+
+### Floating-point methods
+
+`float`, `double`, and `long double` expose three methods:
+
+| Method | Signature | Notes |
+|---|---|---|
+| `.sqrt()` | `() -> Self` | square root |
+| `.abs()` | `() -> Self` | absolute value |
+| `.is_nan()` | `() -> bool` | NaN test |
+
+These are methods, not free functions: `x.sqrt()`, not `sqrt(x)`. They are what the `Floating` constraint checks in addition to `Numeric`.
+
 ### Strings
 
-| PenguScript | C++20 | Header | Notas |
+| PenguScript | C++20 | Header | Notes |
 |---|---|---|---|
-| `string` | `std::string` | `<string>` | UTF-8 laxo (no estricto) |
+| `string` | `std::string` | `<string>` | lenient UTF-8 (not validated) |
 | `wstring` | `std::wstring` | `<string>` | |
 | `u8string` | `std::u8string` | `<string>` | C++20, UTF-8 estricto |
 | `u16string` / `u32string` | `std::u16string` / `std::u32string` | `<string>` | |
 | `string_view` | `std::string_view` | `<string_view>` | |
 | `wstring_view` | `std::wstring_view` | `<string_view>` | |
 | `u8string_view` | `std::u8string_view` | `<string_view>` | C++20 |
-| `u16string_view` / `u32string_view` | idem | `<string_view>` | |
+| `u16string_view` / `u32string_view` | `std::u16string_view` / `std::u32string_view` | `<string_view>` | |
 
 ### Containers
 
@@ -101,24 +155,53 @@ Table convention:
 | `shared<T>` | `std::shared_ptr<T>` | `<memory>` |
 | `weak<T>` | `std::weak_ptr<T>` | `<memory>` |
 | `ref<T>` | `T&` | Safe |
-| `raw<T>` | `T*` | — (solo en `unsafe`) |
+| `raw<T>` | `T*` | — (`unsafe` only) |
 
 ### Utilities and compound types
 
-| PenguScript | C++20 | Header | Notas |
+| PenguScript | C++20 | Header | Notes |
 |---|---|---|---|
 | `T?` | `std::optional<T>` | `<optional>` | **azúcar**; `T?` ≡ `optional<T>` |
 | `optional<T>` | `std::optional<T>` | `<optional>` | forma larga |
 | `variant<...>` | `std::variant<...>` | `<variant>` | |
 | `any` | `std::any` | `<any>` | |
-| `function<Sig>` | `std::function<Sig>` | `<functional>` | callbacks, not declarations |
+| `function<Sig>` | `std::function<Sig>` | `<functional>` | first-class function value; supports safe closures |
 | `init_list<T>` | `std::initializer_list<T>` | `<initializer_list>` | |
 | `complex<T>` | `std::complex<T>` | `<complex>` | |
-| `atomic<T>` | `std::atomic<T>` | `<atomic>` | |
-| `mutex` | `std::mutex` | `<mutex>` | |
-| `shared_mutex` | `std::shared_mutex` | `<shared_mutex>` | |
+| `atomic<T>` | `std::atomic<T>` | `<atomic>` | thread-safe atomic value |
+| `mutex` | `std::mutex` | `<mutex>` | mutual exclusion lock |
+| `shared_mutex` | `std::shared_mutex` | `<shared_mutex>` | reader-writer lock |
 | `condition_variable` | `std::condition_variable` | `<condition_variable>` | |
-| `thread` | `std::thread` | `<thread>` | |
+| `thread` | `std::thread` | `<thread>` | enforces structural `ThreadSafe` |
+
+### Optional values — `T?`
+
+`T?` is sugar for `optional<T>`, and `optional<T>` is the long form. A value of type `T` is assignable to `T?`; `none` is the empty value (`nullopt` is accepted as an alternative spelling). There is no `some(...)` wrapper in the surface language — just use the value.
+
+```coffee
+maybe: int? = 42
+empty: int? = none
+
+if maybe.is_some()
+  io::println("value:", maybe.value())
+
+name = lookup("alice").value_or("anonymous")
+```
+
+| Member | Signature | Behavior |
+|---|---|---|
+| `.value()` | `() -> T` | Returns the value; **panics** if empty. |
+| `.value_or(default)` | `(T) -> T` | Returns the value, or `default` if empty. |
+| `.is_some()` | `() -> bool` | True when a value is present. |
+| `.is_none()` | `() -> bool` | True when empty. |
+
+Rules:
+
+- `T?` never implicitly converts to `T`. Calling `.value()` is the explicit assertion that a value is present.
+- `none` is assignable to any `T?`; `nullptr` is the empty raw pointer, not an optional.
+- `T??` is not valid syntax; nested optionals collapse to one `T?` (and produce a warning).
+- `void` has no optional form: `void?` is an error.
+- `if`, `switch`, and `match` without `else` (when permitted) produce `T?` when their value-producing branches have type `T`; that is the usual way to build an optional.
 
 ## Imports
 ---
@@ -199,7 +282,7 @@ invoke "logger"                -- logger uses config::DEFAULTS
 
 ### What gets imported
 
-It works the same as C/C++. Public by default
+Everything top-level is public: functions, `const`s, `static mut`s, runes, omens, echoes, seals, and free operators. There is no `pub`/`private`; the `_` prefix is a convention, not enforcement. `invoke "math"` binds the realm name (`math::sqrt`); selective imports bind the names directly (`sqrt`); `as` renames either form locally. A realm's symbols are visible only in files that import it (or reopen it).
 
 ## Realms
 ---
@@ -220,7 +303,7 @@ invoke "math"
 area = (r: double) -> double
   math::pi * r * r
 
-_helper = (r: double) -> double 
+_helper = (r: double) -> double
   r * 2.0
 ```
 
@@ -292,7 +375,7 @@ upper = (s: ref<string>) -> string
 | Access operator | `::` | `.` | `::` | `::` |
 | Reopening across files | yes | yes (per package) | yes (per module tree) | yes |
 | Visibility modifier | `public`/`private` in class| capitalized-first-letter | `pub` | no (convention: _prefix is private-by-convention)|
-| Mutable realm member | yes | yes | yes | **no** (compile error) |
+| Mutable realm member | yes | yes | yes | only explicit `static mut`; no implicit globals |
 
 ## Assignment
 ---
@@ -301,7 +384,23 @@ Variables must be declared and initialized.  This means that variables always ha
 
 Variables infer the type from the value, but you can assign a specific type to them if needed.
 
-Unlike most other languages, PenguScript, like V, only allows defining variables in functions. We do not allow global variables.
+Variables are local to functions and blocks. Module-level mutable state has two forms:
+
+- **Safe synchronized state:** `const` wrapping an `atomic<T>`, `mutex`, or `shared_mutex` (see **Concurrency Safety**). The binding itself is immutable, while interior mutation is thread-safe.
+- **Unsynchronized global state (`static mut`):** declared explicitly at top level, initialized with a const-evaluable expression. Reading or writing a `static mut` in safe code is a **compile error**; any access must be inside an `unsafe` block or `unsafe` function (same model as Rust).
+
+```coffee
+const GLOBAL_CONSTANT = 100
+const REQUEST_COUNT = atomic<int>(0)
+static mut speed = 200
+
+get_speed = -> int
+  unsafe
+    -- safe: single-threaded initialization phase
+    speed
+```
+
+`static mut` is initialized with a const-evaluable expression (literals, `const`s, and pure operations; no allocation or reads of another `static mut`) and is shared by the whole module. Like any top-level symbol it is public: a module that imports it can access it through the realm, provided the access is wrapped in `unsafe`. For safe concurrent state, prefer `const` with `atomic<T>`, `mutex`, or `shared_mutex`. `const` is the preferred way to define module-level values. There are no implicit global variables.
 
 For consistency across different code bases, all variable and function names must use the snake_case style, as opposed to type names, which must use PascalCase.
 
@@ -309,42 +408,70 @@ For consistency across different code bases, all variable and function names mus
 hello = "world"
 mut a, b, c = 1, 2, 3
 my_double: double = 12.11231
-static mut speed = 200 -- Inside a function or struct
-
-const GLOBAL_CONSTANT = 100 -- Unique way global
 ```
 
 ```c++
+#include <atomic>
 #include <string>
 
 const std::string hello = "world";
 int a = 1, b = 2, c = 3;
 double my_double = 12.11231;
+
+// module scope
+constexpr int GLOBAL_CONSTANT = 100;
+inline std::atomic<int> REQUEST_COUNT{0}; // non-const in C++ for atomic ops; binding is immutable in PenguScript
 static int speed = 200;
 
-constexpr int GLOBAL_CONSTANT = 100;
+int get_speed() {
+  return speed;
+}
 ```
+
+Bindings are immutable unless declared `mut`. Multiple targets are allowed: `a, b = 1, 2` assigns a tuple literal, and `a, b = f()` destructures a tuple returned by `f()`. The number of targets must match the tuple arity; `mut` applies to every target in the list.
+
+## Constants
+---
+
+`const` declares an immutable, compile-time-evaluable value. It may appear at module level or inside a function:
+
+```coffee
+const MAX_USERS: int = 100
+const DEFAULT_NAME = "anonymous"
+
+f = -> int
+  const OFFSET = 10
+  OFFSET + 1
+```
+
+Rules:
+
+- A `const` initializer must be const-evaluable: literals, other `const`s, and pure operations on them. It cannot read a `static mut`, call an arbitrary function, or allocate.
+- `const` is immutable; there is no `mut const`. Assigning to a `const` (including `+=`) or passing it where the value would be moved is a compile error.
+- A `const` may have an explicit type annotation; otherwise its type is inferred from the initializer.
+- Module-level `const` values are inlined at use sites. They are not addressable objects and cannot be passed by `mut` reference.
+- `const` is not a runtime global. The only mutable module-level state is `static mut` (see **Assignment**).
 
 ## Update Assignment
 
 | Operator | Example | Same AS |
 |---|---|---|
 | = 	   | x = 5 	 | x = 5 	|
-| += 	   | x += 3  | x = x + 3 |	
-| -= 	   | x -= 3  | x = x - 3 |	
-| *= 	   | x *= 3  | x = x * 3 |	
-| /= 	   | x /= 3  | x = x / 3 |	
-| %= 	   | x %= 3  | x = x % 3 |	
-| &= 	   | x &= 3  | x = x & 3 |	
-| |= 	   | x |= 3  | x = x | 3 |	
-| ^= 	   | x ^= 3  | x = x ^ 3 |	
-| >>= 	   | x >>= 3 | x = x >> 3 |	
+| += 	   | x += 3  | x = x + 3 |
+| -= 	   | x -= 3  | x = x - 3 |
+| *= 	   | x *= 3  | x = x * 3 |
+| /= 	   | x /= 3  | x = x / 3 |
+| %= 	   | x %= 3  | x = x % 3 |
+| &= 	   | x &= 3  | x = x & 3 |
+| \|= 	   | x \|= 3  | x = x \| 3 |
+| ^= 	   | x ^= 3  | x = x ^ 3 |
+| >>= 	   | x >>= 3 | x = x >> 3 |
 | <<= 	   | x <<= 3 | x = x << 3 |
 
 ## Comments
 ---
 
-Like Lua, comments start with -- and continue to the end of the line. 
+Like Lua, comments start with -- and continue to the end of the line.
 
 ```lua
 -- I am a comment.
@@ -374,6 +501,71 @@ const std::string user = "Alex";
 const std::string result = std::format("Name: {}, Age: {}", user, age);
 ```
 
+### Character literals
+
+`char` has its own literal syntax, using single quotes and the usual C++ escapes:
+
+```coffee
+letter  = 'a'
+newline = '\n'
+tab     = '\t'
+quote   = '\''
+slash   = '\\'
+```
+
+`char` is a character type, not an integer: arithmetic and comparison with integers require an explicit conversion (see **Type Conversions**).
+
+### String indexing
+
+`string` and `string_view` are indexable and countable:
+
+```coffee
+s = "hello"
+c = s[0]          -- char, checked
+n = #s            -- size_t
+for ch in s
+  io::println(ch)
+```
+
+`s[i]` is bounds-checked and panics on an out-of-range index, like `vector<T>[i]`. `string_view` uses the same rules. There is no `s.get(i)`/`s.pop()` API in v0.2.0.
+
+`sub in s` tests whether `s` contains the substring `sub`; both sides are `string` (or `string_view`). `s + t` concatenates strings and returns `string`; `s += t` appends.
+
+### Display and interpolation
+
+Interpolation uses `"#{expr}"` and requires the expression's type to implement `Display`:
+
+```coffee
+name = "Alex"
+age = 42
+io::println("Name: #{name}, Age: #{age}")
+```
+
+| Type | Display form |
+|---|---|
+| `bool`, integers, `char`, floats | the usual textual form |
+| `string`, `string_view` | the text |
+| omen | `Color::Red`; flags as `Read \| Write` |
+| seal | the underlying value's form |
+| `T?` | the value, or `none` |
+| `vector<T>`, `array<T,N>`, `set<T>` | `[a, b, c]` if `T` is Display |
+| `map<K,V>` | `{k: v}` if `K` and `V` are Display |
+| `tuple`, `pair` | `(a, b)` if every component is Display |
+| rune | only if it declares `to_string = -> string` |
+
+A rune opts in with a const method:
+
+```coffee
+rune User
+  name: string
+
+enchanting User
+  to_string = -> string
+    @name
+```
+
+`to_string` must be a const method with no parameters and return `string`; any other signature is an error. A rune without `to_string` is not Display, and interpolating it is a compile error. `function`, `unique`, `shared`, `weak`, `raw`, `ref`, and `void` are never Display.
+
 ## Function Literals
 ---
 
@@ -384,7 +576,7 @@ my_function = -> void -- Declared
 
 empty_function = -> void
   pass
-empty_function! 
+empty_function!
 ```
 
 ```c++
@@ -426,6 +618,108 @@ sum = (x: int, y: int) -> int
 int sum(int x, int y) {
   return x + y;
 }
+```
+
+### Early return
+
+The implicit return still applies when execution reaches the end of the body. `return` exits the function immediately, which is useful for guard clauses:
+
+```coffee
+absolute = (x: int) -> int
+  if x < 0
+    return -x
+  x
+```
+
+```c++
+int absolute(int x) {
+  if (x < 0) return -x;
+  return x;
+}
+```
+
+Rules:
+
+- `return expr` exits the enclosing function and must be assignable to its return type.
+- `return` without a value is only valid in a `void` function (including constructors and destructors).
+- If the function reaches its last expression, that expression is still the implicit return.
+- A non-`void` function must return on every path: either an explicit `return` or a final expression.
+- `return` inside a function literal returns from that literal, not from the outer function.
+- `return` at top level is an error.
+
+```coffee
+safe_div = (a: int, b: int) -> int?
+  if b == 0
+    return none
+  a / b
+```
+
+### Functions as values
+
+A function literal is an ordinary value. Its type is written `function<(P1, P2) -> R>`:
+
+```coffee
+twice = (x: int) -> int
+  x * 2
+
+apply = (f: function<(int) -> int>, x: int) -> int
+  f(x)
+
+result = apply(twice, 21)      -- 42
+```
+
+Function values may be stored in locals, fields, and containers, passed as arguments, and returned:
+
+```coffee
+rune Handler
+  callback: function<(int) -> void>
+```
+
+Rules:
+
+- `function<Sig>` is a first-class type; there is no separate `fn` declaration syntax. A named function is just a local holding a function literal.
+- **Closures with safe capture by default:** Function literals may capture variables from their enclosing lexical scope (locals, parameters, or `@` / `@field`).
+  - **Value/move capture (default):** Captured variables are copied by value into the closure by default (or moved if the variable is move-only, such as `unique<T>`, which invalidates the outer binding via `use after move`). Because the closure owns its captured state, it can safely escape the current scope (e.g., be returned, stored in a `rune` field, or sent to a `thread`) with zero risk of dangling references.
+  - **Non-escaping reference capture:** Capturing by reference (`ref(x)` or `mut x`) is permitted **only** when the compiler statically proves the closure **does not escape** its immediate lexical scope — for example, when passed directly as an argument to a synchronous function that does not store it in a `rune`, `static mut`, or `thread`. The **Law of Exclusivity** applies to reference-captured variables for the duration of that call.
+- **Zero-overhead non-capturing literals:** A function literal that captures nothing emits a plain C++ function pointer or stateless lambda with no hidden environment or heap allocation.
+- Function types may contain `ref<T>` and `function<...>` parameters. A `mut` parameter is a calling contract, not part of the type, so function values with `mut` parameters are not first-class in v0.2.0. `unsafe` functions are not first-class values either.
+
+```coffee
+-- ✓ Safe escaping closure: `name` is captured by copy
+make_greeter = (name: string) -> function<() -> void>
+  -> void
+    io::println("hello #{name}")
+
+-- ✓ Non-escaping reference capture: `total` is mutated synchronously
+apply_to_all = (items: ref<vector<int>>, f: function<(int) -> void>) -> void
+  for x in items
+    f(x)
+
+mut total = 0
+apply_to_all(ref(nums), (x: int) -> void
+  total += x                 -- ✓ closure does not escape; captured by [&total]
+)
+
+-- ✗ Compile error: cannot return a closure that captures `ref(x)`
+bad_closure = -> function<() -> int>
+  x = 42
+  r = ref(x)
+  -> int
+    r                        -- ✗ `r` borrows local `x` and would dangle if escaped
+```
+
+```c++
+// make_greeter: explicit value capture [name = name]
+std::function<void()> make_greeter(std::string name) {
+  return [name = name]() -> void {
+    io::println(std::format("hello {}", name));
+  };
+}
+
+// non-escaping call: reference capture [&total]
+apply_to_all(nums, [&total](int x) -> void {
+  total += x;
+});
 ```
 
 ## Argument Defaults
@@ -540,15 +834,45 @@ increment(count);
 print_name(greeting);
 ```
 
+`mut` on a parameter is a **calling contract**, not a type: the parameter is declared `mut count: int` (type `int`, mutated through a hidden `int&`), and every call site must mark the argument: `increment(mut count)`. The caller's `mut` is required — a mutable parameter cannot silently mutate the caller's variable. Marking an argument `mut` when the parameter is not mutable is also an error.
+
 Rules:
 
 - `ref<T>` is always initialized — as a parameter, or with `ref(x)` for a local alias.
+- A `ref<T>` auto-dereferences for `.` member access, `[]`, `#`, iteration, and method calls. Reading it where a value is expected copies the referent when `T` is copyable. It does **not** auto-dereference for assignment to the binding, moving, or `raw<T>` operations.
 - `ref<T>` cannot be null. If absence is meaningful, use `T?`.
-- `mut x: T` already compiles to `T&`. Do not write `mut ref<T>` — it is redundant.
-- Assignment through a `mut ref<T>` writes to the **referent**. Rebinding is not possible; use `raw<T>` under `unsafe` if you need that.
+- `mut x: T` already compiles to `T&`. Do not write `mut ref<T>` for a parameter or local binding — it is redundant.
+- Assignment through a `mut` binding writes to the **referent**. Rebinding is not possible; use `raw<T>` under `unsafe` if you need that.
+- As a **return type**, `ref<T>` means `const T&` and `mut ref<T>` means `T&`. This is the only place where `mut ref<T>` is meaningful; it is how a const/mut `operator []` returns a writable element.
 - `ref<T>` is **not allowed as a struct field.** Use `raw<T>` under `unsafe` if a borrow must outlive the current scope; the danger has to be visible.
 - `ref<shared<T>>` is redundant: declare `mut x: shared<T>` instead.
+- `ref<unique<T>>` is redundant: use `mut box: unique<T>` to mutate the pointer in place, or `raw<T>` under `unsafe` to observe it without owning.
 - Passing a temporary to `ref<T>` extends its lifetime for the call (same as C++).
+- **Law of Exclusivity (compile-time borrow safety):** While an active `ref(x)` alias (or a reference returned by indexing or a `ref<T>` / `mut ref<T>` method) to a variable `x` exists in the same lexical scope, it is a **compile error** to mutate `x` (e.g., `x = ...`, `x.push(...)`, or calling any `mut` method on `x`) or to pass `mut x` to any function or method. Multiple concurrent immutable `ref(x)` aliases are allowed, but any mutation of `x` requires all active aliases to go out of scope first (use a `do` block to end a borrow early). This is a purely static AST/lexical-scope check with **zero runtime overhead**, emitting standard `const T&` / `T&` in C++20.
+
+```coffee
+mut vec = [1, 2, 3]
+first = ref(vec[0])          -- active borrow of `vec` in this scope
+-- vec.push(4)               -- ✗ compile error: `vec` is borrowed by `first`
+io::println(first)
+
+do
+  scoped = ref(vec[0])
+  io::println(scoped)        -- `scoped` ends at the end of `do`
+vec.push(4)                  -- ✓ safe: no active alias to `vec`
+```
+
+```c++
+std::vector<int> vec = {1, 2, 3};
+const int& first = vec.at(0);
+io::println(first);
+
+{
+  const int& scoped = vec.at(0);
+  io::println(scoped);
+}
+vec.push_back(4);
+```
 
 ### Level 2 — Smart pointers (`unique<T>`, `shared<T>`, `weak<T>`)
 
@@ -592,8 +916,15 @@ Style rules:
 - **Prefer `unique<T>` over `shared<T>`.** Reach for `shared<T>` only when you can point at the exact places that need to co-own the value.
 - **`shared<T>` must not form cycles** without a matching `weak<T>`. The language does not detect this — it is a documented contract, the same as in C++ and Rust.
 - Construction goes through `unique<T>(args...)` / `shared<T>(args...)`; the compiler emits `std::make_unique` / `std::make_shared`, so allocation and construction stay fused.
-- Passing a `unique<T>` **by value moves it.** To keep ownership, pass `mut ref<unique<T>>` to mutate in place, or `raw<T>` under `unsafe` to observe without owning.
-- `weak<T>` may be null; access requires promotion (`w.lock()`), which the compiler emits automatically on `.` access.
+- Passing a `unique<T>` **by value moves it.** To keep ownership, pass `mut box: unique<T>` to mutate in place, or `raw<T>` under `unsafe` to observe without owning.
+- After a move, the source is **invalid**: reading it, passing it again, or using it as a receiver is a compile error (`use after move`). Assigning a fresh `unique<T>` reinitializes it.
+- `weak<T>` may be null and does **not** keep its referent alive. There is no automatic promotion: call `.lock()` explicitly to get a `shared<T>?`, then check it with `.is_some()` / `.value()`.
+
+```coffee
+parent = child.parent.lock()     -- shared<Node>?
+if parent.is_some()
+  io::println(parent.value().name)
+```
 
 ### Level 3 — Raw pointers (`raw<T>`)
 
@@ -603,7 +934,7 @@ A raw pointer is an address. It owns nothing, it may be null, and nothing guaran
 2. Systems-level layouts (device registers, packed structs, custom allocators).
 3. Pointer arithmetic and reinterpretation.
 
-Every use of `raw<T>` requires `unsafe`. Outside an unsafe context, `raw<T>` does not type-check.
+`raw<T>` may appear in a signature (a safe function can receive one from C), but **constructing, dereferencing, or doing arithmetic on it requires `unsafe`**.
 
 ### `unsafe` — the escape hatch
 
@@ -653,11 +984,53 @@ std::uint8_t read_bytes(std::uint8_t* buf, std::size_t n) {
 
 Rules:
 
-- **`raw<T>` only appears inside `unsafe`.** Anywhere else it is a compile error.
+- **`raw<T>` operations require `unsafe`.** The type may appear in a signature, but creating, reading, writing, or doing arithmetic on a raw pointer outside `unsafe` is a compile error.
+- **`static mut` access requires `unsafe`.** Reading or writing a `static mut` variable in safe code is a compile error.
+- **Non-`ThreadSafe` transfers require `unsafe`.** Spawning a `thread` with `raw<T>`, `ref<T>` to stack locals, or unsynchronized mutable shared state requires `unsafe`.
 - **An unsafe function is unsafe to call.** Calling it from safe code requires wrapping the call in `unsafe` (or being inside another unsafe function).
 - **Keep `unsafe` blocks as small as possible.** The larger the block, the more code loses compiler guarantees.
 - **Justify every `unsafe` with a comment.** Inside an unsafe block, the compiler trusts the programmer — say why that trust is warranted.
-- **Never return `ref<T>` from safe code.** If a function must return a borrowed view that outlives its arguments, it must be `unsafe` and return `raw<T>` (or return a value instead).
+- **A safe function may return `ref<T>` only if the referent comes from its receiver or from a `ref<T>` or `mut` parameter.** Returning a reference to a local, a temporary, or a by-value parameter would dangle and is rejected. If a borrow must outlive the arguments, the function must be `unsafe` and return `raw<T>` (or return a value instead).
+
+### Concurrency Safety
+
+PenguScript prevents data races at compile time without requiring manual `Send`/`Sync` trait annotations or lifetime parameters:
+
+1. **Isolation of `static mut`:** Reading or writing a `static mut` variable in safe code is a **compile error**; it may only be accessed inside an `unsafe` block or `unsafe` function. For safe mutable module-level state, declare `const` with `atomic<T>`, or wrap the state in a `mutex` or `shared_mutex` (emitted as non-`const` `static`/`inline` C++20 synchronization primitives so `.lock()` / `.fetch_add()` compile cleanly while PenguScript forbids reassigning the binding).
+2. **Structural `ThreadSafe` verification:** When spawning a `thread` or passing data across threads, the compiler structurally verifies that every captured or passed value is safe for concurrent execution:
+   - **Safe (`ThreadSafe`):** Values passed by copy/move containing no `raw<T>` or `ref<T>` (`int`, `string`, `vector<T>`, `rune`s of `ThreadSafe` fields, `unique<T>` moved into the thread), `atomic<T>`, `mutex`, `shared_mutex`, and `shared<T>` where `T` is immutable or synchronized.
+   - **Rejected in safe code:** Passing `raw<T>`, `ref<T>` borrowing a local stack variable, or unsynchronized mutable containers/runes across a thread boundary is a **compile error** and requires `unsafe`.
+
+```coffee
+const COUNTER = atomic<int>(0)
+
+worker = (steps: int) -> void
+  for i in 0..<steps
+    COUNTER.fetch_add(1)
+
+t = thread(-> void
+  worker(1000)
+)
+t.join()
+```
+
+```c++
+#include <atomic>
+#include <thread>
+
+inline std::atomic<int> COUNTER{0};
+
+void worker(int steps) {
+  for (int i = 0; i < steps; ++i) {
+    COUNTER.fetch_add(1);
+  }
+}
+
+std::thread t([]() -> void {
+  worker(1000);
+});
+t.join();
+```
 
 ### Choosing a type — quick reference
 
@@ -678,7 +1051,7 @@ Rules:
 PenguScript has two ordered sequence types. They share **literal syntax, indexing, length, and iteration** — only the type annotation decides which one you get:
 
 - `vector<T>` — dynamic, heap-allocated, growable. **Default for `[...]` literals.**
-- `array<T, N>` — fixed size, stack-allocated. `N` is part of the type.
+- `array<T, N>` — fixed size, stack-allocated. `N` is part of the type and must be an integer literal.
 
 Both map to `<vector>` / `<array>` respectively. `array<T, N>` has no `push`/`pop`; everything else is identical.
 
@@ -705,6 +1078,8 @@ const std::vector<int> explicit_ = std::vector<int>{1, 2, 3};
 
 An empty literal `[]` without a type annotation is a compile error — the element type cannot be inferred.
 
+`vector<T>(count)` creates `count` default values; `vector<T>(count, value)` fills with `value`. `array<T,N>` is normally initialized from a list literal; `array<T,N>()` zero-initializes it. Maps and sets are initialized from their literals, or with an empty literal plus an annotation.
+
 ### Access
 
 Indexing is **0-based**. There are three accessors, depending on what should happen out of bounds.
@@ -713,7 +1088,7 @@ Indexing is **0-based**. There are three accessors, depending on what should hap
 first = primes[0]           -- checked
 last  = primes[#primes - 1] -- checked
 
-maybe = primes.get(0)       -- T?, nullopt if out of bounds
+maybe = primes.get(0)       -- T?, none if out of bounds
 
 unsafe
   fast = primes.get_unchecked(0)   -- no bounds check
@@ -732,7 +1107,7 @@ int fast = primes[0];
 | Form | Bounds | Returns | Requires `unsafe` |
 |------|--------|---------|-------------------|
 | `arr[i]` | checked | `T` (throws on OOB) | no |
-| `arr.get(i)` | checked | `T?` (`nullopt` on OOB) | no |
+| `arr.get(i)` | checked | `T?` (`none` on OOB) | no |
 | `arr.get_unchecked(i)` | **unchecked** | `T` (UB on OOB) | **yes** |
 
 Use `arr[i]` when you have already proven `i` is valid. Use `arr.get(i)` when absence is a legitimate outcome. Use `arr.get_unchecked(i)` only in hot loops where the bound has been hoisted into an `unsafe` block with an explicit invariant comment.
@@ -826,23 +1201,33 @@ for (std::size_t i = 0; i < primes.size(); ++i) {
 
 Same `mut` rules as function parameters: without `mut`, iteration binds a `const T&` and you cannot reassign the loop variable. `mut` on `x` gives you `T&` and mutations persist in the container. `mut` on `i` is not allowed — the index is a fresh value each iteration.
 
+**Iteration exclusivity (preventing iterator invalidation):** Inside `for x in arr` or `for mut x in arr` (including indexed forms `for i, x in arr`), **structural mutation of `arr` is a compile error**. Calling `.push()`, `.pop()`, `.pop_opt()`, `.insert()`, `.remove_at()`, `.clear()`, or reassigning `arr` inside the loop body is rejected statically with zero runtime overhead. Mutating an element *in place* through `for mut x in arr` is allowed because it does not reallocate or invalidate the iteration.
+
+```coffee
+for x in primes
+  -- primes.push(17)          -- ✗ compile error: cannot structurally mutate `primes` during iteration
+  io::println(x)
+```
+
 ### Bounds and safety summary
 
-All out-of-bounds behavior is **deterministic**:
+The safe operations have **deterministic** out-of-bounds behavior:
 
 - `arr[i]` — panics (`std::out_of_range` is caught by the runtime and reported as a panic, not propagated as an exception to user code).
-- `arr.get(i)` — returns `nullopt`.
+- `arr.get(i)` — returns `none`.
 - `arr.get_unchecked(i)` — undefined behavior, `unsafe` only.
 
 If you want the panic to become a value, use `arr.get(i)`:
 
 ```coffee
-match primes.get(idx)
-  Some(v) then io::println("found", v)
-  None    then io::println("no such index")
+maybe = primes.get(idx)
+if maybe.is_some()
+  io::println("found", maybe.value())
+else
+  io::println("no such index")
 ```
 
-(Nullability pattern matching is not yet specified — placeholder syntax, to be finalized with `none`/`??`/`match`.)
+For `T?`, use `if`/`switch` plus the optional members (`.is_some()`, `.value()`, `.value_or()`), or an explicit `!= none` check when only presence matters; `match` is used for algebraic omens.
 
 ### Fixed-size vs dynamic
 
@@ -890,7 +1275,7 @@ scores: map<string, double> = {"alice": 9.5}  -- forced value type
 config = {host: "localhost"}   -- key is the string "host"
 ```
 
-A map has **one value type**. Mixing values is a type error:
+If the same key appears more than once, the **last value wins** (the same rule as map comprehensions). A map has **one value type**. Mixing values is a type error:
 
 ```coffee
 bad = {host: "localhost", port: 8080}   -- ✗ string vs int
@@ -933,7 +1318,7 @@ Maps have the same three accessors as arrays. **`m[k]` never accidentally insert
 
 ```coffee
 v = m["alice"]                    -- V (panics if missing)
-maybe = m.get("alice")            -- V? (nullopt if missing)
+maybe = m.get("alice")            -- V? (none if missing)
 fallback = m.get_or("alice", 0)   -- V (default if missing)
 ```
 
@@ -977,7 +1362,7 @@ keys  = tags.key_count()  -- size_t: distinct keys
 ```coffee
 m["alice"] = 31                  -- insert or update
 inserted = m.insert("bob", 25)   -- bool (false if "bob" already existed)
-removed  = m.remove("alice")     -- V? (removed value, or nullopt)
+removed  = m.remove("alice")     -- V? (removed value, or none)
 m.clear()
 ```
 
@@ -1028,6 +1413,8 @@ for (const auto& [_, v] : m)  { io::println(v); }
 
 Keys are always `const` — you cannot mutate a map key during iteration. Values can be mutated with `mut v`.
 
+**Iteration exclusivity:** Inside `for k, v in m`, `for k, mut v in m`, `for k in m.keys`, or `for v in m.values`, **structural mutation of `m` is a compile error**. Calling `m[k] = v`, `.insert()`, `.insert_all()`, `.remove()`, `.remove_all()`, `.extract()`, `.clear()`, or reassigning `m` inside the loop body is rejected at compile time to prevent iterator invalidation. In-place mutation of values via `for k, mut v in m` is allowed.
+
 `m.keys` and `m.values` are **iteration targets only** — they do not exist as standalone values. To materialize them:
 
 ```coffee
@@ -1048,7 +1435,7 @@ Key requirements:
 | `map<K,V>` | `<` (strict weak order) |
 | `unordered_map<K,V>` | `==` and a hash function |
 
-Primitives, `string`, and `pair<A,B>` satisfy both. Custom types compare field-by-field in declaration order (for `<`) and require `#[derive(Hash)]` for unordered variants — the same mechanism as Rust or Kotlin data classes.
+Primitives, `string`, and `pair<A,B>` satisfy both. A rune used as a key must declare `operator ==` for the unordered forms; its hash is synthesized field-by-field in declaration order. A seal hashes its underlying value. There is no user-defined hash function in v0.2.0 — if the synthesized hash is unsuitable, use an ordered container.
 
 ### Sets (brief)
 
@@ -1071,7 +1458,7 @@ for c in colors           -- elements
   io::println(c)
 ```
 
-Sets iterate in sorted order (for `set<T>`) or unspecified order (for `unordered_set<T>`). Set operations (`union`, `intersection`, `difference`) are not defined in v0.1.0 — use `for` + `insert` explicitly.
+Sets iterate in sorted order (for `set<T>`) or unspecified order (for `unordered_set<T>`). Set operations (`union`, `intersection`, `difference`) are not defined in v0.2.0 — use `for` + `insert` explicitly.
 
 ### Quick reference
 
@@ -1081,6 +1468,7 @@ Sets iterate in sorted order (for `set<T>`) or unspecified order (for `unordered
 | `m[k] = v` | ✅ | ❌ | ✅ | ❌ |
 | `m.get(k) -> V?` | ✅ | ✅ (first) | ✅ | ✅ (first) |
 | `m.get_or(k, d) -> V` | ✅ | ❌ | ✅ | ❌ |
+| `m.extract(k) -> V?` | ✅ | ❌ | ✅ | ❌ |
 | `m.get_all(k) -> vector<V>` | ❌ | ✅ | ❌ | ✅ |
 | `m.insert(k, v)` | `-> bool` | `-> void` | `-> bool` | `-> void` |
 | `m.insert_all(k, vs)` | ❌ | `-> void` | ❌ | `-> void` |
@@ -1159,11 +1547,13 @@ if (x > 0) {
 }
 ```
 
-`unless cond` is sugar for `if not cond`:
+`unless cond` is sugar for `if not cond`, and it works as an expression too:
 
 ```coffee
 unless done
   io::println("still running")
+
+status = unless ready then "waiting" else "ready"
 ```
 
 ```c++
@@ -1172,10 +1562,10 @@ if (!(done)) {
 }
 ```
 
-`if` is also an **expression**, when it produces a value in every branch:
+`if` is also an **expression** when used in value position. With an `else` it produces a value of the common branch type; without an `else` it produces `T?`:
 
 ```coffee
--- inline (requires `then`)
+-- inline (requires `then`; `else` is optional)
 sign = if x > 0 then "positive" else if x < 0 then "negative" else "zero"
 
 -- multi-line
@@ -1202,6 +1592,144 @@ std::string status = [&]() -> std::string {
 ```
 
 The compiler emits a ternary when the expression is a single two-branch `if`, and an IIFE otherwise.
+
+If the `if` has no `else`, its value is optional: the missing branch produces `none`, so the expression has type `T?`. If the `then` branch is `void`, the whole `if` is `void` and can only be used as a statement. With an `else`, both branches must produce the same type; a `void` branch cannot be combined with a value branch.
+
+```coffee
+maybe_name = if ready then name
+-- maybe_name : string?
+```
+
+### `switch`
+
+`switch` compares one value against several constant patterns. It is an expression, and it does **not** fall through: the first matching `when` wins, and `break` is neither needed nor used to leave it.
+
+```coffee
+label = switch code
+  when 200 then "ok"
+  when 404 then "missing"
+  when 500, 502, 503
+    "server error"
+  else
+    "other"
+```
+
+```coffee
+switch command
+  when "start"
+    start()
+  when "stop"
+    stop()
+  else
+    unknown(command)
+```
+
+Syntax:
+
+- `switch expr` is followed by an indented block of `when` clauses.
+- A `when` clause lists one or more patterns separated by commas: `when 1, 2, 3`.
+- A clause body is either inline (`when 1 then "one"`) or an indented block.
+- `else` is optional and goes last.
+- At least one `when` is required.
+
+Rules:
+
+- The subject is evaluated once.
+- Patterns must be constant expressions: literals, `const` values, omen variants, `none`, or `nullptr`. A non-constant pattern is an error.
+- Patterns must have the subject's type, or be a literal assignable to it.
+- The subject must support `==`: built-in equality, an `operator ==`, or an `operator <=>` (which derives the six comparisons).
+- For a `T?` subject, `when none` matches the empty value and a pattern of type `T` matches `some(value)`; `switch` does not unwrap automatically.
+- There is no fallthrough and no pattern binding. `when x` does not capture; use `match` for destructuring algebraic omens or `if` for general conditions.
+- `break` and `continue` inside a branch still target the enclosing loop, not the `switch`. A `switch` is not a loop.
+- `return` inside a branch exits the function.
+
+Value:
+
+- With `else`, the type is the common type of all branches; each branch must produce a value.
+- Without `else`, the type is `T?`; a value that matches no branch produces `none`. If every branch is `void`, the `switch` is `void` and can only be used as a statement.
+- A branch that produces `void` cannot be combined with a branch that produces `T`.
+- As a statement, the value is discarded.
+- On a unit omen, a `switch` that omits variants and has no `else` produces a warning (non-exhaustive); use `match` for mandatory compile-time exhaustiveness and for all algebraic omens with payloads.
+
+### `match`
+
+`match` is PenguScript's exhaustive pattern-matching expression for `omen`s (both unit and algebraic/generic omens). Unlike `switch`, `match` destructures variant payloads, supports optional `if` guards, and **enforces exhaustiveness at compile time** — omitting a variant without an `else` branch is a **compile error**.
+
+```coffee
+res: Result<int, string> = Result::Ok(42)
+
+msg = match res
+  when Ok(val) if val > 0 then "positive: #{val}"
+  when Ok(val)            then "non-positive: #{val}"
+  when Err(e)
+    "error: #{e}"
+```
+
+```coffee
+area = match shape
+  when Point       then 0.0
+  when Circle(r)   then 3.14159 * r * r
+  when Rect(w, h)  then w * h
+```
+
+```c++
+// Compiled with std::holds_alternative + std::get_if (or std::visit when unguarded)
+std::string msg = [&]() -> std::string {
+  if (const auto* _v = std::get_if<Result<int, std::string>::Ok>(&res._data)) {
+    const auto& val = _v->_0;
+    if (val > 0) return std::format("positive: {}", val);
+  }
+  if (const auto* _v = std::get_if<Result<int, std::string>::Ok>(&res._data)) {
+    const auto& val = _v->_0;
+    return std::format("non-positive: {}", val);
+  }
+  if (const auto* _v = std::get_if<Result<int, std::string>::Err>(&res._data)) {
+    const auto& e = _v->_0;
+    return std::format("error: {}", e);
+  }
+  std::abort(); // unreachable: exhaustiveness verified at compile time
+}();
+```
+
+Syntax & Rules:
+
+- `match expr` is followed by an indented block of `when` clauses (and an optional `else` at the end).
+- **Variant patterns:**
+  - Unit variant: `when Point` (or `when Shape::Point`).
+  - Payload destructuring: `when Circle(r)` or `when Rect(w, h)` binds the payload fields as immutable `const` references (`const T&`) in the branch body (use `_` to ignore a field, e.g. `when Rect(w, _)`).
+- **Optional guards:** `when Pattern if cond` matches only when both the variant matches and `cond` (`bool`) evaluates to `true`.
+- **Mandatory exhaustiveness (compile error):** Every variant of the matched `omen` must be covered by an unguarded `when` clause, or the `match` must end with an `else` branch. Guarded `when` clauses (`if cond`) do not count toward unconditional coverage.
+- **No fallthrough:** The first matching `when` clause executes and produces the `match` value.
+- **Value & `void`:** All branches must share a common type `T` (or all be `void` in statement position). Because `match` is always exhaustive, it produces `T` directly (never `T?`).
+- **C++20 Codegen:** Unit-only omens compile to `switch`; algebraic omens compile to `std::visit` (for unguarded matches) or `std::holds_alternative` / `std::get_if` chains (supporting guards) with zero dynamic dispatch overhead.
+
+### `do`
+
+`do` runs a block in a new lexical scope and produces the value of its last expression. It does not create a function or a loop, and it does not create a closure.
+
+```coffee
+result = do
+  base = 10
+  extra = 5
+  base + extra
+-- result : int
+```
+
+```coffee
+do
+  temp = load()
+  process(temp)
+-- statement: the value is discarded
+```
+
+Rules:
+
+- `do` is an expression; as a statement its value is discarded.
+- Variables declared inside `do` do not escape the block. Outer variables can still be read and assigned.
+- `break` and `continue` inside `do` target the enclosing loop; `do` itself is not a loop.
+- `return` inside `do` exits the enclosing function.
+- A `do` block with no value (for example, ending in an assignment) has type `void`; using it as a value is an error.
+- At top level, `do` is a statement; `return` inside it is an error.
 
 ### `while` and `until`
 
@@ -1275,7 +1803,7 @@ for (int i = 1; i <= 10; i += 2)    { io::println(i); }
 for (int i = 10; i >= 1; i -= 2)    { io::println(i); }
 ```
 
-The direction is inferred when the step is omitted. If the step is provided, its sign must match `b - a` — `for i = 1, 10, -1` is a compile error.
+The direction is inferred when the step is omitted. If the step is provided, its sign must match `b - a` — `for i = 1, 10, -1` is a compile error — and it must not be zero. When `a == b`, the loop runs once. Bounds and step are integers; floating-point loops are not supported.
 
 The loop variable's type is the common type of the endpoints. Integer literals coerce to it, so `for i = 1, #arr` gives `i : size_t` because `#arr` is `size_t`. To be explicit:
 
@@ -1286,7 +1814,7 @@ for i: size_t = 0, n - 1
 
 ### `for` — iterable form
 
-`for x in seq` iterates any sequence-like value: `vector<T>`, `array<T,N>`, `string`, `string_view`, `span<T>`, and ranges. Bindings are references by default (same rules as in **Arrays**).
+`for x in seq` iterates any sequence-like value: `vector<T>`, `array<T,N>`, `string`, `string_view`, `span<T>`, and ranges. Bindings are references by default (same rules as in **Arrays**); `string` is the exception — it yields `char` values, so `mut` on the element is not allowed.
 
 ```coffee
 for x in items                -- x: const T&
@@ -1330,7 +1858,7 @@ for (int i = 1; i <= 100; ++i) {
 }
 ```
 
-Ranges are **not first-class values** in v0.1.0 — they only appear in `for`. Passing a range to a function (e.g. `sum(1..100)`) is a future feature.
+Ranges are **not first-class values** in v0.2.0 — they only appear in `for`. Passing a range to a function (e.g. `sum(1..100)`) is a future feature.
 
 ### Loop control — `break`, `continue`, `break value`
 
@@ -1359,7 +1887,7 @@ for (int i = 1; i <= 10; ++i) {
 found = for x in items
   if x > 100
     break x
--- found : int? — nullopt if no element exceeds 100
+-- found : int? — none if no element exceeds 100
 ```
 
 ```c++
@@ -1374,8 +1902,10 @@ std::optional<int> found = [&]() -> std::optional<int> {
 Rules:
 
 - If **any** `break` in a loop carries a value, **all** `break`s in that loop must carry values of the **same type `T`**.
-- A loop with typed `break`s has type `T?`. `nullopt` means "the loop ran to completion without breaking".
-- A loop with no `break value` is a **statement** — it has no value, and using it in value position is a type error.
+- A loop with typed `break`s has type `T?` when there is no `else`. `none` means "the loop ran to completion without breaking".
+- A loop with no `break value` and no `else` has no value. Using it in value position is a type error.
+- A loop with an `else` block has the common type of its `break` values and its `else` value. If the `else` produces `T`, every `break` must carry a `T`; a bare `break` is an error. If the `else` is `void`, every `break value` is a type error and every `break` must be bare.
+- A loop can be used as a statement even if it has `break value`; the value is then discarded.
 - `continue` never carries a value.
 
 ### Loop `else`
@@ -1409,9 +1939,48 @@ if (!_broke) {
 
 `while` and `repeat` accept `else` too, with the same semantics.
 
+In value position, the `else` block supplies the value produced when the loop completes without a `break`:
+
+```coffee
+first_negative = for x in items
+  if x < 0
+    break x
+else
+  none
+-- first_negative : int?
+```
+
+With an `else`, the type is the common type of the `break` values and the `else` value; without an `else`, a loop with `break value` is `T?`.
+
+### Control structures as expressions
+
+`if`, `unless`, `switch`, `match`, `do`, `while`, `until`, `repeat`, both forms of `for`, comprehensions, and function literals are expressions. In statement position their value is discarded.
+
+| Construct | Value |
+|---|---|
+| `if` with `else` | common type of both branches |
+| `if` without `else` | `T?` (`none` when the condition is false); `void` if the branch is `void` |
+| `switch` with `else` | common type of all branches |
+| `switch` without `else` | `T?` (`none` when nothing matches); `void` if every branch is `void` |
+| `match` | common type of all branches (always exhaustive; `void` if all branches are `void`) |
+| `do` | type of its last expression, or `void` |
+| loop without `break value` and without `else` | `void` |
+| loop with `break value` and without `else` | `T?` |
+| loop with `else` | common type of `break` values and the `else` value |
+| comprehension | `vector<T>`, `map<K,V>`, or `set<T>` |
+
+```coffee
+x = if ready then 1 else 0          -- int
+y = if ready then 1                 -- int?
+z = for item in items
+  if item > 10
+    break item
+-- z : int?
+```
+
 ### Comprehensions
 
-A comprehension collects the value of an expression into a `vector<T>`. It is the primary way to build an array from a loop.
+A comprehension collects the value of an expression into a `vector<T>`, a `map<K,V>`, or a `set<T>`. It is the primary way to build a collection from a loop.
 
 ```coffee
 squares = [x * x for x in items]
@@ -1426,7 +1995,13 @@ cubes   = [i * i * i for i = 1, 10]
 pairs   = [[x, y] for x in xs for y in ys]
 
 -- index binding
-tagged  = [f"{i}:{x}" for i, x in items]
+tagged  = ["#{i}:#{x}" for i, x in items]
+
+-- map comprehension: key-value pairs
+by_name = {[user.name]: user for user in users}
+
+-- set comprehension: unique values
+unique_tags = set{tag for user in users for tag in user.tags}
 ```
 
 ```c++
@@ -1464,30 +2039,43 @@ auto pairs = [&]() {
 
 Rules:
 
-- The result is always `vector<T>`, where `T` is the type of the value expression.
+- A list comprehension produces `vector<T>`, where `T` is the type of the value expression.
+- A map comprehension produces `map<K,V>`; `K` must support ordering (`Ord`), or hashing and equality for `unordered_map`.
+- A set comprehension produces `set<T>` (or `unordered_set<T>`); `T` must support ordering, or hashing and equality for the unordered form.
+- A map comprehension uses `{key: value for ...}`; a set comprehension uses `set{value for ...}` or `unordered_set{value for ...}`. A bare `{...}` is always a map.
+- If a map comprehension produces the same key more than once, the last value wins. A set comprehension collapses duplicates.
 - The `if` clause is optional; it acts as a filter (`continue` when false).
 - Multiple `for` clauses nest left-to-right; the **last** clause is the innermost loop.
 - Same `mut`/binding rules as regular `for` apply.
+- `break` and `continue` cannot escape a comprehension; the comprehension owns its internal loops (use `if` to filter).
 - Comprehensions are expressions — they can be assigned, returned, or passed as arguments.
 
 ### Summary
 
-| Construct | Form | Value? | C++20 |
-|-----------|------|--------|-------|
-| `if` / `else` | statement | no | `if` / `else` |
-| `if ... then ... else ...` | expression | `T` | ternary or IIFE |
-| `unless cond` | statement | no | `if (!(cond))` |
-| `while cond` | statement | no | `while` |
-| `until cond` | statement | no | `while (!(cond))` |
-| `repeat ... until` | statement | no | `do { } while (!(cond))` |
-| `for i = a, b[, step]` | statement | no | numeric `for` |
-| `for x in seq` | statement | no | range-`for` |
-| `for ... else` | statement | no | `for` + broke flag |
-| `while ... else` | statement | no | `while` + broke flag |
+| Construct | Form | Value | C++20 |
+|-----------|------|-------|-------|
+| `if` / `else` | statement or expression | `void` as statement; `T` with `else`; `T?` without `else` (or `void` if the branch is `void`) | `if` / ternary / IIFE |
+| `unless cond` | statement or expression | like `if not cond` | `if (!(cond))` |
+| `switch expr` | statement or expression | `T` with `else`; `T?` without `else` (or `void` if all branches are `void`) | `if` chain / `switch` |
+| `match expr` | statement or expression | `T` (always exhaustive; `void` if all branches are `void`) | `std::visit` / `std::get_if` |
+| `do` | statement or expression | `T` (last expression) or `void` | block / IIFE |
+| `while cond` | statement or expression | `T?` with `break value`; `T` with `else`; `void` otherwise | `while` / IIFE |
+| `until cond` | statement or expression | like `while not cond` | `while (!(cond))` |
+| `repeat ... until` | statement or expression | `T?` / `T` / `void` as above | `do { } while (!(cond))` |
+| `for i = a, b[, step]` | statement or expression | `T?` / `T` / `void` as above | numeric `for` / IIFE |
+| `for x in seq` | statement or expression | `T?` / `T` / `void` as above | range-`for` / IIFE |
+| `for ... else` | statement or expression | common type of `break` values and `else` | `for` + broke flag |
+| `while ... else` | statement or expression | common type of `break` values and `else` | `while` + broke flag |
+| `until ... else` | statement or expression | common type of `break` values and `else` | `while` + broke flag |
+| `repeat ... else` | statement or expression | common type of `break` values and `else` | `do` + broke flag |
 | `break` | statement | — | `break;` |
 | `continue` | statement | — | `continue;` |
-| `break value` | expression | `T?` | `return value;` in IIFE |
+| `break value` | statement | `Never` (sets the loop result) | `return value;` in IIFE |
+| `return expr` | statement | `Never` | `return expr;` |
+| `return` | statement | `Never` | `return;` |
 | `[expr for ...]` | expression | `vector<T>` | IIFE + `push_back` |
+| `{k: v for ...}` | expression | `map<K,V>` | IIFE + `insert` |
+| `set{expr for ...}` | expression | `set<T>` | IIFE + `insert` |
 
 ## Runes
 ---
@@ -1533,7 +2121,7 @@ rune Dog
     @age = age
 
   destructor
-    io::println(f"goodbye {@name}")
+    io::println("goodbye #{@name}")
 ```
 
 ```c++
@@ -1561,7 +2149,7 @@ Rules:
 - **If a rune declares no constructor**, an implicit one is generated taking all fields positionally, in declaration order, with defaults where fields declare them. `rune Point` with `x: double = 0.0, y: double = 0.0` gets `Point()` for free.
 - **If a rune declares a constructor**, every field must still end up initialized — either in the body or via a field default. Uninitialized fields are a compile error.
 - **If a rune declares no destructor**, an implicit one destroys all fields in reverse declaration order. Declaring `destructor` with an empty body is equivalent to omitting it (useful for documentation).
-- **No copy or move constructors** in v0.1.0. A rune is copyable iff all its fields are copyable, moveable iff all its fields are moveable. This is the C++ default and needs no syntax.
+- **No copy or move constructors** in v0.2.0. A rune is copyable iff all its fields are copyable, moveable iff all its fields are moveable. This is the C++ default and needs no syntax.
 
 ### Access — `@`
 
@@ -1579,7 +2167,7 @@ enchanting Counter
     @count += 1
 
   report = -> void
-    io::println(f"count = {@count}")
+    io::println("count = #{@count}")
 ```
 
 `@` alone (without a field name) is the instance itself, as a value:
@@ -1652,9 +2240,9 @@ Rules:
 Methods are called with `.` on a value, and with `@` on the current instance:
 
 ```coffee
-p = Point(3.0, 4.0)
+mut p = Point(3.0, 4.0)
 d = p.len()              -- call const method
-p.translate(1.0, 2.0)    -- call mut method (p must be declared with `mut`)
+p.translate(1.0, 2.0)    -- call mut method (p is declared with `mut`)
 
 enchanting Point
   normalize = -> Point
@@ -1691,7 +2279,7 @@ rune Animal
 
 enchanting Animal
   describe = -> string
-    f"{@name} with {@legs} legs"
+    "#{@name} with #{@legs} legs"
 
 rune Dog heir Animal
   breed: string
@@ -1702,7 +2290,7 @@ rune Dog heir Animal
 
 enchanting Dog
   bark = -> string
-    f"{@name} says woof"
+    "#{@name} says woof"
 ```
 
 ```c++
@@ -1734,6 +2322,7 @@ Rules:
 - **Inherited fields are visible with `@`** in the child's methods (`@name` in `Dog` accesses `Animal::name`).
 - **Inherited methods are callable with `.`** (`dog.describe()` works).
 - **A child's method may shadow a parent's method with the same name.** No `override` keyword; no virtual dispatch; the shadow is resolved statically by the **compile-time type** of the receiver.
+- **A child's field may not shadow an inherited field**, even with the same type. The parent's storage is already part of the child, so two fields with one name would be ambiguous; rename the child field. Methods may shadow (previous rule).
 - **Multiple `enchanting` blocks on a child may call parent methods** with `.` on `@`: `@describe()`.
 
 ### Slicing — explicitly forbidden
@@ -1759,10 +2348,10 @@ To pass a derived value where a parent is expected, use **`ref<Parent>`** (no co
 f = (a: ref<Animal>) -> void
   io::println(a.name)
 
-f(ref(d))               -- ✓ no slicing; d is passed by reference
+f(ref<Animal>(ref(d)))  -- ✓ explicit upcast; no slicing
 ```
 
-But note: **`ref<Dog>` is not implicitly `ref<Animal>`**. The call `f(ref(d))` type-checks only because `ref(d)` creates a `ref<Animal>` view of the `Animal` subobject of `d`. It works because references are non-owning views and the lifetime of `d` outlives the call. If `f` stored the reference somewhere, the compiler would reject it (references cannot be stored in fields). So `ref<Parent>` is safe by construction.
+But note: **`ref<Dog>` is not implicitly `ref<Animal>`**. `ref<Animal>(ref(d))` is the explicit upcast: it creates a `ref<Animal>` view of the `Animal` subobject of `d`. It works because references are non-owning views and the lifetime of `d` outlives the call. If `f` stored the reference somewhere, the compiler would reject it (references cannot be stored in fields). So `ref<Parent>` is safe by construction.
 
 This is stricter than C++, where slicing is silently allowed. It is the price of "safe as V" — and it eliminates the largest class of inheritance bugs.
 
@@ -1774,7 +2363,7 @@ There is no `pub` or `private`. All fields and all methods are public, same as C
 rune Stack
   _items: vector<int>
 
-  Stack = -> void
+  constructor()
     @_items = []
 
 enchanting Stack
@@ -1807,9 +2396,12 @@ The `_` prefix is documentation, not enforcement — the compiler does not hide 
 ## Omens
 ---
 
-An **omen** is PenguScript's enumerated type. It declares a fixed, named set of variant values, all sharing the same underlying integer type.
+An **omen** is PenguScript's enumerated and algebraic sum type (ADT). It declares a fixed, named set of variants:
 
-Omens are **scoped**: variants are accessed through the omen name with `::`, and the omen is a distinct type — no implicit conversion to `int`. This is the C++20 `enum class` model, chosen for safety. Unscoped C-style enums are not supported.
+- **Unit-only omens** (no payload data) share a single underlying integer type and compile directly to C++20 `enum class`.
+- **Algebraic omens** (where one or more variants carry associated payload data) compile to `std::variant<...>` with internal per-variant structs, zero dynamic allocation, and exhaustive `match` destructuring.
+
+Omens are **scoped**: variants are accessed through the omen name with `::`, and the omen is a distinct type — no implicit conversion to `int`. Unscoped C-style enums are not supported.
 
 ### Declaration
 
@@ -1868,10 +2460,10 @@ omen HttpStatus
   Created                -- 201
   Accepted               -- 202
   NotFound    = 404
-  ServerError            -- 405? no: it continues from 404 → 405
+  ServerError            -- 405: continues from the previous value
 ```
 
-Actually — careful. In C++, after `NotFound = 404`, the next is `405`. If you want a gap, write it explicitly:
+If you want a gap, write the value explicitly:
 
 ```coffee
 omen HttpStatus
@@ -1908,13 +2500,11 @@ An omen value converts to its underlying type with `as`:
 
 ```coffee
 c = Color::Red
-n = c as int              -- 0, safe
-u = c as uint8_t          -- safe (uint8_t is the underlying type)
+n = c as int              -- 0, safe: int is the underlying type
 ```
 
 ```c++
 int n = static_cast<int>(c);
-std::uint8_t u = static_cast<std::uint8_t>(c);
 ```
 
 Going **from** an integer to an omen is where the danger lives: an arbitrary integer may not correspond to any variant. PenguScript provides two paths:
@@ -1922,8 +2512,8 @@ Going **from** an integer to an omen is where the danger lives: an arbitrary int
 **Safe conversion** via `Omen::try_from`, which checks against the known variants and returns `Omen?`:
 
 ```coffee
-c = Color::try_from(1)          -- Some(Color::Green)
-bad = Color::try_from(99)       -- None
+c = Color::try_from(1)          -- a Color? holding Color::Green
+bad = Color::try_from(99)       -- none
 ```
 
 ```c++
@@ -1939,11 +2529,18 @@ std::optional<Color> Color_try_from(int n) {
 
 The compiler generates this switch from the variant list — it knows every valid value, including aliases (aliases resolve to the first variant with that value). Use `try_from` whenever the integer comes from outside the program (file, network, user input).
 
+`Omen::from` is the panicking form: it returns `Omen` directly and aborts the process if the integer matches no variant.
+
+```coffee
+c = Color::from(1)        -- Color::Green
+bad = Color::from(99)     -- panics
+```
+
 **Unsafe conversion** via `as` inside `unsafe`, which does an unchecked `static_cast`:
 
 ```coffee
 unsafe
-  c = 1 as Color         -- unchecked; 99 as Color would be UB-ish (technically defined, but no variant matches)
+  c = 1 as Color         -- unchecked; 99 as Color produces a value with no matching variant
 ```
 
 ```c++
@@ -2015,7 +2612,7 @@ flags omen Permission
   Execute = 1 << 2
 ```
 
-The `None = 0` convention is common; it gives you a zero value and lets `~` produce a meaningful complement within the known universe. It is not auto-generated — declare it if you want it.
+The `None = 0` convention is common; it gives you a zero value and lets `~` produce a meaningful complement within the known universe. It is not auto-generated — declare it if you want it. (`None` here is an ordinary variant name; the optional literal is lowercase `none`.)
 
 `flags` combines with the underlying-type annotation:
 
@@ -2034,9 +2631,73 @@ enum class Permission : std::uint8_t {
 
 The `~` operator's "universe" is computed from the declared variants — bits not declared are never set. This means `~Read` on `Permission` yields `Write | Execute`, not `0xFF..F ~ Read`. That's the safe behavior for flags.
 
+### Algebraic omens (payload variants)
+
+An `omen` may declare variants that carry associated payload types alongside unit variants:
+
+```coffee
+omen Shape
+  Point
+  Circle(double)
+  Rect(double, double)
+
+s = Shape::Circle(2.5)
+r = Shape::Rect(3.0, 4.0)
+p = Shape::Point
+```
+
+```c++
+#include <variant>
+
+struct Shape {
+  struct Point {};
+  struct Circle { double _0; };
+  struct Rect { double _0; double _1; };
+  std::variant<Point, Circle, Rect> _data;
+};
+
+const Shape s = Shape{Shape::Circle{2.5}};
+const Shape r = Shape{Shape::Rect{3.0, 4.0}};
+const Shape p = Shape{Shape::Point{}};
+```
+
+Rules for algebraic omens:
+
+- **Zero dynamic overhead:** Variants with payloads compile to `std::variant<...>` with internal structs per variant — no heap allocation, no vtables.
+- **No integer underlying type:** Algebraic omens cannot have `: uint8_t`, `flags`, explicit `= 200` values, `as int`, or `try_from(int)` — those apply only to unit-only omens.
+- **Destructuring via `match`:** Use `match` to inspect and destructure algebraic omens; the compiler enforces exhaustiveness at compile time (see **Control Flow — `match`**).
+- **Copy/Move/Equality:** An algebraic omen is copyable, moveable, and `==`-comparable iff all of its variant payload types are.
+
+### Generic omens
+
+Omens may declare sigil parameters, enabling standard generic sum types such as `Result<T, E>`:
+
+```coffee
+omen Result<T, E>
+  Ok(T)
+  Err(E)
+
+divide = (a: double, b: double) -> Result<double, string>
+  if b == 0.0
+    Result::Err("division by zero")
+  else
+    Result::Ok(a / b)
+```
+
+```c++
+template<typename T, typename E>
+struct Result {
+  struct Ok { T _0; };
+  struct Err { E _0; };
+  std::variant<Ok, Err> _data;
+};
+```
+
+See **Sigils** for generic instantiation and `enchanting Result<T, E>` rules.
+
 ### Enchanting
 
-Omens share the `enchanting` mechanism with runes. Methods inside `enchanting OmenName` receive `@` as the current variant value:
+Omens share the `enchanting` mechanism with runes. Methods inside `enchanting OmenName` receive `@` as the current omen value (and can `match @` on algebraic omens):
 
 ```coffee
 omen Color
@@ -2047,9 +2708,10 @@ enchanting Color
     @ == Color::Red
 
   name = -> string
-    if @ == Color::Red then "red"
-    else if @ == Color::Green then "green"
-    else "blue"
+    match @
+      when Red   then "red"
+      when Green then "green"
+      when Blue  then "blue"
 ```
 
 ```c++
@@ -2071,13 +2733,15 @@ Rules:
 - **Methods are `const` by default.** Omens are value types; a "mut method" makes no sense (there's nothing to mutate). `mut` before a method name is a compile error inside an omen's `enchanting` block.
 - **`@` alone** is the current value. `@ == Color::Red` is idiomatic.
 - **No fields.** An omen has no instance state beyond its variant.
-- **Associated functions** (callable on the type, not a value) take no `@` and are declared with `const` or `Omen::method()` at the call site — same mechanism, just no `@` usage inside.
+- **Associated functions** are methods that do not use `@`; call them on the type: `Color::parse("red")`. They are implicitly const and are declared inside `enchanting` just like other methods. They do not take a receiver value.
 
 ### Summary
 
 | Feature | PenguScript | C++20 |
 |---------|-------------|-------|
 | Declaration | `omen Color` | `enum class Color : int` |
+| Algebraic declaration | `omen Shape` with `Circle(double)` | `struct` + `std::variant<...>` |
+| Generic declaration | `omen Result<T, E>` | `template<typename T, typename E> struct Result` |
 | Underlying type | `omen Color: uint8_t` | `enum class Color : std::uint8_t` |
 | Variants | `Red, Green, Blue` | `Red, Green, Blue` |
 | Access | `Color::Red` | `Color::Red` |
@@ -2097,7 +2761,7 @@ Two mechanisms define custom types without adding behavior or runtime cost. Toge
 | Keyword | What it defines | Runtime cost | Underlying C++ |
 |---------|-----------------|--------------|----------------|
 | `rune` | struct with fields | layout | `struct` |
-| `omen` | enum with named variants | `int` | `enum class` |
+| `omen` | enum or algebraic sum type | `int` or `variant` | `enum class` / `std::variant` |
 | `echo` | **transparent alias** | **zero** | `using` |
 | `seal` | **opaque newtype** | **zero** (wraps a single value) | `struct { T value; }` |
 
@@ -2257,7 +2921,7 @@ enchanting Meters
     @ * 3.28084
 
   describe = -> string
-    f"{@} m"
+    "#{@} m"
 ```
 
 ```c++
@@ -2281,19 +2945,43 @@ Rules:
 - **`@` is the underlying value.** `@ * 3.28084` is `double * double`. `Meters(@ + ...)` wraps the result back.
 - **Methods are `const` by default.** `mut` before a method name makes it non-`const` (rare for seals, but possible if the underlying type is a mutable container).
 - **No fields.** Seals wrap exactly one value.
+- **Copy and Move follow the underlying type.** A seal over a copyable type is copyable; a seal over a move-only type is move-only.
 - **No inheritance.** `rune X heir Y` cannot target a seal, and a seal cannot inherit from anything.
 - **No `try_from` is generated.** Seals never fail to construct. If you need invariants (a "positive int", a "validated email"), use a `rune` with a constructor that panics on invalid input.
 
-### Limitations (v0.1.0)
+### Generic echoes and seals
 
-- **No generic echoes or seals.** `echo Stack<T> = vector<T>` and `seal Wrapper<T> = T` are future features.
+Echoes and seals may take sigils, just like runes:
+
+```coffee
+echo Stack<T> = vector<T>
+seal Wrapper<T> = T
+
+enchanting Wrapper<T>
+  unwrap = -> T
+    @
+```
+
+```c++
+template<typename T> using Stack = std::vector<T>;
+template<typename T> struct Wrapper { T value; };
+```
+
+- The sigil parameters are declared after the name: `echo Stack<T> = ...`, `seal Wrapper<T> = ...`.
+- The target may use the sigils: `echo Pair<T> = tuple<T, T>`.
+- `enchanting Wrapper<T>` must repeat the same sigils as the seal declaration.
+- Instantiation infers `T` from constructor arguments when possible; otherwise use an explicit `Wrapper<int>(x)`.
+- A generic seal follows the same rules as a non-generic one: no fields, no inheritance, no generated `try_from`, and no implicit operator inheritance.
+
+### Limitations (v0.2.0)
+
 - **No transitive seal unwrapping.** `A as C` where `A` wraps `B` and `B` wraps `C` requires `A as B as C` (or, more likely, is a design smell).
 - **No seal-to-seal casting with `as`.** `m as Celsius` is a compile error; you must go through the underlying type (`Celsius(m as double)`). This is intentional: it forces the conversion to be visible.
 
 ## Type Conversions
 ---
 
-PenguScript has two cast operators and two checked conversion helpers:
+PenguScript has one cast operator with two checking modes, plus two checked conversion helpers:
 
 | Form | Verification | Requires `unsafe` | Returns |
 |------|--------------|:-----------------:|---------|
@@ -2302,11 +2990,11 @@ PenguScript has two cast operators and two checked conversion helpers:
 | `T::try_from(x)` | runtime | no | `T?` |
 | `T::from(x)` | runtime (panics on failure) | no | `T` |
 
-The rule is simple: **safe casts are `as`; dangerous casts need `unsafe as`; anything that may fail at runtime uses `try_from` or `from`.**
+The rule is simple: **safe casts are `as`; dangerous casts are the same `as` inside `unsafe`; anything that may fail at runtime uses `try_from` or `from`.** There is no `unsafe as` keyword.
 
 ### Safe casts — `as`
 
-`as` is accepted by the compiler only when the conversion is **guaranteed lossless and defined** — no data loss, no UB. Anything else requires `unsafe as` (or a checked helper).
+`as` is accepted by the compiler only when the conversion is **guaranteed lossless and defined** — no data loss, no UB. Anything else requires an `unsafe` block or function (or a checked helper).
 
 ```coffee
 i8:  int8_t  = 42
@@ -2337,13 +3025,14 @@ The safe `as` accepts:
 - **`float` to `double`**.
 - **Any integer to `float` or `double`**. This is the one lossy-but-safe direction: no UB, no out-of-range wrap, but precision may be lost for large values (above 2²⁴ for `float`, above 2⁵³ for `double`). Documented, not prevented — the same policy Rust uses.
 - **Seal unwrap**: `UserId → int`, `Meters → double`.
-- **Omen to underlying**: `Color → int`, `Color → uint8_t`.
+- **Omen to its exact underlying**: `Color → int` only when `int` is the declared underlying type.
+- `char` and `bool` are **not** integers; conversions to/from integer types require `unsafe`.
 
-That's the full whitelist. Narrowing, sign changes, and float-to-int are **not** safe `as`.
+That is the full whitelist. Narrowing, sign changes, float-to-int, `char ↔ int`, and `bool ↔ int` are **not** safe `as`.
 
-### Unsafe casts — `unsafe as`
+### Unsafe casts — `as` inside `unsafe`
 
-The dangerous conversions require an `unsafe` block or function. The compiler performs no check; the programmer asserts the value is representable:
+The dangerous conversions require an `unsafe` block or function. The same `as` operator is used; the compiler switches to an unchecked `static_cast` and performs no range check. The programmer asserts the value is representable:
 
 ```coffee
 unsafe
@@ -2351,7 +3040,7 @@ unsafe
   f:  float    = d as float                    -- loses precision
   i:  int      = d as int                      -- truncates toward zero; UB if out of range
   u:  uint32_t = neg as uint32_t               -- negative wraps to a huge positive
-  c:  Color    = 1 as Color                    -- UB if 1 isn't a declared variant
+  c:  Color    = 1 as Color                    -- unchecked: 1 may not be a declared variant
 ```
 
 ```c++
@@ -2377,11 +3066,11 @@ When the conversion may fail at runtime, use the checked helpers. `try_from` ret
 **Numeric narrowing** — the canonical case:
 
 ```coffee
-big: int64_t = 5_000_000_000
+big: int64_t = 5000000000
 
-maybe = int32_t::try_from(big)     -- None (too big)
+maybe = int32_t::try_from(big)     -- none (too big)
 small: int32_t = 42
-ok    = int32_t::try_from(small)   -- Some(42)
+ok    = int32_t::try_from(small)   -- int32_t? holding 42
 ```
 
 ```c++
@@ -2393,15 +3082,15 @@ std::optional<std::int32_t> ok    = int32_t_try_from(small);
 
 ```coffee
 d = 3.7
-n = int::try_from(d)               -- Some(3): truncated, in range
-bad = int::try_from(1e20)          -- None (out of range for int)
+n = int::try_from(d)               -- int? holding 3: truncated, in range
+bad = int::try_from(1e20)          -- none (out of range for int)
 ```
 
 **String parsing** — the other checked direction:
 
 ```coffee
-maybe = int::try_from("42")        -- Some(42)
-bad   = int::try_from("hello")     -- None
+maybe = int::try_from("42")        -- int? holding 42
+bad   = int::try_from("hello")     -- none
 
 n = int::from("42")                -- 42
 bad = int::from("hello")           -- panics
@@ -2410,33 +3099,37 @@ bad = int::from("hello")           -- panics
 **Enum from int** — checked against the declared variant list:
 
 ```coffee
-c = Color::try_from(1)             -- Some(Color::Green)
-bad = Color::try_from(99)          -- None
+c = Color::try_from(1)             -- Color? holding Color::Green
+bad = Color::try_from(99)          -- none
 ```
 
-`T::try_from` and `T::from` work for **any numeric source and destination**, string→number, and int→enum. They never require `unsafe` — that's their purpose.
+`T::try_from` and `T::from` are generated only for conversions that can actually fail: narrowing, sign change of the same width, `double → float`, float → int, string → number, and int → omen. A `try_from` for a conversion that can never fail is not generated; use `as` instead. They never require `unsafe` — that is their purpose.
 
 `T::from(x)` panics on failure. The panic is not a C++ exception; the runtime terminates the process with a message. Same behavior as `arr[i]` on out-of-bounds.
 
 ### Conversion matrix — what to use when
 
-| From → To | `as` | `unsafe as` | `try_from` / `from` |
-|-----------|:----:|:-----------:|:-------------------:|
-| Widening int | ✅ | — | ✅ (redundant) |
+| From → To | `as` | `as` in `unsafe` | `try_from` / `from` |
+|-----------|:----:|:----------------:|:-------------------:|
+| Widening int | ✅ | — | — |
 | Narrowing int | ✗ | ✅ | ✅ |
 | Signed ↔ unsigned (same width) | ✗ | ✅ | ✅ |
-| Unsigned → wider signed | ✅ | — | ✅ |
-| Int → float / double | ✅ | — | ✗ (never fails) |
-| float → double | ✅ | — | ✗ (never fails) |
+| Unsigned → wider signed | ✅ | — | — |
+| Int → float / double | ✅ | — | — |
+| float → double | ✅ | — | — |
 | double → float | ✗ | ✅ | ✅ |
 | Float / double → int | ✗ | ✅ | ✅ |
+| `char ↔ int` | ✗ | ✅ | — |
+| `bool ↔ int` | ✗ | ✅ | — |
+| `nullptr` → `raw<T>` | ✅ | — | — |
 | Seal construct | — | — | `SealName(x)` |
-| Seal unwrap | ✅ | — | ✗ (never fails) |
+| Seal unwrap | ✅ | — | — |
 | Seal → seal | ✗ | ✗ | ✗ (go through underlying) |
-| Omen → int | ✅ | — | ✗ (never fails) |
+| Omen → its exact underlying | ✅ | — | — |
+| Omen → other integer | ✗ | ✅ | — |
 | Int → omen | ✗ | ✅ | ✅ |
 | String → number | ✗ | ✗ | ✅ |
-| Number → string | ✗ | ✗ | via `f"{}"` |
+| Number → string | — | — | — (use `"#{x}"`) |
 
 ### Summary
 
@@ -2456,7 +3149,7 @@ bad = Color::try_from(99)          -- None
 
 A **sigil** is a generic type parameter. Sigils are **static**: they monomorphize at compile time, exactly like C++ templates. There is no runtime dispatch, no boxing, and no type erasure — each instantiation produces a distinct C++ type.
 
-Sigils may appear on functions, runes, echoes, and seals. They are declared between `<` and `>` directly after the name:
+Sigils may appear on functions, runes, omens, echoes, and seals. They are declared between `<` and `>` directly after the name:
 
 ```coffee
 identity = <T>(x: T) -> T
@@ -2578,6 +3271,40 @@ auto w = Wrapper{42};
 int n = w.value;
 ```
 
+### Generic omens
+
+Omens may declare sigil parameters to define generic algebraic sum types such as `Result<T, E>`. Just like generic runes, every `enchanting` block on a generic omen must repeat the sigil list:
+
+```coffee
+omen Result<T, E>
+  Ok(T)
+  Err(E)
+
+enchanting Result<T, E>
+  is_ok = -> bool
+    match @
+      when Ok(_)  then true
+      when Err(_) then false
+```
+
+```c++
+template<typename T, typename E>
+struct Result {
+  struct Ok  { T _0; };
+  struct Err { E _0; };
+  std::variant<Ok, Err> _data;
+
+  bool is_ok() const;
+};
+
+template<typename T, typename E>
+bool Result<T, E>::is_ok() const {
+  return std::holds_alternative<Ok>(_data);
+}
+```
+
+When a variant constructor only determines a subset of the omen's sigils (e.g. `Result::Ok(42)` does not determine `E`), provide the target type via annotation or explicit instantiation: `res: Result<int, string> = Result::Ok(42)` or `Result<int, string>::Ok(42)`.
+
 ### Sigil inference
 
 Sigils are inferred from argument types using C++20 template argument deduction rules:
@@ -2612,7 +3339,7 @@ Without a constraint, the compiler only reports an error if an operation used in
 A `needs` clause makes the requirement explicit. It does **not** add dispatch or vtables — it only documents what the body already assumes, and produces a targeted error when an instantiation doesn't satisfy it:
 
 ```coffee
-find_min = <T needs Ord>(items: ref<vector<T>>) -> T?
+find_min = <T needs Ord, Copy>(items: ref<vector<T>>) -> T?
   if #items == 0
     none
   else
@@ -2629,13 +3356,13 @@ Built-in constraints (structural, not nominal):
 |------------|-----------------------|
 | `Eq` | `==`, `!=` |
 | `Ord` | `<`, `<=`, `>`, `>=` (implies `Eq`) |
-| `Hash` | hashing via the compiler's hash generator |
+| `Hash` | a compiler-synthesized hash: primitives, `string`, omens, tuples, runes whose fields are Hash, and seals over a Hash underlying |
 | `Copy` | copy construction and assignment |
 | `Move` | move construction and assignment |
 | `Default` | zero-argument construction |
 | `Numeric` | `+`, `-`, `*`, `/`, `%`, unary `-` |
 | `Floating` | `Numeric` plus `sqrt()`, `abs()`, `is_nan()`, … |
-| `Display` | string formatting via `f"{}"` |
+| `Display` | string formatting via interpolation `#{}` |
 | `Into<U>` | convertible to `U` via `as` |
 | `From<U>` | constructible from `U` via `T::from` |
 
@@ -2643,7 +3370,7 @@ Multiple constraints are comma-separated:
 
 ```coffee
 describe = <T needs Ord, Display>(x: T) -> string
-  f"{x} is comparable and printable"
+  "#{x} is comparable and printable"
 ```
 
 Constraints are checked **at instantiation**, not at declaration. A rune satisfies a constraint structurally — if it has the required operations via `enchanting`, it satisfies the constraint. There is no `impl Copy for Foo` declaration, no `impl Ord for Foo`. If the operations exist, the constraint is satisfied; if not, the compiler reports which operation is missing:
@@ -2681,12 +3408,11 @@ struct Container : Animal<T> { T payload; };
 
 A child may **not** inherit from an uninstantiated generic: `rune Dog heir Animal` is a compile error. The parent must be fully instantiated, same rule as C++.
 
-### Limitations (v0.1.0)
+### Limitations (v0.2.0)
 
 - **No user-defined constraints.** `needs` accepts only the built-in constraints listed above. Custom concepts would require a `concept` keyword and a mechanism to bind operations to concepts — deferred to a future version.
 - **No default sigils.** `<T = int>` is not supported.
 - **No variadic sigils.** `<...Ts>` is not supported.
-- **No generic omens.** An omen has no per-instance data, so a sigil on an omen adds nothing. Generic omens become meaningful only once omens can carry associated data — a future feature.
 - **No higher-kinded sigils.** `<F<T>>` is not supported.
 - **No specialization.** Every instantiation uses the same template body.
 
@@ -2696,7 +3422,8 @@ A child may **not** inherit from an uninstantiated generic: `rune Dog heir Anima
 |---------|-------------|-------|
 | Function sigil | `f = <T>(x: T) -> T` | `template<typename T> T f(T x)` |
 | Rune sigil | `rune Box<T>` | `template<typename T> struct Box` |
-| Enchanting sigil | `enchanting Box<T>` | `template<typename T>` on each member |
+| Omen sigil | `omen Result<T, E>` | `template<typename T, typename E> struct Result` |
+| Enchanting sigil | `enchanting Box<T>` / `enchanting Result<T, E>` | `template<typename T>` on each member |
 | Echo sigil | `echo Pair<T> = tuple<T, T>` | `template<typename T> using Pair = …` |
 | Seal sigil | `seal Wrapper<T> = T` | `template<typename T> struct Wrapper` |
 | Explicit instantiation | `make_vector<int>()` | `make_vector<int>()` |
@@ -2785,7 +3512,7 @@ Rules:
 | Spaceship | `<=>` | binary | `Ordering` | `operator<=>` |
 | Compound | `+=` `-=` `*=` `/=` `%=` | binary | `void` | `operator+=` etc. |
 | Compound | `&=` `\|=` `^=` `<<=` `>>=` | binary | `void` | `operator&=` etc. |
-| Index | `[]` | 1+ args | `V` (the element type) | `operator[]` |
+| Index | `[]` | 1+ args | `ref<V>` (const form) / `mut ref<V>` (mut form) | `operator[]` |
 | Call | `()` | 0+ args | user-defined | `operator()` |
 
 The return type is **not inferred**. `operator + = (other: Point) -> int` is a compile error; the compiler requires the return type to be the receiver type. Same for comparison (`bool`), compound (`void`), and spaceship (`Ordering`).
@@ -2795,7 +3522,7 @@ The return type is **not inferred**. `operator + = (other: Point) -> int` is a c
 - `=` — copy assignment is C++ default; overloading it silently breaks move semantics. Use `constructor(mut other: ref<T>)` for explicit copy if needed (future feature).
 - `&&`, `||`, `!` — reserved for `bool`. The keywords `and`, `or`, `not` are not user-extensible.
 - `++`, `--` — no such operators in PenguScript.
-- `as` — conversion is handled by `## Type Conversions`; user-defined casts go through `T::from` / `try_from`.
+- `as` — conversion is handled by `## Type Conversions`; use `T::from` / `try_from` where they exist.
 - `&` (address-of), `*` (deref) — reserved for `raw<T>` / pointers.
 - `->` — no arrow operator.
 - `new`, `delete` — no such operators.
@@ -2830,9 +3557,9 @@ If both `enchanting T { operator OP }` and a free `operator OP` with the same fi
 
 ### Comparison operators and `<=>`
 
-Comparison needs special care. In C++20, `operator==` auto-generates `operator!=`, and `operator<=>` auto-generates all four of `<`, `<=`, `>`, `>=`. PenguScript exposes both shortcuts.
+Comparison needs special care. In C++20, `a != b` can be rewritten as `!(a == b)`, and `operator<=>` provides `<`, `<=`, `>`, `>=`. It does **not** synthesize `operator==` from `<=>`, so the compiler emits one when the user declares `<=>`.
 
-**Define `==` only** — the compiler generates `!=` for free:
+**Define `==` only** — the compiler emits `operator==`, and `!=` works through the C++20 rewrite:
 
 ```coffee
 enchanting Point
@@ -2845,11 +3572,11 @@ struct Point {
   double x;
   double y;
   bool operator==(Point other) const;
-  // operator!= auto-generated by C++20
+  // p != q is rewritten as !(p == q)
 };
 ```
 
-**Define `<=>`** — the compiler generates all six comparisons:
+**Define `<=>`** — the compiler emits `operator<=>` plus a synthesized `operator==`; all six comparisons work:
 
 ```coffee
 enchanting Point
@@ -2865,7 +3592,7 @@ struct Point {
   double x;
   double y;
   std::partial_ordering operator<=>(Point other) const;
-  // ==, !=, <, <=, >, >= auto-generated
+  bool operator==(Point other) const;   // synthesized from <=> by the compiler
 };
 ```
 
@@ -2894,7 +3621,7 @@ The common pattern is to define both — `+` (returning a new value) and `+=` (m
 
 ### Index — `[]`
 
-The index operator takes any number of parameters and returns the element type. It may be `const` (read-only) or `mut` (writable):
+The index operator takes any number of parameters and returns a **reference** to the element: `ref<V>` for the const form, `mut ref<V>` for the writable form. It may be `const` (read-only) or `mut` (writable):
 
 ```coffee
 rune Matrix
@@ -2902,12 +3629,12 @@ rune Matrix
   _rows: size_t
   _cols: size_t
 
-enchanting Matrix
   constructor(rows: size_t, cols: size_t)
     @_rows = rows
     @_cols = cols
     @_data = vector<double>(rows * cols, 0.0)
 
+enchanting Matrix
   operator [] = (r: size_t, c: size_t) -> ref<double>
     ref(@_data[r * @_cols + c])
 
@@ -2976,11 +3703,11 @@ The return type is user-defined. `()` is the only operator whose return type is 
 
 | PenguScript | C++20 | When chosen |
 |-------------|-------|-------------|
-| `Ordering.Strong` | `std::strong_ordering` | All fields are totally ordered (`int`, `string`, etc.) |
-| `Ordering.Weak` | `std::weak_ordering` | Fields are weakly ordered (some values are equivalent) |
-| `Ordering.Partial` | `std::partial_ordering` | Fields include `double` / `float` (NaN is unordered) |
+| `Ordering::Strong` | `std::strong_ordering` | All fields are totally ordered (`int`, `string`, etc.) |
+| `Ordering::Weak` | `std::weak_ordering` | Fields are weakly ordered (some values are equivalent) |
+| `Ordering::Partial` | `std::partial_ordering` | Fields include `double` / `float` (NaN is unordered) |
 
-The compiler picks the strictest that matches the field types. If a rune has any `double` field, `<=>` returns `Ordering.Partial`, because `NaN` makes the comparison incomplete.
+The compiler picks the strictest that matches the field types. If a rune has any `double` field, `<=>` returns `Ordering::Partial`, because `NaN` makes the comparison incomplete.
 
 The `<=>` body uses the `<=>` operator on the fields:
 
@@ -2993,7 +3720,7 @@ enchanting Point
       @y <=> other.y
 ```
 
-If the user's `<=>` body only uses `if/else` and returns `Ordering.Strong` values, the compiler accepts it as `Ordering.Weak` or `Ordering.Partial` — the return type is widened, not narrowed.
+If the user's `<=>` body only uses `if/else` and returns `Ordering::Strong` values, the compiler accepts it as `Ordering::Weak` or `Ordering::Partial` — the return type is widened, not narrowed.
 
 ### Seals
 
@@ -3053,14 +3780,14 @@ Meters operator*(double a, Meters b) {
 
 **Echoes do not need operator overloading.** An `echo X = Y` is transparent — `X` has exactly the operators of `Y`, no more and no less. Declaring `enchanting X { operator + }` where `X` is an alias is a compile error.
 
-**Omens do not support operator overloading** in v0.1.0. An omen is an `enum class` and already has `==` and `!=` for free. Adding `+` to an enum is almost always a sign that the type should be a rune or a seal.
+**Omens do not support operator overloading** in v0.2.0. Unit-only omens are `enum class` and already have `==` and `!=` for free (and algebraic omens derive `==`/`!=` when all variant payloads are equality-comparable). Adding `+` to an enum is almost always a sign that the type should be a rune or a seal.
 
 ### Interaction with sigils and `needs`
 
 Operator definitions are what makes a type satisfy a constraint. If `T needs Ord`, then `T` must have `operator <` (and the friends) — usually via `<=>` or via explicit `<`, `<=`, `>`, `>=`. The compiler checks this at instantiation:
 
 ```coffee
-find_min = <T needs Ord>(items: ref<vector<T>>) -> T?
+find_min = <T needs Ord, Copy>(items: ref<vector<T>>) -> T?
   ...
 
 -- Point has operator <=>, so it satisfies Ord
@@ -3080,7 +3807,7 @@ error: `Point` does not satisfy `Ord` required by `find_min`
 
 The constraints (`Ord`, `Numeric`, etc.) are **structural**: any type that has the right operators satisfies them. There is no `impl Ord for Point` declaration. This is the "no OOP" guarantee extended to type classes.
 
-### Limitations (v0.1.0)
+### Limitations (v0.2.0)
 
 - **No assignment operator overloading.** `=` is C++ default copy/move.
 - **No `&&`, `||`, `!`.** Reserved for `bool`.
@@ -3088,7 +3815,7 @@ The constraints (`Ord`, `Numeric`, etc.) are **structural**: any type that has t
 - **No custom `as`.** Conversion is `T::from` / `try_from`, not operator overloading.
 - **No `&` (address-of) or `*` (deref).** Reserved for raw pointers.
 - **No symmetric `<=>`.** Both sides must be the same type, or one side must be a free operator.
-- **No default implementations.** Every operator must be declared explicitly; no `#[derive(Ord)]` in v0.1.0.
+- **No user-defined default implementations.** The compiler derives `!=` from `==` and the six comparisons from `<=>`; everything else must be declared explicitly (compound operators are never derived).
 - **No operators on omens.** An omen is an `enum class`; use `enchanting` methods for logic.
 
 ### Summary
@@ -3106,4 +3833,3 @@ The constraints (`Ord`, `Numeric`, etc.) are **structural**: any type that has t
 | Arity check | compiler | compiler |
 | Return type check | compiler | compiler |
 | `needs Ord` / `Numeric` satisfaction | structural | structural (C++20 concepts) |
-`

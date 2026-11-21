@@ -1,4 +1,0 @@
-realm bad_assign
-
-func = -> void
-  mut x = )

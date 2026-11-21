@@ -1,3 +1,0 @@
-realm main
-
-invoke {non_existent_func} from "math"

@@ -1,0 +1,45 @@
+{
+  "name": "penguscript",
+  "displayName": "PenguScript",
+  "description": "Soporte de PenguScript: resaltado, diagnósticos, autocompletado y formato.",
+  "version": "0.1.0",
+  "publisher": "penguscript",
+  "license": "MIT",
+  "engines": { "vscode": "^1.80.0" },
+  "categories": ["Programming Languages", "Linters", "Formatters"],
+  "main": "./src/extension.js",
+  "activationEvents": ["onLanguage:pengu"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "pengu",
+        "aliases": ["PenguScript", "pengu"],
+        "extensions": [".pengu", ".d.pengu"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "pengu",
+        "scopeName": "source.pengu",
+        "path": "./syntaxes/pengu.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "PenguScript",
+      "properties": {
+        "pengu.executable": {
+          "type": "string",
+          "default": "pengu",
+          "description": "Ruta al ejecutable de PenguScript."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0"
+  }
+}

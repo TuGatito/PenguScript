@@ -1,0 +1,33 @@
+-- Contenedores, optional y matemáticas de la biblioteca estándar.
+
+invoke "std/io"
+invoke "std/math"
+
+main = ->
+  const notas = [7, 8, 9, 10]
+  io::println("notas: #{notas}")
+  io::println("raíz de 16: #{math::sqrt(16.0)}")
+
+  mut total = 0
+  for nota in notas
+    total += nota
+  io::println("total: #{total} de #{#notas}")
+
+  mut edades = {"ana": 30, "luis": 25}
+  for nombre, edad in edades
+    io::println("#{nombre} tiene #{edad}")
+
+  const ana = edades.get("ana")
+  if ana.is_some()
+    io::println("ana tiene #{ana.value()}")
+  else
+    io::println("ana no está")
+
+  const zoe = edades.get("zoe")
+  io::println("¿zoe está? #{zoe.is_some()}")
+
+  const colores = set{"rojo", "verde"}
+  io::println("¿verde? #{("verde" in colores)}")
+
+  edades.insert("zoe", 41)
+  io::println("tras insertar: #{edades}")

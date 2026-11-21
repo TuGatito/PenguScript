@@ -1,0 +1,224 @@
+// Tabla de tipos declarados por el módulo (runes, omens, alias).
+//
+// El checker la construye una vez y luego resuelve cada TypeNode
+// contra ella.
+
+import type { DiagnosticSink } from "../diagnostics/sink.ts";
+import { CODES } from "../diagnostics/codes.ts";
+import { error as make_error } from "../diagnostics/diagnostic.ts";
+import type { Span } from "../util/span.ts";
+import type { TypeNode } from "../frontend/ast_type.ts";
+import { is_primitive_type, STRING_TYPES } from "../frontend/ast_type.ts";
+import type { PenguType } from "./types.ts";
+import {
+  UNKNOWN,
+  VOID,
+  any_type,
+  named,
+  optional,
+  primitive,
+  ref_to,
+  tuple_type,
+  function_type,
+} from "./types.ts";
+
+export interface FieldInfo {
+  readonly name: string;
+  readonly type: PenguType;
+  readonly span: Span;
+}
+
+export interface MethodInfo {
+  readonly name: string;
+  readonly params: readonly PenguType[];
+  readonly result: PenguType;
+  readonly mutable: boolean;
+  readonly operator: string | undefined;
+  readonly sigils: readonly string[];
+  readonly span: Span;
+}
+
+export interface ConstructorInfo {
+  readonly params: readonly PenguType[];
+  readonly span: Span;
+}
+
+export interface RuneInfo {
+  readonly kind: "rune";
+  readonly name: string;
+  readonly sigils: readonly string[];
+  readonly fields: Map<string, FieldInfo>;
+  readonly methods: Map<string, MethodInfo>;
+  readonly constructor: ConstructorInfo | undefined;
+  readonly parent: string | undefined;
+  readonly span: Span;
+}
+
+export interface OmenVariantInfo {
+  readonly name: string;
+  readonly payload: readonly PenguType[];
+  readonly value: number | undefined;
+  readonly span: Span;
+}
+
+export interface OmenInfo {
+  readonly kind: "omen";
+  readonly name: string;
+  readonly sigils: readonly string[];
+  readonly is_flags: boolean;
+  readonly underlying: PenguType | undefined;
+  readonly variants: Map<string, OmenVariantInfo>;
+  readonly span: Span;
+}
+
+export interface AliasInfo {
+  readonly kind: "alias";
+  readonly name: string;
+  readonly seal: boolean;
+  readonly target: PenguType;
+  readonly span: Span;
+  readonly methods: Map<string, MethodInfo>;
+}
+
+export interface TypeEnv {
+  readonly runes: Map<string, RuneInfo>;
+  readonly omens: Map<string, OmenInfo>;
+  readonly aliases: Map<string, AliasInfo>;
+  readonly sigils: Map<string, PenguType>;
+}
+
+export function make_type_env(): TypeEnv {
+  return { runes: new Map(), omens: new Map(), aliases: new Map(), sigils: new Map() };
+}
+
+const POINTER_NAMES: ReadonlyMap<string, (inner: PenguType) => PenguType> = new Map([
+  ["raw", (inner: PenguType): PenguType => ({ kind: "raw", inner })],
+  ["unique", (inner: PenguType): PenguType => ({ kind: "unique", inner })],
+  ["shared", (inner: PenguType): PenguType => ({ kind: "shared", inner })],
+  ["weak", (inner: PenguType): PenguType => ({ kind: "weak", inner })],
+]);
+
+export function resolve_type_node(
+  node: TypeNode,
+  env: TypeEnv,
+  sink: DiagnosticSink,
+): PenguType {
+  switch (node.kind) {
+    case "primitive_type":
+      return node.name === "void" ? VOID : primitive(node.name);
+
+    case "optional_type":
+      return optional(resolve_type_node(node.inner, env, sink));
+
+    case "ref_type":
+      return ref_to(resolve_type_node(node.inner, env, sink), node.mutable);
+
+    case "function_type":
+      return function_type(
+        node.params.map((param) => resolve_type_node(param, env, sink)),
+        resolve_type_node(node.result, env, sink),
+      );
+
+    case "tuple_type":
+      return tuple_type(node.items.map((item) => resolve_type_node(item, env, sink)));
+
+    case "array_type": {
+      const element = resolve_type_node(node.element, env, sink);
+      const size = node.size.kind === "int_lit" ? Number.parseInt(node.size.value, 10) : 0;
+      return { kind: "array", element, size: Number.isNaN(size) ? 0 : size };
+    }
+
+    case "named_type": {
+      const args = node.args.map((arg) => resolve_type_node(arg, env, sink));
+      return resolve_named_type(node.name, args, node.span, env, sink);
+    }
+  }
+}
+
+export function resolve_named_type(
+  name: string,
+  args: readonly PenguType[],
+  span: Span,
+  env: TypeEnv,
+  sink: DiagnosticSink,
+): PenguType {
+  if (name === "void") return VOID;
+  if (is_primitive_type(name)) return primitive(name);
+  if (STRING_TYPES.has(name)) return primitive(name);
+
+  const sigil = env.sigils.get(name);
+  if (sigil && args.length === 0) return sigil;
+
+  const pointer = POINTER_NAMES.get(name);
+  if (pointer) {
+    if (args.length !== 1) {
+      sink.add(
+        make_error(
+          CODES.wrong_arity,
+          `«${name}» necesita exactamente un argumento de tipo`,
+          span,
+        ),
+      );
+      return UNKNOWN;
+    }
+    return pointer(args[0] as PenguType);
+  }
+
+  const alias = env.aliases.get(name);
+  if (alias) {
+    if (!alias.seal) return alias.target;
+    return named(name, args);
+  }
+
+  if (env.runes.has(name) || env.omens.has(name)) {
+    return named(name, args);
+  }
+
+  if (BUILTIN_CONTAINERS.has(name)) {
+    return named(name, args);
+  }
+
+  sink.add(make_error(CODES.unknown_type, `no existe el tipo «${name}»`, span));
+  return UNKNOWN;
+}
+
+export const BUILTIN_CONTAINERS: ReadonlySet<string> = new Set([
+  "vector",
+  "array",
+  "deque",
+  "list",
+  "forward_list",
+  "set",
+  "multiset",
+  "unordered_set",
+  "map",
+  "multimap",
+  "unordered_map",
+  "unordered_multimap",
+  "stack",
+  "queue",
+  "priority_queue",
+  "span",
+  "pair",
+  "tuple",
+  "bitset",
+  "optional",
+  "variant",
+  "any",
+  "function",
+  "atomic",
+  "mutex",
+  "shared_mutex",
+  "condition_variable",
+  "thread",
+  "string",
+  "wstring",
+  "u8string",
+  "u16string",
+  "u32string",
+  "string_view",
+]);
+
+export function generic_sigil_type(name: string): PenguType {
+  return any_type(name);
+}

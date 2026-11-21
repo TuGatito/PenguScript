@@ -1,5 +1,0 @@
-v = make_vector<int>()
-s = identity<string>("hello")
-b = Box<int>(42)
-fixed: array<int, 4> = [1, 2, 3, 4]
-pair_val = pair<int, string>(1, "hi")

@@ -1,3 +1,0 @@
-x = math::sqrt(2.0)
-c = Color::Red
-f = Vector::from

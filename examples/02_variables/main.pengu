@@ -1,0 +1,22 @@
+-- Variables, constantes y formato de cadenas.
+--
+-- En PenguScript todo enlace es inmutable salvo que se declare con
+-- `mut`. La interpolación `#{...}` usa Display.
+
+invoke "std/io"
+
+const MAX_PUNTOS = 100
+const LENGUAJE = "PenguScript"
+
+main = ->
+  mut vidas = 3
+  vidas += 1
+
+  const puntos: int = 42
+  const promedio: double = 9.5
+  const nombre = "Ada"
+
+  io::println("Hola, #{nombre}: #{vidas} vidas, #{puntos} puntos")
+  io::println("Lenguaje: #{LENGUAJE}, máximo: #{MAX_PUNTOS}")
+  io::println("Promedio: #{promedio}")
+  io::println("¿más de 3 vidas? #{vidas > 3}")

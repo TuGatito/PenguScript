@@ -1,0 +1,16 @@
+{
+  "comments": { "lineComment": "--" },
+  "brackets": [["{", "}"], ["[", "]"], ["(", ")"]],
+  "autoClosingPairs": [
+    { "open": "{", "close": "}" },
+    { "open": "[", "close": "]" },
+    { "open": "(", "close": ")" },
+    { "open": "\"", "close": "\"" },
+    { "open": "'", "close": "'" }
+  ],
+  "surroundingPairs": [["{", "}"], ["[", "]"], ["(", ")"], ["\"", "\""], ["'", "'"]],
+  "indentationRules": {
+    "increaseIndentPattern": "(->|then|else|do|constructor|destructor|match|switch|enchanting|rune|omen|seal|echo|extern)\\s*$|^\\s*(if|unless|while|until|for|repeat)\\b.*$",
+    "decreaseIndentPattern": "^\\s*(else|when|until)\\b"
+  }
+}

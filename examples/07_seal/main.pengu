@@ -1,0 +1,21 @@
+-- `echo` y `seal`: alias transparente y tipo opaco.
+--
+-- `echo` es un alias: se comporta igual que el tipo original.
+-- `seal` es una caja: hay que construirla y abrirla explícitamente.
+
+invoke "std/io"
+
+echo Entity = int
+seal UserId = int
+
+enchanting UserId
+  label = -> string
+    "user-#{@ as int}"
+
+main = ->
+  const entidad: Entity = 42
+  io::println("entidad = #{entidad + 1}")
+
+  const id = UserId(7)
+  io::println("id = #{id as int}")
+  io::println("etiqueta = #{id.label()}")

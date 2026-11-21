@@ -1,1 +1,0 @@
-invoke {sqrt, pow} from "math"

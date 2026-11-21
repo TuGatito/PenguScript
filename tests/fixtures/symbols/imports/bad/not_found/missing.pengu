@@ -1,3 +1,0 @@
-realm missing_test
-
-invoke "non_existent_module" as missing

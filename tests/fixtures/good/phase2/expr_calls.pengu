@@ -1,5 +1,0 @@
-f()
-g(1, 2, "hello")
-obj.method(42)
-obj.run!
-f!

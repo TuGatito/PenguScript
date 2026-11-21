@@ -1,8 +1,0 @@
-realm app
-
-invoke "math" as math
-invoke "math/geometry" as geom
-
-run = -> void
-  p = geom::Point(0.0, 0.0)
-  a = math::area(2.0)

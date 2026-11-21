@@ -1,0 +1,10 @@
+-- Módulo de saludos. El realm por defecto es el nombre del archivo,
+-- pero aquí lo declaramos explícitamente.
+
+realm saludos
+
+saludar = (nombre: string) -> void
+  io::println("Hola, #{nombre}.")
+
+despedir = (nombre: string) -> void
+  io::println("Hasta luego, #{nombre}.")

@@ -1,2 +1,0 @@
-rune Container<T> heir Animal<T>
-  payload: T

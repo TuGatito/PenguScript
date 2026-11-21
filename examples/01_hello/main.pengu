@@ -1,0 +1,9 @@
+-- El programa más pequeño de PenguScript.
+--
+-- `invoke` importa un módulo de la biblioteca estándar y `main` es el
+-- punto de entrada del programa.
+
+invoke "std/io"
+
+main = ->
+  io::println("¡Hola, PenguScript!")

@@ -10,6 +10,22 @@ A module that has both uses the `.d.pengu` for its FFI/intrinsic layer and the `
 
 All FFI is **centralized** in `std/sys` (OS syscalls) and `std/ffi` (C++ library bindings). No other `.d.pengu` declares C functions. This makes the OS surface auditable in one place.
 
+### Estado en 0.1.0
+
+Ya implementado y cubierto por pruebas:
+
+| Archivo | Contenido |
+|---------|-----------|
+| `std/math.d.pengu` | `abs`, `sqrt`, `floor`, `ceil`, `round`, `sin`, `cos`, `tan`, `pow`, `min`, `max`, `clamp`, `pi`, `e`. |
+| `std/fs.d.pengu` | `read_to_string`, `write_string`, `exists`, `is_dir`, `remove`, `create_dir`. |
+| `std/time.d.pengu` | `now_millis`, `now_seconds`, `sleep_millis`. |
+| `std/random.d.pengu` | `int`, `float`, `bool`. |
+| `std/os.d.pengu` | `args`, `get_env`, `exit`. |
+| `std/assert.d.pengu` | `that`, `fail`. |
+| `std/io`, `std/format`, `std/log` | intrínsecas (aún no hay funciones variádicas en el lenguaje). |
+
+El bloque `declare` marca las funciones que implementa el runtime del compilador; el generador C++ no emite cuerpo para ellas, solo la llamada al helper correspondiente.
+
 ### Layer 0 — FFI
 
 | Module | Files | Contents |

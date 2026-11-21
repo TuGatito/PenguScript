@@ -1,5 +1,0 @@
-realm shapes
-
-enchanting NonExistentRune
-  do_something = -> void
-    pass

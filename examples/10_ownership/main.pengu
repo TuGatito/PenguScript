@@ -1,0 +1,22 @@
+-- Posesión: `unique<T>` es el dueño único de un valor del heap.
+--
+-- Al pasar un `unique<T>` a una función se mueve: la variable original
+-- queda inválida. El checker lo detecta (E0601).
+
+invoke "std/io"
+
+rune Node
+  value: int
+
+  constructor(value: int)
+    @value = value
+
+consumir = (nodo: unique<Node>) -> int
+  nodo.value
+
+main = ->
+  const caja = unique<Node>(7)
+  io::println("valor: #{consumir(caja)}")
+  -- Descomentar la línea siguiente produce E0601 («caja» se usó
+  -- después de moverse):
+  -- io::println("otra vez: #{caja.value}")

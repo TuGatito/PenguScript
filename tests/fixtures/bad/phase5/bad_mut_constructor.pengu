@@ -1,4 +1,0 @@
-rune Point
-  x: double
-  mut constructor(x: double)
-    @x = x

@@ -1,5 +1,0 @@
-realm cycle_c
-
-invoke "a" as a
-
-const VAL_C = 3

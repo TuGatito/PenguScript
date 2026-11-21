@@ -1,0 +1,43 @@
+-- Omens: enumeraciones, banderas y variantes con datos.
+--
+-- `omen` sirve para tres cosas: una enumeración simple, un conjunto
+-- de banderas y una unión etiquetada que se recorre con `match`.
+
+invoke "std/io"
+
+omen Color
+  Red
+  Green
+  Blue
+
+flags omen Permission
+  Read
+  Write
+  Execute
+
+omen Shape
+  Circle(double)
+  Rect(double, double)
+
+area = (shape: Shape) -> double
+  match shape
+    when Circle(r) then 3.14159265 * r * r
+    when Rect(w, h) then w * h
+
+main = ->
+  const c = Color::Green
+  io::println("color = #{c as int}")
+
+  const perms = Permission::Read | Permission::Write
+  io::println("permisos = #{perms as int}")
+  io::println("¿escritura? #{perms.has(Permission::Write)}")
+
+  const shapes = [Shape::Circle(1.0), Shape::Rect(2.0, 3.0)]
+  for s in shapes
+    io::println("área = #{area(s)}")
+
+  const nombre = switch c
+    when Color::Red then "rojo"
+    when Color::Green then "verde"
+    else "azul"
+  io::println("switch: #{nombre}")

@@ -1,0 +1,22 @@
+-- Varios archivos: `invoke` con alias y con importación selectiva.
+
+realm main
+
+invoke "std/io"
+invoke "./saludos" as saludos
+invoke {doble, es_par} from "./numeros"
+
+main = ->
+  saludos::saludar("mundo")
+  saludos::despedir("mundo")
+
+  for i in 1..3
+    io::println("#{i} doblado es #{doble(i)}")
+
+  if es_par(8)
+    io::println("8 es par")
+
+  if es_par(7)
+    io::println("7 es par")
+  else
+    io::println("7 es impar")

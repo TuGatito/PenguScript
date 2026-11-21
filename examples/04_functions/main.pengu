@@ -1,0 +1,30 @@
+-- Funciones, valores por defecto y recursión.
+--
+-- La última expresión del cuerpo es el valor de retorno; también se
+-- puede usar `return` para salir antes.
+
+invoke "std/io"
+
+saludar = (nombre: string) -> void
+  io::println("Hola, #{nombre}!")
+
+suma = (a: int, b: int) -> int
+  a + b
+
+potencia = (base: int, exponente: int = 2) -> int
+  mut resultado = 1
+  for _ in 0..<exponente
+    resultado *= base
+  resultado
+
+factorial = (n: int) -> int
+  if n <= 1
+    1
+  else
+    n * factorial(n - 1)
+
+main = ->
+  saludar("mundo")
+  io::println("2 + 3 = #{suma(2, 3)}")
+  io::println("2^10 = #{potencia(2, 10)}")
+  io::println("5! = #{factorial(5)}")

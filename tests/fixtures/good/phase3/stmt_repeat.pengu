@@ -1,3 +1,0 @@
-repeat
-  line = read_line()
-until line == "quit"

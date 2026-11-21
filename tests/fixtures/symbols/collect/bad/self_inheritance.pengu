@@ -1,4 +1,0 @@
-realm test_realm
-
-rune Node heir Node
-  next: Node
