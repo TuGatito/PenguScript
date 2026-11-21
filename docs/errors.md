@@ -104,6 +104,11 @@ Formato: `archivo:línea:columna: severidad[código]: mensaje`.
 | E0704 | `field_shadow` | Un campo de la hija sombrea uno heredado. |
 | E0705 | `method_shadow` | Sombreo de método no permitido en ese contexto. |
 | E0706 | `invalid_operator` | Operador mal declarado o duplicado. |
+| E0707 | `enchant_duplicate` | La misma firma está enhechizada dos veces en un realm. |
+| E0708 | `ambiguous_method` | Varias sobrecargas compatibles o dos imports con la misma firma. |
+| E0709 | `unknown_enchant_target` | `enchanting` apunta a un tipo que no existe ni admite métodos. |
+| E0710 | `invalid_mut_receiver` | Método `mut` sobre un tipo por valor (`int`, `double`, omens…). |
+| E0711 | `enchant_arity` | El patrón declara un número de sigilos que el tipo no admite. |
 
 ## Toolchain (E08xx)
 

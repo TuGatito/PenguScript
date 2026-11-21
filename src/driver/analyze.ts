@@ -3,6 +3,8 @@
 
 import type { DiagnosticSink } from "../diagnostics/sink.ts";
 import { load_graph } from "../project/module_graph.ts";
+import { same_method_signature } from "../semantic/module_info.ts";
+import type { EnchantedType } from "../semantic/type_env.ts";
 import { check_loaded_module } from "../semantic/checker.ts";
 import type { ProgramUnit } from "../codegen/cpp_module.ts";
 import type { ModuleInfo } from "../semantic/module_info.ts";
@@ -29,6 +31,22 @@ export function analyze_graph(source_path: string, sink: DiagnosticSink): Analys
       external_modules.set(alias, imported.info);
       external_realms.set(alias, imported.info.realm);
     }
+    const enchants = new Map<string, EnchantedType>();
+    for (const imported of loaded.imports.values()) {
+      for (const [key, entry] of imported.info.env.enchants) {
+        const existing = enchants.get(key);
+        if (existing === undefined) {
+          enchants.set(key, { ...entry, methods: new Map(entry.methods) });
+          continue;
+        }
+        for (const [name, methods] of entry.methods) {
+          const list = existing.methods.get(name);
+          if (list === undefined) existing.methods.set(name, [...methods]);
+          else for (const method of methods) if (!list.some((other) => same_method_signature(other.info, method.info))) list.push(method);
+        }
+      }
+    }
+
     const selective = new Map<string, { module: ModuleInfo; name: string }>();
     for (const [name, symbol] of loaded.selective) {
       selective.set(name, { module: symbol.module.info, name: symbol.name });
@@ -38,7 +56,7 @@ export function analyze_graph(source_path: string, sink: DiagnosticSink): Analys
     const module = loaded.info;
     check_loaded_module(module, loaded.program, sink, {
       types,
-      external: { modules: external_modules, selective },
+      external: { modules: external_modules, selective, enchants },
     });
     const selective_realms = new Map<string, string>();
     for (const [name, symbol] of loaded.selective) selective_realms.set(name, symbol.module.info.realm);

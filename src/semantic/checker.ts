@@ -26,7 +26,9 @@ import { declare } from "./scopes.ts";
 import { infer_block, param_binding_type } from "./checker_expr.ts";
 import type { RuneInfo } from "./type_env.ts";
 import { find_rune_field, find_rune_method, report_pending_types, resolve_type_node } from "./type_env.ts";
-import { any_type, generic_type, is_any, named, type_equals } from "./types.ts";
+import { VOID, any_type, generic_type, is_any, named, primitive, type_equals } from "./types.ts";
+import { STRING_TYPES, is_primitive_type } from "../frontend/ast_type.ts";
+import { enchant_target_of } from "./enchant_targets.ts";
 import type { PenguType } from "./types.ts";
 import type { ExternalImports } from "./external.ts";
 
@@ -283,7 +285,8 @@ function check_enchanting(ctx: CheckContext, decl: EnchantingDecl): void {
   // En sellos y echoes `@` es el valor subyacente; solo una rune
   // tiene un `self` con identidad propia.
   const alias = ctx.module.env.aliases.get(target);
-  const self_type = alias === undefined ? named(target) : alias.target;
+  const builtin_self = enchant_self_type(ctx, decl);
+  const self_type = alias !== undefined ? alias.target : builtin_self ?? named(target);
 
   // Un `echo` es un alias transparente: sus operadores son los del
   // tipo subyacente y no se pueden sobrecargar.
@@ -298,7 +301,7 @@ function check_enchanting(ctx: CheckContext, decl: EnchantingDecl): void {
     }
   }
 
-  const target_sigils = ctx.module.env.runes.get(target)?.sigils ?? [];
+  const target_sigils = ctx.module.env.runes.get(target)?.sigils ?? decl.sigils;
   with_sigils(ctx, target_sigils, () => {
     for (const method of decl.methods) {
       with_sigils(ctx, method.sigils, () => check_method(ctx, method, self_type));
@@ -320,6 +323,15 @@ function check_field_shadowing(ctx: CheckContext, decl: RuneDecl, rune: RuneInfo
       field.span,
     ));
   }
+}
+
+// Tipo del receptor cuando el `enchanting` apunta a un tipo incorporado.
+function enchant_self_type(ctx: CheckContext, decl: EnchantingDecl): PenguType | undefined {
+  if (enchant_target_of(decl.target) === undefined) return undefined;
+  if (decl.target === "Ordering") return named("Ordering");
+  if (STRING_TYPES.has(decl.target)) return primitive(decl.target);
+  if (is_primitive_type(decl.target)) return decl.target === "void" ? VOID : primitive(decl.target);
+  return named(decl.target, decl.sigils.map(generic_type));
 }
 
 function check_method(ctx: CheckContext, method: MethodDecl, self_type: PenguType): void {

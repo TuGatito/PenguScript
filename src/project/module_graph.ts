@@ -15,7 +15,7 @@ import { parse_text } from "../frontend/parser.ts";
 import type { Program } from "../frontend/ast.ts";
 import type { DeclNode } from "../frontend/ast_decl.ts";
 import type { Span } from "../util/span.ts";
-import { collect_module } from "../semantic/module_info.ts";
+import { collect_module, same_method_signature } from "../semantic/module_info.ts";
 import type { ModuleInfo } from "../semantic/module_info.ts";
 import { symbol_type_of } from "../semantic/external.ts";
 import { find_project_root, resolve_module_file } from "./paths.ts";
@@ -106,6 +106,25 @@ function merge_realm_envs(state: LoadState): void {
         }
         for (const [name, constant] of source.info.consts) {
           if (!target.info.consts.has(name)) target.info.consts.set(name, constant);
+        }
+        // Los enhechizamientos de tipos incorporados se comparten igual:
+        // `std/string.pengu` puede repartirse en varios archivos del realm.
+        for (const [key, entry] of source.info.env.enchants) {
+          const existing = target.info.env.enchants.get(key);
+          if (existing === undefined) {
+            target.info.env.enchants.set(key, entry);
+            continue;
+          }
+          for (const [name, methods] of entry.methods) {
+            const list = existing.methods.get(name);
+            if (list === undefined) {
+              existing.methods.set(name, [...methods]);
+              continue;
+            }
+            for (const method of methods) {
+              if (!list.some((other) => same_method_signature(other.info, method.info))) list.push(method);
+            }
+          }
         }
       }
     }

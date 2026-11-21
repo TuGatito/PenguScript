@@ -66,6 +66,11 @@ export const CODES = {
   invalid_parent: "E0703",
   field_shadow: "E0704",
   method_shadow: "E0705",
+  enchant_duplicate: "E0707",
+  ambiguous_method: "E0708",
+  unknown_enchant_target: "E0709",
+  invalid_mut_receiver: "E0710",
+  enchant_arity: "E0711",
 
   cpp_emit_failed: "E0801",
   toolchain_missing: "E0802",

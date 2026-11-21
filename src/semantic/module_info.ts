@@ -22,9 +22,12 @@ import type {
 } from "../frontend/ast_decl.ts";
 import type { ParamNode } from "../frontend/ast_param.ts";
 import type { PenguType } from "./types.ts";
-import { UNKNOWN, VOID, any_type, function_type, generic_type, named } from "./types.ts";
+import { UNKNOWN, VOID, any_type, function_type, generic_type, named, type_display } from "./types.ts";
 import type { AliasInfo, FieldInfo, MethodInfo, OmenInfo, RuneInfo, TypeEnv } from "./type_env.ts";
 import { make_type_env, resolve_type_node } from "./type_env.ts";
+import type { EnchantedType } from "./type_env.ts";
+import { enchant_key, enchant_target_of, enchant_target_names } from "./enchant_targets.ts";
+import { suggest_name } from "../util/suggest.ts";
 
 export interface ParamInfo {
   readonly name: string;
@@ -108,7 +111,7 @@ export function collect_module(
   // Los `enchanting` necesitan que los runes ya existan.
   for (const decl of program.decls) {
     if (decl.kind === "enchanting_decl") {
-      register_enchanting(decl, env, sink);
+      register_enchanting(decl, env, sink, realm);
     }
   }
 
@@ -274,15 +277,18 @@ function register_omen(omen: OmenDecl, env: TypeEnv, sink: DiagnosticSink): void
   restore_sigils(env, previous);
 }
 
-function register_enchanting(decl: EnchantingDecl, env: TypeEnv, sink: DiagnosticSink): void {
+function register_enchanting(
+  decl: EnchantingDecl,
+  env: TypeEnv,
+  sink: DiagnosticSink,
+  realm: string,
+): void {
   const rune = env.runes.get(decl.target);
   const omen = env.omens.get(decl.target);
   const alias = env.aliases.get(decl.target);
 
   if (!rune && !omen && !alias) {
-    sink.add(
-      make_error(CODES.unknown_type, `«${decl.target}» no es un tipo al que se pueda enhechizar`, decl.target_span),
-    );
+    register_builtin_enchanting(decl, env, sink, realm);
     return;
   }
 
@@ -303,6 +309,89 @@ function register_enchanting(decl: EnchantingDecl, env: TypeEnv, sink: Diagnosti
       map.set(info.name, info);
       omen_methods.set(omen, map);
     }
+  }
+
+  restore_sigils(env, previous);
+}
+
+// Dos métodos son la misma firma si coinciden en parámetros, variádicas y
+// mutabilidad del receptor. Se usa para detectar duplicados (E0707).
+export function same_method_signature(left: MethodInfo, right: MethodInfo): boolean {
+  if (left.mutable !== right.mutable || left.variadic !== right.variadic) return false;
+  if (left.params.length !== right.params.length) return false;
+  return left.params.every((type, index) => type_display(type) === type_display(right.params[index]!));
+}
+
+// `enchanting` sobre un tipo incorporado: primitivos, contenedores y la
+// familia de `string`. Se registra por `base/aridad`.
+function register_builtin_enchanting(
+  decl: EnchantingDecl,
+  env: TypeEnv,
+  sink: DiagnosticSink,
+  realm: string,
+): void {
+  const target = enchant_target_of(decl.target);
+  if (target === undefined) {
+    const suggestion = suggest_name(decl.target, [...enchant_target_names(), ...env.runes.keys(), ...env.omens.keys()]);
+    const hint = suggestion === undefined ? "" : `; ¿quisiste decir «${suggestion}»?`;
+    sink.add(
+      make_error(
+        CODES.unknown_enchant_target,
+        `«${decl.target}» no es un tipo al que se pueda enhechizar${hint}`,
+        decl.target_span,
+      ),
+    );
+    return;
+  }
+
+  const arity = decl.sigils.length;
+  if (!target.arities.includes(arity)) {
+    const expected = target.arities.map(String).join(" o ");
+    sink.add(
+      make_error(
+        CODES.enchant_arity,
+        `«${decl.target}» espera ${expected} argumento(s) de tipo, recibió ${arity}`,
+        decl.target_span,
+      ),
+    );
+    return;
+  }
+
+  const previous = new Map(env.sigils);
+  for (const sigil of decl.sigils) env.sigils.set(sigil, generic_type(sigil));
+
+  const key = enchant_key(decl.target, arity);
+  let entry: EnchantedType | undefined = env.enchants.get(key);
+  if (entry === undefined) {
+    entry = { base: decl.target, arity, sigils: [...decl.sigils], methods: new Map() };
+    env.enchants.set(key, entry);
+  }
+
+  for (const method of decl.methods) {
+    if (method.mutable && !target.reference) {
+      sink.add(
+        make_error(
+          CODES.invalid_mut_receiver,
+          `«${decl.target}» es un tipo por valor: un método «mut» no puede modificar el receptor`,
+          method.name_span,
+        ),
+      );
+      continue;
+    }
+    const info = resolve_method(method, env, sink);
+    const list = entry.methods.get(info.name) ?? [];
+    if (list.some((existing) => same_method_signature(existing.info, info))) {
+      sink.add(
+        make_error(
+          CODES.enchant_duplicate,
+          `«${decl.target}.${info.name}» ya está enhechizado con esa firma en el realm «${realm}»`,
+          method.name_span,
+        ),
+      );
+      continue;
+    }
+    list.push({ info, realm });
+    entry.methods.set(info.name, list);
   }
 
   restore_sigils(env, previous);

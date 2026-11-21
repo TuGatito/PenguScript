@@ -7,6 +7,7 @@ import type { ModuleInfo } from "./module_info.ts";
 import type { PenguType } from "./types.ts";
 import { function_type_of } from "./module_info.ts";
 import { named, optional } from "./types.ts";
+import type { EnchantedType } from "./type_env.ts";
 
 export interface ExternalSymbol {
   readonly module: ModuleInfo;
@@ -16,6 +17,8 @@ export interface ExternalSymbol {
 export interface ExternalImports {
   readonly modules: ReadonlyMap<string, ModuleInfo>;
   readonly selective: ReadonlyMap<string, ExternalSymbol>;
+  /** Enhechizamientos de tipos incorporados que aportan los imports. */
+  readonly enchants: ReadonlyMap<string, EnchantedType>;
 }
 
 // Tipo de un símbolo público de `module`; `undefined` si no existe.

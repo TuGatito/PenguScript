@@ -92,10 +92,27 @@ export interface PendingType {
   readonly span: Span;
 }
 
+/** Método enhechizado a un tipo incorporado. */
+export interface EnchantedMethod {
+  readonly info: MethodInfo;
+  /** Realm que lo declara: el codegen cualifica la llamada con él. */
+  readonly realm: string;
+}
+
+/** Métodos declarados sobre un tipo incorporado, por aridad. */
+export interface EnchantedType {
+  readonly base: string;
+  readonly arity: number;
+  readonly sigils: readonly string[];
+  readonly methods: Map<string, EnchantedMethod[]>;
+}
+
 export interface TypeEnv {
   readonly runes: Map<string, RuneInfo>;
   readonly omens: Map<string, OmenInfo>;
   readonly aliases: Map<string, AliasInfo>;
+  /** Clave `base/aridad`: `string/0`, `vector/1`, `tuple/2`. */
+  readonly enchants: Map<string, EnchantedType>;
   readonly sigils: Map<string, PenguType>;
   // Tipos que aún no existen: pueden llegar de otro archivo del mismo
   // realm (realm reabierto) y se validan al terminar de cargar el grafo.
@@ -103,7 +120,14 @@ export interface TypeEnv {
 }
 
 export function make_type_env(): TypeEnv {
-  return { runes: new Map(), omens: new Map(), aliases: new Map(), sigils: new Map(), pending_types: [] };
+  return {
+    runes: new Map(),
+    omens: new Map(),
+    aliases: new Map(),
+    sigils: new Map(),
+    enchants: new Map(),
+    pending_types: [],
+  };
 }
 
 const POINTER_NAMES: ReadonlyMap<string, (inner: PenguType) => PenguType> = new Map([
