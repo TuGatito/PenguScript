@@ -13,6 +13,7 @@ import type { CheckContext } from "./checker_context.ts";
 import { can_assign, check_initialization, report_type_mismatch } from "./checker_context.ts";
 import { declare, lookup } from "./scopes.ts";
 import { infer_expr, mark_moved } from "./checker_expr.ts";
+import { find_rune_field, find_rune_method } from "./type_env.ts";
 import {
   UNKNOWN,
   VOID,
@@ -134,7 +135,11 @@ function check_assign(ctx: CheckContext, node: AssignStmtNode): PenguType {
   // Asignación compuesta: el valor debe operar con el tipo actual.
   if (!is_any(expected) && !is_any(value)) {
     const binary = node.op.slice(0, -1);
+    const rune = expected.kind === "named" ? ctx.module.env.runes.get(expected.name) : undefined;
+    const user_operator =
+      rune === undefined ? undefined : find_rune_method(ctx.module.env, rune, node.op);
     const valid =
+      user_operator !== undefined ||
       (binary === "+" && (is_numeric(expected) || is_string(expected))) ||
       (binary !== "+" && is_numeric(expected)) ||
       (binary === "&" || binary === "|" || binary === "^" || binary === "<<" || binary === ">>");
@@ -192,7 +197,7 @@ function assign_target(
       const expected = member_of_builtin(object, target.name);
       if (expected === undefined) {
         const rune = object.kind === "named" ? ctx.module.env.runes.get(object.name) : undefined;
-        const field = rune?.fields.get(target.name);
+        const field = rune === undefined ? undefined : find_rune_field(ctx.module.env, rune, target.name);
         if (field === undefined) {
           report_error(
             ctx,
@@ -211,7 +216,9 @@ function assign_target(
     case "index": {
       const object = infer_expr(ctx, target.object);
       infer_expr(ctx, target.index);
-      const expected = builtin_index_result(object);
+      const expected = index_value_type(
+        builtin_index_result(object) ?? rune_index_result(ctx, object),
+      );
       if (expected === undefined) {
         report_error(
           ctx,
@@ -229,6 +236,20 @@ function assign_target(
   }
 }
 
+// El `operator []` puede devolver `ref<V>`; para leer o escribir el
+// índice el valor útil es `V`.
+function index_value_type(type: PenguType | undefined): PenguType | undefined {
+  return type?.kind === "ref" ? type.inner : type;
+}
+
+// Tipo que devuelve el `operator []` de una rune, si lo declara.
+export function rune_index_result(ctx: CheckContext, type: PenguType): PenguType | undefined {
+  if (type.kind !== "named") return undefined;
+  const rune = ctx.module.env.runes.get(type.name);
+  if (rune === undefined) return undefined;
+  return find_rune_method(ctx.module.env, rune, "[]")?.result;
+}
+
 function target_type(ctx: CheckContext, target: ExprNode): PenguType {
   switch (target.kind) {
     case "ident": {
@@ -238,7 +259,10 @@ function target_type(ctx: CheckContext, target: ExprNode): PenguType {
     case "member":
       return member_of_builtin(infer_expr(ctx, target.object), target.name) ?? UNKNOWN;
     case "index":
-      return builtin_index_result(infer_expr(ctx, target.object)) ?? UNKNOWN;
+      return index_value_type(
+        builtin_index_result(infer_expr(ctx, target.object)) ??
+          rune_index_result(ctx, infer_expr(ctx, target.object)),
+      ) ?? UNKNOWN;
     default:
       return UNKNOWN;
   }

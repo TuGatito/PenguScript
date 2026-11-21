@@ -9,6 +9,8 @@ import { CODES } from "../diagnostics/codes.ts";
 import { error as make_error } from "../diagnostics/diagnostic.ts";
 import type { Span } from "../util/span.ts";
 import type { ModuleInfo } from "./module_info.ts";
+import type { TypeEnv } from "./type_env.ts";
+import { is_heir_of } from "./type_env.ts";
 import type { Scope } from "./scopes.ts";
 import { make_scope } from "./scopes.ts";
 import type { PenguType } from "./types.ts";
@@ -138,7 +140,11 @@ function float_assignable(target_rank: number, source_int: boolean, source_rank:
   return source_rank <= target_rank;
 }
 
-export function can_assign(target: PenguType, source: PenguType): boolean {
+export function can_assign(
+  target: PenguType,
+  source: PenguType,
+  env?: TypeEnv,
+): boolean {
   if (is_any(target) || is_any(source)) return true;
   if (type_equals(target, source)) return true;
 
@@ -152,13 +158,13 @@ export function can_assign(target: PenguType, source: PenguType): boolean {
   }
 
   if (target.kind === "named" && target.name === "variant") {
-    return target.args.some((option) => can_assign(option, source));
+    return target.args.some((option) => can_assign(option, source, env));
   }
 
   if (target.kind === "optional") {
     if (source.kind === "none") return true;
-    if (source.kind === "optional") return can_assign(target.inner, source.inner);
-    return can_assign(target.inner, source);
+    if (source.kind === "optional") return can_assign(target.inner, source.inner, env);
+    return can_assign(target.inner, source, env);
   }
   if (source.kind === "none") return false;
   if (source.kind === "nullptr") return target.kind === "raw";
@@ -168,7 +174,7 @@ export function can_assign(target: PenguType, source: PenguType): boolean {
     if (target.name !== "pair" && target.name !== "tuple") return false;
     return (
       target.args.length === source.items.length &&
-      target.args.every((item, index) => can_assign(item, source.items[index] ?? UNKNOWN))
+      target.args.every((item, index) => can_assign(item, source.items[index] ?? UNKNOWN, env))
     );
   }
 
@@ -183,7 +189,8 @@ export function can_assign(target: PenguType, source: PenguType): boolean {
     return float_assignable(target_float, source_int !== undefined, float_rank(source));
   }
 
-  // Un `ref<T>` acepta la dirección de un T.
+  // `ref<Dog>` no es `ref<Animal>`: el upcast debe ser explícito con
+  // `ref<Animal>(ref(d))`, que es lo único que evita el slicing.
   if (target.kind === "ref" && source.kind === "ref") {
     return type_equals(target.inner, source.inner) && (target.mutable === source.mutable || !target.mutable);
   }
@@ -211,7 +218,7 @@ export function check_initialization(
   if (is_any(expected) || is_any(actual)) return;
   if (is_generic_type(ctx, expected) || is_generic_type(ctx, actual)) return;
   if (compound_fits(ctx, expected, value, actual)) return;
-  if (can_assign(expected, actual)) return;
+  if (can_assign(expected, actual, ctx.module.env)) return;
   if (literal_fits(expected, actual, value)) return;
   report_type_mismatch(ctx, expected, actual, span, context);
 }
@@ -229,7 +236,7 @@ function compound_fits(
   if (expected.kind === "array" && value.kind === "vector_lit") {
     if (value.items.length !== expected.size) return false;
     const element = actual.kind === "named" ? actual.args[0] : undefined;
-    if (element === undefined || !can_assign(expected.element, element)) return false;
+    if (element === undefined || !can_assign(expected.element, element, ctx.module.env)) return false;
     ctx.types?.set(value, expected);
     return true;
   }
@@ -239,7 +246,7 @@ function compound_fits(
     (expected.name === "pair" || expected.name === "tuple") &&
     value.kind === "tuple"
   ) {
-    if (!can_assign(expected, actual)) return false;
+    if (!can_assign(expected, actual, ctx.module.env)) return false;
     ctx.types?.set(value, expected);
     return true;
   }

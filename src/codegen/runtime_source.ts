@@ -27,6 +27,7 @@ export const RUNTIME_HEADER = `// Runtime generado por pengu 0.1.0. No editar a 
 #include <unordered_set>
 #include <any>
 #include <charconv>
+#include <compare>
 #include <chrono>
 #include <cmath>
 #include <limits>
@@ -120,25 +121,58 @@ std::string to_string(T value) {
 class Value;
 std::string to_string(const Value& item);
 
-// Resultado de comparar dos valores con <=>.
-enum class Ordering { Less, Equal, Greater };
+// Resultado de comparar dos valores con <=>. Envuelve los tres tipos
+// de orden de C++20 en un valor con la API del lenguaje.
+class Ordering {
+ public:
+  constexpr Ordering() = default;
+  // Implícito a propósito: «a <=> b» produce std::*_ordering y el
+  // retorno declarado de un operador del usuario es Ordering.
+  constexpr Ordering(std::partial_ordering value) : value_(value) {}
+
+  static const Ordering Less;
+  static const Ordering Equal;
+  static const Ordering Greater;
+
+  bool is_lt() const { return value_ < 0; }
+  bool is_eq() const { return value_ == 0; }
+  bool is_gt() const { return value_ > 0; }
+
+  Ordering reverse() const {
+    if (is_lt()) return Greater;
+    if (is_gt()) return Less;
+    return Equal;
+  }
+
+  std::partial_ordering raw() const { return value_; }
+
+ private:
+  std::partial_ordering value_ = std::partial_ordering::equivalent;
+};
+
+inline constexpr Ordering Ordering::Less = Ordering(std::partial_ordering::less);
+inline constexpr Ordering Ordering::Equal = Ordering(std::partial_ordering::equivalent);
+inline constexpr Ordering Ordering::Greater = Ordering(std::partial_ordering::greater);
+
+inline bool operator==(Ordering left, Ordering right) {
+  return left.raw() == right.raw();
+}
+
+inline bool operator!=(Ordering left, Ordering right) {
+  return !(left == right);
+}
 
 inline std::string to_string(Ordering value) {
-  switch (value) {
-    case Ordering::Less:
-      return "less";
-    case Ordering::Equal:
-      return "equal";
-    case Ordering::Greater:
-      return "greater";
-  }
+  if (value.is_lt()) return "less";
+  if (value.is_gt()) return "greater";
   return "equal";
 }
 
 template <class A, class B>
 Ordering compare(const A& left, const B& right) {
-  if (left < right) return Ordering::Less;
-  if (right < left) return Ordering::Greater;
+  auto result = left <=> right;
+  if (result < 0) return Ordering::Less;
+  if (result > 0) return Ordering::Greater;
   return Ordering::Equal;
 }
 

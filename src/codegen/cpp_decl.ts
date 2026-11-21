@@ -16,12 +16,15 @@ import type {
   SealDecl,
 } from "../frontend/ast_decl.ts";
 import type { ParamNode } from "../frontend/ast_param.ts";
+import type { Block } from "../frontend/ast_stmt.ts";
 import type { GenContext } from "./cpp_context.ts";
 import { declare_local, line, pop_scope, push_scope } from "./cpp_context.ts";
-import { cpp_identifier, cpp_type_node } from "./cpp_types.ts";
+import { cpp_identifier, cpp_type, cpp_type_node } from "./cpp_types.ts";
 import { emit_value_block } from "./cpp_stmt.ts";
 import { emit_expr } from "./cpp_expr.ts";
-import { generic_type } from "../semantic/types.ts";
+import { generic_type, named } from "../semantic/types.ts";
+import type { TypeDecl } from "./cpp_type_order.ts";
+import { heir_names, is_type_decl, order_type_decls } from "./cpp_type_order.ts";
 
 
 // Los sigilos deben estar activos mientras se emite una declaración
@@ -39,30 +42,54 @@ function with_sigils(g: GenContext, sigils: readonly string[], body: () => void)
 
 export function emit_declarations(g: GenContext, decls: readonly DeclNode[]): void {
   const methods_by_rune = collect_methods(decls);
+  const type_decls: TypeDecl[] = [];
+  for (const decl of decls) {
+    if (is_type_decl(decl)) type_decls.push(decl);
+  }
+  const types = order_type_decls(type_decls);
+  const heirs = heir_names(decls);
+
+  // Primero los tipos, en orden de dependencia: C++ necesita el padre
+  // completo antes que la hija.
+  for (const decl of types) {
+    switch (decl.kind) {
+      case "rune_decl":
+        with_sigils(g, decl.sigils, () => emit_rune(g, decl, methods_by_rune.get(decl.name) ?? [], heirs));
+        break;
+      case "omen_decl":
+        with_sigils(g, decl.sigils, () => {
+          emit_omen(g, decl);
+          emit_free_methods(g, decl.name, methods_by_rune.get(decl.name) ?? []);
+        });
+        break;
+      case "echo_decl":
+        with_sigils(g, decl.sigils, () => {
+          emit_echo(g, decl);
+          emit_free_methods(g, decl.name, methods_by_rune.get(decl.name) ?? []);
+        });
+        break;
+      case "seal_decl":
+        with_sigils(g, decl.sigils, () => emit_seal(g, decl, methods_by_rune.get(decl.name) ?? []));
+        break;
+    }
+  }
+
+  // Después el resto, en el orden del fuente.
   for (const decl of decls) {
     switch (decl.kind) {
       case "realm_decl":
       case "invoke_decl":
+      case "rune_decl":
+      case "omen_decl":
+      case "echo_decl":
+      case "seal_decl":
+      case "enchanting_decl":
         break;
       case "const_decl":
         emit_const(g, decl);
         break;
       case "function_decl":
         with_sigils(g, decl.sigils, () => emit_function(g, decl));
-        break;
-      case "rune_decl":
-        with_sigils(g, decl.sigils, () => emit_rune(g, decl, methods_by_rune.get(decl.name) ?? []));
-        break;
-      case "omen_decl":
-        with_sigils(g, decl.sigils, () => emit_omen(g, decl));
-        break;
-      case "echo_decl":
-        with_sigils(g, decl.sigils, () => emit_echo(g, decl));
-        break;
-      case "seal_decl":
-        with_sigils(g, decl.sigils, () => emit_seal(g, decl, methods_by_rune.get(decl.name) ?? []));
-        break;
-      case "enchanting_decl":
         break;
       case "extern_decl":
         emit_extern(g, decl);
@@ -158,7 +185,8 @@ function emit_function(g: GenContext, decl: FunctionDecl): void {
   }
   const result = decl.result ? cpp_type_node(decl.result, g.module.env, g.type_realms) : "void";
   const params = decl.params.map((param) => emit_param(g, param)).join(", ");
-  line(g, `${result} ${cpp_identifier(decl.name)}(${params}) {`);
+  const name = decl.operator === undefined ? cpp_identifier(decl.name) : operator_name(decl.operator);
+  line(g, `${result} ${name}(${params}) {`);
   g.indent += 1;
   push_scope(g);
   for (const param of decl.params) declare_local(g, param.name);
@@ -166,6 +194,39 @@ function emit_function(g: GenContext, decl: FunctionDecl): void {
   pop_scope(g);
   g.indent -= 1;
   line(g, "}");
+}
+
+// Los omens y los `echo` no tienen métodos en C++ (son `enum class` y
+// alias): sus bloques `enchanting` se emiten como funciones libres y
+// las llamadas `valor.m(...)` se reescriben a `m(valor, ...)`.
+function emit_free_methods(
+  g: GenContext,
+  target: string,
+  methods: readonly MethodDecl[],
+): void {
+  if (methods.length === 0) return;
+  const omen = g.module.env.omens.get(target);
+  const alias = g.module.env.aliases.get(target);
+  if (omen === undefined && alias === undefined) return;
+  const self = cpp_type(omen !== undefined ? named(target) : alias!.target, g.type_realms);
+  const previous = g.self_expression;
+  for (const method of methods) {
+    const result = method.result ? cpp_type_node(method.result, g.module.env, g.type_realms) : "void";
+    const params = method.params.map((param) => emit_param(g, param)).join(", ");
+    const separator = params.length > 0 ? ", " : "";
+    const name = method.operator ? operator_name(method.operator) : cpp_identifier(method.name);
+    line(g, `${result} ${name}(const ${self}& self${separator}${params}) {`);
+    g.indent += 1;
+    push_scope(g);
+    declare_local(g, "self");
+    for (const param of method.params) declare_local(g, param.name);
+    g.self_expression = "self";
+    emit_value_block(g, method.body, result);
+    g.self_expression = previous;
+    pop_scope(g);
+    g.indent -= 1;
+    line(g, "}");
+  }
 }
 
 function emit_param(g: GenContext, param: ParamNode): string {
@@ -189,7 +250,12 @@ function emit_param(g: GenContext, param: ParamNode): string {
     : `${rendered} ${name}`;
 }
 
-function emit_rune(g: GenContext, decl: RuneDecl, methods: readonly MethodDecl[]): void {
+function emit_rune(
+  g: GenContext,
+  decl: RuneDecl,
+  methods: readonly MethodDecl[],
+  heirs: ReadonlySet<string>,
+): void {
   if (decl.sigils.length > 0) {
     line(g, `template <${decl.sigils.map((sigil) => `typename ${sigil}`).join(", ")}>`);
   }
@@ -203,45 +269,71 @@ function emit_rune(g: GenContext, decl: RuneDecl, methods: readonly MethodDecl[]
     line(g, `${type} ${cpp_identifier(field.name)}${default_value};`);
   }
 
+  const polymorphic = heirs.has(decl.name);
+
   if (decl.constructor) {
     const params = decl.constructor.params.map((param) => emit_param(g, param)).join(", ");
     const field_names = new Set(decl.fields.map((field) => field.name));
     const initializers = decl.constructor.params
       .filter((param) => field_names.has(param.name))
       .map((param) => `${cpp_identifier(param.name)}(${cpp_identifier(param.name)})`);
+
+    // `parent(...)` como primera sentencia del constructor inicializa
+    // la base; el resto del cuerpo sigue siendo normal.
+    const body = parent_call_body(g, decl, initializers);
     const init = initializers.length > 0 ? ` : ${initializers.join(", ")}` : "";
     line(g, `${name}(${params})${init} {`);
     g.indent += 1;
     push_scope(g);
     for (const param of decl.constructor.params) declare_local(g, param.name);
-    emit_value_block(g, decl.constructor.body, "void");
+    emit_value_block(g, body, "void");
     pop_scope(g);
     g.indent -= 1;
     line(g, "}");
   }
 
   if (decl.destructor) {
-    line(g, `~${name}() {`);
+    line(g, `${polymorphic ? "virtual " : ""}~${name}() {`);
     g.indent += 1;
     emit_value_block(g, decl.destructor, "void");
     g.indent -= 1;
     line(g, "}");
+  } else if (polymorphic) {
+    // Sin destructor propio, pero con herederos: C++ necesita que el
+    // borrado a través de la base sea correcto.
+    line(g, `virtual ~${name}() = default;`);
   }
 
   for (const method of methods) {
-    emit_method(g, method);
+    emit_method(g, method, polymorphic);
   }
 
   g.indent -= 1;
   line(g, "};");
 }
 
-function emit_method(g: GenContext, method: MethodDecl): void {
+// `parent(...)` no es una llamada normal: se convierte en el
+// inicializador de la clase base y desaparece del cuerpo.
+function parent_call_body(g: GenContext, decl: RuneDecl, initializers: string[]): Block {
+  const body = decl.constructor?.body;
+  if (body === undefined) return { kind: "block", statements: [], span: decl.span };
+  const first = body.statements[0];
+  if (first === undefined || first.kind !== "expr_stmt" || first.expr.kind !== "parent_call") {
+    return body;
+  }
+  const args = first.expr.args.map((arg) => emit_expr(g, arg.expr)).join(", ");
+  const base = decl.parent ?? "";
+  initializers.unshift(`${cpp_identifier(base)}(${args})`);
+  return { kind: "block", statements: body.statements.slice(1), span: body.span };
+}
+
+function emit_method(g: GenContext, method: MethodDecl, virtual_method = false): void {
   const result = method.result ? cpp_type_node(method.result, g.module.env, g.type_realms) : "void";
   const params = method.params.map((param) => emit_param(g, param)).join(", ");
   const name = method.operator ? operator_name(method.operator) : cpp_identifier(method.name);
   const constness = method.mutable ? "" : " const";
-  line(g, `${result} ${name}(${params})${constness} {`);
+  const prefix = virtual_method && method.operator === undefined ? "virtual " : "";
+  line(g, `${prefix}${result} ${name}(${params})${constness} {`);
   g.indent += 1;
   push_scope(g);
   for (const param of method.params) declare_local(g, param.name);
@@ -348,9 +440,9 @@ function emit_seal(g: GenContext, decl: SealDecl, methods: readonly MethodDecl[]
   g.indent += 1;
   line(g, `${target} value;`);
   line(g, `explicit ${name}(${target} v) : value(v) {}`);
-  g.self_value = true;
+  g.self_expression = "value";
   for (const method of methods) emit_method(g, method);
-  g.self_value = false;
+  g.self_expression = undefined;
   g.indent -= 1;
   line(g, "};");
 }

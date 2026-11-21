@@ -31,7 +31,9 @@ export interface GenContext {
   // Verdadero mientras se emite el cuerpo de una función que
   // devuelve un valor (para convertir la última expresión en return).
   in_value_body: boolean;
-  self_value: boolean;
+  // Expresión C++ que representa `@` dentro del cuerpo actual.
+  // `undefined` significa el `this` de un método de rune.
+  self_expression: string | undefined;
   // Tipo de usuario → realm que lo declara (para cualificar nombres).
   type_realms: TypeRealms;
   // Alias de `invoke` → realm del módulo importado.
@@ -59,7 +61,7 @@ export function make_gen_context(
     break_flags: [],
     break_values: [],
     in_value_body: false,
-    self_value: false,
+    self_expression: undefined,
     type_realms,
     external_realms,
     selective_realms,

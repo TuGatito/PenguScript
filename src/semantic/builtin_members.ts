@@ -79,14 +79,28 @@ export function map_key_value(type: PenguType): { key: PenguType; value: PenguTy
   return { key, value };
 }
 
-const adapter_names = new Set(["stack", "queue", "priority_queue"]);
+export const adapter_names = new Set(["stack", "queue", "priority_queue"]);
+
+export function is_adapter_type(type: PenguType): boolean {
+  return type.kind === "named" && adapter_names.has(type.name);
+}
 
 const bitset_names = new Set(["bitset"]);
 
 const sync_names = new Set(["mutex", "shared_mutex", "condition_variable"]);
 
+// Métodos de `Ordering`: comparan el resultado de un `<=>`.
+const ORDERING_METHODS: ReadonlyMap<string, PenguType> = new Map([
+  ["is_lt", function_type([], BOOL)],
+  ["is_eq", function_type([], BOOL)],
+  ["is_gt", function_type([], BOOL)],
+  ["reverse", function_type([], named("Ordering"))],
+]);
+
 export function member_of_builtin(type: PenguType, name: string): PenguType | undefined {
   if (type.kind === "any") return any_type("miembro desconocido");
+
+  if (type.kind === "named" && type.name === "Ordering") return ORDERING_METHODS.get(name);
 
   if (type.kind === "named" && type.name === "atomic") {
     const inner = type.args[0] ?? ANY_UNUSED;

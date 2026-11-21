@@ -27,7 +27,9 @@ import {
   type_of,
 } from "./cpp_context.ts";
 import { cpp_identifier, cpp_type, cpp_type_node, cpp_value_type, sanitize_namespace } from "./cpp_types.ts";
-import { is_map_type, is_sequence_container, is_set_type } from "../semantic/builtin_members.ts";
+import { is_adapter_type, is_map_type, is_sequence_container, is_set_type } from "../semantic/builtin_members.ts";
+import { omen_methods_of } from "../semantic/module_info.ts";
+import { find_echo_method } from "../semantic/type_env.ts";
 import type { PenguType } from "../semantic/types.ts";
 import { UNKNOWN, is_float, is_numeric, is_string, named, primitive, type_equals } from "../semantic/types.ts";
 import { is_conversion_target } from "../semantic/checker_expr.ts";
@@ -84,7 +86,7 @@ export function emit_expr(g: GenContext, node: ExprNode): string {
       return cpp_identifier(node.name);
     }
     case "self":
-      return g.self_value ? "value" : "(*this)";
+      return g.self_expression ?? "(*this)";
     case "path":
       return emit_path(g, node.segments);
     case "parent_call":
@@ -205,10 +207,20 @@ function emit_string(g: GenContext, parts: readonly import("../frontend/ast_expr
 
 function emit_index(g: GenContext, object: ExprNode, index: ExprNode): string {
   const object_type = type_of(g, object);
+  if (has_user_index(g, object_type)) {
+    return `${emit_expr(g, object)}[${emit_expr(g, index)}]`;
+  }
   const rendered = `${emit_expr(g, object)}, ${emit_expr(g, index)}`;
   return is_map_type(object_type)
     ? `::pengu::map_at(${rendered})`
     : `::pengu::vec_at(${rendered})`;
+}
+
+// ¿La rune declara su propio `operator []`?
+function has_user_index(g: GenContext, type: PenguType): boolean {
+  if (type.kind !== "named") return false;
+  const rune = g.module.env.runes.get(type.name);
+  return rune !== undefined && rune.methods.has("[]");
 }
 
 // Argumentos de una llamada variádica: se empaquetan en un vector.
@@ -355,7 +367,16 @@ function emit_ident_call(
 
   if (name === "ref") {
     const first = node.args[0];
-    return first === undefined ? "/* ref */" : emit_expr(g, first.expr);
+    if (first === undefined) return "/* ref */";
+    const rendered = emit_expr(g, first.expr);
+    // `ref<T>(x)`: upcast explícito de la referencia.
+    const target = node.type_args?.[0];
+    if (target === undefined) return rendered;
+    // La referencia conserva la mutabilidad del origen: un upcast sobre
+    // un binding inmutable produce `const Base&`.
+    const source = type_of(g, first.expr);
+    const constant = source.kind === "ref" && source.mutable ? "" : "const ";
+    return `static_cast<${constant}${cpp_type_node(target, g.module.env, g.type_realms)}&>(${rendered})`;
   }
   if (name === "panic") return `::pengu::panic(${args})`;
 
@@ -477,6 +498,25 @@ function emit_member_call(g: GenContext, object: ExprNode, name: string, args: s
     if (rune?.methods.has(name) === true) {
       return `${rendered}.${cpp_identifier(name)}(${args})`;
     }
+    // Omens: los métodos son funciones libres (`nombre(color)`).
+    const omen = g.module.env.omens.get(object_type.name);
+    if (omen !== undefined && omen_methods_of(omen)?.has(name) === true) {
+      return `${cpp_identifier(name)}(${rendered}${args.length > 0 ? `, ${args}` : ""})`;
+    }
+  }
+  // Un `seal` emite métodos reales dentro del struct.
+  if (object_type.kind === "named") {
+    const alias = g.module.env.aliases.get(object_type.name);
+    if (alias?.seal === true && alias.methods.has(name)) {
+      return `${rendered}.${cpp_identifier(name)}(${args})`;
+    }
+  }
+  // Un `echo` es un alias: sus métodos también son funciones libres.
+  {
+    const echo = find_echo_method(g.module.env, object_type, name);
+    if (echo !== undefined) {
+      return `${cpp_identifier(name)}(${rendered}${args.length > 0 ? `, ${args}` : ""})`;
+    }
   }
   if (object_type.kind === "primitive" && (object_type.name === "float" || object_type.name === "double" || object_type.name === "long double")) {
     switch (name) {
@@ -489,6 +529,16 @@ function emit_member_call(g: GenContext, object: ExprNode, name: string, args: s
     }
   }
   switch (name) {
+    case "push":
+      // `push` en un contenedor secuencial es `push_back`; en stack,
+      // queue y priority_queue el nombre real ya es `push`.
+      return is_adapter_type(object_type)
+        ? `${rendered}.push(${args})`
+        : `${rendered}.push_back(${args})`;
+    case "pop":
+      return is_sequence_container(object_type)
+        ? `${rendered}.pop_back()`
+        : `${rendered}.pop()`;
     case "is_empty":
       return `${rendered}.empty()`;
     case "contains":
@@ -564,9 +614,11 @@ function emit_binary(g: GenContext, node: BinaryNode): string {
       if (is_numeric(left_type) || is_string(left_type)) {
         return `::pengu::compare(${left}, ${right})`;
       }
-      return `(${left} <=> ${right})`;
+      return `::pengu::Ordering(${left} <=> ${right})`;
     }
     default:
+      // Los operadores libres los encuentra C++ por ADL (el argumento
+      // es del realm que declara el operador).
       return `(${left} ${node.op} ${right})`;
   }
 }
@@ -579,7 +631,7 @@ function emit_cast(g: GenContext, node: CastNode): string {
     return `std::get<${target}>(${value})`;
   }
   const is_seal = value_type.kind === "named" && g.module.env.aliases.get(value_type.name)?.seal === true;
-  const is_self_value = g.self_value && node.value.kind === "self";
+  const is_self_value = g.self_expression === "value" && node.value.kind === "self";
   if (is_seal && !is_self_value) {
     value = `${value}.value`;
   }

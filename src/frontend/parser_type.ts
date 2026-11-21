@@ -48,6 +48,7 @@ function parse_type_base(c: Cursor): TypeNode {
   if (at(c, "mut")) {
     const mut_token = advance(c);
     if (peek(c).kind === "ident" && peek(c).text === "ref") {
+      advance(c); // `ref` ya se comprobó; solo falta el `<T>`
       return parse_ref_type(c, true, mut_token.span);
     }
     push_error(

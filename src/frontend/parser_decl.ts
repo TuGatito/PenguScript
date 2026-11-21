@@ -119,6 +119,9 @@ export function parse_decl(c: Cursor): DeclNode | undefined {
       return parse_echo_decl(c, "seal");
     case "enchanting":
       return parse_enchanting(c);
+    case "operator": {
+      return parse_free_operator(c, token.span);
+    }
     case "unsafe": {
       advance(c);
       const name = expect_ident(c, "tras unsafe");
@@ -228,6 +231,63 @@ function parse_const_decl(
     mutable,
     span: merge_span(start, value.span),
   };
+}
+
+// Operador libre: `operator + = (a: int, b: Punto) -> Punto`.
+// Se parsea como una función cuyo nombre es el símbolo; el checker y
+// el codegen lo tratan como una función normal con `operator` puesto.
+function parse_free_operator(c: Cursor, start: Span): DeclNode | undefined {
+  advance(c); // operator
+  const symbol = operator_token(c);
+  if (symbol === undefined) return undefined;
+  expect(c, "=", "tras el operador libre");
+  const params = at(c, "->") ? [] : parse_params(c);
+  expect(c, "->", "en la firma del operador libre");
+  const { result, body } = parse_return_and_body(c);
+
+  // Solo se admiten los operadores que el lenguaje declara.
+  if (!FREE_OPERATORS.has(symbol.text)) {
+    push_error(
+      c,
+      CODES.expected_token,
+      `«${symbol.text}» no se puede declarar como operador libre`,
+      symbol.span,
+    );
+    return undefined;
+  }
+
+  return {
+    kind: "function_decl",
+    name: `operator ${symbol.text}`,
+    name_span: symbol.span,
+    sigils: [],
+    needs: [],
+    params,
+    result,
+    body,
+    is_unsafe: false,
+    operator: symbol.text,
+    span: merge_span(start, body.span),
+  };
+}
+
+// Símbolos válidos tras `operator`. Incluye los compuestos y `[]`/`()`
+// aunque en la forma libre solo tengan sentido los binarios.
+const FREE_OPERATORS = new Set([
+  "+", "-", "*", "/", "%", "&", "|", "^", "<<", ">>",
+  "==", "!=", "<", "<=", ">", ">=", "<=>",
+  "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>=",
+  "[]", "()",
+]);
+
+function operator_token(c: Cursor): Token | undefined {
+  const token = peek(c);
+  if (FREE_OPERATORS.has(token.text)) {
+    advance(c);
+    return token;
+  }
+  push_error(c, CODES.expected_token, "se esperaba un operador tras «operator»", token.span);
+  return undefined;
 }
 
 function parse_named_decl(c: Cursor): DeclNode | undefined {

@@ -3932,6 +3932,19 @@ Meters operator*(double a, Meters b) {
 
 **Omens do not support operator overloading** in v0.2.0. Unit-only omens are `enum class` and already have `==` and `!=` for free (and algebraic omens derive `==`/`!=` when all variant payloads are equality-comparable). Adding `+` to an enum is almost always a sign that the type should be a rune or a seal.
 
+#### Estado en 0.1.0 (operadores e herencia)
+
+Lo que el compilador ya comprueba y traduce:
+
+- **Herencia**: `heir` + `parent(...)` como primera sentencia del constructor. Si una rune tiene herederos, sus métodos se emiten `virtual` y el destructor también, de modo que `ref<Animal>` despacha a `Perro::hablar`.
+- **Upcast explícito**: `ref<Animal>(ref(d))` es seguro; `ref<Animal>(x)` sobre algo que no desciende de `Animal` da `E0501`. La asignación implícita `ref<Animal> = ref(d)` es un error: hay que escribir el `ref<T>` del destino.
+- **Sin sombreado de campos**: una hija que repite un campo del padre da `E0704`. Los métodos sí se pueden redefinir.
+- **Operadores**: binarios (1 parámetro), unarios (0), `[]` (`mut` para escribir), `()` (retorno libre), `<=>` y compuestos (`mut operator +=`). El operador libre `operator * = (a: int, b: Punto) -> Punto` funciona por ADL; si el primer parámetro es del mismo tipo que un método `enchanting` con el mismo símbolo, da `E0706`.
+- **`enchanting` sobre omens y sellos**: los métodos se emiten como funciones libres (omens) o métodos del `struct` (sellos). En sellos `@` es el valor subyacente, así que `@ * 3.28084` es válido.
+- **Un `echo` no admite operadores** (`E0706`): es un alias transparente y hereda los del tipo subyacente.
+- **`Ordering`**: `o.is_lt()`, `o.is_eq()`, `o.is_gt()`, `o.reverse()` y comparación con `Ordering::Less`/`Equal`/`Greater`. El valor envuelve `std::partial_ordering`, de modo que un `<=>` sobre `double` (con `NaN`) también encaja.
+- **`vector<ref<T>>` no es válido**: las referencias no se almacenan. Para polimorfismo heterogéneo, pasa `ref<Animal>` como parámetro (o usa `shared<T>`).
+
 ### Interaction with sigils and `needs`
 
 Operator definitions are what makes a type satisfy a constraint. If `T needs Ord`, then `T` must have `operator <` (and the friends) — usually via `<=>` or via explicit `<`, `<=`, `>`, `>=`. The compiler checks this at instantiation:

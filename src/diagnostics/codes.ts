@@ -61,6 +61,7 @@ export const CODES = {
 
   omen_not_exhaustive: "E0701",
   invalid_omen_variant: "E0702",
+  invalid_operator: "E0706",
   invalid_parent: "E0703",
   field_shadow: "E0704",
   method_shadow: "E0705",

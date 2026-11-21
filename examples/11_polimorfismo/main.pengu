@@ -1,0 +1,91 @@
+-- Herencia, despacho virtual y operadores de usuario.
+invoke "std/io"
+
+rune Animal
+  nombre: string
+
+  constructor(nombre: string)
+
+enchanting Animal
+  hablar = -> string
+    "..."
+
+  describir = -> string
+    "#{@nombre}: #{@hablar()}"
+
+rune Perro heir Animal
+  constructor(nombre: string)
+    parent(nombre)
+
+enchanting Perro
+  hablar = -> string
+    "guau"
+
+rune Gato heir Animal
+  constructor(nombre: string)
+    parent(nombre)
+
+enchanting Gato
+  hablar = -> string
+    "miau"
+
+rune Punto
+  x: int
+  y: int
+
+  constructor(x: int, y: int)
+
+enchanting Punto
+  operator + = (otro: Punto) -> Punto
+    Punto(@x + otro.x, @y + otro.y)
+
+  mut operator += = (otro: Punto) -> void
+    @x += otro.x
+    @y += otro.y
+
+  operator - = -> Punto
+    Punto(-@x, -@y)
+
+  mut operator [] = (i: int) -> mut ref<int>
+    if i == 0 then ref(@x) else ref(@y)
+
+operator * = (escala: int, p: Punto) -> Punto
+  Punto(escala * p.x, escala * p.y)
+
+omen Color
+  Rojo, Verde, Azul
+
+enchanting Color
+  nombre = -> string
+    match @
+      when Rojo then "rojo"
+      when Verde then "verde"
+      when Azul then "azul"
+
+echo Metros = double
+
+enchanting Metros
+  doble = -> double
+    @*2
+
+presentar = (animal: ref<Animal>) -> void
+  io::println(animal.describir())
+
+main = ->
+  presentar(ref<Animal>(ref(Perro("Toby"))))
+  presentar(ref<Animal>(ref(Gato("Misi"))))
+
+  mut p = Punto(1, 2)
+  p += Punto(3, 4)
+  q = -p
+  r = 2 * p
+  p[0] = 10
+  io::println("p = (#{p.x}, #{p.y})")
+  io::println("q = (#{q.x}, #{q.y})")
+  io::println("r = (#{r.x}, #{r.y})")
+
+  c = Color::Azul
+  io::println("color: #{c.nombre()}")
+
+  d: Metros = 2.5
+  io::println("doble: #{d.doble()}")

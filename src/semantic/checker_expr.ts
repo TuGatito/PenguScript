@@ -66,12 +66,13 @@ import type { PenguType } from "./types.ts";
 import { STRING_TYPES, is_primitive_type } from "../frontend/ast_type.ts";
 import type { TypeNode } from "../frontend/ast_type.ts";
 import type { OmenVariantInfo } from "./type_env.ts";
-import { function_type_of } from "./module_info.ts";
+import { function_type_of, omen_methods_of } from "./module_info.ts";
+import { find_free_operator } from "./operators.ts";
 import { substitute_generics } from "./types.ts";
 import type { FunctionInfo } from "./module_info.ts";
 import { builtin_function, is_builtin_module } from "./builtin_modules.ts";
 import { shared_type, unique_type, weak_type } from "./types.ts";
-import { resolve_type_node } from "./type_env.ts";
+import { find_echo_method, find_rune_field, find_rune_method, is_heir_of, resolve_type_node } from "./type_env.ts";
 import type { TypeEnv } from "./type_env.ts";
 import type { OmenInfo } from "./type_env.ts";
 import {
@@ -177,6 +178,8 @@ function infer_expr_impl(ctx: CheckContext, node: ExprNode): PenguType {
       infer_expr(ctx, node.index);
       const result = builtin_index_result(object);
       if (result !== undefined) return result;
+      const user_index = rune_operator_method(ctx, object, "[]");
+      if (user_index !== undefined) return user_index;
       if (node.object.kind === "member" && node.object.name === "map") return any_type("elemento");
       if (is_any(object)) return object;
       report_error(
@@ -467,6 +470,18 @@ function infer_path(
   return UNKNOWN;
 }
 
+// Resultado de un operador declarado en `enchanting` para una rune.
+function rune_operator_method(
+  ctx: CheckContext,
+  type: PenguType,
+  operator: string,
+): PenguType | undefined {
+  if (type.kind !== "named") return undefined;
+  const rune = ctx.module.env.runes.get(type.name);
+  if (rune === undefined) return undefined;
+  return find_rune_method(ctx.module.env, rune, operator)?.result;
+}
+
 export function infer_member(
   ctx: CheckContext,
   object: PenguType,
@@ -475,7 +490,7 @@ export function infer_member(
 ): PenguType {
   if (is_any(object)) return object;
 
-  if (object.kind === "unique" || object.kind === "shared" || object.kind === "raw") {
+  if (object.kind === "ref" || object.kind === "unique" || object.kind === "shared" || object.kind === "raw") {
     return infer_member(ctx, object.inner, name, span);
   }
 
@@ -486,9 +501,9 @@ export function infer_member(
   if (object.kind === "named") {
     const rune = ctx.module.env.runes.get(object.name);
     if (rune !== undefined) {
-      const field = rune.fields.get(name);
+      const field = find_rune_field(ctx.module.env, rune, name);
       if (field !== undefined) return field.type;
-      const method = rune.methods.get(name);
+      const method = find_rune_method(ctx.module.env, rune, name);
       if (method !== undefined) {
         return function_type(
           method.params,
@@ -501,7 +516,7 @@ export function infer_member(
       return UNKNOWN;
     }
     const alias = ctx.module.env.aliases.get(object.name);
-    if (alias !== undefined && alias.seal) {
+    if (alias !== undefined) {
       const method = alias.methods.get(name);
       if (method !== undefined) {
         return function_type(
@@ -513,9 +528,30 @@ export function infer_member(
       }
     }
     const omen = ctx.module.env.omens.get(object.name);
-    if (omen !== undefined && omen.is_flags && name === "has") {
-      return function_type([named(object.name)], BOOL);
+    if (omen !== undefined) {
+      const method = omen_methods_of(omen)?.get(name);
+      if (method !== undefined) {
+        return function_type(
+          method.params,
+          method.result,
+          method.variadic,
+          method.params.length - (method.variadic ? 1 : 0),
+        );
+      }
+      if (omen.is_flags && name === "has") {
+        return function_type([named(object.name)], BOOL);
+      }
     }
+  }
+
+  const echo_method = find_echo_method(ctx.module.env, object, name);
+  if (echo_method !== undefined) {
+    return function_type(
+      echo_method.params,
+      echo_method.result,
+      echo_method.variadic,
+      echo_method.params.length - (echo_method.variadic ? 1 : 0),
+    );
   }
 
   const builtin = member_of_builtin(object, name);
@@ -692,14 +728,29 @@ function check_generic_instantiation(
 
 function infer_call(ctx: CheckContext, node: CallNode): PenguType {
   // `ref(x)` es una construcción del lenguaje, no una función.
+  // `ref<T>(x)` es el upcast explícito: solo se permite hacia un
+  // ancestro de la rune de `x`.
   if (node.callee.kind === "ident" && node.callee.name === "ref") {
     const first = node.args[0];
     if (first === undefined) return UNKNOWN;
     const inner = infer_expr(ctx, first.expr);
-    if (first.mutable) {
-      return ref_to(inner, true);
+    // `ref(@campo)` dentro de un método `mut` produce un préstamo
+    // mutable: el receptor lo permite.
+    const self_field = first.expr.kind === "member" && first.expr.object.kind === "self";
+    const mutable = first.mutable || (self_field && ctx.self_mutable);
+    const target = node.type_args[0];
+    if (target === undefined) return ref_to(inner, mutable);
+    const resolved = resolve_type_node(target, ctx.module.env, ctx.sink);
+    const base = inner.kind === "ref" ? inner.inner : inner;
+    if (resolved.kind === "named" && base.kind === "named" && !is_heir_of(ctx.module.env, base.name, resolved.name)) {
+      report_error(
+        ctx,
+        CODES.type_mismatch,
+        `«${type_display(base)}» no desciende de «${type_display(resolved)}»`,
+        node.span,
+      );
     }
-    return ref_to(inner, false);
+    return ref_to(resolved, mutable);
   }
 
   // Construcción de un rune, `seal` o `echo` por nombre.
@@ -997,7 +1048,7 @@ function check_argument_value(
   span: Span,
 ): void {
   if (is_generic_type(ctx, expected) || is_generic_type(ctx, actual)) return;
-  if (!can_assign(expected, actual)) {
+  if (!can_assign(expected, actual, ctx.module.env)) {
     report_error(
       ctx,
       CODES.type_mismatch,
@@ -1054,6 +1105,11 @@ function infer_unary(
     case "-": {
       const type = infer_expr(ctx, operand);
       if (is_any(type) || is_numeric(type)) return type;
+      if (type.kind === "named") {
+        const rune = ctx.module.env.runes.get(type.name);
+        const method = rune === undefined ? undefined : find_rune_method(ctx.module.env, rune, "-");
+        if (method !== undefined) return method.result;
+      }
       report_error(ctx, CODES.type_mismatch, `«-» espera un número, recibió «${type_display(type)}»`, span);
       return UNKNOWN;
     }
@@ -1173,9 +1229,13 @@ function infer_binary(
   // Operadores declarados por el usuario.
   if (left.kind === "named") {
     const rune = ctx.module.env.runes.get(left.name);
-    const method = rune?.methods.get(operator) ?? rune?.methods.get(`operator ${operator}`);
+    const method = rune === undefined ? undefined : find_rune_method(ctx.module.env, rune, operator);
     if (method !== undefined) return method.result;
   }
+
+  // Operador libre (`operator + = (a: int, b: Punto) -> Punto`).
+  const free = find_free_operator(ctx.module, ctx.external, operator, left, right, ctx.module.env);
+  if (free !== undefined) return free.info.result;
 
   report_error(
     ctx,
@@ -1235,6 +1295,13 @@ function ordering_result(ctx: CheckContext, left: PenguType, right: PenguType, s
     const methods = ctx.module.env.runes.get(left.name)?.methods;
     const method = methods?.get("<=>") ?? methods?.get("operator <=>");
     if (method !== undefined) return method.result;
+    // Sellos y echoes declaran `<=>` en su bloque `enchanting`.
+    const alias = ctx.module.env.aliases.get(left.name);
+    const alias_method = alias?.methods.get("<=>");
+    if (alias_method !== undefined) return alias_method.result;
+    // Los omens no sobrecargan operadores, pero comparan por igualdad.
+    const omen = ctx.module.env.omens.get(left.name);
+    if (omen !== undefined) return named("Ordering");
   }
   report_error(
     ctx,
@@ -1353,7 +1420,7 @@ function infer_switch(ctx: CheckContext, node: Extract<ExprNode, { kind: "switch
       } else if (bare_variant !== undefined) {
         covered.add(bare_variant);
       }
-      if (!can_assign(subject, type) && !type_equals(subject, type)) {
+      if (!can_assign(subject, type, ctx.module.env) && !type_equals(subject, type)) {
         check_initialization(ctx, subject, type, pattern.span, "en un «when» del switch", pattern);
       }
     }

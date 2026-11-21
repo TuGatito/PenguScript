@@ -23,7 +23,8 @@ import { collect_module } from "./module_info.ts";
 import type { ModuleInfo } from "./module_info.ts";
 import { declare } from "./scopes.ts";
 import { infer_block, param_binding_type } from "./checker_expr.ts";
-import { resolve_type_node } from "./type_env.ts";
+import type { RuneInfo } from "./type_env.ts";
+import { find_rune_field, find_rune_method, resolve_type_node } from "./type_env.ts";
 import { any_type, generic_type, is_any, named, type_equals } from "./types.ts";
 import type { PenguType } from "./types.ts";
 import type { ExternalImports } from "./external.ts";
@@ -59,6 +60,7 @@ function check_decl(ctx: CheckContext, decl: DeclNode): void {
       check_const(ctx, decl);
       break;
     case "function_decl":
+      check_free_operator_given(ctx, decl);
       check_function(ctx, decl);
       break;
     case "rune_decl":
@@ -177,6 +179,24 @@ function check_params(ctx: CheckContext, params: readonly ParamNode[]): void {
   }
 }
 
+// Un operador libre y un método `enchanting` con el mismo símbolo y el
+// mismo primer tipo serían dos definiciones de la misma operación.
+function check_free_operator_given(ctx: CheckContext, decl: FunctionDecl): void {
+  if (decl.operator === undefined) return;
+  const first = decl.params[0];
+  if (first === undefined || first.type === undefined) return;
+  const type = resolve_type_node(first.type, ctx.module.env, ctx.sink);
+  if (type.kind !== "named") return;
+  const rune = ctx.module.env.runes.get(type.name);
+  if (rune === undefined) return;
+  if (find_rune_method(ctx.module.env, rune, decl.operator) === undefined) return;
+  ctx.sink.add(make_error(
+    CODES.invalid_operator,
+    `el operador libre «${decl.operator}» duplica el de «${type.name}»`,
+    decl.name_span,
+  ));
+}
+
 function check_rune(ctx: CheckContext, decl: RuneDecl): void {
   const rune = ctx.module.env.runes.get(decl.name);
   if (rune === undefined) return;
@@ -192,6 +212,8 @@ function check_rune(ctx: CheckContext, decl: RuneDecl): void {
     ctx.self_type = self_type;
     ctx.self_mutable = false;
     ctx.self_assign = false;
+
+    check_field_shadowing(ctx, decl, rune);
 
     for (const field of decl.fields) {
       if (field.default_value === undefined) continue;
@@ -234,7 +256,23 @@ function check_rune(ctx: CheckContext, decl: RuneDecl): void {
 
 function check_enchanting(ctx: CheckContext, decl: EnchantingDecl): void {
   const target = decl.target;
-  const self_type = named(target);
+  // En sellos y echoes `@` es el valor subyacente; solo una rune
+  // tiene un `self` con identidad propia.
+  const alias = ctx.module.env.aliases.get(target);
+  const self_type = alias === undefined ? named(target) : alias.target;
+
+  // Un `echo` es un alias transparente: sus operadores son los del
+  // tipo subyacente y no se pueden sobrecargar.
+  if (alias !== undefined && !alias.seal) {
+    for (const method of decl.methods) {
+      if (method.operator === undefined) continue;
+      ctx.sink.add(make_error(
+        CODES.invalid_operator,
+        `«${target}» es un «echo» transparente: no admite operadores; usa «seal»`,
+        method.name_span,
+      ));
+    }
+  }
 
   const target_sigils = ctx.module.env.runes.get(target)?.sigils ?? [];
   with_sigils(ctx, target_sigils, () => {
@@ -244,7 +282,23 @@ function check_enchanting(ctx: CheckContext, decl: EnchantingDecl): void {
   });
 }
 
-function check_method(ctx: CheckContext, method: MethodDecl, self_type: ReturnType<typeof named>): void {
+// Los campos no se pueden sombrear: una hija que repite un campo del
+// padre tendría dos copias y accesos ambiguos en C++.
+function check_field_shadowing(ctx: CheckContext, decl: RuneDecl, rune: RuneInfo): void {
+  const parent = rune.parent === undefined ? undefined : ctx.module.env.runes.get(rune.parent);
+  if (parent === undefined) return;
+  for (const field of decl.fields) {
+    const inherited = find_rune_field(ctx.module.env, parent, field.name);
+    if (inherited === undefined) continue;
+    ctx.sink.add(make_error(
+      CODES.field_shadow,
+      `«${decl.name}.${field.name}» sombrea el campo heredado de «${parent.name}»`,
+      field.span,
+    ));
+  }
+}
+
+function check_method(ctx: CheckContext, method: MethodDecl, self_type: PenguType): void {
   const previous_self = ctx.self_type;
   const previous_mutable = ctx.self_mutable;
   const previous_return = ctx.current_return;

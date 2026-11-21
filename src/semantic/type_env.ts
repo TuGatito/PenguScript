@@ -14,6 +14,7 @@ import {
   UNKNOWN,
   VOID,
   any_type,
+  type_equals,
   named,
   optional,
   primitive,
@@ -237,6 +238,64 @@ export const BUILTIN_CONTAINERS: ReadonlySet<string> = new Set([
   "u32string",
   "string_view",
 ]);
+
+// Búsqueda de campos y métodos a través de la cadena `heir`. Las runes
+// heredan todo del padre y pueden sombrear métodos, pero no campos.
+export function find_rune_field(
+  env: TypeEnv,
+  rune: RuneInfo,
+  name: string,
+): FieldInfo | undefined {
+  let current: RuneInfo | undefined = rune;
+  while (current !== undefined) {
+    const field = current.fields.get(name);
+    if (field !== undefined) return field;
+    current = current.parent === undefined ? undefined : env.runes.get(current.parent);
+  }
+  return undefined;
+}
+
+export function find_rune_method(
+  env: TypeEnv,
+  rune: RuneInfo,
+  name: string,
+): MethodInfo | undefined {
+  let current: RuneInfo | undefined = rune;
+  while (current !== undefined) {
+    const method = current.methods.get(name) ?? current.methods.get(`operator ${name}`);
+    if (method !== undefined) return method;
+    current = current.parent === undefined ? undefined : env.runes.get(current.parent);
+  }
+  return undefined;
+}
+
+// ¿`name` es una rune o desciende de `ancestor`?
+export function is_heir_of(env: TypeEnv, name: string, ancestor: string): boolean {
+  let current: RuneInfo | undefined = env.runes.get(name);
+  while (current !== undefined) {
+    if (current.name === ancestor) return true;
+    current = current.parent === undefined ? undefined : env.runes.get(current.parent);
+  }
+  return false;
+}
+
+// Un `echo` es transparente: en C++ es un alias, así que el tipo del
+// valor es el subyacente. Sus métodos viven en `AliasInfo.methods` y se
+// encuentran por el tipo subyacente (si dos alias declaran el mismo
+// método, gana el primero en el fuente).
+export function find_echo_method(
+  env: TypeEnv,
+  type: PenguType,
+  name: string,
+): MethodInfo | undefined {
+  for (const alias of env.aliases.values()) {
+    if (alias.seal) continue;
+    if (!type_equals(alias.target, type)) continue;
+    const method = alias.methods.get(name);
+    if (method !== undefined) return method;
+  }
+  return undefined;
+}
 
 export function generic_sigil_type(name: string): PenguType {
   return any_type(name);
