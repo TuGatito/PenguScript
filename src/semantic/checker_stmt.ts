@@ -10,9 +10,10 @@ import { CODES } from "../diagnostics/codes.ts";
 import { error as make_error } from "../diagnostics/diagnostic.ts";
 import type { Span } from "../util/span.ts";
 import type { CheckContext } from "./checker_context.ts";
+import { ensure_not_borrowed } from "./checker_context.ts";
 import { can_assign, check_initialization, report_type_mismatch } from "./checker_context.ts";
 import { declare, lookup } from "./scopes.ts";
-import { infer_expr, mark_moved } from "./checker_expr.ts";
+import { infer_expr, mark_moved, root_ident } from "./checker_expr.ts";
 import { find_rune_field, find_rune_method } from "./type_env.ts";
 import {
   UNKNOWN,
@@ -156,6 +157,26 @@ function check_assign(ctx: CheckContext, node: AssignStmtNode): PenguType {
   return VOID;
 }
 
+// Mutar un campo o un índice exige que la raíz sea `mut` (o un
+// puntero/referencia) y que no esté prestada.
+function require_mutable_root(ctx: CheckContext, target: ExprNode, action: string): boolean {
+  const root = root_ident(target);
+  if (root === undefined) return true;
+  const variable = lookup(ctx.scope, root.name);
+  if (variable === undefined) return true;
+  if (!ensure_not_borrowed(ctx, root.name, root.span, action)) return false;
+  if (variable.mutable) return true;
+  const kind = variable.type.kind;
+  if (kind === "ref" || kind === "shared" || kind === "unique" || kind === "raw") return true;
+  report_error(
+    ctx,
+    CODES.mutable_required,
+    `«${root.name}» es inmutable; decláralo con «mut» para ${action} su contenido`,
+    root.span,
+  );
+  return false;
+}
+
 function assign_target(
   ctx: CheckContext,
   target: ExprNode,
@@ -165,6 +186,20 @@ function assign_target(
 ): void {
   switch (target.kind) {
     case "ident": {
+      const constant = ctx.module.consts.get(target.name);
+      if (constant !== undefined && constant.is_static && constant.mutable) {
+        if (ctx.unsafe_depth === 0) {
+          report_error(
+            ctx,
+            CODES.unsafe_required,
+            `«${target.name}» es «static mut»: su escritura requiere «unsafe»`,
+            target.span,
+          );
+          return;
+        }
+        check_initialization(ctx, constant.type, value, node.value.span, `al asignar a «${target.name}»`, node.value);
+        return;
+      }
       const variable = lookup(ctx.scope, target.name);
       if (variable === undefined) {
         if (declare_new) {
@@ -189,11 +224,13 @@ function assign_target(
         );
         return;
       }
+      if (!ensure_not_borrowed(ctx, target.name, target.span, "modificar")) return;
       check_initialization(ctx, variable.type, value, node.value.span, `al asignar a «${target.name}»`, node.value);
       return;
     }
     case "member": {
       const object = infer_expr(ctx, target.object);
+      if (!require_mutable_root(ctx, target, "modificar")) return;
       const expected = member_of_builtin(object, target.name);
       if (expected === undefined) {
         const rune = object.kind === "named" ? ctx.module.env.runes.get(object.name) : undefined;
@@ -215,6 +252,7 @@ function assign_target(
     }
     case "index": {
       const object = infer_expr(ctx, target.object);
+      if (!require_mutable_root(ctx, target, "modificar")) return;
       infer_expr(ctx, target.index);
       const expected = index_value_type(
         builtin_index_result(object) ?? rune_index_result(ctx, object),

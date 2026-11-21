@@ -1128,6 +1128,15 @@ Rules:
 - **Justify every `unsafe` with a comment.** Inside an unsafe block, the compiler trusts the programmer — say why that trust is warranted.
 - **A safe function may return `ref<T>` only if the referent comes from its receiver or from a `ref<T>` or `mut` parameter.** Returning a reference to a local, a temporary, or a by-value parameter would dangle and is rejected. If a borrow must outlive the arguments, the function must be `unsafe` and return `raw<T>` (or return a value instead).
 
+#### Estado en 0.1.0 (memoria, `mut` y `unsafe`)
+
+- **Ley de Exclusividad**: `r = ref(x)` registra un préstamo de `x` en el ámbito actual; mutar `x` (`x = …`, `x += …`, `x.campo = …`, un método `mut` o `f(mut x)`) mientras el préstamo viva da `E0602`. El préstamo termina al cerrar el ámbito: un bloque `do` lo libera (`do { r = ref(n) }; n = 2` compila).
+- **Recorrer y mutar**: `for x in xs` bloquea la mutación estructural de `xs` durante el bucle (`E0602`).
+- **Contrato `mut`**: si la función declara `mut n`, la llamada debe escribir `incrementar(mut n)`; pasa una variable `mut`, no una expresión. Escribir `mut` sobre un parámetro que no lo declara también es error (`E0406`).
+- **Campos y métodos**: `p.x = …` y `p.metodo_mut()` exigen que `p` se declare `mut` (o que sea `ref`/`shared`/`unique`/`raw`). Se exime a `atomic`, `mutex`, `shared_mutex` y `condition_variable`, que tienen mutabilidad interior.
+- **Movimiento**: pasar un `unique<T>` a un parámetro por valor lo mueve, también a través de `campo` e `índice`; usar la raíz después da `E0601`.
+- **`unsafe`**: obligatorio para `*p` sobre `raw<T>`, para crear `raw<T>(ref(x))`, para leer o escribir `static mut`, para `get_unchecked` y para llamar a una función `unsafe`. Las conversiones estrechas dentro de `unsafe` siguen el mismo camino que `as`.
+
 ### Concurrency Safety
 
 PenguScript prevents data races at compile time without requiring manual `Send`/`Sync` trait annotations or lifetime parameters:

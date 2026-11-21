@@ -358,6 +358,15 @@ function emit_ident_call(
     return `${maker}<${type_args[0]}>(${args})`;
   }
 
+  // Puntero crudo: `raw<T>(ref(x))` toma la dirección; `raw<T>(nullptr)`
+  // es el puntero nulo.
+  if (name === "raw" && type_args.length === 1) {
+    const arg = node.args[0];
+    if (arg === undefined) return "nullptr";
+    const rendered = emit_expr(g, arg.expr);
+    return arg.expr.kind === "call" ? `&${rendered}` : rendered;
+  }
+
   if (name === "weak") {
     const arg = node.args[0];
     const arg_type = arg === undefined ? undefined : type_of(g, arg.expr);

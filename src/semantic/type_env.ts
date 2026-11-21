@@ -34,6 +34,8 @@ export interface FieldInfo {
 export interface MethodInfo {
   readonly name: string;
   readonly params: readonly PenguType[];
+  /** `mut` de cada parámetro: contrato en la llamada. */
+  readonly param_mutables: readonly boolean[];
   readonly variadic: boolean;
   readonly result: PenguType;
   readonly mutable: boolean;

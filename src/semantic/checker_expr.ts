@@ -22,10 +22,14 @@ import type { ParamNode } from "../frontend/ast_param.ts";
 import { suggest_name } from "../util/suggest.ts";
 import { declare, lookup } from "./scopes.ts";
 import type { CheckContext } from "./checker_context.ts";
+import { with_scope } from "./checker_context.ts";
 import { symbol_type_of } from "./external.ts";
 import {
+  add_borrow,
+  ensure_not_iterating,
   can_assign,
   check_initialization,
+  ensure_not_borrowed,
   expect_bool,
   is_generic_type,
   report_type_mismatch,
@@ -98,13 +102,8 @@ export function infer_block(ctx: CheckContext, block: Block): PenguType {
 }
 
 function with_new_scope<T>(ctx: CheckContext, fn: () => T): T {
-  const previous = ctx.scope;
-  ctx.scope = { parent: previous, vars: new Map() };
-  try {
-    return fn();
-  } finally {
-    ctx.scope = previous;
-  }
+  // `with_scope` lleva la profundidad y libera los préstamos del ámbito.
+  return with_scope(ctx, () => fn());
 }
 
 export function infer_expr(ctx: CheckContext, node: ExprNode): PenguType {
@@ -321,7 +320,18 @@ function infer_ident(ctx: CheckContext, name: string, span: Span): PenguType {
   }
 
   const constant = ctx.module.consts.get(name);
-  if (constant !== undefined) return constant.type;
+  if (constant !== undefined) {
+    // `static mut` solo se toca desde `unsafe`.
+    if (constant.is_static && constant.mutable && ctx.unsafe_depth === 0) {
+      report_error(
+        ctx,
+        CODES.unsafe_required,
+        `«${name}» es «static mut»: su acceso requiere «unsafe»`,
+        span,
+      );
+    }
+    return constant.type;
+  }
 
   const fn = ctx.module.functions.get(name);
   if (fn !== undefined) return function_type_of(fn);
@@ -738,6 +748,8 @@ function infer_call(ctx: CheckContext, node: CallNode): PenguType {
     // mutable: el receptor lo permite.
     const self_field = first.expr.kind === "member" && first.expr.object.kind === "self";
     const mutable = first.mutable || (self_field && ctx.self_mutable);
+    const root = root_ident(first.expr);
+    if (root !== undefined) add_borrow(ctx, root.name, node.span);
     const target = node.type_args[0];
     if (target === undefined) return ref_to(inner, mutable);
     const resolved = resolve_type_node(target, ctx.module.env, ctx.sink);
@@ -751,6 +763,25 @@ function infer_call(ctx: CheckContext, node: CallNode): PenguType {
       );
     }
     return ref_to(resolved, mutable);
+  }
+
+  // `raw<T>(ref(x))` crea un puntero crudo (solo dentro de `unsafe`).
+  if (node.callee.kind === "ident" && node.callee.name === "raw" && node.type_args.length === 1) {
+    const inner = infer_expr(ctx, node.args[0]?.expr ?? node.callee);
+    const target = resolve_type_node(node.type_args[0] as TypeNode, ctx.module.env, ctx.sink);
+    if (ctx.unsafe_depth === 0) {
+      report_error(ctx, CODES.unsafe_required, "crear un «raw<T>» requiere «unsafe»", node.span);
+    }
+    const payload = inner.kind === "ref" ? inner.inner : inner;
+    if (inner.kind !== "ref" && inner.kind !== "nullptr") {
+      report_error(
+        ctx,
+        CODES.type_mismatch,
+        `«raw<T>» espera un «ref<T>» o «nullptr», recibió «${type_display(inner)}»`,
+        node.span,
+      );
+    }
+    return target.kind === "raw" ? target : { kind: "raw", inner: payload };
   }
 
   // Construcción de un rune, `seal` o `echo` por nombre.
@@ -832,6 +863,18 @@ function infer_call(ctx: CheckContext, node: CallNode): PenguType {
   }
 
   const callee_type = infer_expr(ctx, node.callee);
+  if (node.callee.kind === "member") {
+    check_mut_receiver(ctx, node.callee);
+    if (node.callee.name === "get_unchecked" && ctx.unsafe_depth === 0) {
+      report_error(
+        ctx,
+        CODES.unsafe_required,
+        "«get_unchecked» no comprueba límites: úsalo dentro de «unsafe»",
+        node.span,
+      );
+    }
+  }
+  check_unsafe_call(ctx, node);
 
   if (callee_type.kind === "function") {
     let params = callee_type.params;
@@ -863,6 +906,7 @@ function infer_call(ctx: CheckContext, node: CallNode): PenguType {
       describe_callee(node.callee),
       callee_type.variadic,
       callee_type.required,
+      param_mutables_of(ctx, node.callee),
     );
     return result;
   }
@@ -885,6 +929,135 @@ function infer_call(ctx: CheckContext, node: CallNode): PenguType {
     node.span,
   );
   return UNKNOWN;
+}
+
+// Una función `unsafe` solo se puede llamar desde `unsafe`.
+function check_unsafe_call(ctx: CheckContext, node: CallNode): void {
+  if (ctx.unsafe_depth > 0) return;
+  let unsafe_function = false;
+  if (node.callee.kind === "ident") {
+    unsafe_function = ctx.module.functions.get(node.callee.name)?.is_unsafe === true;
+  } else if (node.callee.kind === "path" && node.callee.segments.length >= 2) {
+    const imported = ctx.external?.modules.get(node.callee.segments[0] ?? "");
+    unsafe_function = imported?.functions.get(node.callee.segments[1] ?? "")?.is_unsafe === true;
+  }
+  if (!unsafe_function) return;
+  const callee = node.callee;
+  const name = callee.kind === "ident" ? callee.name : callee.kind === "path" ? callee.segments.join("::") : "?";
+  report_error(
+    ctx,
+    CODES.unsafe_required,
+    `«${name}» es «unsafe»: llámala dentro de un bloque «unsafe»`,
+    node.span,
+  );
+}
+
+// Llamar a un método `mut` (o a un método de contenedor que muta) exige
+// que el receptor sea mutable y no esté prestado.
+const INTERIOR_MUTABLE = new Set(["atomic", "mutex", "shared_mutex", "condition_variable"]);
+
+const MUTATING_MEMBERS = new Set([
+  "push",
+  "push_back",
+  "pop",
+  "pop_back",
+  "pop_opt",
+  "insert",
+  "insert_or_assign",
+  "remove",
+  "remove_at",
+  "clear",
+  "extract",
+  "store",
+  "fetch_add",
+  "set",
+  "reset",
+  "flip",
+]);
+
+function check_mut_receiver(
+  ctx: CheckContext,
+  callee: Extract<ExprNode, { kind: "member" }>,
+): void {
+  const root = root_ident(callee.object);
+  if (root === undefined) return;
+  const variable = lookup(ctx.scope, root.name);
+  if (variable === undefined) return;
+  const receiver = infer_expr(ctx, callee.object);
+  // `atomic` y los mutex tienen mutabilidad interior: no exigen `mut`.
+  if (receiver.kind === "named" && INTERIOR_MUTABLE.has(receiver.name)) return;
+  const mutating =
+    (receiver.kind === "named" && is_mutating_method(ctx, receiver, callee.name)) ||
+    (receiver.kind === "named" && MUTATING_MEMBERS.has(callee.name)) ||
+    (receiver.kind === "ref" || receiver.kind === "unique" || receiver.kind === "shared"
+      ? MUTATING_MEMBERS.has(callee.name)
+      : false);
+  if (!mutating) return;
+  ensure_not_borrowed(ctx, root.name, callee.span, "modificar");
+  ensure_not_iterating(ctx, root.name, callee.span, "modificar");
+  if (variable.mutable) return;
+  if (
+    variable.type.kind === "ref" ||
+    variable.type.kind === "shared" ||
+    variable.type.kind === "unique" ||
+    variable.type.kind === "raw"
+  ) {
+    return;
+  }
+  report_error(
+    ctx,
+    CODES.mutable_required,
+    `«${root.name}» es inmutable; decláralo con «mut» para llamar a «${callee.name}»`,
+    root.span,
+  );
+}
+
+function is_mutating_method(ctx: CheckContext, receiver: PenguType, name: string): boolean {
+  if (receiver.kind !== "named") return false;
+  const rune = ctx.module.env.runes.get(receiver.name);
+  if (rune === undefined) return false;
+  const method = find_rune_method(ctx.module.env, rune, name);
+  return method?.mutable === true;
+}
+
+// `mut` declarado por el destino de la llamada, en orden. Lista vacía si
+// el destino es opaco (stdlib, `extern` sin firma, etc.).
+function param_mutables_of(ctx: CheckContext, callee: ExprNode): readonly boolean[] {
+  if (callee.kind === "ident") {
+    const fn = ctx.module.functions.get(callee.name);
+    return fn === undefined ? [] : fn.params.map((param) => param.mutable);
+  }
+  if (callee.kind === "path") {
+    const first = callee.segments[0];
+    if (callee.segments.length >= 2 && first !== undefined) {
+      const imported = ctx.external?.modules.get(first);
+      const fn = imported?.functions.get(callee.segments[1] ?? "");
+      if (fn !== undefined) return fn.params.map((param) => param.mutable);
+    }
+    return [];
+  }
+  if (callee.kind === "member") {
+    const receiver = type_of_member_object(ctx, callee.object);
+    if (receiver !== undefined && receiver.kind === "named") {
+      const rune = ctx.module.env.runes.get(receiver.name);
+      if (rune !== undefined) {
+        const method = find_rune_method(ctx.module.env, rune, callee.name);
+        if (method !== undefined) return method.param_mutables;
+      }
+      const alias = ctx.module.env.aliases.get(receiver.name);
+      const method = alias?.methods.get(callee.name);
+      if (method !== undefined) return method.param_mutables;
+    }
+    return [];
+  }
+  if (callee.kind === "lambda") {
+    return callee.params.map((param) => param.mutable);
+  }
+  return [];
+}
+
+function type_of_member_object(ctx: CheckContext, object: ExprNode): PenguType | undefined {
+  return infer_expr(ctx, object);
 }
 
 function describe_callee(callee: ExprNode): string {
@@ -973,6 +1146,7 @@ function check_arguments(
   name: string,
   variadic = false,
   required = params.length,
+  param_mutables: readonly boolean[] = [],
 ): void {
   const fixed_count = variadic ? Math.max(params.length - 1, 0) : params.length;
   const element = variadic ? params[params.length - 1] : undefined;
@@ -996,6 +1170,7 @@ function check_arguments(
   let position = 0;
   for (const arg of args) {
     const actual = infer_expr(ctx, arg.expr);
+    check_mut_argument(ctx, param_mutables, position, arg, name);
 
     if (arg.spread) {
       if (!variadic || element === undefined) {
@@ -1036,6 +1211,48 @@ function check_arguments(
       position += 1;
       if (!arg.mutable) mark_moved(ctx, arg.expr, element);
     }
+  }
+}
+
+// Contrato `mut`: el parámetro debe declararse `mut` y el argumento
+// debe ser un lugar mutable (`mut x`), no una expresión temporal.
+function check_mut_argument(
+  ctx: CheckContext,
+  param_mutables: readonly boolean[],
+  position: number,
+  arg: ArgNode,
+  name: string,
+): void {
+  if (param_mutables.length === 0) return;
+  const expects = param_mutables[position] === true;
+  if (arg.mutable && !expects) {
+    report_error(
+      ctx,
+      CODES.mutable_required,
+      `«${name}» no declara «mut» en el parámetro ${position + 1}`,
+      arg.expr.span,
+    );
+    return;
+  }
+  if (expects && !arg.mutable) {
+    report_error(
+      ctx,
+      CODES.mutable_required,
+      `el parámetro ${position + 1} de «${name}» es «mut»: escribe «mut» en el argumento`,
+      arg.expr.span,
+    );
+    return;
+  }
+  if (!arg.mutable) return;
+  const root = root_ident(arg.expr);
+  const variable = root === undefined ? undefined : lookup(ctx.scope, root.name);
+  if (variable === undefined || !variable.mutable) {
+    report_error(
+      ctx,
+      CODES.mutable_required,
+      `«mut» requiere una variable declarada con «mut»`,
+      arg.expr.span,
+    );
   }
 }
 
@@ -1085,9 +1302,18 @@ export function param_binding_type(param: ParamNode, declared: PenguType): Pengu
 // Marca el origen de un valor move-only como movido (`use after move`).
 export function mark_moved(ctx: CheckContext, expr: ExprNode, target: PenguType): void {
   if (target.kind !== "unique") return;
-  if (expr.kind !== "ident") return;
-  const variable = lookup(ctx.scope, expr.name);
+  const root = root_ident(expr);
+  if (root === undefined) return;
+  const variable = lookup(ctx.scope, root.name);
   if (variable !== undefined) variable.moved = true;
+}
+
+// Identificador raíz de una expresión de acceso (`p.x`, `xs[0]`, `p`).
+export function root_ident(expr: ExprNode): Extract<ExprNode, { kind: "ident" }> | undefined {
+  if (expr.kind === "ident") return expr;
+  if (expr.kind === "member") return root_ident(expr.object);
+  if (expr.kind === "index") return root_ident(expr.object);
+  return undefined;
 }
 
 function infer_unary(
@@ -1133,6 +1359,14 @@ function infer_unary(
     }
     case "*": {
       const type = infer_expr(ctx, operand);
+      if (type.kind === "raw" && ctx.unsafe_depth === 0) {
+        report_error(
+          ctx,
+          CODES.unsafe_required,
+          "desreferenciar un «raw<T>» requiere «unsafe»",
+          span,
+        );
+      }
       if (
         type.kind === "raw" ||
         type.kind === "ref" ||
@@ -1662,6 +1896,9 @@ function infer_for_iter(
   return with_new_scope(ctx, () => {
     const [first, second] = node.variables;
     if (first === undefined) return VOID;
+    // Mientras dure el bucle no se puede mutar el contenedor.
+    const root = root_ident(node.iterable);
+    if (root !== undefined) ctx.iterating.push({ name: root.name, span: node.span });
     if (second !== undefined) {
       const indexed = is_map_type(iterable) ? INT : INT;
       declare(ctx.scope, first, indexed, { mutable: false, kind: "local", span: node.span });
@@ -1670,8 +1907,15 @@ function infer_for_iter(
       declare(ctx.scope, first, element, { mutable: node.mutable, kind: "local", span: node.span });
     }
     const break_types: PenguType[] = [];
-    with_loop(ctx, () => infer_block(ctx, node.body), break_types);
-    if (node.else_block !== undefined) infer_block(ctx, node.else_block);
+    try {
+      with_loop(ctx, () => infer_block(ctx, node.body), break_types);
+      if (node.else_block !== undefined) infer_block(ctx, node.else_block);
+    } finally {
+      if (root !== undefined) {
+        const index = ctx.iterating.findIndex((item) => item.name === root.name && item.span === node.span);
+        if (index >= 0) ctx.iterating.splice(index, 1);
+      }
+    }
     return loop_result_type(break_types);
   });
 }

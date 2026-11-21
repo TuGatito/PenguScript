@@ -26,6 +26,14 @@ import {
 import type { IntegerShape } from "./types.ts";
 import type { ExternalImports } from "./external.ts";
 
+// Préstamo activo de una variable (`r = ref(x)`): mientras viva, `x`
+// no se puede mutar ni pasar como `mut` (Ley de Exclusividad).
+export interface Borrow {
+  readonly name: string;
+  readonly depth: number;
+  readonly span: Span;
+}
+
 export interface CheckContext {
   readonly file: string;
   readonly sink: DiagnosticSink;
@@ -43,6 +51,12 @@ export interface CheckContext {
   types: Map<ExprNode, PenguType> | undefined;
   // Módulos importados con `invoke`, resueltos por el cargador.
   external: ExternalImports | undefined;
+  // Préstamos activos y profundidad de ámbitos.
+  borrows: Borrow[];
+  scope_depth: number;
+  // Contenedores que se están recorriendo con `for`: mutarlos
+  // estructuralmente invalida el iterador.
+  iterating: { readonly name: string; readonly span: Span }[];
 }
 
 export function make_context(
@@ -64,16 +78,85 @@ export function make_context(
     self_assign: false,
     types: undefined,
     external: undefined,
+    borrows: [],
+    scope_depth: 0,
+    iterating: [],
   };
+}
+
+// Registra un préstamo de `name` en el ámbito actual.
+export function add_borrow(ctx: CheckContext, name: string, span: Span): void {
+  ctx.borrows.push({ name, depth: ctx.scope_depth, span });
+}
+
+// Devuelve el préstamo activo de `name`, si lo hay.
+export function borrow_of(ctx: CheckContext, name: string): Borrow | undefined {
+  for (let index = ctx.borrows.length - 1; index >= 0; index -= 1) {
+    const borrow = ctx.borrows[index];
+    if (borrow !== undefined && borrow.name === name) return borrow;
+  }
+  return undefined;
+}
+
+// Error si `name` se está recorriendo con `for`.
+export function ensure_not_iterating(
+  ctx: CheckContext,
+  name: string,
+  span: Span,
+  action: string,
+): boolean {
+  const active = ctx.iterating.find((item) => item.name === name);
+  if (active === undefined) return true;
+  ctx.sink.add(
+    make_error(
+      CODES.exclusive_borrow,
+      `no se puede ${action} «${name}» mientras se recorre con «for»`,
+      span,
+      `el bucle empieza en la línea ${active.span.start.line}`,
+      "recorre una copia o recoge los cambios y aplícalos después",
+    ),
+  );
+  return false;
+}
+
+// Error si `name` está prestado: mutar mientras hay un alias activo
+// rompe la exclusividad.
+export function ensure_not_borrowed(
+  ctx: CheckContext,
+  name: string,
+  span: Span,
+  action: string,
+): boolean {
+  const borrow = borrow_of(ctx, name);
+  if (borrow === undefined) return true;
+  ctx.sink.add(
+    make_error(
+      CODES.exclusive_borrow,
+      `no se puede ${action} «${name}» mientras existe un préstamo activo`,
+      span,
+      `el préstamo se creó en la línea ${borrow.span.start.line}`,
+      "cierra el préstamo en un bloque «do» o deja de usar la referencia",
+    ),
+  );
+  return false;
 }
 
 export function with_scope<T>(ctx: CheckContext, fn: (inner: CheckContext) => T): T {
   const previous = ctx.scope;
+  const previous_depth = ctx.scope_depth;
   ctx.scope = make_scope(previous);
+  ctx.scope_depth += 1;
   try {
     return fn(ctx);
   } finally {
     ctx.scope = previous;
+    ctx.scope_depth = previous_depth;
+    // Los préstamos del ámbito que se cierra dejan de existir.
+    while (ctx.borrows.length > 0) {
+      const last = ctx.borrows[ctx.borrows.length - 1];
+      if (last === undefined || last.depth <= previous_depth) break;
+      ctx.borrows.pop();
+    }
   }
 }
 

@@ -242,9 +242,11 @@ function emit_param(g: GenContext, param: ParamNode): string {
   if (param.mutable) return `${base}& ${name}`;
   if (base.endsWith("&")) return `${base} ${name}`;
   const is_primitive = param.type?.kind === "primitive_type";
-  // Los punteros únicos se reciben por valor: pasarlos los mueve.
-  const is_move_only = base.startsWith("std::unique_ptr");
-  const rendered = is_primitive || is_move_only ? base : `const ${base}&`;
+  // Los punteros se reciben por valor: `unique` porque pasarlo lo mueve
+  // y `raw` porque es una dirección copiable.
+  const is_pointer =
+    base.startsWith("std::unique_ptr") || base.endsWith("*");
+  const rendered = is_primitive || is_pointer ? base : `const ${base}&`;
   return param.default_value
     ? `${rendered} ${name} = ${emit_expr(g, param.default_value)}`
     : `${rendered} ${name}`;

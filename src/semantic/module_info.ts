@@ -30,6 +30,8 @@ export interface ParamInfo {
   readonly name: string;
   readonly type: PenguType;
   readonly has_default: boolean;
+  /** El parámetro se declara `mut`: contrato en la llamada. */
+  readonly mutable: boolean;
   /** `(...xs: T)`: el tipo guardado es el del elemento, y dentro del
    *  cuerpo el parámetro vale `vector<T>`. */
   readonly variadic: boolean;
@@ -315,6 +317,7 @@ export function resolve_method(method: MethodDecl, env: TypeEnv, sink: Diagnosti
   return {
     name: method.operator ?? method.name,
     params: params.map((param) => param.type),
+    param_mutables: params.map((param) => param.mutable),
     variadic: params.some((param) => param.variadic),
     result,
     mutable: method.mutable,
@@ -333,6 +336,7 @@ export function resolve_params(
     name: param.name,
     type: param.type ? resolve_type_node(param.type, env, sink) : UNKNOWN,
     has_default: param.default_value !== undefined,
+    mutable: param.mutable,
     variadic: param.variadic,
     span: param.span,
   }));
@@ -367,6 +371,7 @@ function register_extern(
     name: param.name,
     type: param.type ? resolve_type_node(param.type, env, sink) : UNKNOWN,
     has_default: false,
+    mutable: param.mutable,
     variadic: param.variadic,
     span: param.span,
   }));
@@ -401,6 +406,7 @@ function register_intrinsic(
     name: param.name,
     type: param.type ? resolve_type_node(param.type, env, sink) : UNKNOWN,
     has_default: false,
+    mutable: param.mutable,
     variadic: param.variadic,
     span: param.span,
   }));
