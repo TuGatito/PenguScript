@@ -1,0 +1,10 @@
+invoke "std/io"
+
+sumar = (...numeros: int) -> int
+  mut total = 0
+  for n in numeros
+    total += n
+  total
+
+main = ->
+  io::println("#{sumar(1, 2, 3)} #{sumar()} #{sumar(...[4, 5])}")

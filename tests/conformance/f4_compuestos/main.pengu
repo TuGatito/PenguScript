@@ -1,0 +1,6 @@
+invoke "std/io"
+
+main = ->
+  xs: array<int, 3> = [1, 2, 3]
+  par: pair<int, string> = (7, "siete")
+  io::println("#{#xs} #{par.first} #{par.second}")

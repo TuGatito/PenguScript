@@ -1,0 +1,7 @@
+invoke "std/io"
+
+const BASE = 4
+const DOBLE = BASE * 2
+
+main = ->
+  io::println("#{DOBLE}")

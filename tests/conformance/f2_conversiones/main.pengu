@@ -1,0 +1,6 @@
+invoke "std/io"
+
+main = ->
+  x: int = 2
+  d: double = 2.5
+  io::println("#{x as long} #{int::try_from("41").value_or(0)} #{d as double}")

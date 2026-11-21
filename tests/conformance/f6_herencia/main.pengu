@@ -1,0 +1,19 @@
+invoke "std/io"
+
+rune Animal
+  nombre: string
+  constructor(nombre: string)
+
+enchanting Animal
+  hablar = -> string"..."
+
+rune Perro heir Animal
+  constructor(nombre: string)
+    parent(nombre)
+
+enchanting Perro
+  hablar = -> string"guau"
+
+main = ->
+  d = Perro("Toby")
+  io::println(d.hablar())

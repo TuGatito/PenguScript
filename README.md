@@ -110,6 +110,8 @@ las valida y el generador emite los prototipos correspondientes.
 
 ## Documentación
 
+- `docs/errors.md`: catálogo de códigos de diagnóstico.
+
 - [`docs/cheatsheet.md`](docs/cheatsheet.md): referencia del lenguaje.
 - [`docs/stdlib.md`](docs/stdlib.md): biblioteca estándar.
 - [`scratch/plan_typescript.md`](scratch/plan_typescript.md): plan por fases.

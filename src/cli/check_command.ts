@@ -64,6 +64,25 @@ export function run_check(
     }
   }
 
+  // `--json`: salida legible por máquinas (editores y CI).
+  if (flags.json === true) {
+    const payload = {
+      ok: !failed,
+      diagnostics: diagnostics.map((diagnostic) => ({
+        code: diagnostic.code,
+        severity: diagnostic.severity,
+        message: diagnostic.message,
+        file: diagnostic.span.file,
+        line: diagnostic.span.start.line,
+        column: diagnostic.span.start.column,
+        endLine: diagnostic.span.end.line,
+        endColumn: diagnostic.span.end.column,
+        notes: diagnostic.notes,
+      })),
+    };
+    return { exit_code: failed ? 1 : 0, output: JSON.stringify(payload) };
+  }
+
   const color = flags.color === true || (flags.color === undefined && process.stdout.isTTY);
   if (diagnostics.length > 0) {
     messages.push(render_diagnostics(diagnostics, sources, { color }));

@@ -1,0 +1,4 @@
+invoke "std/io"
+
+main = ->
+  io::println("hola")

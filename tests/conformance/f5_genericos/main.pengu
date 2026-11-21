@@ -1,0 +1,12 @@
+invoke "std/io"
+
+rune Caja<T>
+  valor: T
+  constructor(valor: T)
+
+primero = <T>(xs: vector<T>) -> T
+  xs[0]
+
+main = ->
+  c = Caja<int>(5)
+  io::println("#{c.valor} #{primero<int>([9, 8])}")
