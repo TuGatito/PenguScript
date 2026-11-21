@@ -103,8 +103,24 @@ function parse_type_base(c: Cursor): TypeNode {
   }
 
   advance(c);
+  // Un tipo puede venir cualificado con su realm: `geo::Punto`.
+  const segments: string[] = [name];
+  let end = token.span;
+  while (at(c, "::")) {
+    advance(c);
+    const segment = peek(c);
+    if (segment.kind !== "ident") break;
+    advance(c);
+    segments.push(segment.text);
+    end = segment.span;
+  }
   const args = at(c, "<") ? parse_type_arguments(c) : [];
-  const named: NamedTypeNode = { kind: "named_type", name, args, span: token.span };
+  const named: NamedTypeNode = {
+    kind: "named_type",
+    name: segments.join("::"),
+    args,
+    span: merge_span(token.span, end),
+  };
   return named;
 }
 

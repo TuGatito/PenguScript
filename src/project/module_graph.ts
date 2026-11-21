@@ -13,6 +13,8 @@ import { CODES } from "../diagnostics/codes.ts";
 import { make_sink } from "../diagnostics/sink.ts";
 import { parse_text } from "../frontend/parser.ts";
 import type { Program } from "../frontend/ast.ts";
+import type { DeclNode } from "../frontend/ast_decl.ts";
+import type { Span } from "../util/span.ts";
 import { collect_module } from "../semantic/module_info.ts";
 import type { ModuleInfo } from "../semantic/module_info.ts";
 import { symbol_type_of } from "../semantic/external.ts";
@@ -43,6 +45,83 @@ interface LoadState {
   readonly order: LoadedModule[];
   readonly diagnostics: Diagnostic[];
   readonly root: string;
+}
+
+// Un realm puede reabrirse en varios archivos, pero un mismo nombre de
+// tipo no puede declararse dos veces: en C++ sería una redefinición.
+function check_realm_collisions(state: LoadState): void {
+  const by_realm = new Map<string, Map<string, { file: string; span: Span }>>();
+  for (const module of state.order) {
+    const realm = module.info.realm;
+    let names = by_realm.get(realm);
+    if (names === undefined) {
+      names = new Map();
+      by_realm.set(realm, names);
+    }
+    for (const decl of module.program.decls) {
+      if (!is_type_declaration(decl)) continue;
+      const previous = names.get(decl.name);
+      if (previous !== undefined && previous.file !== module.file) {
+        state.diagnostics.push(
+          make_error(
+            CODES.realm_duplicate,
+            `«${decl.name}» ya está declarado en el realm «${realm}» por «${previous.file}»`,
+            decl.span,
+            `un realm puede reabrirse, pero cada tipo se declara una sola vez`,
+          ),
+        );
+        continue;
+      }
+      names.set(decl.name, { file: module.file, span: decl.span });
+    }
+  }
+}
+
+// Reabrir un realm en varios archivos comparte sus símbolos: todos los
+// archivos del mismo realm ven los tipos y funciones de los demás.
+function merge_realm_envs(state: LoadState): void {
+  const groups = new Map<string, LoadedModule[]>();
+  for (const module of state.order) {
+    const list = groups.get(module.info.realm);
+    if (list === undefined) groups.set(module.info.realm, [module]);
+    else list.push(module);
+  }
+
+  for (const modules of groups.values()) {
+    if (modules.length < 2) continue;
+    for (const target of modules) {
+      for (const source of modules) {
+        if (source === target) continue;
+        for (const [name, rune] of source.info.env.runes) {
+          if (!target.info.env.runes.has(name)) target.info.env.runes.set(name, rune);
+        }
+        for (const [name, omen] of source.info.env.omens) {
+          if (!target.info.env.omens.has(name)) target.info.env.omens.set(name, omen);
+        }
+        for (const [name, alias] of source.info.env.aliases) {
+          if (!target.info.env.aliases.has(name)) target.info.env.aliases.set(name, alias);
+        }
+        for (const [name, fn] of source.info.functions) {
+          if (!target.info.functions.has(name)) target.info.functions.set(name, fn);
+        }
+        for (const [name, constant] of source.info.consts) {
+          if (!target.info.consts.has(name)) target.info.consts.set(name, constant);
+        }
+      }
+    }
+  }
+}
+
+function is_type_declaration(decl: DeclNode): decl is DeclNode & { readonly name: string; readonly span: Span } {
+  switch (decl.kind) {
+    case "rune_decl":
+    case "omen_decl":
+    case "echo_decl":
+    case "seal_decl":
+      return true;
+    default:
+      return false;
+  }
 }
 
 function load_one(state: LoadState, file: string): LoadedModule | undefined {
@@ -85,6 +164,7 @@ function load_one(state: LoadState, file: string): LoadedModule | undefined {
   state.visiting.add(file);
 
   const imports = new Map<string, LoadedModule>();
+  const imports_by_alias = new Map<string, LoadedModule>();
   for (const [alias, imported] of info.imports) {
     const resolved = resolve_module_file(file, imported.path, state.root);
     if (resolved === undefined && imported.path.startsWith("std/")) {
@@ -103,13 +183,16 @@ function load_one(state: LoadState, file: string): LoadedModule | undefined {
       continue;
     }
     const child = load_one(state, resolved);
-    if (child !== undefined) imports.set(alias, child);
+    if (child === undefined) continue;
+    imports_by_alias.set(alias, child);
+    // Sin `as`, el módulo se importa con el nombre de su realm.
+    imports.set(imported.explicit ? alias : child.info.realm, child);
   }
 
   const selective = new Map<string, SelectiveImport>();
   for (const [alias, imported] of info.imports) {
     if (imported.items === undefined) continue;
-    const child = imports.get(alias);
+    const child = imports_by_alias.get(alias);
     if (child === undefined) continue;
     for (const name of imported.items) {
       if (symbol_type_of(child.info, name) === undefined && !child.info.env.runes.has(name) && !child.info.env.omens.has(name) && !child.info.env.aliases.has(name)) {
@@ -141,6 +224,8 @@ export function load_graph(entry_file: string): ModuleGraph {
     root,
   };
   const entry = load_one(state, entry_file);
+  check_realm_collisions(state);
+  merge_realm_envs(state);
   return {
     entry,
     order: state.order,

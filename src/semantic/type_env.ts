@@ -87,15 +87,23 @@ export interface AliasInfo {
   readonly methods: Map<string, MethodInfo>;
 }
 
+export interface PendingType {
+  readonly name: string;
+  readonly span: Span;
+}
+
 export interface TypeEnv {
   readonly runes: Map<string, RuneInfo>;
   readonly omens: Map<string, OmenInfo>;
   readonly aliases: Map<string, AliasInfo>;
   readonly sigils: Map<string, PenguType>;
+  // Tipos que aún no existen: pueden llegar de otro archivo del mismo
+  // realm (realm reabierto) y se validan al terminar de cargar el grafo.
+  readonly pending_types: PendingType[];
 }
 
 export function make_type_env(): TypeEnv {
-  return { runes: new Map(), omens: new Map(), aliases: new Map(), sigils: new Map() };
+  return { runes: new Map(), omens: new Map(), aliases: new Map(), sigils: new Map(), pending_types: [] };
 }
 
 const POINTER_NAMES: ReadonlyMap<string, (inner: PenguType) => PenguType> = new Map([
@@ -198,8 +206,19 @@ export function resolve_named_type(
   // `Ordering` es el resultado de `<=>` y lo aporta el runtime.
   if (name === "Ordering" && args.length === 0) return named("Ordering");
 
-  sink.add(make_error(CODES.unknown_type, `no existe el tipo «${name}»`, span));
-  return UNKNOWN;
+  // Puede venir de otro archivo del mismo realm: se resuelve al final.
+  env.pending_types.push({ name, span });
+  return named(name, args);
+}
+
+// Comprueba que los tipos aplazados existen ya (tras fusionar realms).
+export function report_pending_types(env: TypeEnv, sink: DiagnosticSink): void {
+  for (const pending of env.pending_types) {
+    const bare = pending.name.includes("::") ? pending.name.slice(pending.name.lastIndexOf("::") + 2) : pending.name;
+    if (env.runes.has(bare) || env.omens.has(bare) || env.aliases.has(bare)) continue;
+    sink.add(make_error(CODES.unknown_type, `no existe el tipo «${pending.name}»`, pending.span));
+  }
+  env.pending_types.length = 0;
 }
 
 export const BUILTIN_CONTAINERS: ReadonlySet<string> = new Set([

@@ -31,6 +31,7 @@ export const CODES = {
   realm_after_import: "E0305",
   realm_missing: "E0306",
   unknown_symbol: "E0307",
+  not_const_evaluable: "E0308",
 
   duplicate_symbol: "E0401",
   reserved_name: "E0402",

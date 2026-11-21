@@ -62,11 +62,15 @@ export interface ConstInfo {
   readonly mutable: boolean;
   readonly span: Span;
   type: PenguType;
+  // `const` evaluable en compilación (literales y operaciones puras).
+  evaluable: boolean;
 }
 
 export interface ImportInfo {
   readonly path: string;
   readonly alias: string;
+  // `as nombre`: el alias lo eligió el programa, no el realm del módulo.
+  readonly explicit: boolean;
   readonly items: readonly string[] | undefined;
   readonly span: Span;
 }
@@ -345,6 +349,7 @@ export function resolve_params(
 function register_import(decl: Extract<DeclNode, { kind: "invoke_decl" }>, imports: Map<string, ImportInfo>, sink: DiagnosticSink): void {
   const trimmed = decl.path.replace(/^\.\//, "");
   const alias = decl.alias ?? trimmed.split("/").filter(Boolean).pop() ?? trimmed;
+  const explicit = decl.alias !== undefined;
   if (imports.has(alias)) {
     sink.add(make_error(CODES.duplicate_symbol, `el módulo «${alias}» ya está importado`, decl.span));
     return;
@@ -352,6 +357,7 @@ function register_import(decl: Extract<DeclNode, { kind: "invoke_decl" }>, impor
   imports.set(alias, {
     path: decl.path,
     alias,
+    explicit,
     items: decl.items?.map((item) => item.alias ?? item.name),
     span: decl.span,
   });
@@ -485,6 +491,7 @@ function register_const(
     mutable: decl.mutable,
     span: decl.span,
     type: declared_type ?? UNKNOWN,
+    evaluable: false,
   });
 }
 

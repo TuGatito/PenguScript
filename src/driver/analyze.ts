@@ -3,7 +3,7 @@
 
 import type { DiagnosticSink } from "../diagnostics/sink.ts";
 import { load_graph } from "../project/module_graph.ts";
-import { check_program } from "../semantic/checker.ts";
+import { check_loaded_module } from "../semantic/checker.ts";
 import type { ProgramUnit } from "../codegen/cpp_module.ts";
 import type { ModuleInfo } from "../semantic/module_info.ts";
 import type { ExprNode } from "../frontend/ast_expr.ts";
@@ -33,7 +33,10 @@ export function analyze_graph(source_path: string, sink: DiagnosticSink): Analys
     for (const [name, symbol] of loaded.selective) {
       selective.set(name, { module: symbol.module.info, name: symbol.name });
     }
-    const module = check_program(loaded.file, loaded.program, sink, {
+    // Se reutiliza el módulo ya recogido: al cargar el grafo se fusionan
+    // los símbolos de los realms reabiertos en varios archivos.
+    const module = loaded.info;
+    check_loaded_module(module, loaded.program, sink, {
       types,
       external: { modules: external_modules, selective },
     });

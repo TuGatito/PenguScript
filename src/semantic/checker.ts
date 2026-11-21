@@ -20,11 +20,12 @@ import { error as make_error } from "../diagnostics/diagnostic.ts";
 import type { CheckContext } from "./checker_context.ts";
 import { check_initialization, make_context, report_type_mismatch } from "./checker_context.ts";
 import { collect_module } from "./module_info.ts";
+import { eval_const, make_const_scope } from "./const_eval.ts";
 import type { ModuleInfo } from "./module_info.ts";
 import { declare } from "./scopes.ts";
 import { infer_block, param_binding_type } from "./checker_expr.ts";
 import type { RuneInfo } from "./type_env.ts";
-import { find_rune_field, find_rune_method, resolve_type_node } from "./type_env.ts";
+import { find_rune_field, find_rune_method, report_pending_types, resolve_type_node } from "./type_env.ts";
 import { any_type, generic_type, is_any, named, type_equals } from "./types.ts";
 import type { PenguType } from "./types.ts";
 import type { ExternalImports } from "./external.ts";
@@ -43,7 +44,18 @@ export function check_program(
   options: CheckOptions = {},
 ): ModuleInfo {
   const module = collect_module(file, program, sink);
-  const ctx = make_context(file, module, sink);
+  check_loaded_module(module, program, sink, options);
+  return module;
+}
+
+// Comprueba un módulo ya recogido (con su realm ya fusionado).
+export function check_loaded_module(
+  module: ModuleInfo,
+  program: Program,
+  sink: DiagnosticSink,
+  options: CheckOptions = {},
+): void {
+  const ctx = make_context(module.file, module, sink);
   ctx.types = options.types;
   ctx.external = options.external;
 
@@ -51,7 +63,7 @@ export function check_program(
     check_decl(ctx, decl);
   }
 
-  return module;
+  report_pending_types(module.env, sink);
 }
 
 function check_decl(ctx: CheckContext, decl: DeclNode): void {
@@ -110,6 +122,18 @@ function check_const(ctx: CheckContext, decl: ConstDecl): void {
     check_initialization(ctx, info.declared_type, value, decl.value.span, "en la constante", decl.value);
   } else {
     info.type = value;
+  }
+
+  info.evaluable = eval_const(make_const_scope(ctx.module), decl.value) !== undefined;
+  if (decl.is_static && !info.evaluable) {
+    ctx.sink.add(
+      make_error(
+        CODES.not_const_evaluable,
+        `«${decl.name}» es «static mut» y necesita un valor evaluable en compilación`,
+        decl.value.span,
+        "usa literales, «const» o operaciones puras",
+      ),
+    );
   }
 }
 

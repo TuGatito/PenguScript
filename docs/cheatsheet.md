@@ -395,6 +395,14 @@ The operator **`::`** is reserved for static, compile-time-resolved access — r
 
 The two never mix. `geometry.x` is a type error (`geometry` is a realm, not a value); `point::x` is a type error (`point` is a value, not a realm). The distinction makes code readable at a glance: `::` always means "something named in a namespace", `.` always means "something stored in a value".
 
+#### Estado en 0.1.0 (módulos, realms y constantes)
+
+- **Nombre al importar**: sin `as`, el módulo se importa con el nombre de su **realm** (`invoke "./geo"` → `geo::suma`), no con el nombre del archivo.
+- **Reapertura**: varios archivos pueden declarar el mismo realm; sus tipos, funciones y constantes se **fusionan**, así que un archivo ve lo que declara otro del mismo realm. Un tipo declarado dos veces en el mismo realm es `E0304`.
+- **`const`**: se evalúa si puede hacerse en compilación y se emite como `constexpr` cuando es evaluable (literales, aritmética pura y `const` previas, en cualquier orden del archivo). Si envuelve `atomic`/`mutex`/`shared_mutex`, se emite como `inline` no constante para permitir la mutación interior. Los contenedores se construyen en ejecución (`const` normal).
+- **`static mut`**: se emite como variable `static` de módulo y su inicialización debe ser **const-evaluable**; si no, `E0308`. Leerla o escribirla exige `unsafe`.
+- **`_`**: el prefijo es solo una convención; no cambia la visibilidad (todo lo de nivel superior es público).
+
 ### Names on both sides
 
 It works just like in C/C++. Everything is accessible from any place where the *realm* is imported. The Lua/C/Python convention for "private" symbols is used—for example, `_function_intended_for_internal_module_use_only`. This signals to the programmer that they should not use that method, though it remains technically accessible.

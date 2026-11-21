@@ -74,6 +74,10 @@ export function emit_declarations(g: GenContext, decls: readonly DeclNode[]): vo
     }
   }
 
+  // Las constantes van antes que las funciones (que pueden usarlas) y
+  // en orden de dependencia entre ellas.
+  for (const decl of order_consts(decls)) emit_const(g, decl);
+
   // Después el resto, en el orden del fuente.
   for (const decl of decls) {
     switch (decl.kind) {
@@ -86,7 +90,6 @@ export function emit_declarations(g: GenContext, decls: readonly DeclNode[]): vo
       case "enchanting_decl":
         break;
       case "const_decl":
-        emit_const(g, decl);
         break;
       case "function_decl":
         with_sigils(g, decl.sigils, () => emit_function(g, decl));
@@ -169,14 +172,90 @@ function collect_methods(decls: readonly DeclNode[]): Map<string, readonly Metho
 }
 
 function emit_const(g: GenContext, decl: ConstDecl): void {
-  const type = decl.declared_type ? cpp_type_node(decl.declared_type, g.module.env, g.type_realms) : "auto";
+  const declared = decl.declared_type ? cpp_type_node(decl.declared_type, g.module.env, g.type_realms) : "auto";
+  const type = declared === "auto" ? "auto" : declared;
   const name = cpp_identifier(decl.name);
   const value = emit_expr(g, decl.value);
+  const info = g.module.consts.get(decl.name);
+  const evaluable = info?.evaluable === true && declared !== "auto";
+
   if (decl.is_static) {
-    line(g, `inline ${type === "auto" ? "auto" : type} ${name} = ${value};`);
-  } else {
-    line(g, `const ${type === "auto" ? "auto" : type} ${name} = ${value};`);
+    // `static mut`: mutable de módulo, no `const`.
+    line(g, `static ${type} ${name} = ${value};`);
+    return;
   }
+
+  const value_type = info?.type;
+  if (is_interior_mutable(declared) || (declared === "auto" && value_type !== undefined && is_interior_mutable_type(value_type))) {
+    // `atomic`, `mutex`, …: la vinculación es inmutable pero el objeto no.
+    line(g, `inline ${type} ${name} = ${value};`);
+    return;
+  }
+
+  if (evaluable) {
+    line(g, `constexpr ${type} ${name} = ${value};`);
+    return;
+  }
+
+  line(g, `const ${type} ${name} = ${value};`);
+}
+
+function is_interior_mutable_type(type: { readonly kind: string; readonly name?: string }): boolean {
+  return type.kind === "named" && type.name !== undefined && INTERIOR_MUTABLE_NAMES.has(type.name);
+}
+
+const INTERIOR_MUTABLE_NAMES = new Set(["atomic", "mutex", "shared_mutex", "condition_variable"]);
+
+function is_interior_mutable(type: string): boolean {
+  return (
+    type.startsWith("std::atomic") ||
+    type === "std::mutex" ||
+    type === "std::shared_mutex" ||
+    type === "std::condition_variable"
+  );
+}
+
+// Ordena las constantes por dependencia: C++ exige declarar antes de usar
+// (las funciones pueden ir después, pero `constexpr` no).
+function order_consts(decls: readonly DeclNode[]): readonly ConstDecl[] {
+  const consts = decls.filter((decl): decl is ConstDecl => decl.kind === "const_decl");
+  const by_name = new Map(consts.map((decl) => [decl.name, decl]));
+  const ordered: ConstDecl[] = [];
+  const state = new Map<string, "visiting" | "done">();
+
+  function visit(decl: ConstDecl): void {
+    const current = state.get(decl.name);
+    if (current === "done" || current === "visiting") return;
+    state.set(decl.name, "visiting");
+    for (const name of referenced_names(decl.value)) {
+      const dependency = by_name.get(name);
+      if (dependency !== undefined) visit(dependency);
+    }
+    state.set(decl.name, "done");
+    ordered.push(decl);
+  }
+
+  for (const decl of consts) visit(decl);
+  return ordered;
+}
+
+function referenced_names(node: unknown): readonly string[] {
+  const found: string[] = [];
+  const walk = (value: unknown): void => {
+    if (value === null || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item);
+      return;
+    }
+    const record = value as Record<string, unknown>;
+    if (record.kind === "ident" && typeof record.name === "string") found.push(record.name);
+    for (const key of Object.keys(record)) {
+      if (key === "span") continue;
+      walk(record[key]);
+    }
+  };
+  walk(node);
+  return found;
 }
 
 function emit_function(g: GenContext, decl: FunctionDecl): void {
