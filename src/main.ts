@@ -13,6 +13,18 @@ import { probe_toolchain } from "./driver/toolchain.ts";
 import { LANGUAGE_NAME, LANGUAGE_VERSION } from "./version.ts";
 import { TOOL_NAME, VERSION } from "./version.ts";
 
+// Si el consumidor cierra la tubería antes de tiempo (`pengu doctor | head`),
+// salir en silencio en vez de volcar un EPIPE.
+function ignore_broken_pipe(stream: NodeJS.WriteStream): void {
+  stream.on("error", (error: NodeJS.ErrnoException) => {
+    if (error.code === "EPIPE") process.exit(0);
+    throw error;
+  });
+}
+
+ignore_broken_pipe(process.stdout);
+ignore_broken_pipe(process.stderr);
+
 function print(text: string): void {
   process.stdout.write(`${text}\n`);
 }
