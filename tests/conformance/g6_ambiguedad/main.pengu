@@ -1,0 +1,6 @@
+invoke "std/io"
+invoke "./a"
+invoke "./b"
+
+main = ->
+  io::println("x".describe())

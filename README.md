@@ -69,7 +69,7 @@ src/
   cli/         comandos de la línea de órdenes
   diagnostics/ códigos, diagnósticos y render con caret
 std/           biblioteca estándar: firmas `*.d.pengu` que declara el bloque `declare`
-examples/      programas de ejemplo, de `01_hello` a `10_ownership`
+examples/      programas de ejemplo, de `01_hello` a `12_colecciones`
 editors/vscode extensión de VS Code (gramática + cliente LSP)
 scripts/       instalación del ejecutable y empaquetado del .vsix (sh + ps1)
 tests/         lexer, parser, checker, formatter, lsp, bindgen y e2e
@@ -96,6 +96,8 @@ funciones puras y módulos pequeños de una sola responsabilidad.
 - `examples/08_modules` — varios archivos, `realm`, `invoke` selectivo.
 - `examples/09_stdlib` — vectores, mapas, conjuntos, opcionales, `math` y `format`.
 - `examples/10_ownership` — `unique<T>`, movimiento y `use after move`.
+- `examples/11_polimorfismo` — herencia, `parent`, operadores y despacho virtual.
+- `examples/12_colecciones` — `std/string`, `vector`, `map`, `set`, `optional` e `int` enhechizados.
 
 ## Enlaces con C
 

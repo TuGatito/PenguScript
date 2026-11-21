@@ -71,7 +71,9 @@ function is_prefix_operator(token: Token, previous: Token | undefined): boolean 
 
 function space_between(previous: Token | undefined, token: Token, tight: boolean): boolean {
   if (previous === undefined) return false;
-  if (tight) return false;
+  // La cercanía del prefijo (`#xs`, `@campo`) no debe pegar el operador
+  // binario que venga después: `@ < otro`, no `@< otro`.
+  if (tight) return is_operator_token(token) && BINARY_OPERATORS.has(token.text);
 
   const text = token.text;
 

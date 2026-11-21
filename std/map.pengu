@@ -2,7 +2,7 @@ realm map
 
 enchanting map<K, V>
   is_empty = -> bool
-    #@== 0
+    #@ == 0
 
   contains_key = (clave: K) -> bool
     clave in @

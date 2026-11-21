@@ -31,4 +31,11 @@ describe("formateador", () => {
     const text = "main = ->\n  while true\n    break\n";
     expect(formatted(text)).toBe("main = ->\n  while true\n    break\n");
   });
+
+  test("un prefijo no se pega al operador binario que le sigue", () => {
+    const source = "enchanting string\n  compare = (otro: string) -> int\n    if @< otro then -1 else 1\n";
+    const once = format_text("test.pengu", source);
+    expect(once).toContain("if @ < otro then -1 else 1");
+    expect(format_text("test.pengu", once)).toBe(once);
+  });
 });

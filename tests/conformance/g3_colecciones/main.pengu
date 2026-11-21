@@ -1,0 +1,14 @@
+invoke "std/io"
+invoke "std/optional"
+invoke "std/map"
+invoke "std/array"
+invoke "std/pair"
+
+main = ->
+  precios = {"pan": 2, "leche": 3}
+  io::println("#{#precios.keys_list()}")
+  xs: array<int, 2> = [7, 9]
+  io::println("#{xs.first().or_else(0)}")
+  par: pair<int, string> = (1, "uno")
+  invertido = par.swap()
+  io::println("#{invertido.first}#{invertido.second}")

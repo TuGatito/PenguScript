@@ -36,13 +36,42 @@ es la 0.2.0; la del compilador y sus herramientas es la 0.1.0.
   `invoke` selectivo y alias.
 - **Extensión de VS Code** en `editors/vscode`: gramática TextMate,
   configuración del lenguaje y cliente LSP.
-- **Ejemplos** de `examples/01_hello` a `examples/10_ownership`, todos
+- **Ejemplos** de `examples/01_hello` a `examples/12_colecciones`, todos
   compilables y ejecutables, más fixtures de bindgen nativo.
 - **Scripts de instalación** en `scripts/`: `install.sh`/`install.ps1` compilan
   con Bun y dejan `pengu` en el PATH sin editar perfiles de shell;
   `vsix.sh`/`vsix.ps1` empaquetan e instalan la extensión.
 - **Documentación**: `README.md` reescrito, `docs/stdlib.md` con el estado de la
   implementación y plan escalable en `scratch/plan_typescript.md`.
+
+### Añadido en las fases G1–G6
+
+- **`enchanting` sobre tipos incorporados**: un bloque `enchanting string`,
+  `enchanting vector<T>`, `enchanting map<K, V>` o `enchanting tuple<A, B>`
+  añade métodos a un tipo de la biblioteca sin tocar el compilador. Los
+  métodos se registran por tipo base y aridad, admiten sobrecargas, respetan
+  `mut` solo en tipos por referencia y se resuelven en este orden: propios,
+  importados y, por último, la tabla nativa. Se añadieron los códigos E0707
+  (firma duplicada), E0708 (ambigüedad entre módulos), E0709 (destino
+  desconocido), E0710 (`mut` sobre un tipo por valor) y E0711 (aridad del
+  patrón).
+- **Biblioteca de colecciones en `std/`**: `std/string`, `std/vector`,
+  `std/array`, `std/map`, `std/set`, `std/optional`, `std/pair`, `std/tuple`
+  (pares y ternas), `std/int`, `std/double` y `std/ordering`. Cada módulo se
+  importa explícitamente; sin el `invoke` los métodos no existen.
+- **Codegen de métodos enhechizados**: funciones libres cualificadas por
+  realm, `realm::metodo(receptor, ...)`, `std::get<N>` para tuplas y
+  parámetros genéricos no deducidos con `std::type_identity_t` para permitir
+  conversiones como `or_else(size_t?, 0)`.
+- **LSP**: *hover* con la firma del método enhechizado y su realm,
+  autocompletado de miembros tras `.` sobre receptores incorporados y
+  `documentSymbol` para los bloques `enchanting`.
+- **Documentación**: sección «Enchanting built-in types» en
+  `docs/cheatsheet.md`, tabla de módulos enhechizados en `docs/stdlib.md` y
+  `docs/errors.md` con E0707–E0711.
+- **Pruebas**: `tests/regression/g2.test.ts` (resolución, sobrecargas, `mut`,
+  ambigüedad), `tests/regression/g4.test.ts` (los once módulos de colecciones)
+  y seis casos de conformidad nuevos (`g1_string` … `g6_ambiguedad`).
 
 ### Cambiado
 

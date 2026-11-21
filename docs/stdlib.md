@@ -30,6 +30,26 @@ El bloque `declare` marca las funciones que implementa el runtime del compilador
 
 `std/io`, `std/format` y `std/log` ya son módulos PenguScript: declaran sus primitivas con `declare` (que reciben `vector<any>`) y ofrecen la API variádica en el propio lenguaje. Cada argumento `any` se empaqueta como `::pengu::Value`, que guarda su renderizador de `Display`.
 
+### Enchanting de tipos incorporados
+
+Estos módulos no exportan funciones libres: añaden métodos a los tipos
+incorporados mediante bloques `enchanting`. Hay que importarlos de forma
+explícita para que los métodos existan en el archivo:
+
+| Archivo | Métodos que añade |
+|---------|-------------------|
+| `std/string.pengu` | `string`: `compare`, `is_empty`, `starts_with`, `ends_with`, `contains`, `find`, `trim`, `to_upper`, `to_lower`, `split`, `repeat`. |
+| `std/vector.pengu` | `vector<T>`: `is_empty`, `first`, `last`, `index_of`, `contains`, `join`, `mut reverse`, `mut sort`. |
+| `std/array.pengu` | `array<T, N>`: `is_empty`, `first`, `last`, `index_of`, `contains`. |
+| `std/map.pengu` | `map<K, V>`: `is_empty`, `contains_key`, `keys_list`, `values_list`. |
+| `std/set.pengu` | `set<T>`: `is_empty`, `contains`, `to_vector`, `union`. |
+| `std/optional.pengu` | `T?`: `is_empty`, `or_else`, `filter`, `to_vector`. |
+| `std/pair.pengu` | `pair<A, B>`: `swap`, `to_tuple`. |
+| `std/tuple.pengu` | `tuple<A, B>` y `tuple<A, B, C>`: `len`, `swap`, `to_pair`, `third`. |
+| `std/int.pengu` | `int`: `abs`, `min`, `max`, `clamp`, `is_even`, `is_odd`, `sign`, `to_double`. |
+| `std/double.pengu` | `double`: `abs`, `min`, `max`, `clamp`, `to_int`. |
+| `std/ordering.pengu` | `Ordering`: `then`. |
+
 ### Layer 0 — FFI
 
 | Module | Files | Contents |

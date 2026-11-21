@@ -1,0 +1,5 @@
+realm a
+
+enchanting string
+  describe = -> string
+    "a"

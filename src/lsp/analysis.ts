@@ -8,6 +8,7 @@ import { check_program } from "../semantic/checker.ts";
 import type { ExprNode } from "../frontend/ast_expr.ts";
 import type { PenguType } from "../semantic/types.ts";
 import type { ModuleInfo } from "../semantic/module_info.ts";
+import type { MethodTarget } from "../semantic/type_env.ts";
 import { make_source, span_from, type Source } from "../util/span.ts";
 
 export interface Analysis {
@@ -16,6 +17,7 @@ export interface Analysis {
   readonly program: Program;
   readonly module: ModuleInfo;
   readonly types: Map<ExprNode, PenguType>;
+  readonly member_targets: Map<ExprNode, MethodTarget>;
   readonly diagnostics: readonly Diagnostic[];
 }
 
@@ -33,7 +35,8 @@ export function analyze(uri: string, text: string): Analysis {
   for (const diagnostic of parsed.diagnostics) sink.add(diagnostic);
 
   const types = new Map<ExprNode, PenguType>();
-  const module = check_program(file, parsed.program, sink, { types });
+  const member_targets = new Map<ExprNode, MethodTarget>();
+  const module = check_program(file, parsed.program, sink, { types, member_targets });
 
   return {
     file,
@@ -41,6 +44,7 @@ export function analyze(uri: string, text: string): Analysis {
     program: parsed.program,
     module,
     types,
+    member_targets,
     diagnostics: sink.diagnostics,
   };
 }

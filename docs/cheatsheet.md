@@ -3131,6 +3131,83 @@ template<typename T> struct Wrapper { T value; };
 - **No transitive seal unwrapping.** `A as C` where `A` wraps `B` and `B` wraps `C` requires `A as B as C` (or, more likely, is a design smell).
 - **No seal-to-seal casting with `as`.** `m as Celsius` is a compile error; you must go through the underlying type (`Celsius(m as double)`). This is intentional: it forces the conversion to be visible.
 
+## Enchanting built-in types
+
+The `enchanting` block also accepts a **type pattern** instead of a rune name.
+This is how `std` modules add methods to built-in types without the compiler
+knowing anything about them:
+
+```pengu
+-- std/string.pengu
+realm string
+
+enchanting string
+  starts_with = (prefijo: string) -> bool
+    prefijo in @
+
+  compare = (otro: string) -> int
+    if @ < otro then -1 else if @ > otro then 1 else 0
+```
+
+Then a program that imports the module gets those methods on any `string`:
+
+```pengu
+invoke "std/string"
+
+main = ->
+  saludo = "hola mundo"
+  if saludo.starts_with("hola")
+    io::println("empieza bien")
+```
+
+Rules:
+
+- **Explicit imports.** A type only gains methods from the modules the file
+  imports. There is no global table of hidden methods: if `std/string` is not
+  imported, `"x".compare("y")` is an error (`E0506`).
+- **The pattern is the key.** Methods are registered by base type and arity:
+  `string/0`, `vector/1`, `map/2`, `array/1`, `pair/2`, `tuple/2`, `tuple/3`.
+  `enchanting array<T>` omits the size; the receiver is `std::array<T, N>`.
+- **`@` is the receiver**, exactly like in a rune. `mut` methods take the
+  receiver by reference and require a `mut` binding at the call site (`E0406`).
+  `mut` is only allowed on reference-like targets (containers), not on
+  primitives by value (`E0710`).
+- **Overloads are allowed** when they differ in arity or parameter types
+  (`compare = (otro: string) -> int` and `compare = (otro: string, ignorar: bool)
+  -> int`). Two methods with the same signature are rejected (`E0707`).
+- **Precedence:** a method on an imported enchanted type wins over the
+  compiler's built-in member table, and a module's own methods win over
+  imported ones. Two imports offering the same method for the same arguments is
+  an ambiguity error (`E0708`).
+- **No operators.** Built-in types cannot add operators through `enchanting`
+  (`E0706`); operators stay on runes, omens and seals.
+- The target must be a known type pattern. `enchanting strin` is an error with
+  a suggestion (`E0709`), and a wrong arity is `E0711`.
+
+### The collection modules
+
+| Module | Adds to |
+|--------|---------|
+| `std/string` | `compare`, `is_empty`, `starts_with`, `ends_with`, `contains`, `find`, `trim`, `to_upper`, `to_lower`, `split`, `repeat`. |
+| `std/vector` | `is_empty`, `first`, `last`, `index_of`, `contains`, `join`, `mut reverse`, `mut sort`. |
+| `std/array` | `is_empty`, `first`, `last`, `index_of`, `contains`. |
+| `std/map` | `is_empty`, `contains_key`, `keys_list`, `values_list`. |
+| `std/set` | `is_empty`, `contains`, `to_vector`, `union`. |
+| `std/optional` | `is_empty`, `or_else`, `filter`, `to_vector`. |
+| `std/pair` | `swap`, `to_tuple`. |
+| `std/tuple` | `len`, `swap`, `to_pair`, `third` (for 3-tuples). |
+| `std/int` | `abs`, `min`, `max`, `clamp`, `is_even`, `is_odd`, `sign`, `to_double`. |
+| `std/double` | `abs`, `min`, `max`, `clamp`, `to_int`. |
+| `std/ordering` | `then`. |
+
+### Limitations (v0.2.0)
+
+- Smart pointers (`unique<T>`, `shared<T>`, `weak<T>`) cannot be enchanted yet.
+- An enchanted method cannot be used as a value (`x.compare` without a call)
+  unless it has a single overload.
+- Methods added by `enchanting` are visible only to code that imports the
+  module that declares them.
+
 ## Type Conversions
 ---
 

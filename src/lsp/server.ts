@@ -24,7 +24,9 @@ import { find_node_at, node_label } from "./query.ts";
 import { format_text } from "../formatter/format_tokens.ts";
 import { KEYWORDS } from "../frontend/token.ts";
 import { position_at, span_of, type Source, type Span } from "../util/span.ts";
-import { type_display } from "../semantic/types.ts";
+import { type_display, type PenguType } from "../semantic/types.ts";
+import type { ModuleInfo } from "../semantic/module_info.ts";
+import type { EnchantedMethod, MethodTarget } from "../semantic/type_env.ts";
 
 interface Document {
   readonly uri: string;
@@ -101,9 +103,35 @@ function refresh(state: ServerState, document: Document): void {
   publish_diagnostics(state, document);
 }
 
+function enchanted_signature(module: ModuleInfo, target: MethodTarget): string | undefined {
+  for (const enchanted of module.env.enchants.values()) {
+    for (const [name, methods] of enchanted.methods) {
+      if (name !== target.name) continue;
+      for (const method of methods) {
+        if (method.realm !== target.realm) continue;
+        const params = method.info.params.map((param) => type_display(param)).join(", ");
+        return `${name} = (${params}) -> ${type_display(method.info.result)}`;
+      }
+    }
+  }
+  return undefined;
+}
+
 function hover_markdown(document: Document, offset: number): string | undefined {
   const node = find_node_at(document.analysis.program, offset);
   if (node === undefined) return undefined;
+
+  const target = document.analysis.member_targets.get(node as never);
+  if (target !== undefined) {
+    const signature = enchanted_signature(document.analysis.module, target);
+    if (signature !== undefined) {
+      return `\`\`\`pengu
+${signature}
+\`\`\`
+
+realm \`${target.realm}\``;
+    }
+  }
 
   const type = document.analysis.types.get(node as never);
   if (type !== undefined) {
@@ -124,6 +152,64 @@ function hover_markdown(document: Document, offset: number): string | undefined 
   const omen = module.env.omens.get(name);
   if (omen !== undefined) return `\`\`\`pengu\nomen ${name}\n\`\`\``;
   return undefined;
+}
+
+function receiver_shape(type: PenguType): string | undefined {
+  switch (type.kind) {
+    case "primitive":
+      return `${type.name}/0`;
+    case "named":
+      return type.generic === true ? undefined : `${type.name}/${type.args.length}`;
+    case "tuple":
+      return `tuple/${type.items.length}`;
+    case "array":
+      return "array/1";
+    case "optional":
+    case "ref":
+      return `${type.kind}/1`;
+    default:
+      return undefined;
+  }
+}
+
+function member_completion_items(document: Document, offset: number): LspCompletionItem[] | undefined {
+  const before = document.text.slice(0, offset);
+  const dot = before.lastIndexOf(".");
+  if (dot < 0) return undefined;
+  const between = before.slice(dot + 1);
+  if (between.length > 0 && !/^[A-Za-z0-9_]*$/.test(between)) return undefined;
+
+  const node = find_node_at(document.analysis.program, Math.max(dot - 1, 0));
+  if (node === undefined) return undefined;
+  const type = document.analysis.types.get(node as never);
+  if (type === undefined) return undefined;
+
+  const items: LspCompletionItem[] = [];
+  const module = document.analysis.module;
+  const shape = receiver_shape(type);
+  if (shape !== undefined) {
+    const enchanted = module.env.enchants.get(shape);
+    if (enchanted !== undefined) {
+      for (const [name, methods] of enchanted.methods) {
+        const method: EnchantedMethod | undefined = methods[0];
+        if (method === undefined) continue;
+        const params = method.info.params.map((param) => type_display(param)).join(", ");
+        items.push({
+          label: name,
+          kind: COMPLETION_KIND.function,
+          detail: `(${params}) -> ${type_display(method.info.result)}`,
+        });
+      }
+    }
+  }
+  const type_name = type.kind === "named" ? type.name : undefined;
+  const rune = type_name === undefined ? undefined : module.env.runes.get(type_name);
+  if (rune !== undefined) {
+    for (const name of rune.methods.keys()) {
+      items.push({ label: name, kind: COMPLETION_KIND.function, detail: `rune ${type_name}` });
+    }
+  }
+  return items.length > 0 ? items : undefined;
 }
 
 function collect_words(text: string): string[] {
@@ -212,6 +298,10 @@ function document_symbols(document: Document): LspDocumentSymbol[] {
         name = decl.name;
         kind = SYMBOL_KIND.enum;
         break;
+      case "enchanting_decl":
+        name = `enchanting ${decl.target}`;
+        kind = SYMBOL_KIND.class;
+        break;
       default:
         name = undefined;
     }
@@ -263,6 +353,19 @@ function handle_request(state: ServerState, message: JsonRpcMessage): void {
       if (completion_uri === undefined) return respond(state, id, []);
       const document = state.documents.get(completion_uri);
       if (document === undefined) return respond(state, id, []);
+      const completion_params = params as unknown as LspPositionParams | undefined;
+      if (completion_params !== undefined) {
+        const completion_offset = to_offset(
+          document.analysis.source,
+          completion_params.position.line,
+          completion_params.position.character,
+        );
+        const members = member_completion_items(document, completion_offset);
+        if (members !== undefined) {
+          respond(state, id, members);
+          return;
+        }
+      }
       respond(state, id, completion_items(document));
       return;
     }

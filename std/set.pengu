@@ -2,7 +2,7 @@ realm set
 
 enchanting set<T>
   is_empty = -> bool
-    #@== 0
+    #@ == 0
 
   contains = (valor: T) -> bool
     valor in @

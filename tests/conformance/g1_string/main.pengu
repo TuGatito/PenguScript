@@ -1,0 +1,8 @@
+invoke "std/io"
+invoke "std/string"
+
+main = ->
+  a = "hola"
+  io::println("#{a.compare("hola")}")
+  io::println("#{a.starts_with("ho")}")
+  io::println(a.to_upper())

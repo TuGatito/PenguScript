@@ -1,0 +1,12 @@
+invoke "std/io"
+
+enchanting string
+  compare = (otro: string) -> int
+    if @ < otro then -1 else if @ > otro then 1 else 0
+
+  compare = (otro: string, ignorar_mayusculas: bool) -> int
+    if ignorar_mayusculas then 0 else @.compare(otro)
+
+main = ->
+  io::println("#{"hola".compare("hola")}")
+  io::println("#{"Hola".compare("hola", true)}")

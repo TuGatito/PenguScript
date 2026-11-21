@@ -1,0 +1,11 @@
+invoke "std/io"
+invoke "std/optional"
+invoke "std/vector"
+
+main = ->
+  mut xs = [2, 3, 1]
+  xs.sort()
+  xs.reverse()
+  io::println(xs.join(","))
+  io::println("#{xs.first().or_else(0)}")
+  io::println("#{xs.contains(2)}")

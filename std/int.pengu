@@ -2,25 +2,25 @@ realm int
 
 enchanting int
   abs = -> int
-    if @< 0 then -@else @
+    if @ < 0 then -@else @
 
   min = (otro: int) -> int
-    if @< otro then @else otro
+    if @ < otro then @else otro
 
   max = (otro: int) -> int
-    if @> otro then @else otro
+    if @ > otro then @else otro
 
   clamp = (minimo: int, maximo: int) -> int
-    if @< minimo then minimo else if @> maximo then maximo else @
+    if @ < minimo then minimo else if @ > maximo then maximo else @
 
   is_even = -> bool
-    @% 2 == 0
+    @ % 2 == 0
 
   is_odd = -> bool
-    @% 2 != 0
+    @ % 2 != 0
 
   sign = -> int
-    if @> 0 then 1 else if @< 0 then -1 else 0
+    if @ > 0 then 1 else if @ < 0 then -1 else 0
 
   to_double = -> double
     @as double

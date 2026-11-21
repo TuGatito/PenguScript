@@ -1,0 +1,9 @@
+invoke "std/io"
+invoke "std/tuple"
+
+main = ->
+  par: tuple<int, string> = (5, "cinco")
+  io::println("#{par.len()}")
+  io::println(par.second)
+  trio: tuple<int, string, bool> = (5, "cinco", true)
+  io::println("#{trio.third()}")
