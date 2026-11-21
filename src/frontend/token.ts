@@ -59,6 +59,7 @@ export function is_keyword(text: string): text is Keyword {
 
 export const OPERATORS = [
   "<=>",
+  "...",
   "<<=",
   ">>=",
   "..<",

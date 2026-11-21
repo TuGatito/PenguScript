@@ -1,0 +1,18 @@
+realm io
+
+declare
+  write_values = (partes: vector<any>, nueva_linea: bool) -> void
+  eprint_values = (partes: vector<any>, nueva_linea: bool) -> void
+  read_line = -> string
+
+println = (...partes: any) -> void
+  write_values(partes, true)
+
+print = (...partes: any) -> void
+  write_values(partes, false)
+
+eprintln = (...partes: any) -> void
+  eprint_values(partes, true)
+
+eprint = (...partes: any) -> void
+  eprint_values(partes, false)

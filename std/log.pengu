@@ -1,0 +1,16 @@
+realm log
+
+declare
+  log_values = (nivel: string, partes: vector<any>) -> void
+
+debug = (...partes: any) -> void
+  log_values("debug", partes)
+
+info = (...partes: any) -> void
+  log_values("info", partes)
+
+warn = (...partes: any) -> void
+  log_values("warn", partes)
+
+error = (...partes: any) -> void
+  log_values("error", partes)

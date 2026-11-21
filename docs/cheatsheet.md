@@ -762,6 +762,99 @@ Codegen rules:
 - Calls in PenguScript never pass `nullopt`. Omission is the only way to use a default. Passing a `T?` value to a `T` parameter is a type error.
 - Move-only types (e.g. `unique<T>`) are handled by moving out of `name_opt`: `T name = name_opt ? std::move(*name_opt) : default_expr;`.
 
+## Variadic Functions
+---
+
+A function may accept a variable number of arguments. The variadic parameter is written with `...` before the name, must be the **last** parameter, and must declare a type:
+
+```coffee
+sumar = (...numeros: int) -> int
+  mut total = 0
+  for n in numeros
+    total += n
+  total
+
+sumar(1, 2, 3)   -- 6
+sumar()          -- 0
+sumar(4, 5)      -- 9
+```
+
+Rules:
+
+- Inside the body the parameter is a `vector<T>`. `#xs`, `xs[i]` and `for x in xs` work as on any vector.
+- A variadic parameter cannot have a default value, cannot be `mut`, and cannot appear before a fixed parameter.
+- The type is required: there is no untyped variadic.
+- `...` is also the spread operator at the call site. It expands a vector into the variadic arguments:
+
+```coffee
+numeros = [1, 2, 3]
+sumar(...numeros)     -- 6
+sumar(0, ...numeros)  -- 6
+```
+
+Spread only works on `vector<T>` and only for variadic calls; expanding anything else is a compile error.
+
+### `any` — heterogeneous variadics
+
+The special type `any` accepts a value of any type that implements `Display`. It is the type used by `io::println` and friends:
+
+```coffee
+invoke "std/io"
+
+main = ->
+  io::println("vidas:", 3, "activo:", true)   -- vidas:3activo:true
+```
+
+Interpolation and variadics print values **back to back**; there is no implicit separator. `println` adds the trailing newline, `print` does not.
+
+Each `any` argument is boxed at runtime (`pengu::Value`), which keeps a renderer for it. A rune participates by declaring a `to_string` method:
+
+```coffee
+rune Punto
+  x: int
+  y: int
+
+enchanting Punto
+  to_string = -> string
+    "(#{@x}, #{@y})"
+
+main = ->
+  io::println(Punto(3, 4))   -- (3, 4)
+```
+
+A rune without `to_string` cannot be passed to an `any` parameter (compile error E0512).
+
+### Function types
+
+A variadic function type carries the `...` on its last parameter:
+
+```coffee
+fn: function<(...int) -> int> = sumar
+```
+
+### Intrinsics and FFI
+
+`declare` and `extern` blocks accept variadic signatures. For `declare`, the C++ runtime receives a `std::vector<T>` (or `std::vector<::pengu::Value>` for `any`). For `extern "C"`, the generated prototype ends in `...` and the call is emitted as a plain C varargs call, so only primitive types and `string` may be used:
+
+```coffee
+extern "C"
+  printf = (formato: string, ...extras: any) -> int
+
+main = ->
+  printf("hola %d\n", 7)
+```
+
+Generated C++:
+
+```c++
+extern "C" int printf(const char* formato, ...);
+
+template <class T>
+int sumar(const std::vector<T>& numeros) { ... }
+
+int suma_heterogenea(const std::vector<::pengu::Value>& partes) { ... }
+```
+
 ## Memory
 
 PenguScript has no garbage collector. Every allocation is freed at a well-defined point: by scope (values), by ownership (smart pointers), or explicitly through unsafe code. That determinism is the point — but it means the programmer has to decide *how* each piece of data is owned and accessed.

@@ -3,6 +3,8 @@
 
 realm saludos
 
+invoke "std/io"
+
 saludar = (nombre: string) -> void
   io::println("Hola, #{nombre}.")
 

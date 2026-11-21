@@ -5,7 +5,8 @@
 
 import type { ModuleInfo } from "./module_info.ts";
 import type { PenguType } from "./types.ts";
-import { function_type, named, optional } from "./types.ts";
+import { function_type_of } from "./module_info.ts";
+import { named, optional } from "./types.ts";
 
 export interface ExternalSymbol {
   readonly module: ModuleInfo;
@@ -23,12 +24,7 @@ export function symbol_type_of(module: ModuleInfo, name: string): PenguType | un
   if (constant !== undefined) return constant.type;
 
   const fn = module.functions.get(name);
-  if (fn !== undefined) return function_type(
-    fn.params.map((param) => param.type),
-    fn.result,
-    false,
-    fn.params.filter((param) => !param.has_default).length,
-  );
+  if (fn !== undefined) return function_type_of(fn);
 
   const rune = module.env.runes.get(name);
   if (rune !== undefined) return named(name);

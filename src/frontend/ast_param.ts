@@ -10,5 +10,6 @@ export interface ParamNode {
   readonly type: TypeNode | undefined;
   readonly default_value: ExprNode | undefined;
   readonly mutable: boolean;
+  readonly variadic: boolean;
   readonly span: Span;
 }

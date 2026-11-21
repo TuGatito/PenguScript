@@ -23,10 +23,10 @@ export const BUILTIN_SIGNATURES: ReadonlyMap<string, ReadonlyMap<string, Builtin
   [
     "io",
     new Map([
-      ["println", T([], VOID, true)],
-      ["print", T([], VOID, true)],
-      ["eprintln", T([], VOID, true)],
-      ["eprint", T([], VOID, true)],
+      ["println", T([ANY], VOID, true)],
+      ["print", T([ANY], VOID, true)],
+      ["eprintln", T([ANY], VOID, true)],
+      ["eprint", T([ANY], VOID, true)],
       ["read_line", T([], STRING)],
     ]),
   ],
@@ -62,7 +62,7 @@ export const BUILTIN_SIGNATURES: ReadonlyMap<string, ReadonlyMap<string, Builtin
   ],
   [
     "format",
-    new Map([["format", T([STRING], STRING, true)]]),
+    new Map([["format", T([ANY], STRING, true)]]),
   ],
   [
     "time",
@@ -91,10 +91,10 @@ export const BUILTIN_SIGNATURES: ReadonlyMap<string, ReadonlyMap<string, Builtin
   [
     "log",
     new Map([
-      ["debug", T([], VOID, true)],
-      ["info", T([], VOID, true)],
-      ["warn", T([], VOID, true)],
-      ["error", T([], VOID, true)],
+      ["debug", T([ANY], VOID, true)],
+      ["info", T([ANY], VOID, true)],
+      ["warn", T([ANY], VOID, true)],
+      ["error", T([ANY], VOID, true)],
     ]),
   ],
   [

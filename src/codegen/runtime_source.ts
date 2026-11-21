@@ -8,11 +8,13 @@ export const RUNTIME_HEADER = `// Runtime generado por pengu 0.1.0. No editar a 
 #pragma once
 
 #include <algorithm>
+#include <any>
 #include <charconv>
 #include <chrono>
 #include <cmath>
 #include <limits>
 #include <cstddef>
+#include <cstdio>
 #include <cstdlib>
 #include <cstdint>
 #include <iostream>
@@ -77,6 +79,38 @@ std::string to_string(T value) {
   out << value;
   return out.str();
 }
+
+// Renderiza un valor para Display: usa su método to_string() si lo
+// tiene y, si no, la sobrecarga libre de to_string.
+template <class T>
+std::string to_string_value(const T& value) {
+  if constexpr (requires { value.to_string(); }) {
+    return value.to_string();
+  } else {
+    return to_string(value);
+  }
+}
+
+// Caja heterogénea para las variádicas any.
+class Value {
+ public:
+  Value() = default;
+
+  template <class T>
+  explicit Value(T value) : render_([value]() { return to_string_value(value); }) {}
+
+  std::string render() const { return render_ ? render_() : std::string(); }
+
+ private:
+  std::function<std::string()> render_;
+};
+
+template <class T>
+Value value(T item) {
+  return Value(item);
+}
+
+inline std::string to_string(const Value& item) { return item.render(); }
 
 // Resultado de comparar dos valores con <=>.
 enum class Ordering { Less, Equal, Greater };
@@ -489,6 +523,31 @@ std::optional<T> try_parse(const std::string& text) {
       return std::nullopt;
     }
   }
+}
+
+template <class T>
+void append(std::vector<T>& target, const std::vector<T>& more) {
+  target.insert(target.end(), more.begin(), more.end());
+}
+
+inline void write_values(const std::vector<Value>& values, bool newline) {
+  for (const Value& item : values) std::cout << item.render();
+  if (newline) std::cout << '\\n';
+}
+
+inline void eprint_values(const std::vector<Value>& values, bool newline) {
+  for (const Value& item : values) std::cerr << item.render();
+  if (newline) std::cerr << '\\n';
+}
+
+inline std::string format_values(const std::vector<Value>& values) {
+  std::string text;
+  for (const Value& item : values) text += item.render();
+  return text;
+}
+
+inline void log_values(const std::string& level, const std::vector<Value>& values) {
+  std::cerr << "[" << level << "] " << format_values(values) << '\\n';
 }
 
 template <class T>

@@ -22,7 +22,7 @@ import type {
 } from "../frontend/ast_decl.ts";
 import type { ParamNode } from "../frontend/ast_param.ts";
 import type { PenguType } from "./types.ts";
-import { UNKNOWN, VOID, any_type } from "./types.ts";
+import { UNKNOWN, VOID, any_type, function_type } from "./types.ts";
 import type { AliasInfo, MethodInfo, OmenInfo, RuneInfo, TypeEnv } from "./type_env.ts";
 import { make_type_env, resolve_type_node } from "./type_env.ts";
 
@@ -30,6 +30,9 @@ export interface ParamInfo {
   readonly name: string;
   readonly type: PenguType;
   readonly has_default: boolean;
+  /** `(...xs: T)`: el tipo guardado es el del elemento, y dentro del
+   *  cuerpo el parámetro vale `vector<T>`. */
+  readonly variadic: boolean;
   readonly span: Span;
 }
 
@@ -39,6 +42,7 @@ export interface FunctionInfo {
   readonly sigils: readonly string[];
   readonly needs: readonly string[];
   readonly params: readonly ParamInfo[];
+  readonly variadic: boolean;
   readonly result: PenguType;
   readonly decl: FunctionDecl | undefined;
   readonly is_unsafe: boolean;
@@ -305,6 +309,7 @@ export function resolve_method(method: MethodDecl, env: TypeEnv, sink: Diagnosti
   return {
     name: method.operator ?? method.name,
     params: params.map((param) => param.type),
+    variadic: params.some((param) => param.variadic),
     result,
     mutable: method.mutable,
     operator: method.operator,
@@ -322,6 +327,7 @@ export function resolve_params(
     name: param.name,
     type: param.type ? resolve_type_node(param.type, env, sink) : UNKNOWN,
     has_default: param.default_value !== undefined,
+    variadic: param.variadic,
     span: param.span,
   }));
 }
@@ -355,6 +361,7 @@ function register_extern(
     name: param.name,
     type: param.type ? resolve_type_node(param.type, env, sink) : UNKNOWN,
     has_default: false,
+    variadic: param.variadic,
     span: param.span,
   }));
   functions.set(declared.name, {
@@ -363,6 +370,7 @@ function register_extern(
     sigils: [],
     needs: [],
     params,
+    variadic: params.some((param) => param.variadic),
     result: declared.result ? resolve_type_node(declared.result, env, sink) : VOID,
     decl: undefined,
     is_unsafe: false,
@@ -387,6 +395,7 @@ function register_intrinsic(
     name: param.name,
     type: param.type ? resolve_type_node(param.type, env, sink) : UNKNOWN,
     has_default: false,
+    variadic: param.variadic,
     span: param.span,
   }));
   functions.set(declared.name, {
@@ -395,6 +404,7 @@ function register_intrinsic(
     sigils: [],
     needs: [],
     params,
+    variadic: params.some((param) => param.variadic),
     result: declared.result ? resolve_type_node(declared.result, env, sink) : VOID,
     decl: undefined,
     is_unsafe: false,
@@ -429,6 +439,7 @@ function register_function(
     sigils: decl.sigils,
     needs: decl.needs,
     params,
+    variadic: params.some((param) => param.variadic),
     result,
     decl,
     is_unsafe: decl.is_unsafe,
@@ -472,4 +483,15 @@ function restore_sigils(env: TypeEnv, previous: Map<string, PenguType>): void {
 
 function duplicate(sink: DiagnosticSink, name: string, span: Span): void {
   sink.add(make_error(CODES.duplicate_symbol, `«${name}» ya está declarado en este módulo`, span));
+}
+
+// Tipo función de un símbolo, con la aridad mínima que exigen los
+// parámetros sin valor por defecto.
+export function function_type_of(info: FunctionInfo): PenguType {
+  return function_type(
+    info.params.map((param) => param.type),
+    info.result,
+    info.variadic,
+    info.params.filter((param) => !param.has_default && !param.variadic).length,
+  );
 }

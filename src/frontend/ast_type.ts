@@ -46,6 +46,8 @@ export interface FunctionTypeNode {
   readonly kind: "function_type";
   readonly params: readonly TypeNode[];
   readonly result: TypeNode;
+  /** `function<(...int) -> int>`: el último parámetro se repite. */
+  readonly variadic: boolean;
   readonly span: Span;
 }
 

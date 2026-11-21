@@ -78,14 +78,13 @@ function emit_extern(g: GenContext, decl: Extract<DeclNode, { kind: "extern_decl
       name: cpp_identifier(param.name),
       type: param.type ? cpp_type_node(param.type, g.module.env, g.type_realms) : "auto",
     }));
+    const variadic = declared.params.some((param) => param.variadic);
+    const fixed = variadic ? params.slice(0, -1) : params;
     const result = declared.result ? cpp_type_node(declared.result, g.module.env, g.type_realms) : "void";
-    line(
-      g,
-      `${c_boundary_type(result)} ${cpp_identifier(declared.name)}(${params
-        .map((param) => `${c_boundary_type(param.type)} ${param.name}`)
-        .join(", ")});`,
-    );
-    declarations.push({ name: cpp_identifier(declared.name), params, result });
+    const rendered = fixed.map((param) => `${c_boundary_type(param.type)} ${param.name}`);
+    if (variadic) rendered.push("...");
+    line(g, `${c_boundary_type(result)} ${cpp_identifier(declared.name)}(${rendered.join(", ")});`);
+    declarations.push({ name: cpp_identifier(declared.name), params: fixed, result });
   }
   g.indent -= 1;
   line(g, "}");
@@ -157,6 +156,12 @@ function emit_function(g: GenContext, decl: FunctionDecl): void {
 function emit_param(g: GenContext, param: ParamNode): string {
   const base = param.type ? cpp_type_node(param.type, g.module.env, g.type_realms) : "auto";
   const name = cpp_identifier(param.name);
+  if (param.variadic) {
+    const element = base === "auto" ? "::pengu::Value" : base;
+    return param.mutable
+      ? `std::vector<${element}>& ${name}`
+      : `const std::vector<${element}>& ${name}`;
+  }
   if (base === "auto") return `auto ${name}`;
   if (param.mutable) return `${base}& ${name}`;
   if (base.endsWith("&")) return `${base} ${name}`;

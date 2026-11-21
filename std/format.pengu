@@ -1,0 +1,7 @@
+realm format
+
+declare
+  format_values = (partes: vector<any>) -> string
+
+format = (...partes: any) -> string
+  format_values(partes)

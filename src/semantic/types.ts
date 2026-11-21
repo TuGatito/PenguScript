@@ -342,7 +342,11 @@ export function type_equals(a: PenguType, b: PenguType): boolean {
       return type_equals(a.inner, (b as WeakType).inner);
     case "function": {
       const other = b as FunctionType;
-      return types_equal(a.params, other.params) && type_equals(a.result, other.result);
+      return (
+        a.variadic === other.variadic &&
+        types_equal(a.params, other.params) &&
+        type_equals(a.result, other.result)
+      );
     }
     case "tuple":
       return types_equal(a.items, (b as TupleType).items);
@@ -403,9 +407,13 @@ export function type_display(type: PenguType): string {
     case "weak":
       return `weak<${type_display(type.inner)}>`;
     case "function": {
-      const params = type.params.map(type_display).join(", ");
-      const dots = type.variadic ? (params.length > 0 ? ", ..." : "...") : "";
-      return `function<(${params}${dots}) -> ${type_display(type.result)}>`;
+      const parts = type.variadic ? type.params.slice(0, -1) : type.params;
+      const items = parts.map(type_display);
+      if (type.variadic) {
+        const element = type.params[type.params.length - 1];
+        items.push(`...${element === undefined ? "any" : type_display(element)}`);
+      }
+      return `function<(${items.join(", ")}) -> ${type_display(type.result)}>`;
     }
     case "tuple":
       return `(${type.items.map(type_display).join(", ")})`;

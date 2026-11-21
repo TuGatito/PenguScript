@@ -226,8 +226,10 @@ function parse_function_type(c: Cursor): FunctionTypeNode {
   expect(c, "<", "en el tipo función");
   expect(c, "(", "en los parámetros del tipo función");
   const params: TypeNode[] = [];
+  let variadic = false;
   if (!at(c, ")")) {
     for (;;) {
+      if (eat(c, "...") !== undefined) variadic = true;
       params.push(parse_type(c));
       if (eat(c, ",")) continue;
       break;
@@ -241,6 +243,7 @@ function parse_function_type(c: Cursor): FunctionTypeNode {
     kind: "function_type",
     params,
     result,
+    variadic,
     span: merge_span(start.span, result.span),
   };
 }

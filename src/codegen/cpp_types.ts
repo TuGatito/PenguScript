@@ -119,8 +119,15 @@ export function cpp_type(type: PenguType, realms?: TypeRealms): string {
       return `std::shared_ptr<${cpp_type(type.inner, realms)}>`;
     case "weak":
       return `std::weak_ptr<${cpp_type(type.inner, realms)}>`;
-    case "function":
-      return `std::function<${cpp_type(type.result, realms)}(${type.params.map((param) => cpp_type(param, realms)).join(", ")})>`;
+    case "function": {
+      const params = type.variadic ? type.params.slice(0, -1) : type.params;
+      const rendered = params.map((param) => cpp_type(param, realms));
+      if (type.variadic) {
+        const element = type.params[type.params.length - 1];
+        rendered.push(`std::vector<${element === undefined ? "auto" : cpp_type(element, realms)}>`);
+      }
+      return `std::function<${cpp_type(type.result, realms)}(${rendered.join(", ")})>`;
+    }
     case "tuple":
       return `std::tuple<${type.items.map((item) => cpp_type(item, realms)).join(", ")}>`;
     case "array":
@@ -134,7 +141,7 @@ export function cpp_type(type: PenguType, realms?: TypeRealms): string {
     case "nullptr":
       return "std::nullptr_t";
     case "any":
-      return "auto";
+      return "::pengu::Value";
   }
 }
 
@@ -143,7 +150,6 @@ export function cpp_type(type: PenguType, realms?: TypeRealms): string {
 // degrada a `void` (solo ocurre en expresiones descartadas).
 export function cpp_value_type(type: PenguType | undefined, realms?: TypeRealms): string {
   if (type === undefined) return "void";
-  if (type.kind === "any") return "void";
   return cpp_type(type, realms);
 }
 

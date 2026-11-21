@@ -18,6 +18,7 @@ import type {
 import { CODES } from "../diagnostics/codes.ts";
 import { error as make_error, warning as make_warning } from "../diagnostics/diagnostic.ts";
 import type { Span } from "../util/span.ts";
+import type { ParamNode } from "../frontend/ast_param.ts";
 import { suggest_name } from "../util/suggest.ts";
 import { declare, lookup } from "./scopes.ts";
 import type { CheckContext } from "./checker_context.ts";
@@ -63,6 +64,7 @@ import {
 import type { PenguType } from "./types.ts";
 import { is_primitive_type } from "../frontend/ast_type.ts";
 import type { OmenVariantInfo } from "./type_env.ts";
+import { function_type_of } from "./module_info.ts";
 import { builtin_function, is_builtin_module } from "./builtin_modules.ts";
 import { shared_type, unique_type, weak_type } from "./types.ts";
 import { resolve_type_node } from "./type_env.ts";
@@ -281,14 +283,7 @@ function infer_ident(ctx: CheckContext, name: string, span: Span): PenguType {
   if (constant !== undefined) return constant.type;
 
   const fn = ctx.module.functions.get(name);
-  if (fn !== undefined) {
-    return function_type(
-      fn.params.map((param) => param.type),
-      fn.result,
-      false,
-      fn.params.filter((param) => !param.has_default).length,
-    );
-  }
+  if (fn !== undefined) return function_type_of(fn);
 
   if (ctx.module.env.runes.has(name) || ctx.module.env.omens.has(name)) {
     return named(name);
@@ -389,7 +384,12 @@ function infer_path(ctx: CheckContext, segments: readonly string[], span: Span):
     if (rune !== undefined) {
       const method = rune.methods.get(second);
       if (method !== undefined) {
-        return function_type(method.params, method.result);
+        return function_type(
+          method.params,
+          method.result,
+          method.variadic,
+          method.params.length - (method.variadic ? 1 : 0),
+        );
       }
       return any_type(`método asociado ${first}::${second}`);
     }
@@ -401,14 +401,7 @@ function infer_path(ctx: CheckContext, segments: readonly string[], span: Span):
     const constant = ctx.module.consts.get(rest);
     if (constant !== undefined) return constant.type;
     const fn = ctx.module.functions.get(rest);
-    if (fn !== undefined) {
-      return function_type(
-        fn.params.map((param) => param.type),
-        fn.result,
-        false,
-        fn.params.filter((param) => !param.has_default).length,
-      );
-    }
+    if (fn !== undefined) return function_type_of(fn);
     return any_type(`símbolo ${rest}`);
   }
 
@@ -450,7 +443,12 @@ export function infer_member(
       if (field !== undefined) return field.type;
       const method = rune.methods.get(name);
       if (method !== undefined) {
-        return function_type(method.params, method.result);
+        return function_type(
+          method.params,
+          method.result,
+          method.variadic,
+          method.params.length - (method.variadic ? 1 : 0),
+        );
       }
       report_error(ctx, CODES.unknown_field, `el rune «${object.name}» no tiene «${name}»`, span);
       return UNKNOWN;
@@ -458,7 +456,14 @@ export function infer_member(
     const alias = ctx.module.env.aliases.get(object.name);
     if (alias !== undefined && alias.seal) {
       const method = alias.methods.get(name);
-      if (method !== undefined) return function_type(method.params, method.result);
+      if (method !== undefined) {
+        return function_type(
+          method.params,
+          method.result,
+          method.variadic,
+          method.params.length - (method.variadic ? 1 : 0),
+        );
+      }
     }
     const omen = ctx.module.env.omens.get(object.name);
     if (omen !== undefined && omen.is_flags && name === "has") {
@@ -661,7 +666,12 @@ function check_arguments(
   variadic = false,
   required = params.length,
 ): void {
-  if (args.length < required || (!variadic && args.length > params.length)) {
+  const fixed_count = variadic ? Math.max(params.length - 1, 0) : params.length;
+  const element = variadic ? params[params.length - 1] : undefined;
+  const spread_count = args.filter((arg) => arg.spread).length;
+  const plain_count = args.length - spread_count;
+
+  if (plain_count < required || (spread_count === 0 && !variadic && plain_count > params.length)) {
     const expected = variadic
       ? `al menos ${required}`
       : required === params.length
@@ -670,28 +680,97 @@ function check_arguments(
     report_error(
       ctx,
       CODES.wrong_arity,
-      `«${name}» espera ${expected} argumento(s), recibió ${args.length}`,
+      `«${name}» espera ${expected} argumento(s), recibió ${plain_count}`,
       span,
     );
   }
 
-  const total = variadic ? args.length : Math.min(params.length, args.length);
-  for (let index = 0; index < total; index += 1) {
-    const arg = args[index];
-    if (arg === undefined) continue;
+  let position = 0;
+  for (const arg of args) {
     const actual = infer_expr(ctx, arg.expr);
-    const param = params[index];
-    if (param === undefined) continue;
-    if (!arg.mutable) mark_moved(ctx, arg.expr, param);
-    if (!can_assign(param, actual)) {
-      report_error(
-        ctx,
-        CODES.type_mismatch,
-        `el argumento ${index + 1} de «${name}» espera «${type_display(param)}», recibió «${type_display(actual)}»`,
-        arg.expr.span,
-      );
+
+    if (arg.spread) {
+      if (!variadic || element === undefined) {
+        report_error(
+          ctx,
+          CODES.type_mismatch,
+          `no se puede expandir «...» en «${name}»: no es una función variádica`,
+          arg.expr.span,
+        );
+        continue;
+      }
+      const spread_element = arg.expr.kind === "ident" ? actual : actual;
+      const inner = sequence_element_of(spread_element);
+      if (inner === undefined) {
+        report_error(
+          ctx,
+          CODES.type_mismatch,
+          `«${name}» solo puede expandir un vector, recibió «${type_display(actual)}»`,
+          arg.expr.span,
+        );
+        continue;
+      }
+      check_argument_value(ctx, element, inner, position, name, arg.expr.span);
+      continue;
+    }
+
+    if (position < fixed_count) {
+      const param = params[position];
+      position += 1;
+      if (param === undefined) continue;
+      if (!arg.mutable) mark_moved(ctx, arg.expr, param);
+      check_argument_value(ctx, param, actual, position - 1, name, arg.expr.span);
+      continue;
+    }
+
+    if (variadic && element !== undefined) {
+      check_argument_value(ctx, element, actual, position, name, arg.expr.span);
+      position += 1;
+      if (!arg.mutable) mark_moved(ctx, arg.expr, element);
     }
   }
+}
+
+function check_argument_value(
+  ctx: CheckContext,
+  expected: PenguType,
+  actual: PenguType,
+  index: number,
+  name: string,
+  span: Span,
+): void {
+  if (!can_assign(expected, actual)) {
+    report_error(
+      ctx,
+      CODES.type_mismatch,
+      `el argumento ${index + 1} de «${name}» espera «${type_display(expected)}», recibió «${type_display(actual)}»`,
+      span,
+    );
+    return;
+  }
+  // Una variádica `any` exige que cada argumento sea Display.
+  if (is_any(expected) && !is_display(ctx, actual)) {
+    report_error(
+      ctx,
+      CODES.not_display,
+      `«${type_display(actual)}» no implementa «Display» y no puede pasar a una variádica «any»`,
+      span,
+    );
+  }
+}
+
+// Elemento de un valor expandible con `...` (solo vectores).
+function sequence_element_of(type: PenguType): PenguType | undefined {
+  if (type.kind === "named" && type.name === "vector" && type.args.length === 1) {
+    return type.args[0];
+  }
+  return undefined;
+}
+
+// Tipo con el que se declara un parámetro dentro del cuerpo: un
+// variádico vale `vector<T>`.
+export function param_binding_type(param: ParamNode, declared: PenguType): PenguType {
+  return param.variadic ? named("vector", [declared]) : declared;
 }
 
 // Marca el origen de un valor move-only como movido (`use after move`).
@@ -1255,7 +1334,7 @@ function infer_lambda(ctx: CheckContext, node: LambdaNode): PenguType {
   try {
     const body = with_new_scope(ctx, () => {
       node.params.forEach((param, index) => {
-        declare(ctx.scope, param.name, params[index] ?? UNKNOWN, {
+        declare(ctx.scope, param.name, param_binding_type(param, params[index] ?? UNKNOWN), {
           mutable: param.mutable,
           kind: "param",
           span: param.span,
@@ -1264,12 +1343,15 @@ function infer_lambda(ctx: CheckContext, node: LambdaNode): PenguType {
       return infer_block(ctx, node.body);
     });
 
-    const required = node.params.filter((param) => param.default_value === undefined).length;
+    const variadic = node.params.some((param) => param.variadic);
+    const required = node.params.filter(
+      (param) => param.default_value === undefined && !param.variadic,
+    ).length;
     const result = declared_result ?? body;
     if (declared_result !== undefined) {
       check_initialization(ctx, declared_result, body, node.span, "como valor de retorno de la lambda");
     }
-    return function_type(params, result, false, required);
+    return function_type(params, result, variadic, required);
   } finally {
     ctx.current_return = previous_return;
   }

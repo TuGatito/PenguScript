@@ -182,17 +182,54 @@ function emit_index(g: GenContext, object: ExprNode, index: ExprNode): string {
     : `::pengu::vec_at(${rendered})`;
 }
 
+// Argumentos de una llamada variádica: se empaquetan en un vector.
+// Con `...` el vector se concatena en tiempo de ejecución.
+function emit_variadic_args(g: GenContext, node: CallNode, element: PenguType | undefined): string {
+  const vector = `std::vector<${element === undefined ? "::pengu::Value" : cpp_type(element, g.type_realms)}>`;
+  const boxed = element === undefined || element.kind === "any";
+  const pieces = node.args.map((arg) => {
+    const rendered = emit_expr(g, arg.expr);
+    if (arg.spread) return { rendered, spread: true };
+    return { rendered: boxed ? `::pengu::value(${rendered})` : rendered, spread: false };
+  });
+  if (pieces.every((piece) => !piece.spread)) {
+    return `${vector}{${pieces.map((piece) => piece.rendered).join(", ")}}`;
+  }
+  const builder = fresh_name(g, "varargs");
+  const parts = pieces.map((piece) =>
+    piece.spread
+      ? `::pengu::append(${builder}, ${piece.rendered});`
+      : `${builder}.push_back(${piece.rendered});`,
+  );
+  return `([&]() { ${vector} ${builder}; ${parts.join(" ")} return ${builder}; })()`;
+}
+
 function emit_call(g: GenContext, node: CallNode): string {
   const callee_type = type_of(g, node.callee);
+  const variadic = callee_type.kind === "function" && callee_type.variadic;
   const params = callee_type.kind === "function" ? callee_type.params : [];
-  const args = node.args
-    .map((arg, index) => {
-      const rendered = emit_expr(g, arg.expr);
-      const param = params[index];
-      // Pasar un `unique<T>` por valor lo mueve.
-      return param?.kind === "unique" && !arg.mutable ? `std::move(${rendered})` : rendered;
-    })
-    .join(", ");
+  const element = variadic ? params[params.length - 1] : undefined;
+  const extern_variadic =
+    variadic &&
+    node.callee.kind === "ident" &&
+    g.module.functions.get(node.callee.name)?.is_extern === true;
+  const args = extern_variadic
+    ? node.args
+        .map((arg) => {
+          const rendered = emit_expr(g, arg.expr);
+          return is_string(type_of(g, arg.expr)) ? `${rendered}.c_str()` : rendered;
+        })
+        .join(", ")
+    : variadic
+    ? emit_variadic_args(g, node, element)
+    : node.args
+        .map((arg, index) => {
+          const rendered = emit_expr(g, arg.expr);
+          const param = params[index];
+          // Pasar un `unique<T>` por valor lo mueve.
+          return param?.kind === "unique" && !arg.mutable ? `std::move(${rendered})` : rendered;
+        })
+        .join(", ");
   const callee = node.callee;
   if (callee.kind === "path" && callee.segments.length === 2) {
     const target_name = callee.segments[0];
@@ -219,16 +256,11 @@ function emit_call(g: GenContext, node: CallNode): string {
 }
 
 export const BUILTIN_FUNCTIONS: Readonly<Record<string, string>> = {
-  "io::println": "::pengu::println",
-  "io::print": "::pengu::print",
-  "io::eprintln": "::pengu::eprintln",
-  "io::eprint": "::pengu::eprint",
   "io::read_line": "::pengu::read_line",
-  "format::format": "::pengu::format_all",
-  "log::debug": "::pengu::log_debug",
-  "log::info": "::pengu::log_info",
-  "log::warn": "::pengu::log_warn",
-  "log::error": "::pengu::log_error",
+  "io::write_values": "::pengu::write_values",
+  "io::eprint_values": "::pengu::eprint_values",
+  "format::format_values": "::pengu::format_values",
+  "log::log_values": "::pengu::log_values",
   "os::args": "::pengu::os_args",
   "debug::println": "::pengu::println",
   "console::println": "::pengu::println",
@@ -274,6 +306,10 @@ function emit_ident_call(
   args: string,
   node: CallNode,
 ): string {
+  // Una función `declare` del propio módulo se resuelve contra el
+  // runtime (por ejemplo `write_values` dentro de `std/io`).
+  const intrinsic = BUILTIN_FUNCTIONS[`${g.module.realm}::${name}`];
+  if (intrinsic !== undefined) return `${intrinsic}(${args})`;
   if ((name === "unique" || name === "shared") && type_args.length === 1) {
     const maker = name === "unique" ? "std::make_unique" : "std::make_shared";
     return `${maker}<${type_args[0]}>(${args})`;

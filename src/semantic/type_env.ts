@@ -31,6 +31,7 @@ export interface FieldInfo {
 export interface MethodInfo {
   readonly name: string;
   readonly params: readonly PenguType[];
+  readonly variadic: boolean;
   readonly result: PenguType;
   readonly mutable: boolean;
   readonly operator: string | undefined;
@@ -117,6 +118,8 @@ export function resolve_type_node(
       return function_type(
         node.params.map((param) => resolve_type_node(param, env, sink)),
         resolve_type_node(node.result, env, sink),
+        node.variadic,
+        node.params.length - (node.variadic ? 1 : 0),
       );
 
     case "tuple_type":
@@ -143,6 +146,7 @@ export function resolve_named_type(
   sink: DiagnosticSink,
 ): PenguType {
   if (name === "void") return VOID;
+  if (name === "any") return any_type("any");
   if (is_primitive_type(name)) return primitive(name);
   if (STRING_TYPES.has(name)) return primitive(name);
 

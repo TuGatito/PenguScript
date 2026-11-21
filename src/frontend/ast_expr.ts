@@ -131,6 +131,8 @@ export interface ArgNode {
   readonly kind: "arg";
   readonly expr: ExprNode;
   readonly mutable: boolean;
+  /** `f(...xs)`: expande un vector en los argumentos variádicos. */
+  readonly spread: boolean;
   readonly span: Span;
 }
 

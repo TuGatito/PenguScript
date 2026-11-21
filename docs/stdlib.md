@@ -22,9 +22,13 @@ Ya implementado y cubierto por pruebas:
 | `std/random.d.pengu` | `int`, `float`, `bool`. |
 | `std/os.d.pengu` | `args`, `get_env`, `exit`. |
 | `std/assert.d.pengu` | `that`, `fail`. |
-| `std/io`, `std/format`, `std/log` | intrínsecas (aún no hay funciones variádicas en el lenguaje). |
+| `std/io.pengu` | `println`, `print`, `eprintln`, `eprint` (variádicas `...partes: any`) sobre `write_values` / `eprint_values` / `read_line`. |
+| `std/format.pengu` | `format(...partes: any) -> string` sobre `format_values`. |
+| `std/log.pengu` | `debug`, `info`, `warn`, `error` sobre `log_values`. |
 
 El bloque `declare` marca las funciones que implementa el runtime del compilador; el generador C++ no emite cuerpo para ellas, solo la llamada al helper correspondiente.
+
+`std/io`, `std/format` y `std/log` ya son módulos PenguScript: declaran sus primitivas con `declare` (que reciben `vector<any>`) y ofrecen la API variádica en el propio lenguaje. Cada argumento `any` se empaqueta como `::pengu::Value`, que guarda su renderizador de `Display`.
 
 ### Layer 0 — FFI
 

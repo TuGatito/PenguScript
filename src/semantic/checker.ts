@@ -22,7 +22,7 @@ import { check_initialization, make_context, report_type_mismatch } from "./chec
 import { collect_module } from "./module_info.ts";
 import type { ModuleInfo } from "./module_info.ts";
 import { declare } from "./scopes.ts";
-import { infer_block } from "./checker_expr.ts";
+import { infer_block, param_binding_type } from "./checker_expr.ts";
 import { resolve_type_node } from "./type_env.ts";
 import { any_type, is_any, named, type_equals } from "./types.ts";
 import type { PenguType } from "./types.ts";
@@ -145,7 +145,7 @@ function check_params(ctx: CheckContext, params: readonly ParamNode[]): void {
     const type = param.type === undefined
       ? any_type(`parámetro ${param.name}`)
       : resolve_type_node(param.type, ctx.module.env, ctx.sink);
-    declare(ctx.scope, param.name, type, {
+    declare(ctx.scope, param.name, param_binding_type(param, type), {
       mutable: param.mutable,
       kind: "param",
       span: param.span,

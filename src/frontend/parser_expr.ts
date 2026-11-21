@@ -269,8 +269,9 @@ export function parse_args(c: Cursor): { args: readonly ArgNode[]; end: Span } {
   if (!at(c, ")")) {
     for (;;) {
       const mutable = eat(c, "mut") !== undefined;
+      const spread = eat(c, "...") !== undefined;
       const expr = parse_expression(c);
-      args.push({ kind: "arg", expr, mutable, span: expr.span });
+      args.push({ kind: "arg", expr, mutable, spread, span: expr.span });
       if (eat(c, ",")) continue;
       break;
     }
@@ -286,19 +287,33 @@ export function parse_params(c: Cursor): readonly ParamNode[] {
 
   if (!at(c, ")")) {
     for (;;) {
+      const variadic = eat(c, "...") !== undefined;
       const mutable = eat(c, "mut") !== undefined;
       const name = expect_ident(c, "en los parámetros");
       const type = at(c, ":") ? (advance(c), parse_type(c)) : undefined;
       const default_value = eat(c, "=") ? parse_expression(c) : undefined;
+      const span = name?.span ?? peek(c).span;
+      if (variadic && type === undefined) {
+        push_error(c, CODES.expected_token, "el parámetro variádico necesita un tipo tras «:»", span);
+      }
+      if (variadic && default_value !== undefined) {
+        push_error(c, CODES.unexpected_token, "un parámetro variádico no puede tener valor por defecto", span);
+      }
       params.push({
         kind: "param",
         name: name?.text ?? "__error__",
         type,
         default_value,
         mutable,
-        span: name?.span ?? peek(c).span,
+        variadic,
+        span,
       });
-      if (eat(c, ",")) continue;
+      if (eat(c, ",")) {
+        if (variadic) {
+          push_error(c, CODES.expected_token, "el parámetro variádico debe ser el último", span);
+        }
+        continue;
+      }
       break;
     }
   }
