@@ -22,8 +22,8 @@ import type {
 } from "../frontend/ast_decl.ts";
 import type { ParamNode } from "../frontend/ast_param.ts";
 import type { PenguType } from "./types.ts";
-import { UNKNOWN, VOID, any_type, function_type } from "./types.ts";
-import type { AliasInfo, MethodInfo, OmenInfo, RuneInfo, TypeEnv } from "./type_env.ts";
+import { UNKNOWN, VOID, any_type, function_type, generic_type, named } from "./types.ts";
+import type { AliasInfo, FieldInfo, MethodInfo, OmenInfo, RuneInfo, TypeEnv } from "./type_env.ts";
 import { make_type_env, resolve_type_node } from "./type_env.ts";
 
 export interface ParamInfo {
@@ -157,7 +157,7 @@ function register_type_decl(decl: DeclNode, env: TypeEnv, sink: DiagnosticSink):
         return;
       }
       const previous = new Map(env.sigils);
-      for (const sigil of decl.sigils) env.sigils.set(sigil, any_type(sigil));
+      for (const sigil of decl.sigils) env.sigils.set(sigil, generic_type(sigil));
       const target = resolve_type_node(decl.target, env, sink);
       env.sigils.clear();
       for (const [key, value] of previous) env.sigils.set(key, value);
@@ -166,6 +166,7 @@ function register_type_decl(decl: DeclNode, env: TypeEnv, sink: DiagnosticSink):
         name: decl.name,
         seal: decl.kind === "seal_decl",
         target,
+        sigils: decl.sigils,
         span: decl.name_span,
         methods: new Map(),
       };
@@ -184,16 +185,21 @@ function register_rune(rune: RuneDecl, env: TypeEnv, sink: DiagnosticSink): void
   }
 
   const previous = new Map(env.sigils);
-  for (const sigil of rune.sigils) env.sigils.set(sigil, any_type(sigil));
+  for (const sigil of rune.sigils) env.sigils.set(sigil, generic_type(sigil));
 
-  const fields = new Map<string, { name: string; type: PenguType; span: Span }>();
+  const fields = new Map<string, FieldInfo>();
   for (const field of rune.fields) {
     const type = resolve_type_node(field.type, env, sink);
     if (fields.has(field.name)) {
       sink.add(make_error(CODES.duplicate_symbol, `el campo «${field.name}» está repetido`, field.span));
       continue;
     }
-    fields.set(field.name, { name: field.name, type, span: field.span });
+    fields.set(field.name, {
+      name: field.name,
+      type,
+      has_default: field.default_value !== undefined,
+      span: field.span,
+    });
   }
 
   const params = rune.constructor
@@ -223,7 +229,7 @@ function register_omen(omen: OmenDecl, env: TypeEnv, sink: DiagnosticSink): void
   }
 
   const previous = new Map(env.sigils);
-  for (const sigil of omen.sigils) env.sigils.set(sigil, any_type(sigil));
+  for (const sigil of omen.sigils) env.sigils.set(sigil, generic_type(sigil));
 
   const underlying = omen.underlying ? resolve_type_node(omen.underlying, env, sink) : undefined;
   const variants = new Map<
@@ -276,7 +282,7 @@ function register_enchanting(decl: EnchantingDecl, env: TypeEnv, sink: Diagnosti
 
   const previous = new Map(env.sigils);
   const target_sigils = rune?.sigils ?? omen?.sigils ?? [];
-  for (const sigil of [...target_sigils, ...decl.sigils]) env.sigils.set(sigil, any_type(sigil));
+  for (const sigil of [...target_sigils, ...decl.sigils]) env.sigils.set(sigil, generic_type(sigil));
 
   for (const method of decl.methods) {
     const info = resolve_method(method, env, sink);
@@ -426,7 +432,7 @@ function register_function(
   }
 
   const previous = new Map(env.sigils);
-  for (const sigil of decl.sigils) env.sigils.set(sigil, any_type(sigil));
+  for (const sigil of decl.sigils) env.sigils.set(sigil, generic_type(sigil));
 
   const params = resolve_params(decl.params, env, sink);
   const result = decl.result ? resolve_type_node(decl.result, env, sink) : UNKNOWN;

@@ -27,6 +27,7 @@ import {
   can_assign,
   check_initialization,
   expect_bool,
+  is_generic_type,
   report_type_mismatch,
 } from "./checker_context.ts";
 import {
@@ -66,6 +67,8 @@ import { STRING_TYPES, is_primitive_type } from "../frontend/ast_type.ts";
 import type { TypeNode } from "../frontend/ast_type.ts";
 import type { OmenVariantInfo } from "./type_env.ts";
 import { function_type_of } from "./module_info.ts";
+import { substitute_generics } from "./types.ts";
+import type { FunctionInfo } from "./module_info.ts";
 import { builtin_function, is_builtin_module } from "./builtin_modules.ts";
 import { shared_type, unique_type, weak_type } from "./types.ts";
 import { resolve_type_node } from "./type_env.ts";
@@ -166,7 +169,7 @@ function infer_expr_impl(ctx: CheckContext, node: ExprNode): PenguType {
     case "parent_call":
       return any_type("llamada a parent");
     case "path":
-      return infer_path(ctx, node.segments, node.span);
+      return infer_path(ctx, node.segments, node.span, node.type_args);
     case "member":
       return infer_member(ctx, infer_expr(ctx, node.object), node.name, node.span);
     case "index": {
@@ -353,7 +356,12 @@ function known_names(ctx: CheckContext): string[] {
   return names;
 }
 
-function infer_path(ctx: CheckContext, segments: readonly string[], span: Span): PenguType {
+function infer_path(
+  ctx: CheckContext,
+  segments: readonly string[],
+  span: Span,
+  type_args: readonly TypeNode[] = [],
+): PenguType {
   const first = segments[0];
   const second = segments[1];
   if (first === undefined) return UNKNOWN;
@@ -399,17 +407,21 @@ function infer_path(ctx: CheckContext, segments: readonly string[], span: Span):
     return any_type(`conversión ${first}::${second}`);
   }
 
+  const instance = type_args.length > 0
+    ? named(first, type_args.map((arg) => resolve_type_node(arg, ctx.module.env, ctx.sink)))
+    : named(first);
+
   if (segments.length === 2 && second !== undefined) {
     const omen = ctx.module.env.omens.get(first);
     if (omen !== undefined) {
-      if (second === "try_from") return function_type([INT], optional(named(first)));
-      if (second === "from") return function_type([INT], named(first));
+      if (second === "try_from") return function_type([INT], optional(instance));
+      if (second === "from") return function_type([INT], instance);
       const variant = omen.variants.get(second);
       if (variant !== undefined) {
         if (variant.payload.length > 0) {
-          return function_type(variant.payload, named(first));
+          return function_type(variant.payload, instance);
         }
-        return named(first);
+        return instance;
       }
       report_error(ctx, CODES.unknown_identifier, `el omen «${first}» no tiene la variante «${second}»`, span);
       return UNKNOWN;
@@ -518,6 +530,166 @@ export function infer_member(
   return UNKNOWN;
 }
 
+
+// Capacidades estructurales de los sigilos (`needs Ord, Copy`).
+// Solo se comprueban sobre tipos primitivos y contenedores conocidos;
+// para runes y omens se confía en el compilador de C++.
+const NUMERIC_PRIMITIVES = new Set([
+  "int", "long", "long long", "short", "unsigned int", "unsigned long",
+  "unsigned long long", "unsigned short", "signed char", "unsigned char",
+  "char", "byte", "int8_t", "int16_t", "int32_t", "int64_t", "uint8_t",
+  "uint16_t", "uint32_t", "uint64_t", "size_t", "ptrdiff_t", "intptr_t",
+  "uintptr_t", "float", "double", "long double",
+]);
+
+const FLOATING_PRIMITIVES = new Set(["float", "double", "long double"]);
+
+const ORDERED_PRIMITIVES = new Set([
+  "int", "long", "long long", "short", "unsigned int", "unsigned long",
+  "unsigned long long", "unsigned short", "signed char", "unsigned char",
+  "char", "byte", "int8_t", "int16_t", "int32_t", "int64_t", "uint8_t",
+  "uint16_t", "uint32_t", "uint64_t", "size_t", "ptrdiff_t", "intptr_t",
+  "uintptr_t", "float", "double", "long double", "string", "bool",
+]);
+
+function implements_capability(ctx: CheckContext, capability: string, type: PenguType): boolean {
+  if (is_any(type)) return true;
+  if (type.kind === "primitive") {
+    switch (capability) {
+      case "Numeric":
+        return NUMERIC_PRIMITIVES.has(type.name);
+      case "Floating":
+        return FLOATING_PRIMITIVES.has(type.name);
+      case "Eq":
+      case "Ord":
+        return ORDERED_PRIMITIVES.has(type.name);
+      case "Hash":
+      case "Copy":
+      case "Move":
+      case "Default":
+        return type.name !== "void" && type.name !== "nullptr_t";
+      case "Display":
+        return is_display(ctx, type);
+      default:
+        return true;
+    }
+  }
+  if (type.kind === "optional") return implements_capability(ctx, capability, type.inner);
+  if (type.kind === "named" && type.args.length > 0) {
+    if (capability === "Display") return is_display(ctx, type);
+    return type.args.every((arg) => implements_capability(ctx, capability, arg));
+  }
+  return true;
+}
+
+function check_capabilities(
+  ctx: CheckContext,
+  needs: readonly string[],
+  mapping: ReadonlyMap<string, PenguType>,
+  name: string,
+  span: Span,
+): void {
+  // `needs Ord, Copy` enumera capacidades que deben cumplir todos
+  // los sigilos de la declaración.
+  for (const need of needs) {
+    const capability = need.trim();
+    for (const type of mapping.values()) {
+      if (is_generic_type(ctx, type)) continue;
+      if (implements_capability(ctx, capability, type)) continue;
+      report_error(
+        ctx,
+        CODES.missing_capability,
+        `«${name}» necesita «${capability}» y «${type_display(type)}» no lo implementa`,
+        span,
+        [`usa un tipo que cumpla «${capability}» o quita la restricción`],
+      );
+    }
+  }
+}
+
+// Empareja el tipo declarado con el real para deducir los sigilos
+// (`vector<T>` con `vector<int>` deduce T = int).
+function unify_sigils(
+  declared: PenguType,
+  actual: PenguType,
+  mapping: Map<string, PenguType>,
+): void {
+  if (declared.kind === "named" && declared.generic === true && declared.args.length === 0) {
+    if (!mapping.has(declared.name)) mapping.set(declared.name, actual);
+    return;
+  }
+  if (declared.kind === "named" && actual.kind === "named") {
+    declared.args.forEach((arg, index) => {
+      const real = actual.args[index];
+      if (real !== undefined) unify_sigils(arg, real, mapping);
+    });
+    return;
+  }
+  if (declared.kind === "optional" && actual.kind === "optional") {
+    unify_sigils(declared.inner, actual.inner, mapping);
+    return;
+  }
+  if (declared.kind === "ref" && actual.kind === "ref") {
+    unify_sigils(declared.inner, actual.inner, mapping);
+    return;
+  }
+  if (declared.kind === "array" && actual.kind === "array") {
+    unify_sigils(declared.element, actual.element, mapping);
+    return;
+  }
+  if (declared.kind === "function" && actual.kind === "function") {
+    declared.params.forEach((param, index) => {
+      const real = actual.params[index];
+      if (real !== undefined) unify_sigils(param, real, mapping);
+    });
+    unify_sigils(declared.result, actual.result, mapping);
+  }
+}
+
+function check_generic_instantiation(
+  ctx: CheckContext,
+  fn: FunctionInfo,
+  node: CallNode,
+  name: string,
+): void {
+  if (node.type_args.length > 0 && node.type_args.length !== fn.sigils.length) {
+    report_error(
+      ctx,
+      CODES.wrong_arity,
+      `«${name}» espera ${fn.sigils.length} argumento(s) de tipo, recibió ${node.type_args.length}`,
+      node.span,
+    );
+    return;
+  }
+
+  const explicit = node.type_args.map((arg) => resolve_type_node(arg, ctx.module.env, ctx.sink));
+  const inferred = fn.params.map((param, index) => {
+    if (param.type.kind === "named" && param.type.generic === true && explicit.length === 0) {
+      const arg = node.args[index];
+      return arg === undefined ? UNKNOWN : infer_expr(ctx, arg.expr);
+    }
+    return undefined;
+  });
+
+  const mapping = new Map<string, PenguType>();
+  fn.sigils.forEach((sigil, index) => {
+    const from_explicit = explicit[index];
+    if (from_explicit !== undefined) {
+      mapping.set(sigil, from_explicit);
+      return;
+    }
+    for (let param = 0; param < fn.params.length; param++) {
+      const type = fn.params[param]?.type;
+      const value = inferred[param];
+      if (type !== undefined && type.kind === "named" && type.generic === true && type.name === sigil && value !== undefined) {
+        mapping.set(sigil, value);
+      }
+    }
+  });
+
+  check_capabilities(ctx, fn.needs, mapping, name, node.span);
+}
+
 function infer_call(ctx: CheckContext, node: CallNode): PenguType {
   // `ref(x)` es una construcción del lenguaje, no una función.
   if (node.callee.kind === "ident" && node.callee.name === "ref") {
@@ -537,6 +709,10 @@ function infer_call(ctx: CheckContext, node: CallNode): PenguType {
     if (variant !== undefined) {
       check_arguments(ctx, variant.variant.payload, node.args, node.span, name);
       return named(variant.omen);
+    }
+    const generic_fn = ctx.module.functions.get(name);
+    if (generic_fn !== undefined && generic_fn.sigils.length > 0) {
+      check_generic_instantiation(ctx, generic_fn, node, name);
     }
     if (ctx.module.env.runes.has(name) || ctx.module.env.aliases.has(name)) {
       return infer_construction(ctx, name, node.args, node.span);
@@ -574,15 +750,18 @@ function infer_call(ctx: CheckContext, node: CallNode): PenguType {
     const second = segments[1];
     if (first !== undefined && second !== undefined) {
       const omen = ctx.module.env.omens.get(first);
+      const instance = node.callee.type_args !== undefined && node.callee.type_args.length > 0
+        ? named(first, node.callee.type_args.map((arg) => resolve_type_node(arg, ctx.module.env, ctx.sink)))
+        : named(first);
       if (omen !== undefined) {
         if (second === "try_from" || second === "from") {
           check_arguments(ctx, [INT], node.args, node.span, `${first}::${second}`);
-          return second === "try_from" ? optional(named(first)) : named(first);
+          return second === "try_from" ? optional(instance) : instance;
         }
         const variant = omen.variants.get(second);
         if (variant !== undefined) {
           check_arguments(ctx, variant.payload, node.args, node.span, `${first}::${second}`);
-          return named(first);
+          return instance;
         }
       }
     }
@@ -604,16 +783,37 @@ function infer_call(ctx: CheckContext, node: CallNode): PenguType {
   const callee_type = infer_expr(ctx, node.callee);
 
   if (callee_type.kind === "function") {
+    let params = callee_type.params;
+    let result = callee_type.result;
+    if (node.callee.kind === "ident") {
+      const fn = ctx.module.functions.get(node.callee.name);
+      if (fn !== undefined && fn.sigils.length > 0) {
+        const mapping = new Map<string, PenguType>();
+        fn.sigils.forEach((sigil, index) => {
+          const explicit = node.type_args[index];
+          if (explicit !== undefined) {
+            mapping.set(sigil, resolve_type_node(explicit, ctx.module.env, ctx.sink));
+          }
+        });
+        fn.params.forEach((param, index) => {
+          const arg = node.args[index];
+          if (arg === undefined) return;
+          unify_sigils(param.type, infer_expr(ctx, arg.expr), mapping);
+        });
+        params = params.map((param) => substitute_generics(param, mapping));
+        result = substitute_generics(result, mapping);
+      }
+    }
     check_arguments(
       ctx,
-      callee_type.params,
+      params,
       node.args,
       node.span,
       describe_callee(node.callee),
       callee_type.variadic,
       callee_type.required,
     );
-    return callee_type.result;
+    return result;
   }
 
   if (callee_type.kind === "named") {
@@ -701,8 +901,16 @@ function infer_construction(
     return named(name);
   }
 
-  const fields = [...rune.fields.values()].map((field) => field.type);
-  check_arguments(ctx, fields, args, span, name);
+  const fields = [...rune.fields.values()];
+  check_arguments(
+    ctx,
+    fields.map((field) => field.type),
+    args,
+    span,
+    name,
+    false,
+    fields.filter((field) => !field.has_default).length,
+  );
   return named(name);
 }
 
@@ -788,6 +996,7 @@ function check_argument_value(
   name: string,
   span: Span,
 ): void {
+  if (is_generic_type(ctx, expected) || is_generic_type(ctx, actual)) return;
   if (!can_assign(expected, actual)) {
     report_error(
       ctx,
@@ -896,6 +1105,9 @@ function infer_binary(
   const right = infer_expr(ctx, rightNode);
 
   if (is_any(left) || is_any(right)) return any_type("operación");
+  if (is_generic_type(ctx, left) || is_generic_type(ctx, right)) {
+    return is_generic_type(ctx, left) ? left : right;
+  }
 
   switch (operator) {
     case "and":
@@ -984,6 +1196,11 @@ function arithmetic_result(
   right: PenguType,
   span: Span,
 ): PenguType {
+  // Dentro de un cuerpo genérico la operación concreta no se conoce
+  // (la garantiza el `needs Numeric` de C++): se propaga el tipo.
+  if (is_generic_type(ctx, left) || is_generic_type(ctx, right)) {
+    return is_generic_type(ctx, left) ? left : right;
+  }
   if (!is_numeric(left) || !is_numeric(right)) {
     report_error(
       ctx,
@@ -1191,7 +1408,7 @@ function infer_match(ctx: CheckContext, node: Extract<ExprNode, { kind: "match" 
       if (arm.pattern.kind === "variant_pattern") covered.add(arm.pattern.path[arm.pattern.path.length - 1] ?? "");
     }
     const body = with_pattern_scope(ctx, () => {
-      bind_pattern(ctx, arm.pattern, subject, omen);
+      bind_pattern(ctx, arm.pattern, subject, omen, match_mapping(subject, omen));
       return infer_block(ctx, arm.body);
     });
     result = result === undefined ? body : join_types(result, body) ?? any_type("ramas");
@@ -1223,11 +1440,21 @@ function with_pattern_scope<T>(ctx: CheckContext, fn: () => T): T {
   }
 }
 
+// Los datos de una variante pueden ser genéricos: se sustituyen por
+// los argumentos reales del sujeto (`Resultado<int>` → `T` = int).
+function match_mapping(subject: PenguType, omen: OmenInfo | undefined): ReadonlyMap<string, PenguType> {
+  if (omen === undefined || subject.kind !== "named" || subject.args.length === 0) return new Map();
+  const mapping = new Map<string, PenguType>();
+  omen.sigils.forEach((sigil, index) => mapping.set(sigil, subject.args[index] ?? UNKNOWN));
+  return mapping;
+}
+
 function bind_pattern(
   ctx: CheckContext,
   pattern: PatternNode,
   subject: PenguType,
   omen: OmenInfo | undefined,
+  mapping: ReadonlyMap<string, PenguType> = new Map(),
 ): void {
   switch (pattern.kind) {
     case "wildcard_pattern":
@@ -1244,7 +1471,7 @@ function bind_pattern(
     case "tuple_pattern": {
       const items = subject.kind === "tuple" ? subject.items : [];
       pattern.items.forEach((item, index) => {
-        bind_pattern(ctx, item, items[index] ?? UNKNOWN, omen);
+        bind_pattern(ctx, item, items[index] ?? UNKNOWN, omen, mapping);
       });
       return;
     }
@@ -1262,7 +1489,7 @@ function bind_pattern(
         return;
       }
       pattern.args.forEach((arg, index) => {
-        bind_pattern(ctx, arg, variant.payload[index] ?? UNKNOWN, omen);
+        bind_pattern(ctx, arg, substitute_generics(variant.payload[index] ?? UNKNOWN, mapping), omen, mapping);
       });
       if (pattern.args.length !== variant.payload.length) {
         report_error(
@@ -1426,6 +1653,7 @@ export { is_any, types_equal };
 // Los tipos nativos y los contenedores de tipos Display lo son; un
 // `rune` necesita declarar `to_string` en un bloque `enchanting`.
 export function is_display(ctx: CheckContext, type: PenguType): boolean {
+  if (type.kind === "named" && type.generic === true) return true;
   switch (type.kind) {
     case "any":
     case "primitive":

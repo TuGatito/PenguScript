@@ -51,7 +51,7 @@ import {
   parse_return_and_body,
   parse_expression,
 } from "./parser_expr.ts";
-import { open_indented, parse_block } from "./parser_stmt.ts";
+import { empty_block, open_indented, parse_block } from "./parser_stmt.ts";
 
 export function parse_program(c: Cursor): Program {
   const start = peek(c).span;
@@ -449,7 +449,11 @@ function parse_rune(c: Cursor): RuneDecl {
       if (at(c, "constructor")) {
         const ctor_start = advance(c);
         const params = at(c, "(") ? parse_params(c) : [];
-        const body = parse_block(c, "del constructor");
+        // Un constructor puede ser solo la lista de parámetros: los
+        // campos se inicializan por nombre.
+        const body = at(c, "newline") && peek(c, 1).kind !== "indent"
+          ? empty_block(peek(c).span)
+          : parse_block(c, "del constructor");
         constructor = { params, body, span: merge_span(ctor_start.span, body.span) };
         item_end = body.span;
       } else if (at(c, "destructor")) {

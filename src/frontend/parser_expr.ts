@@ -236,6 +236,22 @@ function parse_postfix(c: Cursor): ExprNode {
       continue;
     }
 
+    if (at(c, "<") && expr.kind === "ident" && looks_like_generic_path(c)) {
+      const name = expr.name;
+      const type_args = parse_type_arguments(c);
+      expect(c, "::", "entre el tipo y su variante");
+      const raw = peek(c);
+      const segment = is_keyword(raw.text) ? advance(c) : expect_ident(c, "tras «::»");
+      if (!segment) break;
+      expr = {
+        kind: "path",
+        segments: [name, segment.text],
+        type_args,
+        span: merge_span(expr.span, segment.span),
+      };
+      continue;
+    }
+
     if (at(c, "<") && expr.kind === "ident" && is_container_new_name(expr.name)) {
       const name = expr.name;
       advance(c);
@@ -347,6 +363,30 @@ function parse_type_arguments_open(c: Cursor): readonly TypeNode[] {
   while (eat(c, ",")) args.push(parse_type(c));
   expect(c, ">", "al cerrar los argumentos de tipo");
   return args;
+}
+
+// `Resultado<int>::Ok`: argumentos de tipo seguidos de `::`.
+function looks_like_generic_path(c: Cursor): boolean {
+  let depth = 0;
+  for (let offset = 0; offset < 96; offset++) {
+    const token = peek(c, offset);
+    if (token.kind === "eof" || token.kind === "newline") return false;
+    if (token.kind === "<") {
+      depth++;
+      continue;
+    }
+    if (token.kind === ">") {
+      depth--;
+      if (depth === 0) return peek(c, offset + 1).kind === "::";
+      continue;
+    }
+    if (token.kind === ">>") {
+      depth -= 2;
+      if (depth <= 0) return peek(c, offset + 1).kind === "::";
+      continue;
+    }
+  }
+  return false;
 }
 
 function looks_like_sigil_call(c: Cursor): boolean {

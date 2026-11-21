@@ -83,9 +83,9 @@ comprobar antes. Hay que separar «diagnosticar» de «decidir si es asignable»
 | `int::try_from("42")` | ❌ no se reconoce `int::try_from` | `try_from` solo existe para omens y seals. |
 | Métodos de primitivos (`3.5.floor()`, `int.abs()`) | ❌ E0506 | No hay tabla de métodos para `double`/enteros. |
 | Genéricos: `rune Caja<T>` | ❌ E0502: no existe `T` en el constructor | Los sigilos no entran en ámbito al comprobar campos/constructor/cuerpo. |
-| Genéricos: `omen Resultado<T>` con payload | ❌ codegen: `auto v0` | `emit_omen` no genera plantillas para variantes con payload genérico. |
+| Genéricos: `omen Resultado<T>` con payload | ✅ | `emit_omen` genera `template` por variante. |
 | Genéricos: `seal Id<T>` | ❌ codegen: `auto value` | Igual que el anterior. |
-| Genéricos: `echo Lista<T>` | ❌ codegen: `len(int)` | El alias genérico no se resuelve en el tipo emitido. |
+| Genéricos: `echo Lista<T>` | ✅ | El alias aplica `substitute_generics` en el uso. |
 | Instanciación explícita `id<int>(3)` | ❌ E0502 en la declaración | El sigilo no está en ámbito; falta sustitución en la firma. |
 | `any`, `variant<...>`, `init_list<T>` | ❌ no existen como tipos usables | Tablas de tipos y codegen. |
 | `deque`, `list`, `span`, `bitset`, `stack`, `queue`, `pair`, `tuple` (más allá del literal), `complex`, `atomic`, `mutex`, `thread` | ❌ o parcial | `cpp_types` mapea algunos nombres, pero no hay literales, métodos ni asignaciones. |
@@ -309,11 +309,11 @@ Leyenda: ✅ soportado y probado · 🟡 parcial · ❌ falta.
 | `omen` unitario, valores explícitos, subyacente | ✅ | — |
 | `flags omen` + operadores + `.has` | ✅ | — |
 | `omen` algebraico (payloads, `match`) | ✅ | — |
-| `omen` genérico | 🟡 (check OK; codegen roto) | F5 |
+| `omen` genérico | ✅ | — |
 | `enchanting` sobre omen | ❌ | F6 |
 | Cast seguro de omen y `try_from`/`from` | ✅ (omen); ❌ primitivos | F2 |
 | `echo` (transparente) y `seal` (opaco), métodos | ✅ (básico) | — |
-| `echo`/`seal` genéricos | ❌ codegen | F5 |
+| `echo`/`seal` genéricos | ✅ | — |
 | `enchanting` sobre `echo` con `@` | ❌ | F6 |
 | Display de runes/omens/flags/seals | 🟡 sin validación | F1 |
 
@@ -321,7 +321,7 @@ Leyenda: ✅ soportado y probado · 🟡 parcial · ❌ falta.
 
 | Área | Estado | Fase |
 |---|---|---|
-| Sigilos `<T>`, `needs`, inferencia, instanciación explícita | 🟡 (firma y cuerpo no ven `T`) | F5 |
+| Sigilos `<T>`, `needs`, inferencia, instanciación explícita | ✅ | — |
 | Restricciones estructurales (`Ord`, `Copy`, `Display`, `Into`…) | ❌ no se validan | F5 |
 | `operator` en `enchanting` (`+`, `-` unario, `+=`, `[]`, `()`) | 🟡 (`+`, `()`, `-` binario; `[]`, compuestos y unario no) | F6 |
 | `operator` libre / simétrico | ❌ | F6 |
@@ -604,6 +604,7 @@ constante, `needs` no cumplido, `[]` vacío sin tipo, `switch` no exhaustivo.
 
 | Fecha | Fase | Cambios | Pruebas |
 |---|---|---|---|
+| 2026-11-21 | F5 | Sigilos completos: `NamedType.generic` + `generic_type`/`substitute_generics`; sigilos activos al comprobar y emitir runes, omens, echoes, seals y funciones (`with_sigils`); `echo` genérico sustituido en el uso (`Lista<int>` → `vector<int>`); instanciación explícita en tipos, variantes y funciones (`Caja<int>(7)`, `Resultado<int>::Ok(5)`, `identity<int>(42)`) e inferencia por unificación (`unify_sigils`, incluye `vector<T>`); restricciones `needs` comprobadas con E0513; omens genéricos con `template` por variante y `match` con `get_if<Variant<int>>`; constructor sin cuerpo y campos con valor por defecto; aridad de campo con defaults. | 152/152 (16 archivos) |
 | 2026-11-21 | F4 | `array<T,N>` con literal y comprobación de tamaño; literales con prefijo de tipo (`vector<int>[...]`, `deque<int>[...]`, `set<T>{...}`, `map<K,V>{...}`); `pair`/`tuple` construidos, accedidos y asignados con tipo exacto; contenedores auxiliares (`stack`, `queue`, `priority_queue`, `bitset`, `list`, `forward_list`, `multiset`, `unordered_*`, `span`) con tablas de métodos y codegen (`size`/`is_empty`/`push`/`pop`/`top`/`test`/`count`); construcciones `vector<int>()`, `mutex()`, `thread(...)`, `complex<T>(re, im)`, `atomic<T>(v)`; `variant<A,B>(v)` con `as` comprobado en compilación; `string_view` acepta `string`; cadenas anchas imprimibles; `Value` del runtime reordenado tras las sobrecargas de `to_string` (tuplas y pares imprimibles); `len` usa `std::distance` si no hay `.size()`; cabeceras de todos los contenedores incluidas en `pengu_rt.hpp`. | 143/143 (15 archivos) |
 | 2026-11-21 | F3 | Variádicas `(...xs: T)` con `...` como spread y `...` en tipos de función; dentro del cuerpo el parámetro es `vector<T>`; `any` resuelto como tipo real y empaquetado en `::pengu::Value` (render de `Display` vía `to_string` o `to_string_value`); `check_argument_value` exige Display en variádicas `any` (E0512); `std/io`, `std/format`, `std/log` pasan a `.pengu` con `declare` de primitivas `vector<any>`; `extern` variádico emitido como C varargs; aridad mínima correcta con variádicas. | 129/129 (14 archivos) |
 | 2026-11-21 | F2 | Modelo numérico portable (`INTEGER_SHAPES`, `numeric_join`, promoción al entero mayor, sin mezclas de signo del mismo ancho); `is_safe_cast` con matriz completa (enteros por ancho/signo, float, seal, omen subyacente); `T::try_from`/`T::from` para primitivos con comprobación de rango en runtime; métodos `.sqrt()/.abs()/.is_nan()`; `Ordering` con `<=>` (`::pengu::compare`) y variantes `Less/Equal/Greater`; `function<Sig>` ahora se analiza (lookahead de `<`); operadores de usuario recuperados para `+`/`-`/etc. | 119/119 (13 archivos) |

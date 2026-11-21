@@ -24,7 +24,7 @@ import type { ModuleInfo } from "./module_info.ts";
 import { declare } from "./scopes.ts";
 import { infer_block, param_binding_type } from "./checker_expr.ts";
 import { resolve_type_node } from "./type_env.ts";
-import { any_type, is_any, named, type_equals } from "./types.ts";
+import { any_type, generic_type, is_any, named, type_equals } from "./types.ts";
 import type { PenguType } from "./types.ts";
 import type { ExternalImports } from "./external.ts";
 
@@ -111,6 +111,20 @@ function check_const(ctx: CheckContext, decl: ConstDecl): void {
   }
 }
 
+// Los sigilos de la declaración vuelven a estar activos mientras se
+// comprueba su cuerpo: dentro, `T` es un tipo opaco que el codegen
+// traduce a un parámetro de plantilla de C++.
+function with_sigils(ctx: CheckContext, sigils: readonly string[], body: () => void): void {
+  const previous = new Map(ctx.module.env.sigils);
+  for (const sigil of sigils) ctx.module.env.sigils.set(sigil, generic_type(sigil));
+  try {
+    body();
+  } finally {
+    ctx.module.env.sigils.clear();
+    for (const [key, value] of previous) ctx.module.env.sigils.set(key, value);
+  }
+}
+
 function check_function(ctx: CheckContext, decl: FunctionDecl): void {
   const info = ctx.module.functions.get(decl.name);
   if (info === undefined) return;
@@ -120,6 +134,7 @@ function check_function(ctx: CheckContext, decl: FunctionDecl): void {
   ctx.current_return = is_any(info.result) ? undefined : info.result;
   if (decl.is_unsafe) ctx.unsafe_depth += 1;
 
+  with_sigils(ctx, decl.sigils, () => {
   try {
     const body = with_fresh_scope(ctx, () => {
       check_params(ctx, decl.params);
@@ -138,6 +153,7 @@ function check_function(ctx: CheckContext, decl: FunctionDecl): void {
     ctx.current_return = previous_return;
     ctx.unsafe_depth = previous_unsafe;
   }
+  });
 }
 
 function check_params(ctx: CheckContext, params: readonly ParamNode[]): void {
@@ -166,6 +182,7 @@ function check_rune(ctx: CheckContext, decl: RuneDecl): void {
   if (rune === undefined) return;
   const self_type = named(decl.name);
 
+  with_sigils(ctx, decl.sigils, () => {
   const previous_self = ctx.self_type;
   const previous_mutable = ctx.self_mutable;
   const previous_assign = ctx.self_assign;
@@ -184,6 +201,9 @@ function check_rune(ctx: CheckContext, decl: RuneDecl): void {
         statements: [{ kind: "expr_stmt", expr: field.default_value, span: field.default_value.span }],
         span: field.span,
       });
+      // El valor por defecto toma el tipo declarado del campo (si no,
+      // un `[]` vacío se inferiría como `vector<any>`).
+      ctx.types?.set(field.default_value, type);
       check_initialization(ctx, type, value, field.default_value.span, `en el campo «${field.name}»`, field.default_value);
     }
 
@@ -209,15 +229,19 @@ function check_rune(ctx: CheckContext, decl: RuneDecl): void {
     ctx.self_assign = previous_assign;
     ctx.current_return = previous_return;
   }
+  });
 }
 
 function check_enchanting(ctx: CheckContext, decl: EnchantingDecl): void {
   const target = decl.target;
   const self_type = named(target);
 
-  for (const method of decl.methods) {
-    check_method(ctx, method, self_type);
-  }
+  const target_sigils = ctx.module.env.runes.get(target)?.sigils ?? [];
+  with_sigils(ctx, target_sigils, () => {
+    for (const method of decl.methods) {
+      with_sigils(ctx, method.sigils, () => check_method(ctx, method, self_type));
+    }
+  });
 }
 
 function check_method(ctx: CheckContext, method: MethodDecl, self_type: ReturnType<typeof named>): void {

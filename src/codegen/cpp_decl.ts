@@ -21,6 +21,21 @@ import { declare_local, line, pop_scope, push_scope } from "./cpp_context.ts";
 import { cpp_identifier, cpp_type_node } from "./cpp_types.ts";
 import { emit_value_block } from "./cpp_stmt.ts";
 import { emit_expr } from "./cpp_expr.ts";
+import { generic_type } from "../semantic/types.ts";
+
+
+// Los sigilos deben estar activos mientras se emite una declaración
+// genérica: `T` se traduce literalmente a `T` (parámetro de plantilla).
+function with_sigils(g: GenContext, sigils: readonly string[], body: () => void): void {
+  const previous = new Map(g.module.env.sigils);
+  for (const sigil of sigils) g.module.env.sigils.set(sigil, generic_type(sigil));
+  try {
+    body();
+  } finally {
+    g.module.env.sigils.clear();
+    for (const [key, value] of previous) g.module.env.sigils.set(key, value);
+  }
+}
 
 export function emit_declarations(g: GenContext, decls: readonly DeclNode[]): void {
   const methods_by_rune = collect_methods(decls);
@@ -33,19 +48,19 @@ export function emit_declarations(g: GenContext, decls: readonly DeclNode[]): vo
         emit_const(g, decl);
         break;
       case "function_decl":
-        emit_function(g, decl);
+        with_sigils(g, decl.sigils, () => emit_function(g, decl));
         break;
       case "rune_decl":
-        emit_rune(g, decl, methods_by_rune.get(decl.name) ?? []);
+        with_sigils(g, decl.sigils, () => emit_rune(g, decl, methods_by_rune.get(decl.name) ?? []));
         break;
       case "omen_decl":
-        emit_omen(g, decl);
+        with_sigils(g, decl.sigils, () => emit_omen(g, decl));
         break;
       case "echo_decl":
-        emit_echo(g, decl);
+        with_sigils(g, decl.sigils, () => emit_echo(g, decl));
         break;
       case "seal_decl":
-        emit_seal(g, decl, methods_by_rune.get(decl.name) ?? []);
+        with_sigils(g, decl.sigils, () => emit_seal(g, decl, methods_by_rune.get(decl.name) ?? []));
         break;
       case "enchanting_decl":
         break;
@@ -242,6 +257,12 @@ function operator_name(operator: string): string {
   return `operator${operator}`;
 }
 
+function emit_template_header(g: GenContext, sigils: readonly string[]): void {
+  if (sigils.length > 0) {
+    line(g, `template <${sigils.map((sigil) => `typename ${sigil}`).join(", ")}>`);
+  }
+}
+
 function emit_omen(g: GenContext, decl: OmenDecl): void {
   const name = cpp_identifier(decl.name);
   const variants = decl.variants;
@@ -253,7 +274,9 @@ function emit_omen(g: GenContext, decl: OmenDecl): void {
       : "int";
 
   if (algebraic) {
+    const sigil_args = decl.sigils.length > 0 ? `<${decl.sigils.join(", ")}>` : "";
     for (const variant of variants) {
+      emit_template_header(g, decl.sigils);
       line(g, `struct ${name}_${variant.name} {`);
       g.indent += 1;
       variant.payload.forEach((payload, position) => {
@@ -262,7 +285,8 @@ function emit_omen(g: GenContext, decl: OmenDecl): void {
       g.indent -= 1;
       line(g, "};");
     }
-    const alternatives = variants.map((variant) => `${name}_${variant.name}`).join(", ");
+    const alternatives = variants.map((variant) => `${name}_${variant.name}${sigil_args}`).join(", ");
+    emit_template_header(g, decl.sigils);
     line(g, `struct ${name} {`);
     g.indent += 1;
     line(g, `std::variant<${alternatives}> value;`);
@@ -271,13 +295,17 @@ function emit_omen(g: GenContext, decl: OmenDecl): void {
       const params = variant.payload
         .map((payload, position) => `${cpp_type_node(payload, g.module.env, g.type_realms)} v${position}`)
         .join(", ");
-      line(g, `static ${name} ${variant.name}(${params}) { return ${name}{${name}_${variant.name}{${args}}}; }`);
+      line(
+        g,
+        `static ${name}${sigil_args} ${variant.name}(${params}) { return ${name}${sigil_args}{${name}_${variant.name}${sigil_args}{${args}}}; }`,
+      );
     }
     g.indent -= 1;
     line(g, "};");
     return;
   }
 
+  emit_template_header(g, decl.sigils);
   line(g, `enum class ${name} : ${underlying} {`);
   g.indent += 1;
   variants.forEach((variant, index) => {
@@ -308,10 +336,12 @@ function emit_omen(g: GenContext, decl: OmenDecl): void {
 }
 
 function emit_echo(g: GenContext, decl: EchoDecl): void {
+  emit_template_header(g, decl.sigils);
   line(g, `using ${cpp_identifier(decl.name)} = ${cpp_type_node(decl.target, g.module.env, g.type_realms)};`);
 }
 
 function emit_seal(g: GenContext, decl: SealDecl, methods: readonly MethodDecl[]): void {
+  emit_template_header(g, decl.sigils);
   const name = cpp_identifier(decl.name);
   const target = cpp_type_node(decl.target, g.module.env, g.type_realms);
   line(g, `struct ${name} {`);

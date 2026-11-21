@@ -20,11 +20,13 @@ import {
   ref_to,
   tuple_type,
   function_type,
+  substitute_generics,
 } from "./types.ts";
 
 export interface FieldInfo {
   readonly name: string;
   readonly type: PenguType;
+  readonly has_default: boolean;
   readonly span: Span;
 }
 
@@ -77,6 +79,7 @@ export interface AliasInfo {
   readonly name: string;
   readonly seal: boolean;
   readonly target: PenguType;
+  readonly sigils: readonly string[];
   readonly span: Span;
   readonly methods: Map<string, MethodInfo>;
 }
@@ -170,7 +173,14 @@ export function resolve_named_type(
 
   const alias = env.aliases.get(name);
   if (alias) {
-    if (!alias.seal) return alias.target;
+    if (!alias.seal) {
+      if (alias.sigils.length > 0) {
+        const mapping = new Map<string, PenguType>();
+        alias.sigils.forEach((sigil, index) => mapping.set(sigil, args[index] ?? UNKNOWN));
+        return substitute_generics(alias.target, mapping);
+      }
+      return alias.target;
+    }
     return named(name, args);
   }
 

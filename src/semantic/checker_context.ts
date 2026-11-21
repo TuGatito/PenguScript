@@ -87,6 +87,7 @@ export function report_type_mismatch(
   context: string,
 ): void {
   if (is_any(expected) || is_any(actual)) return;
+  if (is_generic_type(ctx, expected) || is_generic_type(ctx, actual)) return;
   if (type_equals(expected, actual)) return;
   ctx.sink.add(
     make_error(
@@ -192,6 +193,13 @@ export function can_assign(target: PenguType, source: PenguType): boolean {
 
 // Comprueba una inicialización (declaración, constante, retorno o
 // valor por defecto) y solo diagnostica si de verdad no es asignable.
+// ¿Es un tipo genérico (`T`) declarado por el sigilo de la
+// declaración que se está comprobando? Dentro de su cuerpo el checker
+// no conoce la operación concreta, así que acepta cualquier valor.
+export function is_generic_type(_ctx: CheckContext, type: PenguType): boolean {
+  return type.kind === "named" && type.generic === true;
+}
+
 export function check_initialization(
   ctx: CheckContext,
   expected: PenguType,
@@ -201,6 +209,7 @@ export function check_initialization(
   value?: ExprNode,
 ): void {
   if (is_any(expected) || is_any(actual)) return;
+  if (is_generic_type(ctx, expected) || is_generic_type(ctx, actual)) return;
   if (compound_fits(ctx, expected, value, actual)) return;
   if (can_assign(expected, actual)) return;
   if (literal_fits(expected, actual, value)) return;

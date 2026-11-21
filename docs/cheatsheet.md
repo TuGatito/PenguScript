@@ -3567,6 +3567,20 @@ A child may **not** inherit from an uninstantiated generic: `rune Dog heir Anima
 | Constraint | `<T needs Ord>` | `template<std::totally_ordered T>` |
 | Multiple constraints | `<T needs Ord, Display>` | `template<...> requires ...` |
 
+### Estado en 0.1.0
+
+El compilador ya implementa sigilos en funciones, runes, omens, echoes y
+seals, con instanciación explícita (`identity<int>(42)`,
+`Resultado<int>::Ok(5)`, `Caja<int>(7)`) e inferencia desde los
+argumentos (`identity(42)`). Dentro del cuerpo de una declaración
+genérica, `T` es un tipo opaco: la operación concreta la valida C++ al
+instanciar.
+
+Las restricciones `needs` se comprueban al instanciar contra los tipos
+primitivos y contenedores conocidos (`Numeric`, `Floating`, `Ord`, `Eq`,
+`Hash`, `Copy`, `Move`, `Default`, `Display`); para runes y omens
+definidos por el usuario se confía en el compilador de C++.
+
 ## Operators
 ---
 

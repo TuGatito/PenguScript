@@ -30,6 +30,8 @@ export interface NamedType {
   readonly kind: "named";
   readonly name: string;
   readonly args: readonly PenguType[];
+  /** `T` de un sigilo: el checker no conoce la operación concreta. */
+  readonly generic?: boolean;
 }
 
 export interface OptionalType {
@@ -124,6 +126,53 @@ export function primitive(name: string): PrimitiveType {
 
 export function named(name: string, args: readonly PenguType[] = []): NamedType {
   return { kind: "named", name, args };
+}
+
+export function generic_type(name: string): NamedType {
+  return { kind: "named", name, args: [], generic: true };
+}
+
+// Sustituye los sigilos de un tipo genérico por los argumentos reales
+// (`Lista<int>` con `echo Lista<T> = vector<T>` da `vector<int>`).
+export function substitute_generics(
+  type: PenguType,
+  mapping: ReadonlyMap<string, PenguType>,
+): PenguType {
+  switch (type.kind) {
+    case "named": {
+      if (type.generic === true && type.args.length === 0) {
+        return mapping.get(type.name) ?? type;
+      }
+      if (type.args.length === 0) return type;
+      return { ...type, args: type.args.map((arg) => substitute_generics(arg, mapping)) };
+    }
+    case "optional":
+      return { ...type, inner: substitute_generics(type.inner, mapping) };
+    case "ref":
+      return { ...type, inner: substitute_generics(type.inner, mapping) };
+    case "raw":
+    case "unique":
+    case "shared":
+    case "weak":
+      return { ...type, inner: substitute_generics(type.inner, mapping) };
+    case "array":
+      return { ...type, element: substitute_generics(type.element, mapping) };
+    case "tuple":
+      return { ...type, items: type.items.map((item) => substitute_generics(item, mapping)) };
+    case "function":
+      return {
+        ...type,
+        params: type.params.map((param) => substitute_generics(param, mapping)),
+        result: substitute_generics(type.result, mapping),
+      };
+    case "primitive":
+    case "range":
+    case "void":
+    case "none":
+    case "nullptr":
+    case "any":
+      return type;
+  }
 }
 
 export function optional(inner: PenguType): OptionalType {

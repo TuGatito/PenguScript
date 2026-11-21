@@ -33,6 +33,7 @@ import { UNKNOWN, is_float, is_numeric, is_string, named, primitive, type_equals
 import { is_conversion_target } from "../semantic/checker_expr.ts";
 import { resolve_type_node } from "../semantic/type_env.ts";
 import { STRING_TYPES } from "../frontend/ast_type.ts";
+import type { TypeNode } from "../frontend/ast_type.ts";
 import { emit_block, emit_value_block } from "./cpp_stmt.ts";
 
 export function emit_expr(g: GenContext, node: ExprNode): string {
@@ -270,7 +271,9 @@ function emit_call(g: GenContext, node: CallNode): string {
       return emit_conversion(g, target_name, operation, node);
     }
   }
-  const type_args = node.type_args.map((arg) => cpp_type_node(arg, g.module.env, g.type_realms));
+  const callee_type_args = callee.kind === "path" ? callee.type_args : undefined;
+  const explicit_type_args: readonly TypeNode[] = callee_type_args ?? node.type_args;
+  const type_args = explicit_type_args.map((arg: TypeNode) => cpp_type_node(arg, g.module.env, g.type_realms));
   if (callee.kind === "ident") {
     return emit_ident_call(g, callee.name, type_args, args, node);
   }
@@ -376,7 +379,8 @@ function emit_ident_call(
 
   const alias = g.module.env.aliases.get(name);
   if (alias !== undefined) {
-    return `${name}(${args})`;
+    const rendered = type_args.length > 0 ? `${cpp_identifier(name)}<${type_args.join(", ")}>` : cpp_identifier(name);
+    return `${rendered}(${args})`;
   }
 
   const sigils = type_args.length > 0 ? `<${type_args.join(", ")}>` : "";
@@ -422,13 +426,19 @@ function emit_path_call(
     if (last === "from") return `::pengu::from<${head}>(${args})`;
     const variant = omen.variants.get(last);
     if (variant !== undefined) {
-      if (variant.payload.length === 0) return `${head}::${last}`;
-      return `${head}{${head}_${last}{${args}}}`;
+      const sigils = type_args.length > 0 ? `<${type_args.join(", ")}>` : "";
+      if (variant.payload.length === 0) return `${head}${sigils}::${last}`;
+      return emit_generic_variant(g, head, last, type_args, args);
     }
   }
 
   const sigils = type_args.length > 0 ? `<${type_args.join(", ")}>` : "";
   return `${joined}${sigils}(${args})`;
+}
+
+function emit_generic_variant(g: GenContext, head: string, variant: string, type_args: readonly string[], args: string): string {
+  const sigils = type_args.length > 0 ? `<${type_args.join(", ")}>` : "";
+  return `${head}${sigils}{${head}_${variant}${sigils}{${args}}}`;
 }
 
 // `int::try_from(x)` se traduce a una comprobación en el runtime: el
@@ -757,6 +767,10 @@ function emit_match(g: GenContext, node: MatchNode): string {
   const subject_type = type_of(g, node.subject);
   const omen = subject_type.kind === "named" ? g.module.env.omens.get(subject_type.name) : undefined;
   const omen_name = omen !== undefined && subject_type.kind === "named" ? subject_type.name : "";
+  const omen_args =
+    subject_type.kind === "named" && subject_type.args.length > 0
+      ? `<${subject_type.args.map((arg) => cpp_type(arg, g.type_realms)).join(", ")}>`
+      : "";
   const algebraic =
     omen !== undefined && [...omen.variants.values()].some((variant) => variant.payload.length > 0);
   return build_lambda(g, "", result, () => {
@@ -778,14 +792,14 @@ function emit_match(g: GenContext, node: MatchNode): string {
           const variant = omen?.variants.get(variant_name);
           if (variant === undefined) continue;
           if (variant.payload.length === 0) {
-            line(g, `if (std::holds_alternative<${omen_name}_${variant_name}>(${subject}.value)) {`);
+            line(g, `if (std::holds_alternative<${omen_name}_${variant_name}${omen_args}>(${subject}.value)) {`);
             g.indent += 1;
             emit_guard_and_body(g, arm, result, () => undefined);
             g.indent -= 1;
             line(g, "}");
             continue;
           }
-          line(g, `if (auto* ${pointer} = std::get_if<${omen_name}_${variant_name}>(&${subject}.value)) {`);
+          line(g, `if (auto* ${pointer} = std::get_if<${omen_name}_${variant_name}${omen_args}>(&${subject}.value)) {`);
           g.indent += 1;
           emit_guard_and_body(g, arm, result, () => {
             pattern.args.forEach((argument, position) => {

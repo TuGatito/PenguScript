@@ -48,6 +48,7 @@ export const CODES = {
   unknown_method: "E0507",
   cannot_infer: "E0508",
   invalid_cast: "E0509",
+  missing_capability: "E0513",
   missing_return: "E0510",
   unreachable_code: "E0511",
   not_display: "E0512",

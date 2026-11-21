@@ -104,6 +104,8 @@ export interface SelfNode {
 export interface PathNode {
   readonly kind: "path";
   readonly segments: readonly string[];
+  /** `Resultado<int>::Ok`: argumentos de tipo explícitos del tipo. */
+  readonly type_args?: readonly TypeNode[];
   readonly span: Span;
 }
 
