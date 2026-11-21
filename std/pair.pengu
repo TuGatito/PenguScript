@@ -1,0 +1,8 @@
+realm pair
+
+enchanting pair<A, B>
+  swap = -> pair<B, A>
+    (@.second, @.first)
+
+  to_tuple = -> tuple<A, B>
+    (@.first, @.second)

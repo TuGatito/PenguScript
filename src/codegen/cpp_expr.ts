@@ -116,8 +116,20 @@ export function emit_expr(g: GenContext, node: ExprNode): string {
       gc_error(g, "«parent» solo puede aparecer como primera sentencia de un constructor", node.span);
       return "/* parent */";
     case "member": {
+      // `enchanting` sobre un tipo incorporado: el checker anotó la
+      // función libre, no un acceso a miembro.
+      const enchanted = g.member_targets.get(node);
+      if (enchanted !== undefined) {
+        return `${sanitize_namespace(enchanted.realm)}::${cpp_identifier(enchanted.name)}(${emit_expr(g, node.object)})`;
+      }
       const object_code = emit_expr(g, node.object);
       const object_type = type_of(g, node.object);
+      // `std::pair` tiene `.first`/`.second`; `std::tuple` no.
+      const is_tuple =
+        object_type.kind === "tuple" || (object_type.kind === "named" && object_type.name === "tuple");
+      if (is_tuple && (node.name === "first" || node.name === "second")) {
+        return `std::get<${node.name === "first" ? 0 : 1}>(${object_code})`;
+      }
       const arrow =
         object_type.kind === "unique" || object_type.kind === "shared" || object_type.kind === "raw";
       return `${object_code}${arrow ? "->" : "."}${cpp_identifier(node.name)}`;

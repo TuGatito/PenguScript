@@ -112,6 +112,8 @@ export interface EnchantingDecl {
   readonly kind: "enchanting_decl";
   readonly target: string;
   readonly target_span: Span;
+  // Tipo patrón completo: `string`, `vector<T>`, `tuple<int, string>`.
+  readonly target_type: TypeNode;
   readonly sigils: readonly string[];
   readonly methods: readonly MethodDecl[];
   readonly span: Span;

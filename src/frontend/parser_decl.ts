@@ -10,6 +10,7 @@ import {
   eat,
   expect,
   expect_ident,
+  expect_name,
   peek,
   push_error,
   skip_newlines,
@@ -44,6 +45,7 @@ import { KEYWORDS, is_keyword } from "./token.ts";
 import { suggest_name } from "../util/suggest.ts";
 import type { Span } from "../util/span.ts";
 import { parse_type, parse_type_arguments, expect_close_angle } from "./parser_type.ts";
+import { type_pattern_base, type_pattern_sigils } from "../semantic/enchant_targets.ts";
 import {
   looks_like_return_type,
   looks_like_signature,
@@ -647,8 +649,13 @@ function parse_echo_decl(c: Cursor, form: "echo" | "seal"): EchoDecl | SealDecl 
 
 function parse_enchanting(c: Cursor): EnchantingDecl {
   const start = advance(c);
-  const target = expect_ident(c, "tras enchanting");
-  const { sigils } = parse_sigils(c);
+  // El destino es un patrón de tipo: `string`, `vector<T>`, `tuple<int, string>`.
+  // `array<T>` omite el tamaño: el patrón vale para cualquier `array<T, N>`.
+  const target_type = parse_enchant_pattern(c)
+    ?? parse_type(c)
+    ?? { kind: "named_type", name: "__error__", args: [], span: start.span };
+  const target = type_pattern_base(target_type);
+  const sigils = type_pattern_sigils(target_type);
   const methods: MethodDecl[] = [];
 
   if (at(c, "newline") && peek(c, 1).kind === "indent") {
@@ -665,15 +672,26 @@ function parse_enchanting(c: Cursor): EnchantingDecl {
     if (at(c, "dedent")) advance(c);
   }
 
-  const end = methods[methods.length - 1]?.span ?? target?.span ?? start.span;
+  const end = methods[methods.length - 1]?.span ?? target_type.span;
   return {
     kind: "enchanting_decl",
-    target: target?.text ?? "__error__",
-    target_span: target?.span ?? start.span,
+    target,
+    target_span: target_type.span,
+    target_type,
     sigils,
     methods,
     span: merge_span(start.span, end),
   };
+}
+
+function parse_enchant_pattern(c: Cursor): TypeNode | undefined {
+  if (!at(c, "ident") || peek(c).text !== "array" || peek(c, 1).kind !== "<") return undefined;
+  const name = advance(c);
+  advance(c);
+  const element = parse_type(c);
+  expect(c, ">", "en el patrón array<T>");
+  if (element === undefined) return undefined;
+  return { kind: "named_type", name: "array", args: [element], span: merge_span(name.span, element.span) };
 }
 
 function parse_method(c: Cursor): MethodDecl {
@@ -696,7 +714,7 @@ function parse_method(c: Cursor): MethodDecl {
     }
     name = operator_token;
   } else {
-    name = expect_ident(c, "en el método");
+    name = expect_name(c, "en el método");
   }
 
   expect(c, "=", "en el método");

@@ -173,6 +173,9 @@ export function infer_binary(
 
   if (is_any(left) || is_any(right)) return any_type("operación");
   if (is_generic_type(ctx, left) || is_generic_type(ctx, right)) {
+    // Una comparación de un valor genérico siempre produce «bool»: el tipo
+    // concreto lo comprobará el compilador de C++ al instanciar.
+    if (GENERIC_COMPARISONS.has(operator)) return BOOL;
     return is_generic_type(ctx, left) ? left : right;
   }
 
@@ -270,6 +273,9 @@ export function arithmetic_result(
   // Dentro de un cuerpo genérico la operación concreta no se conoce
   // (la garantiza el `needs Numeric` de C++): se propaga el tipo.
   if (is_generic_type(ctx, left) || is_generic_type(ctx, right)) {
+    // Una comparación de un valor genérico siempre produce «bool»: el tipo
+    // concreto lo comprobará el compilador de C++ al instanciar.
+    if (GENERIC_COMPARISONS.has(operator)) return BOOL;
     return is_generic_type(ctx, left) ? left : right;
   }
   if (!is_numeric(left) || !is_numeric(right)) {
@@ -435,6 +441,8 @@ export function is_display(ctx: CheckContext, type: PenguType): boolean {
 }
 
 export const CONTAINER_TYPES: ReadonlySet<string> = new Set(["vector", "set", "map", "deque", "list", "span"]);
+
+const GENERIC_COMPARISONS: ReadonlySet<string> = new Set(["==", "!=", "<", ">", "<=", ">=", "in"]);
 
 export const ORDERING_VARIANTS: ReadonlySet<string> = new Set(["Less", "Equal", "Greater"]);
 

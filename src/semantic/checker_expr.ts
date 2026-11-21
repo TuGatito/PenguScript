@@ -183,7 +183,7 @@ function infer_expr_impl(ctx: CheckContext, node: ExprNode): PenguType {
     case "path":
       return infer_path(ctx, node.segments, node.span, node.type_args);
     case "member":
-      return infer_member(ctx, infer_expr(ctx, node.object), node.name, node.span);
+      return infer_member(ctx, infer_expr(ctx, node.object), node.name, node.span, node);
     case "index": {
       const object = infer_expr(ctx, node.object);
       infer_expr(ctx, node.index);

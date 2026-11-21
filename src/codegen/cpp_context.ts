@@ -11,6 +11,7 @@ import { error as diagnostic_error } from "../diagnostics/diagnostic.ts";
 import { CODES } from "../diagnostics/codes.ts";
 import type { ModuleInfo } from "../semantic/module_info.ts";
 import type { PenguType } from "../semantic/types.ts";
+import type { MethodTarget } from "../semantic/type_env.ts";
 import { UNKNOWN } from "../semantic/types.ts";
 import type { Span } from "../util/span.ts";
 import { cpp_identifier } from "./cpp_types.ts";
@@ -40,6 +41,8 @@ export interface GenContext {
   external_realms: ReadonlyMap<string, string>;
   // Símbolo importado con `invoke {a, b} from "x"` → realm de origen.
   selective_realms: ReadonlyMap<string, string>;
+  // Nodo del miembro → `realm::nombre` para métodos enhechizados.
+  member_targets: ReadonlyMap<ExprNode, MethodTarget>;
 }
 
 export function make_gen_context(
@@ -49,6 +52,7 @@ export function make_gen_context(
   type_realms: TypeRealms = new Map(),
   external_realms: ReadonlyMap<string, string> = new Map(),
   selective_realms: ReadonlyMap<string, string> = new Map(),
+  member_targets: ReadonlyMap<ExprNode, MethodTarget> = new Map(),
 ): GenContext {
   return {
     module,
@@ -65,6 +69,7 @@ export function make_gen_context(
     type_realms,
     external_realms,
     selective_realms,
+    member_targets,
   };
 }
 

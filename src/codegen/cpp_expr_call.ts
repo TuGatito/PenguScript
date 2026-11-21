@@ -125,7 +125,7 @@ export function emit_call(g: GenContext, node: CallNode): string {
     return emit_path_call(g, callee.segments, type_args, args);
   }
   if (callee.kind === "member") {
-    return emit_member_call(g, callee.object, callee.name, args);
+    return emit_member_call(g, callee.object, callee.name, args, callee);
   }
   return `(${emit_expr(g, callee)})(${args})`;
 }
@@ -136,6 +136,11 @@ export const BUILTIN_FUNCTIONS: Readonly<Record<string, string>> = {
   "io::eprint_values": "::pengu::eprint_values",
   "format::format_values": "::pengu::format_values",
   "log::log_values": "::pengu::log_values",
+  "string::find_raw": "::pengu::find_raw",
+  "string::trim_raw": "::pengu::trim_raw",
+  "string::to_upper_raw": "::pengu::to_upper_raw",
+  "string::to_lower_raw": "::pengu::to_lower_raw",
+  "string::split_raw": "::pengu::split_raw",
   "os::args": "::pengu::os_args",
   "debug::println": "::pengu::println",
   "console::println": "::pengu::println",
@@ -329,7 +334,23 @@ export function emit_conversion(
   return conversion;
 }
 
-export function emit_member_call(g: GenContext, object: ExprNode, name: string, args: string): string {
+export function emit_member_call(
+  g: GenContext,
+  object: ExprNode,
+  name: string,
+  args: string,
+  callee?: ExprNode,
+): string {
+  // `enchanting` sobre un tipo incorporado: el checker anotó la función
+  // libre concreta, así que se emite cualificada por su realm.
+  const target = callee === undefined ? undefined : g.member_targets.get(callee);
+  if (target !== undefined) {
+    const rendered_object = emit_expr(g, object);
+    const realm = sanitize_namespace(target.realm);
+    const separator = args.length > 0 ? ", " : "";
+    return `${realm}::${cpp_identifier(target.name)}(${rendered_object}${separator}${args})`;
+  }
+
   const rendered = emit_expr(g, object);
   const object_type = type_of(g, object);
   // Los métodos declarados por el usuario tienen prioridad sobre las
@@ -433,8 +454,12 @@ export function emit_unary(g: GenContext, node: import("../frontend/ast_expr.ts"
       return `::pengu::len(${operand})`;
     case "&":
       return `&(${operand})`;
-    case "*":
+    case "*": {
+      // Un `ref<T>` ya es una referencia en C++: no hay que desreferenciarlo.
+      const type = type_of(g, node.operand);
+      if (type.kind === "ref") return operand;
       return `*(${operand})`;
+    }
     default:
       return `${node.op}(${operand})`;
   }

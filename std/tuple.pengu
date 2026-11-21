@@ -1,0 +1,20 @@
+realm tuple
+
+enchanting tuple<A, B>
+  len = -> size_t
+    2
+
+  swap = -> tuple<B, A>
+    a, b = @
+    (b, a)
+
+  to_pair = -> pair<A, B>
+    (@.first, @.second)
+
+enchanting tuple<A, B, C>
+  len = -> size_t
+    3
+
+  third = -> C
+    a, b, c = @
+    c

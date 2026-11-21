@@ -1,0 +1,17 @@
+realm optional
+
+enchanting optional<T>
+  is_empty = -> bool
+    @.is_none()
+
+  or_else = (alternativa: T) -> T
+    if @.is_some() then @.value() else alternativa
+
+  filter = (predicado: function<(T) -> bool>) -> T?
+    if @.is_some() and predicado(@.value()) then @.value() else none
+
+  to_vector = -> vector<T>
+    mut salida: vector<T> = []
+    if @.is_some()
+      salida.push(@.value())
+    salida

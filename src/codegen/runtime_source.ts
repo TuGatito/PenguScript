@@ -29,6 +29,7 @@ export const RUNTIME_HEADER = `// Runtime generado por pengu 0.1.0. No editar a 
 #include <charconv>
 #include <compare>
 #include <chrono>
+#include <cctype>
 #include <cmath>
 #include <limits>
 #include <cstddef>
@@ -357,6 +358,51 @@ std::size_t len(const C& container) {
 
 inline bool contains(const std::string& text, const std::string& needle) {
   return text.find(needle) != std::string::npos;
+}
+
+// Intrínsecos de std/string: devuelven el largo cuando no encuentran, para
+// que PenguScript pueda convertirlo en «none».
+inline std::size_t find_raw(const std::string& text, const std::string& needle) {
+  const auto position = text.find(needle);
+  return position == std::string::npos ? text.size() : position;
+}
+
+inline std::string trim_raw(const std::string& text) {
+  std::size_t first = 0;
+  std::size_t last = text.size();
+  while (first < last && std::isspace(static_cast<unsigned char>(text[first])) != 0) ++first;
+  while (last > first && std::isspace(static_cast<unsigned char>(text[last - 1])) != 0) --last;
+  return text.substr(first, last - first);
+}
+
+inline std::string to_upper_raw(const std::string& text) {
+  std::string out = text;
+  for (char& letter : out) letter = static_cast<char>(std::toupper(static_cast<unsigned char>(letter)));
+  return out;
+}
+
+inline std::string to_lower_raw(const std::string& text) {
+  std::string out = text;
+  for (char& letter : out) letter = static_cast<char>(std::tolower(static_cast<unsigned char>(letter)));
+  return out;
+}
+
+inline std::vector<std::string> split_raw(const std::string& text, const std::string& separator) {
+  std::vector<std::string> parts;
+  if (separator.empty()) {
+    for (const char letter : text) parts.emplace_back(1, letter);
+    return parts;
+  }
+  std::size_t start = 0;
+  while (true) {
+    const auto position = text.find(separator, start);
+    if (position == std::string::npos) {
+      parts.push_back(text.substr(start));
+      return parts;
+    }
+    parts.push_back(text.substr(start, position - start));
+    start = position + separator.size();
+  }
 }
 
 template <class C, class V>

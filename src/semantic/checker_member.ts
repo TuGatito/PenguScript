@@ -90,6 +90,7 @@ import {
 } from "./builtin_members.ts";
 import { check_statement } from "./checker_stmt.ts";
 import { infer_block, infer_expr, report_error, known_names, with_new_scope, with_loop, loop_result_type } from "./checker_expr.ts";
+import { resolve_enchanted_member } from "./checker_enchants.ts";
 import { infer_primitive_conversion, is_conversion_target, is_display, ORDERING_VARIANTS } from "./checker_ops.ts";
 
 
@@ -221,11 +222,12 @@ export function infer_member(
   object: PenguType,
   name: string,
   span: Span,
+  node?: Extract<ExprNode, { kind: "member" }>,
 ): PenguType {
   if (is_any(object)) return object;
 
   if (object.kind === "ref" || object.kind === "unique" || object.kind === "shared" || object.kind === "raw") {
-    return infer_member(ctx, object.inner, name, span);
+    return infer_member(ctx, object.inner, name, span, node);
   }
 
   if (object.kind === "weak") {
@@ -286,6 +288,12 @@ export function infer_member(
       echo_method.variadic,
       echo_method.params.length - (echo_method.variadic ? 1 : 0),
     );
+  }
+
+  // `enchanting` sobre tipos incorporados: manda sobre la tabla nativa.
+  if (node !== undefined) {
+    const enchanted = resolve_enchanted_member(ctx, node, object);
+    if (enchanted !== undefined) return enchanted;
   }
 
   const builtin = member_of_builtin(object, name);

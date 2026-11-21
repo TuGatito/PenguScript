@@ -9,6 +9,7 @@ import type { ExprNode } from "../frontend/ast_expr.ts";
 import type { Program } from "../frontend/ast.ts";
 import type { ModuleInfo } from "../semantic/module_info.ts";
 import type { PenguType } from "../semantic/types.ts";
+import type { MethodTarget } from "../semantic/type_env.ts";
 import { cpp_type, sanitize_namespace } from "./cpp_types.ts";
 import type { TypeRealms } from "./cpp_types.ts";
 import { make_gen_context, line } from "./cpp_context.ts";
@@ -18,6 +19,8 @@ export interface ProgramUnit {
   readonly program: Program;
   readonly module: ModuleInfo;
   readonly types: ReadonlyMap<ExprNode, PenguType>;
+  // Nodo del miembro → `realm::nombre` para métodos enhechizados.
+  readonly member_targets: ReadonlyMap<ExprNode, MethodTarget>;
   // Alias de `invoke` del módulo → realm importado.
   readonly external_realms: ReadonlyMap<string, string>;
   // Símbolo importado de forma selectiva → realm de origen.
@@ -58,6 +61,7 @@ export function generate_program(
       type_realms,
       unit.external_realms,
       unit.selective_realms,
+      unit.member_targets,
     );
     const realm = sanitize_namespace(unit.module.realm);
     body.push(`namespace ${realm} {`);

@@ -1,0 +1,54 @@
+realm string
+
+-- Intrínsecos: lo que solo C++ puede hacer de forma eficiente.
+declare
+  find_raw = (texto: ref<string>, buscado: ref<string>) -> size_t
+  trim_raw = (texto: ref<string>) -> string
+  to_upper_raw = (texto: ref<string>) -> string
+  to_lower_raw = (texto: ref<string>) -> string
+  split_raw = (texto: ref<string>, separador: ref<string>) -> vector<string>
+
+enchanting string
+  compare = (otro: string) -> int
+    if @< otro
+      -1
+    else if @> otro
+      1
+    else
+      0
+
+  is_empty = -> bool
+    #@== 0
+
+  starts_with = (prefijo: string) -> bool
+    largo = #@
+    if #prefijo > largo then false else @.substr(0, #prefijo) == prefijo
+
+  ends_with = (sufijo: string) -> bool
+    largo = #@
+    if #sufijo > largo then false else @.substr(largo - #sufijo, #sufijo) == sufijo
+
+  contains = (buscado: string) -> bool
+    buscado in @
+
+  find = (buscado: string) -> size_t?
+    pos = find_raw(ref(@), ref(buscado))
+    if pos == #@then none else pos
+
+  trim = -> string
+    trim_raw(ref(@))
+
+  to_upper = -> string
+    to_upper_raw(ref(@))
+
+  to_lower = -> string
+    to_lower_raw(ref(@))
+
+  split = (separador: string) -> vector<string>
+    split_raw(ref(@), ref(separador))
+
+  repeat = (veces: int) -> string
+    mut salida = ""
+    for _ in 0..<veces
+      salida += @
+    salida

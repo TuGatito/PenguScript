@@ -3,7 +3,7 @@
 // Recoge el módulo y comprueba cada declaración: constantes,
 // funciones, runes, omens y bloques `enchanting`.
 
-import type { ExprNode, Program } from "../frontend/ast.ts";
+import type { Block, ExprNode, Program } from "../frontend/ast.ts";
 import type {
   ConstDecl,
   DeclNode,
@@ -18,17 +18,17 @@ import type { DiagnosticSink } from "../diagnostics/sink.ts";
 import { CODES } from "../diagnostics/codes.ts";
 import { error as make_error } from "../diagnostics/diagnostic.ts";
 import type { CheckContext } from "./checker_context.ts";
-import { check_initialization, make_context, report_type_mismatch } from "./checker_context.ts";
+import { annotate_literal, check_initialization, make_context, report_type_mismatch } from "./checker_context.ts";
 import { collect_module } from "./module_info.ts";
 import { eval_const, make_const_scope } from "./const_eval.ts";
 import type { ModuleInfo } from "./module_info.ts";
 import { declare } from "./scopes.ts";
 import { infer_block, param_binding_type } from "./checker_expr.ts";
-import type { RuneInfo } from "./type_env.ts";
+import type { MethodTarget, RuneInfo } from "./type_env.ts";
 import { find_rune_field, find_rune_method, report_pending_types, resolve_type_node } from "./type_env.ts";
 import { VOID, any_type, generic_type, is_any, named, primitive, type_equals } from "./types.ts";
 import { STRING_TYPES, is_primitive_type } from "../frontend/ast_type.ts";
-import { enchant_target_of } from "./enchant_targets.ts";
+import { enchant_target_of, type_pattern_type } from "./enchant_targets.ts";
 import type { PenguType } from "./types.ts";
 import type { ExternalImports } from "./external.ts";
 
@@ -36,6 +36,7 @@ export interface CheckOptions {
   // Si se pasa, el checker anota el tipo de cada expresión. Lo usa el
   // generador de C++ para deducir tipos de lambdas y literales.
   readonly types?: Map<ExprNode, PenguType>;
+  readonly member_targets?: Map<ExprNode, MethodTarget>;
   readonly external?: ExternalImports;
 }
 
@@ -59,6 +60,7 @@ export function check_loaded_module(
 ): void {
   const ctx = make_context(module.file, module, sink);
   ctx.types = options.types;
+  ctx.member_targets = options.member_targets;
   ctx.external = options.external;
 
   for (const decl of program.decls) {
@@ -169,13 +171,15 @@ function check_function(ctx: CheckContext, decl: FunctionDecl): void {
       return infer_block(ctx, decl.body);
     });
     if (ctx.current_return !== undefined) {
+      annotate_literal(ctx, ctx.current_return, last_expression(decl.body));
       if (ctx.current_return.kind === "void") {
         // Un cuerpo void puede terminar en cualquier expresión sin valor.
       } else if (!type_equals(body, ctx.current_return) && !is_any(body)) {
-        check_initialization(ctx, ctx.current_return, body, decl.body.span, "en el retorno de la función");
+        check_initialization(ctx, ctx.current_return, body, decl.body.span, "en el retorno de la función", last_expression(decl.body));
       }
     } else if (!is_any(info.result) && !type_equals(body, info.result)) {
-      check_initialization(ctx, info.result, body, decl.body.span, "en el retorno de la función");
+      annotate_literal(ctx, info.result, last_expression(decl.body));
+      check_initialization(ctx, info.result, body, decl.body.span, "en el retorno de la función", last_expression(decl.body));
     }
   } finally {
     ctx.current_return = previous_return;
@@ -301,6 +305,20 @@ function check_enchanting(ctx: CheckContext, decl: EnchantingDecl): void {
     }
   }
 
+  // Los tipos incorporados no admiten operadores: `=` y compañía ya
+  // tienen significado en C++ y sobrecargarlos cambiaría el de todo el
+  // programa.
+  if (builtin_self !== undefined) {
+    for (const method of decl.methods) {
+      if (method.operator === undefined) continue;
+      ctx.sink.add(make_error(
+        CODES.invalid_operator,
+        `«${target}» es un tipo incorporado: no admite el operador «${method.operator}»`,
+        method.name_span,
+      ));
+    }
+  }
+
   const target_sigils = ctx.module.env.runes.get(target)?.sigils ?? decl.sigils;
   with_sigils(ctx, target_sigils, () => {
     for (const method of decl.methods) {
@@ -328,10 +346,51 @@ function check_field_shadowing(ctx: CheckContext, decl: RuneDecl, rune: RuneInfo
 // Tipo del receptor cuando el `enchanting` apunta a un tipo incorporado.
 function enchant_self_type(ctx: CheckContext, decl: EnchantingDecl): PenguType | undefined {
   if (enchant_target_of(decl.target) === undefined) return undefined;
-  if (decl.target === "Ordering") return named("Ordering");
-  if (STRING_TYPES.has(decl.target)) return primitive(decl.target);
-  if (is_primitive_type(decl.target)) return decl.target === "void" ? VOID : primitive(decl.target);
-  return named(decl.target, decl.sigils.map(generic_type));
+  // Los sigilos del patrón (`vector<T>`) llegan como tipos con nombre; el
+  // cuerpo del método debe verlos como sigilos genéricos.
+  return substitute_sigils(type_pattern_type(decl.target_type), new Set(decl.sigils));
+}
+
+function substitute_sigils(type: PenguType, sigils: ReadonlySet<string>): PenguType {
+  switch (type.kind) {
+    case "named":
+      if (sigils.has(type.name) && type.args.length === 0) return generic_type(type.name);
+      return { ...type, args: type.args.map((arg) => substitute_sigils(arg, sigils)) };
+    case "optional":
+      return { ...type, inner: substitute_sigils(type.inner, sigils) };
+    case "ref":
+      return { ...type, inner: substitute_sigils(type.inner, sigils) };
+    case "raw":
+    case "unique":
+    case "shared":
+    case "weak":
+      return { ...type, inner: substitute_sigils(type.inner, sigils) };
+    case "array":
+      return { ...type, element: substitute_sigils(type.element, sigils) };
+    case "tuple":
+      return { ...type, items: type.items.map((item) => substitute_sigils(item, sigils)) };
+    case "function":
+      return {
+        ...type,
+        params: type.params.map((param) => substitute_sigils(param, sigils)),
+        result: substitute_sigils(type.result, sigils),
+      };
+    case "range":
+      return { ...type, element: substitute_sigils(type.element, sigils) };
+    case "primitive":
+    case "void":
+    case "any":
+    case "none":
+    case "nullptr":
+      return type;
+  }
+}
+
+// La expresión final del cuerpo, para que el checker pueda anotar su tipo
+// (por ejemplo, un literal de tupla que debe emitirse como `std::pair`).
+function last_expression(body: Block): ExprNode | undefined {
+  const last = body.statements[body.statements.length - 1];
+  return last !== undefined && last.kind === "expr_stmt" ? last.expr : undefined;
 }
 
 function check_method(ctx: CheckContext, method: MethodDecl, self_type: PenguType): void {
@@ -352,13 +411,16 @@ function check_method(ctx: CheckContext, method: MethodDecl, self_type: PenguTyp
       check_params(ctx, method.params);
       return infer_block(ctx, method.body);
     });
+    if (ctx.current_return !== undefined) {
+      annotate_literal(ctx, ctx.current_return, last_expression(method.body));
+    }
     if (
       ctx.current_return !== undefined &&
       ctx.current_return.kind !== "void" &&
       !is_any(body) &&
       !type_equals(body, ctx.current_return)
     ) {
-      check_initialization(ctx, ctx.current_return, body, method.body.span, `en el retorno de «${method.name}»`);
+      check_initialization(ctx, ctx.current_return, body, method.body.span, `en el retorno de «${method.name}»`, last_expression(method.body));
     }
   } finally {
     ctx.self_type = previous_self;

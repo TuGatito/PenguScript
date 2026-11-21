@@ -1,0 +1,31 @@
+realm array
+
+enchanting array<T>
+  is_empty = -> bool
+    #@== 0
+
+  first = -> T?
+    if #@== 0 then none else @[0]
+
+  last = -> T?
+    if #@== 0 then none else @[#@-1]
+
+  index_of = (buscado: T) -> size_t?
+    mut i: size_t = 0
+    mut encontrado: size_t? = none
+    while i < #@
+      if @[i] == buscado
+        encontrado = i
+        break
+      i += 1
+    encontrado
+
+  contains = (buscado: T) -> bool
+    mut i: size_t = 0
+    mut esta = false
+    while i < #@
+      if @[i] == buscado
+        esta = true
+        break
+      i += 1
+    esta

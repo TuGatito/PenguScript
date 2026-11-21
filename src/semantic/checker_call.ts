@@ -24,6 +24,7 @@ import { declare, lookup } from "./scopes.ts";
 import type { CheckContext } from "./checker_context.ts";
 import { with_scope } from "./checker_context.ts";
 import { symbol_type_of } from "./external.ts";
+import { has_enchanted_method, resolve_enchanted_call } from "./checker_enchants.ts";
 import {
   add_borrow,
   ensure_not_iterating,
@@ -97,6 +98,14 @@ import { infer_primitive_conversion, is_conversion_target, is_display, ORDERING_
 
 
 export function infer_call(ctx: CheckContext, node: CallNode): PenguType {
+  // Métodos declarados con `enchanting` sobre tipos incorporados: el
+  // receptor no lleva realm, así que la sobrecarga se elige aquí.
+  if (node.callee.kind === "member" && has_enchanted_method(ctx, node.callee.name)) {
+    const object = infer_expr(ctx, node.callee.object);
+    const enchanted = resolve_enchanted_call(ctx, node, object, node.callee.name);
+    if (enchanted !== undefined) return enchanted;
+  }
+
   // `ref(x)` es una construcción del lenguaje, no una función.
   // `ref<T>(x)` es el upcast explícito: solo se permite hacia un
   // ancestro de la rune de `x`.

@@ -1,0 +1,5 @@
+realm ordering
+
+enchanting Ordering
+  then = (otro: Ordering) -> Ordering
+    if @== Ordering::Equal then otro else @

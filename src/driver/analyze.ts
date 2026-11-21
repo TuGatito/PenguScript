@@ -10,6 +10,7 @@ import type { ProgramUnit } from "../codegen/cpp_module.ts";
 import type { ModuleInfo } from "../semantic/module_info.ts";
 import type { ExprNode } from "../frontend/ast_expr.ts";
 import type { PenguType } from "../semantic/types.ts";
+import type { MethodTarget } from "../semantic/type_env.ts";
 import type { ModuleGraph } from "../project/module_graph.ts";
 
 export interface Analysis {
@@ -25,6 +26,7 @@ export function analyze_graph(source_path: string, sink: DiagnosticSink): Analys
   const units: ProgramUnit[] = [];
   for (const loaded of graph.order) {
     const types = new Map<ExprNode, PenguType>();
+    const member_targets = new Map<ExprNode, MethodTarget>();
     const external_modules = new Map<string, ModuleInfo>();
     const external_realms = new Map<string, string>();
     for (const [alias, imported] of loaded.imports) {
@@ -42,7 +44,7 @@ export function analyze_graph(source_path: string, sink: DiagnosticSink): Analys
         for (const [name, methods] of entry.methods) {
           const list = existing.methods.get(name);
           if (list === undefined) existing.methods.set(name, [...methods]);
-          else for (const method of methods) if (!list.some((other) => same_method_signature(other.info, method.info))) list.push(method);
+          else for (const method of methods) if (!list.some((other) => other.realm === method.realm && same_method_signature(other.info, method.info))) list.push(method);
         }
       }
     }
@@ -56,11 +58,12 @@ export function analyze_graph(source_path: string, sink: DiagnosticSink): Analys
     const module = loaded.info;
     check_loaded_module(module, loaded.program, sink, {
       types,
+      member_targets,
       external: { modules: external_modules, selective, enchants },
     });
     const selective_realms = new Map<string, string>();
     for (const [name, symbol] of loaded.selective) selective_realms.set(name, symbol.module.info.realm);
-    units.push({ program: loaded.program, module, types, external_realms, selective_realms });
+    units.push({ program: loaded.program, module, types, member_targets, external_realms, selective_realms });
   }
 
   const entry_module = graph.entry?.info ?? units[units.length - 1]?.module;

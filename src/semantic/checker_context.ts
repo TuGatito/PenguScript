@@ -9,7 +9,7 @@ import { CODES } from "../diagnostics/codes.ts";
 import { error as make_error } from "../diagnostics/diagnostic.ts";
 import type { Span } from "../util/span.ts";
 import type { ModuleInfo } from "./module_info.ts";
-import type { TypeEnv } from "./type_env.ts";
+import type { MethodTarget, TypeEnv } from "./type_env.ts";
 import { is_heir_of } from "./type_env.ts";
 import type { Scope } from "./scopes.ts";
 import { make_scope } from "./scopes.ts";
@@ -49,6 +49,8 @@ export interface CheckContext {
   self_assign: boolean;
   // Mapa opcional expresión → tipo, que usa el generador de código.
   types: Map<ExprNode, PenguType> | undefined;
+  // Métodos enhechizados ya resueltos: nodo del miembro → función libre.
+  member_targets: Map<ExprNode, MethodTarget> | undefined;
   // Módulos importados con `invoke`, resueltos por el cargador.
   external: ExternalImports | undefined;
   // Préstamos activos y profundidad de ámbitos.
@@ -77,6 +79,7 @@ export function make_context(
     self_mutable: false,
     self_assign: false,
     types: undefined,
+    member_targets: undefined,
     external: undefined,
     borrows: [],
     scope_depth: 0,
@@ -290,6 +293,45 @@ export function is_generic_type(_ctx: CheckContext, type: PenguType): boolean {
   return type.kind === "named" && type.generic === true;
 }
 
+// ¿El tipo menciona algún sigilo? Un `vector<T>` dentro de una función
+// genérica no se puede comprobar todavía, pero sí se puede anotar para que
+// el codegen emita el literal con el tipo correcto.
+export function contains_generic(type: PenguType): boolean {
+  switch (type.kind) {
+    case "named":
+      if (type.generic === true) return true;
+      return type.args.some(contains_generic);
+    case "optional":
+    case "ref":
+    case "raw":
+    case "unique":
+    case "shared":
+    case "weak":
+      return contains_generic(type.inner);
+    case "array":
+      return contains_generic(type.element);
+    case "range":
+      return contains_generic(type.element);
+    case "tuple":
+      return type.items.some(contains_generic);
+    case "function":
+      return type.params.some(contains_generic) || contains_generic(type.result);
+    default:
+      return false;
+  }
+}
+
+const LITERAL_KINDS: ReadonlySet<string> = new Set(["vector_lit", "map_lit", "set_lit", "tuple"]);
+
+// Anota un literal con el tipo esperado cuando ese tipo menciona sigilos:
+// no se puede comprobar, pero el codegen necesita saber qué emitir.
+export function annotate_literal(ctx: CheckContext, expected: PenguType, value: ExprNode | undefined): void {
+  if (value === undefined) return;
+  if (!contains_generic(expected)) return;
+  if (!LITERAL_KINDS.has(value.kind)) return;
+  ctx.types?.set(value, expected);
+}
+
 export function check_initialization(
   ctx: CheckContext,
   expected: PenguType,
@@ -300,6 +342,10 @@ export function check_initialization(
 ): void {
   if (is_any(expected) || is_any(actual)) return;
   if (is_generic_type(ctx, expected) || is_generic_type(ctx, actual)) return;
+  if (contains_generic(expected) && value !== undefined && LITERAL_KINDS.has(value.kind)) {
+    ctx.types?.set(value, expected);
+    return;
+  }
   if (compound_fits(ctx, expected, value, actual)) return;
   if (can_assign(expected, actual, ctx.module.env)) return;
   if (literal_fits(expected, actual, value)) return;
@@ -329,6 +375,10 @@ function compound_fits(
     (expected.name === "pair" || expected.name === "tuple") &&
     value.kind === "tuple"
   ) {
+    if (contains_generic(expected)) {
+      ctx.types?.set(value, expected);
+      return true;
+    }
     if (!can_assign(expected, actual, ctx.module.env)) return false;
     ctx.types?.set(value, expected);
     return true;

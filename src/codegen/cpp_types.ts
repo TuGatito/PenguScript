@@ -92,10 +92,26 @@ export type TypeRealms = ReadonlyMap<string, string>;
 // con macros (`assert`): se emiten con sufijo `_rt`.
 const RESERVED_REALMS: ReadonlySet<string> = new Set(["time", "random", "assert"]);
 
+// Palabras clave de C++ que también son nombres válidos de realm en
+// PenguScript: un `namespace int` no compila.
+const CXX_KEYWORDS: ReadonlySet<string> = new Set([
+  "alignas", "alignof", "and", "asm", "auto", "bool", "break", "case", "catch",
+  "char", "class", "const", "consteval", "constexpr", "constinit", "const_cast",
+  "continue", "co_await", "co_return", "co_yield", "decltype", "default", "delete",
+  "do", "double", "dynamic_cast", "else", "enum", "explicit", "export", "extern",
+  "false", "float", "for", "friend", "goto", "if", "inline", "int", "long",
+  "mutable", "namespace", "new", "noexcept", "not", "nullptr", "operator", "or",
+  "private", "protected", "public", "register", "reinterpret_cast", "requires",
+  "return", "short", "signed", "sizeof", "static", "static_assert", "static_cast",
+  "struct", "switch", "template", "this", "thread_local", "throw", "true", "try",
+  "typedef", "typeid", "typename", "union", "unsigned", "using", "virtual", "void",
+  "volatile", "wchar_t", "while", "xor",
+]);
+
 export function sanitize_namespace(name: string): string {
   if (name.length === 0) return "realm";
   if (name === "main") return "main_realm";
-  if (RESERVED_REALMS.has(name)) return `${name}_rt`;
+  if (RESERVED_REALMS.has(name) || CXX_KEYWORDS.has(name)) return `${name}_rt`;
   let out = "";
   for (const char of name) {
     out += /[A-Za-z0-9_]/.test(char) ? char : "_";
@@ -181,7 +197,10 @@ export function cpp_param_type(type: PenguType, mutable: boolean, realms?: TypeR
   return cpp_type(type, realms);
 }
 
+// Un identificador de PenguScript puede llamarse `union` o `template`; en
+// C++ eso no compila, así que se escapa con un sufijo.
 export function cpp_identifier(name: string): string {
   if (name.startsWith("_")) return "p" + name;
+  if (CXX_KEYWORDS.has(name)) return `${name}_`;
   return name;
 }

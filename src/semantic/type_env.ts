@@ -99,6 +99,12 @@ export interface EnchantedMethod {
   readonly realm: string;
 }
 
+/** Destino codegen de una llamada enhechizada: `realm::nombre`. */
+export interface MethodTarget {
+  readonly realm: string;
+  readonly name: string;
+}
+
 /** Métodos declarados sobre un tipo incorporado, por aridad. */
 export interface EnchantedType {
   readonly base: string;

@@ -1,0 +1,46 @@
+-- Bibliotecas de colecciones de la biblioteca estándar.
+--
+-- Cada módulo de `std` se importa de forma explícita: sus métodos se
+-- añaden a un tipo incorporado con `enchanting`.
+
+invoke "std/io"
+invoke "std/string"
+invoke "std/vector"
+invoke "std/map"
+invoke "std/set"
+invoke "std/optional"
+invoke "std/int"
+invoke "std/double"
+
+resumen = (titulo: string, valores: vector<int>) -> string
+  "|#{titulo}| = #{valores.join(", ")}"
+
+main = ->
+  mut notas = [7, 9, 4, 8]
+  notas.sort()
+  io::println(resumen("notas", notas))
+  io::println("primera: #{notas.first().or_else(0)}")
+  io::println("¿hay un 9? #{notas.contains(9)}")
+  notas.reverse()
+  io::println(resumen("al revés", notas))
+
+  texto = "  PenguScript, el lenguaje de los pingüinos  "
+  limpio = texto.trim()
+  io::println("texto: #{limpio}")
+  io::println("mayúsculas: #{limpio.to_upper()}")
+  io::println("¿empieza por Pengu? #{limpio.starts_with("Pengu")}")
+  io::println("palabras: #{#limpio.split(" ")}")
+
+  precios = {"pan": 2, "leche": 3, "café": 5}
+  io::println("productos: #{#precios}")
+  io::println("¿hay café? #{precios.contains_key("café")}")
+
+  mut vocales = set{"a", "e"}
+  otras = set{"e", "i", "o"}
+  vocales = vocales.union(ref(otras))
+  io::println("vocales: #{vocales.to_vector().join("")}")
+
+  numero = -12
+  io::println("abs: #{numero.abs()}, par: #{numero.is_even()}, signo: #{numero.sign()}")
+  mitad = 7.to_double().max(2.5)
+  io::println("mitad: #{mitad}")

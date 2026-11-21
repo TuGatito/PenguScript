@@ -26,7 +26,7 @@ import { UNKNOWN, VOID, any_type, function_type, generic_type, named, type_displ
 import type { AliasInfo, FieldInfo, MethodInfo, OmenInfo, RuneInfo, TypeEnv } from "./type_env.ts";
 import { make_type_env, resolve_type_node } from "./type_env.ts";
 import type { EnchantedType } from "./type_env.ts";
-import { enchant_key, enchant_target_of, enchant_target_names } from "./enchant_targets.ts";
+import { enchant_key, enchant_target_of, enchant_target_names, type_pattern_arity } from "./enchant_targets.ts";
 import { suggest_name } from "../util/suggest.ts";
 
 export interface ParamInfo {
@@ -344,7 +344,7 @@ function register_builtin_enchanting(
     return;
   }
 
-  const arity = decl.sigils.length;
+  const arity = type_pattern_arity(decl.target_type);
   if (!target.arities.includes(arity)) {
     const expected = target.arities.map(String).join(" o ");
     sink.add(

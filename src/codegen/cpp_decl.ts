@@ -16,6 +16,7 @@ import type {
   SealDecl,
 } from "../frontend/ast_decl.ts";
 import type { ParamNode } from "../frontend/ast_param.ts";
+import type { TypeNode } from "../frontend/ast_type.ts";
 import type { Block } from "../frontend/ast_stmt.ts";
 import type { GenContext } from "./cpp_context.ts";
 import { declare_local, line, pop_scope, push_scope } from "./cpp_context.ts";
@@ -25,6 +26,7 @@ import { emit_expr } from "./cpp_expr.ts";
 import { generic_type, named } from "../semantic/types.ts";
 import type { TypeDecl } from "./cpp_type_order.ts";
 import { heir_names, is_type_decl, order_type_decls } from "./cpp_type_order.ts";
+import { enchant_target_of, type_pattern_type } from "../semantic/enchant_targets.ts";
 
 
 // Los sigilos deben estar activos mientras se emite una declaración
@@ -87,7 +89,9 @@ export function emit_declarations(g: GenContext, decls: readonly DeclNode[]): vo
       case "omen_decl":
       case "echo_decl":
       case "seal_decl":
+        break;
       case "enchanting_decl":
+        if (enchant_target_of(decl.target) !== undefined) emit_builtin_enchanting(g, decl);
         break;
       case "const_decl":
         break;
@@ -258,12 +262,82 @@ function referenced_names(node: unknown): readonly string[] {
   return found;
 }
 
+// En una función genérica, un parámetro con tipo de función no se puede
+// deducir contra `std::function<...>`: el parámetro se vuelve una plantilla
+// más y acepta tanto funciones como lambdas.
+// Sigilos que menciona un nodo de tipo (`<T>(x: T)` → {T}).
+function sigils_in_node(node: TypeNode): ReadonlySet<string> {
+  const found = new Set<string>();
+  const visit = (child: TypeNode): void => {
+    switch (child.kind) {
+      case "named_type":
+        if (child.args.length === 0) {
+          if (/^[A-Z][A-Z0-9]?$/.test(child.name)) found.add(child.name);
+          return;
+        }
+        for (const arg of child.args) visit(arg);
+        return;
+      case "tuple_type":
+        for (const item of child.items) visit(item);
+        return;
+      case "array_type":
+        visit(child.element);
+        return;
+      case "optional_type":
+      case "ref_type":
+        visit(child.inner);
+        return;
+      case "function_type":
+        for (const param of child.params) visit(param);
+        if (child.result !== undefined) visit(child.result);
+        return;
+      case "primitive_type":
+        return;
+    }
+  };
+  visit(node);
+  return found;
+}
+
+function union_of(sets: readonly ReadonlySet<string>[]): ReadonlySet<string> {
+  const all = new Set<string>();
+  for (const set of sets) for (const name of set) all.add(name);
+  return all;
+}
+
+function generic_param_overrides(
+  g: GenContext,
+  decl: FunctionDecl,
+): { readonly template_params: readonly string[]; readonly rendered: readonly string[] } {
+  const template_params: string[] = [];
+  // Un sigilo ya deducible desde un parámetro anterior no hace falta
+  // deducirlo otra vez: se marca como no deducido para permitir conversiones
+  // (por ejemplo `or_else(optional<size_t>, 0)`). El tipo de resultado no
+  // participa en la deducción, así que no cuenta aquí.
+  const seen = new Set<string>();
+  const rendered = decl.params.map((param, index) => {
+    if (param.type?.kind === "function_type") {
+      const name = `F${index}`;
+      template_params.push(name);
+      return `const ${name}& ${cpp_identifier(param.name)}`;
+    }
+    const own = param.type ? sigils_in_node(param.type) : new Set<string>();
+    const deducible = own.size > 0 && [...own].every((sigil) => seen.has(sigil));
+    for (const sigil of own) seen.add(sigil);
+    return emit_param(g, param, deducible);
+  });
+  return { template_params, rendered };
+}
+
 function emit_function(g: GenContext, decl: FunctionDecl): void {
-  if (decl.sigils.length > 0) {
-    line(g, `template <${decl.sigils.map((sigil) => `typename ${sigil}`).join(", ")}>`);
+  const generic = decl.sigils.length > 0;
+  const overrides = generic ? generic_param_overrides(g, decl) : undefined;
+  if (generic) {
+    const names = [...decl.sigils, ...(overrides?.template_params ?? [])];
+    line(g, `template <${names.map((sigil) => `typename ${sigil}`).join(", ")}>`);
   }
   const result = decl.result ? cpp_type_node(decl.result, g.module.env, g.type_realms) : "void";
-  const params = decl.params.map((param) => emit_param(g, param)).join(", ");
+  const params = (overrides?.rendered ?? decl.params.map((param) => emit_param(g, param))).join(", ");
   const name = decl.operator === undefined ? cpp_identifier(decl.name) : operator_name(decl.operator);
   line(g, `${result} ${name}(${params}) {`);
   g.indent += 1;
@@ -278,6 +352,54 @@ function emit_function(g: GenContext, decl: FunctionDecl): void {
 // Los omens y los `echo` no tienen métodos en C++ (son `enum class` y
 // alias): sus bloques `enchanting` se emiten como funciones libres y
 // las llamadas `valor.m(...)` se reescriben a `m(valor, ...)`.
+// `enchanting` sobre un tipo incorporado: se emite como funciones libres
+// dentro del realm que las declara, con el receptor como primer parámetro.
+function emit_builtin_enchanting(g: GenContext, decl: EnchantingDecl): void {
+  if (decl.methods.length === 0) return;
+  const self_type = type_pattern_type(decl.target_type);
+  // `enchanting array<T>` omite el tamaño: el receptor real es
+  // `std::array<T, N>` y el tamaño entra como parámetro de plantilla.
+  const is_array = decl.target === "array";
+  const self = is_array ? `std::array<${decl.sigils[0] ?? "T"}, N>` : cpp_type(self_type, g.type_realms);
+  const previous = g.self_expression;
+  with_sigils(g, decl.sigils, () => {
+    for (const method of decl.methods) {
+      const overrides = decl.sigils.length > 0
+        ? {
+            template_params: [] as string[],
+            rendered: method.params.map((param) => {
+              const own = param.type ? sigils_in_node(param.type) : new Set<string>();
+              return emit_param(g, param, own.size > 0);
+            }),
+          }
+        : undefined;
+      const extra = overrides?.template_params ?? [];
+      if (is_array) {
+        line(g, `template <typename ${decl.sigils[0] ?? "T"}, std::size_t N${extra.map((name) => `, typename ${name}`).join("")}>`);
+      } else if (decl.sigils.length > 0) {
+        const names = [...decl.sigils, ...extra];
+        line(g, `template <${names.map((sigil) => `typename ${sigil}`).join(", ")}>`);
+      }
+      const result = method.result ? cpp_type_node(method.result, g.module.env, g.type_realms) : "void";
+      const params = (overrides?.rendered ?? method.params.map((param) => emit_param(g, param))).join(", ");
+      const separator = params.length > 0 ? ", " : "";
+      const receiver = method.mutable ? `${self}& self` : `const ${self}& self`;
+      const name = method.operator ? operator_name(method.operator) : cpp_identifier(method.name);
+      line(g, `${result} ${name}(${receiver}${separator}${params}) {`);
+      g.indent += 1;
+      push_scope(g);
+      declare_local(g, "self");
+      for (const param of method.params) declare_local(g, param.name);
+      g.self_expression = "self";
+      emit_value_block(g, method.body, result);
+      g.self_expression = previous;
+      pop_scope(g);
+      g.indent -= 1;
+      line(g, "}");
+    }
+  });
+}
+
 function emit_free_methods(
   g: GenContext,
   target: string,
@@ -308,8 +430,9 @@ function emit_free_methods(
   }
 }
 
-function emit_param(g: GenContext, param: ParamNode): string {
-  const base = param.type ? cpp_type_node(param.type, g.module.env, g.type_realms) : "auto";
+function emit_param(g: GenContext, param: ParamNode, wrap = false): string {
+  const raw = param.type ? cpp_type_node(param.type, g.module.env, g.type_realms) : "auto";
+  const base = wrap && raw !== "auto" ? `std::type_identity_t<${raw}>` : raw;
   const name = cpp_identifier(param.name);
   if (param.variadic) {
     const element = base === "auto" ? "::pengu::Value" : base;

@@ -1,0 +1,64 @@
+realm vector
+
+enchanting vector<T>
+  is_empty = -> bool
+    #@== 0
+
+  first = -> T?
+    if #@== 0 then none else @[0]
+
+  last = -> T?
+    if #@== 0 then none else @[#@-1]
+
+  index_of = (buscado: T) -> size_t?
+    mut i: size_t = 0
+    mut encontrado: size_t? = none
+    while i < #@
+      if @[i] == buscado
+        encontrado = i
+        break
+      i += 1
+    encontrado
+
+  contains = (buscado: T) -> bool
+    mut i: size_t = 0
+    mut esta = false
+    while i < #@
+      if @[i] == buscado
+        esta = true
+        break
+      i += 1
+    esta
+
+  join = (separador: string) -> string
+    mut salida = ""
+    mut i: size_t = 0
+    while i < #@
+      if i > 0
+        salida += separador
+      salida += "#{@[i]}"
+      i += 1
+    salida
+
+  mut reverse = -> void
+    if #@== 0
+      return
+    mut i: size_t = 0
+    mut j: size_t = #@-1
+    while i < j
+      temporal = @[i]
+      @[i] = @[j]
+      @[j] = temporal
+      i += 1
+      j -= 1
+
+  mut sort = -> void
+    mut i = 1
+    while i < #@
+      mut j: size_t = i
+      while j > 0 and @[j - 1] > @[j]
+        temporal = @[j]
+        @[j] = @[j - 1]
+        @[j - 1] = temporal
+        j -= 1
+      i += 1

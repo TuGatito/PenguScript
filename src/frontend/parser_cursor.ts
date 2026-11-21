@@ -9,6 +9,7 @@ import type { Diagnostic } from "../diagnostics/diagnostic.ts";
 import { error as make_error } from "../diagnostics/diagnostic.ts";
 import { CODES } from "../diagnostics/codes.ts";
 import type { Token, TokenKind } from "./token.ts";
+import { is_keyword } from "./token.ts";
 import type { Span } from "../util/span.ts";
 
 export interface Cursor {
@@ -205,4 +206,14 @@ export function rewind(c: Cursor, saved: { index: number; diagnostics: number; a
 
 export function save(c: Cursor): { index: number; diagnostics: number; angle_debt: number } {
   return { index: c.index, diagnostics: c.diagnostics.length, angle_debt: c.angle_debt };
+}
+
+// Tras «.» o en un nombre de método, una palabra clave también vale como
+// nombre: `xs.repeat(2)` o `repeat = ...` dentro de un `enchanting` no
+// son ambiguos en esas posiciones.
+export function expect_name(c: Cursor, context: string): Token | undefined {
+  const token = peek(c);
+  if (token.kind === "ident" || is_keyword(token.text)) return advance(c);
+  push_error(c, CODES.expected_token, `se esperaba un identificador ${context}, se encontró «${describe(c, token)}»`, token.span);
+  return undefined;
 }

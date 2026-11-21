@@ -6,7 +6,10 @@
 // `reference` si el receptor se pasa por referencia en C++ (los tipos
 // por valor no admiten métodos `mut`).
 
+import type { TypeNode } from "../frontend/ast_type.ts";
 import { PRIMITIVE_TYPES, STRING_TYPES, is_primitive_type } from "../frontend/ast_type.ts";
+import type { PenguType } from "./types.ts";
+import { UNKNOWN, named, optional, primitive, ref_to, tuple_type } from "./types.ts";
 
 export interface EnchantTarget {
   /** Aridades (número de sigilos) que acepta el bloque. */
@@ -54,4 +57,83 @@ export function is_value_target(base: string): boolean {
 export function enchant_target_names(): readonly string[] {
   const primitives = [...PRIMITIVE_TYPES].filter((name) => name !== "void" && name !== "nullptr_t");
   return [...CONTAINERS.keys(), ...primitives, ...STRING_TYPES, "Ordering"];
+}
+
+/** Nombre base de un patrón de `enchanting` (`vector<T>` → `vector`). */
+export function type_pattern_base(node: TypeNode): string {
+  if (node.kind === "primitive_type") return node.name;
+  if (node.kind === "named_type") return node.name;
+  // El parser convierte estas formas en tipos anónimos.
+  if (node.kind === "tuple_type") return "tuple";
+  if (node.kind === "array_type") return "array";
+  if (node.kind === "optional_type") return "optional";
+  if (node.kind === "ref_type") return "ref";
+  return "__error__";
+}
+
+// Un argumento de tipo es sigilo si es un nombre corto en mayúsculas
+// (`T`, `K`, `V`, `E`); los tipos concretos son minúsculas o PascalCase.
+function is_sigil_name(name: string): boolean {
+  return /^[A-Z][A-Z0-9]?$/.test(name);
+}
+
+/** Sigilos declarados por el patrón, en orden (`map<K, V>` → `[K, V]`). */
+export function type_pattern_sigils(node: TypeNode): readonly string[] {
+  const sigils: string[] = [];
+  const visit = (child: TypeNode): void => {
+    switch (child.kind) {
+      case "named_type":
+        if (child.args.length === 0) {
+          if (is_sigil_name(child.name)) sigils.push(child.name);
+          return;
+        }
+        for (const arg of child.args) visit(arg);
+        return;
+      case "tuple_type":
+        for (const item of child.items) visit(item);
+        return;
+      case "array_type":
+        visit(child.element);
+        return;
+      case "optional_type":
+      case "ref_type":
+        visit(child.inner);
+        return;
+      case "primitive_type":
+      case "function_type":
+        return;
+    }
+  };
+  visit(node);
+  return sigils;
+}
+
+/** Número de argumentos de tipo del patrón (`map<K, V>` → 2). */
+export function type_pattern_arity(node: TypeNode): number {
+  if (node.kind === "named_type") return node.args.length;
+  if (node.kind === "tuple_type") return node.items.length;
+  if (node.kind === "array_type" || node.kind === "optional_type" || node.kind === "ref_type") return 1;
+  return 0;
+}
+
+/** Tipo del receptor de un patrón, con los sigilos sin resolver. */
+export function type_pattern_type(node: TypeNode): PenguType {
+  switch (node.kind) {
+    case "primitive_type":
+      return node.name === "void" ? UNKNOWN : primitive(node.name);
+    case "named_type":
+      // `string` y familia se resuelven como primitivos en el checker.
+      if (STRING_TYPES.has(node.name) && node.args.length === 0) return primitive(node.name);
+      return named(node.name, node.args.map(type_pattern_type));
+    case "optional_type":
+      return optional(type_pattern_type(node.inner));
+    case "ref_type":
+      return ref_to(type_pattern_type(node.inner), node.mutable);
+    case "array_type":
+      return named("array", [type_pattern_type(node.element)]);
+    case "tuple_type":
+      return tuple_type(node.items.map(type_pattern_type));
+    default:
+      return UNKNOWN;
+  }
 }

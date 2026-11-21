@@ -7,6 +7,7 @@
 import type { Cursor } from "./parser_cursor.ts";
 import {
   advance,
+  expect_name,
   at,
   eat,
   expect,
@@ -152,7 +153,7 @@ function parse_postfix(c: Cursor): ExprNode {
   for (;;) {
     if (at(c, ".")) {
       advance(c);
-      const name = expect_ident(c, "tras «.»");
+      const name = expect_name(c, "tras «.»");
       if (!name) break;
       expr = {
         kind: "member",

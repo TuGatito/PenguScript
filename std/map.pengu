@@ -1,0 +1,20 @@
+realm map
+
+enchanting map<K, V>
+  is_empty = -> bool
+    #@== 0
+
+  contains_key = (clave: K) -> bool
+    clave in @
+
+  keys_list = -> vector<K>
+    mut salida: vector<K> = []
+    for clave, _ in @
+      salida.push(clave)
+    salida
+
+  values_list = -> vector<V>
+    mut salida: vector<V> = []
+    for _, valor in @
+      salida.push(valor)
+    salida
