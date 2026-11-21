@@ -101,6 +101,7 @@ export function cpp_type(type: PenguType, realms?: TypeRealms): string {
     case "primitive":
       return PRIMITIVES[type.name] ?? type.name;
     case "named": {
+      if (type.name === "Ordering" && type.args.length === 0) return "::pengu::Ordering";
       const realm = realms?.get(type.name);
       const base = CONTAINERS[type.name] ?? (realm !== undefined ? `${sanitize_namespace(realm)}::${type.name}` : type.name);
       if (type.args.length === 0) return base;

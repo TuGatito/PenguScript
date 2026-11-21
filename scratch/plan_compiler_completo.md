@@ -604,6 +604,7 @@ constante, `needs` no cumplido, `[]` vacío sin tipo, `switch` no exhaustivo.
 
 | Fecha | Fase | Cambios | Pruebas |
 |---|---|---|---|
+| 2026-11-21 | F2 | Modelo numérico portable (`INTEGER_SHAPES`, `numeric_join`, promoción al entero mayor, sin mezclas de signo del mismo ancho); `is_safe_cast` con matriz completa (enteros por ancho/signo, float, seal, omen subyacente); `T::try_from`/`T::from` para primitivos con comprobación de rango en runtime; métodos `.sqrt()/.abs()/.is_nan()`; `Ordering` con `<=>` (`::pengu::compare`) y variantes `Less/Equal/Greater`; `function<Sig>` ahora se analiza (lookahead de `<`); operadores de usuario recuperados para `+`/`-`/etc. | 119/119 (13 archivos) |
 | 2026-11-21 | F1 | BOM ignorado por el lexer; `check_initialization` con `can_assign` real (enteros por ancho y signo, float→double, `none`/`nullptr` restringidos, literales que caben, tupla→`pair`/`tuple`); `static mut` arreglado; `then` + bloque; aridad mínima con defaults (`FunctionType.required`); aviso E0701 en `switch` sin `else` sobre omen unitario; Display obligatorio en interpolaciones (E0512); sugerencias de nombre (E0403/E0208) y arreglo para E0101. | 106/106 (12 archivos) |
 
 ---

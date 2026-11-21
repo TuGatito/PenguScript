@@ -40,14 +40,19 @@ import {
   UNKNOWN,
   VOID,
   any_type,
+  float_rank,
   function_type,
+  integer_shape,
   is_any,
   is_float,
   is_integer,
+  is_name,
   is_numeric,
   is_string,
   join_types,
   named,
+  numeric_join,
+  primitive,
   optional,
   ref_to,
   tuple_type,
@@ -56,10 +61,12 @@ import {
   types_equal,
 } from "./types.ts";
 import type { PenguType } from "./types.ts";
+import { is_primitive_type } from "../frontend/ast_type.ts";
 import type { OmenVariantInfo } from "./type_env.ts";
 import { builtin_function, is_builtin_module } from "./builtin_modules.ts";
 import { shared_type, unique_type, weak_type } from "./types.ts";
 import { resolve_type_node } from "./type_env.ts";
+import type { TypeEnv } from "./type_env.ts";
 import type { OmenInfo } from "./type_env.ts";
 import {
   builtin_index_result,
@@ -342,6 +349,26 @@ function infer_path(ctx: CheckContext, segments: readonly string[], span: Span):
     return any_type(`módulo std::${first}`);
   }
 
+  if (first === "Ordering" && second !== undefined) {
+    if (ORDERING_VARIANTS.has(second)) return named("Ordering");
+    report_error(
+      ctx,
+      CODES.unknown_identifier,
+      `«Ordering» no tiene la variante «${second}» (usa Less, Equal o Greater)`,
+      span,
+    );
+    return UNKNOWN;
+  }
+
+  if (
+    segments.length === 2 &&
+    second !== undefined &&
+    (second === "try_from" || second === "from") &&
+    is_conversion_target(first)
+  ) {
+    return any_type(`conversión ${first}::${second}`);
+  }
+
   if (segments.length === 2 && second !== undefined) {
     const omen = ctx.module.env.omens.get(first);
     if (omen !== undefined) {
@@ -518,6 +545,19 @@ function infer_call(ctx: CheckContext, node: CallNode): PenguType {
           return named(first);
         }
       }
+    }
+  }
+
+  // Conversión explícita de un primitivo: `int::try_from(x)`.
+  if (node.callee.kind === "path" && node.callee.segments.length === 2) {
+    const target_name = node.callee.segments[0];
+    const operation = node.callee.segments[1];
+    if (
+      target_name !== undefined &&
+      (operation === "try_from" || operation === "from") &&
+      is_conversion_target(target_name)
+    ) {
+      return infer_primitive_conversion(ctx, target_name, operation, node.args, node.span);
     }
   }
 
@@ -738,30 +778,42 @@ function infer_binary(
     case "==":
     case "!=":
       return BOOL;
+    case "<=>":
+      return ordering_result(ctx, left, right, span);
     case "<":
     case ">":
     case "<=":
     case ">=":
       if (is_numeric(left) && is_numeric(right)) return BOOL;
       if (is_string(left) && is_string(right)) return BOOL;
+      if (left.kind === "named") {
+        const methods = ctx.module.env.runes.get(left.name)?.methods;
+        if (methods?.has("<=>") === true || methods?.has("operator <=>") === true) return BOOL;
+      }
       report_error(ctx, CODES.type_mismatch, `«${operator}» no compara «${type_display(left)}» con «${type_display(right)}»`, span);
       return BOOL;
     case "+":
       if (is_string(left) && is_string(right)) return STRING;
-      if (is_numeric(left) && is_numeric(right)) return join_types(left, right) ?? left;
+      if (is_numeric(left) && is_numeric(right)) return arithmetic_result(ctx, operator, left, right, span);
       break;
     case "-":
     case "*":
     case "/":
     case "%":
-      if (is_numeric(left) && is_numeric(right)) return join_types(left, right) ?? left;
+      if (is_numeric(left) && is_numeric(right)) return arithmetic_result(ctx, operator, left, right, span);
       break;
     case "&":
     case "|":
     case "^":
     case "<<":
     case ">>":
-      if (is_integer(left) && is_integer(right)) return left;
+      if (is_integer(left) && is_integer(right)) {
+        if (is_name(left, "bool") || is_name(right, "bool")) {
+          report_error(ctx, CODES.type_mismatch, `«${operator}» no está definido sobre «bool»`, span);
+          return UNKNOWN;
+        }
+        return left;
+      }
       break;
     case "in": {
       if (is_string(left) && is_string(right)) return BOOL;
@@ -794,13 +846,67 @@ function infer_binary(
   return UNKNOWN;
 }
 
+// Resultado de una operación aritmética, con el modelo numérico del
+// lenguaje (promoción al entero mayor, float domina, sin mezclas de
+// signo del mismo ancho).
+function arithmetic_result(
+  ctx: CheckContext,
+  operator: string,
+  left: PenguType,
+  right: PenguType,
+  span: Span,
+): PenguType {
+  if (!is_numeric(left) || !is_numeric(right)) {
+    report_error(
+      ctx,
+      CODES.type_mismatch,
+      `«${operator}» no está definido para «${type_display(left)}» y «${type_display(right)}»`,
+      span,
+    );
+    return UNKNOWN;
+  }
+  if (operator === "%" && (is_float(left) || is_float(right))) {
+    report_error(ctx, CODES.type_mismatch, "«%» solo admite enteros", span);
+    return UNKNOWN;
+  }
+  const joined = numeric_join(left, right);
+  if (joined === undefined) {
+    report_error(
+      ctx,
+      CODES.type_mismatch,
+      `«${type_display(left)}» y «${type_display(right)}» tienen el mismo ancho y signo distinto; conviértelos con «as»`,
+      span,
+    );
+    return left;
+  }
+  return joined;
+}
+
+function ordering_result(ctx: CheckContext, left: PenguType, right: PenguType, span: Span): PenguType {
+  if ((is_numeric(left) && is_numeric(right)) || (is_string(left) && is_string(right))) {
+    return named("Ordering");
+  }
+  if (left.kind === "named") {
+    const methods = ctx.module.env.runes.get(left.name)?.methods;
+    const method = methods?.get("<=>") ?? methods?.get("operator <=>");
+    if (method !== undefined) return method.result;
+  }
+  report_error(
+    ctx,
+    CODES.type_mismatch,
+    `«<=>» no compara «${type_display(left)}» con «${type_display(right)}»`,
+    span,
+  );
+  return UNKNOWN;
+}
+
 function infer_cast(ctx: CheckContext, node: Extract<ExprNode, { kind: "cast" }>): PenguType {
   const source = infer_expr(ctx, node.value);
   const target = resolve_type_node(node.type, ctx.module.env, ctx.sink);
 
   if (is_any(source) || is_any(target)) return target;
 
-  const safe = is_safe_cast(source, target);
+  const safe = is_safe_cast(source, target, ctx.module.env);
   if (!safe) {
     if (ctx.unsafe_depth === 0) {
       report_error(
@@ -814,38 +920,38 @@ function infer_cast(ctx: CheckContext, node: Extract<ExprNode, { kind: "cast" }>
   return target;
 }
 
-export function is_safe_cast(source: PenguType, target: PenguType): boolean {
+// Reglas de `as` seguro según el cheatsheet: solo se permite lo que
+// nunca pierde información. Todo lo demás exige `unsafe`.
+export function is_safe_cast(source: PenguType, target: PenguType, env?: TypeEnv): boolean {
   if (type_equals(source, target)) return true;
   if (source.kind === "any" || target.kind === "any") return true;
 
-  if (is_integer(source) && is_integer(target)) {
-    return integer_width(target) >= integer_width(source) && !is_signed(target);
+  const source_int = integer_shape(source);
+  const target_int = integer_shape(target);
+  if (source_int !== undefined && target_int !== undefined) {
+    if (source_int.signed === target_int.signed) return target_int.bits >= source_int.bits;
+    return target_int.signed && target_int.bits > source_int.bits;
   }
-  if (is_integer(source) && is_float(target)) return true;
-  if (is_float(source) && is_float(target)) return true;
 
-  // Desenvolver un seal es seguro.
-  if (source.kind === "named" && target.kind === "primitive") return true;
+  const source_float = float_rank(source);
+  const target_float = float_rank(target);
+  if (source_int !== undefined && target_float !== undefined) return true;
+  if (source_float !== undefined && target_float !== undefined) return target_float >= source_float;
 
-  // Omen → tipo subyacente exacto.
-  if (source.kind === "named" && target.kind === "primitive") return true;
+  if (env !== undefined && source.kind === "named" && target.kind === "primitive") {
+    // Desenvolver un seal es seguro: es su tipo subyacente.
+    const alias = env.aliases.get(source.name);
+    if (alias !== undefined && alias.seal) return type_equals(target, alias.target);
+
+    // Un omen solo se convierte a su tipo subyacente exacto.
+    const omen = env.omens.get(source.name);
+    if (omen !== undefined) {
+      const underlying = omen.underlying ?? INT;
+      return type_equals(target, underlying);
+    }
+  }
 
   return false;
-}
-
-function integer_width(type: PenguType): number {
-  if (type.kind !== "primitive") return 64;
-  const name = type.name;
-  if (name.includes("8")) return 8;
-  if (name.includes("16")) return 16;
-  if (name.includes("32")) return 32;
-  if (name === "char" || name === "byte") return 8;
-  if (name === "short") return 16;
-  return 64;
-}
-
-function is_signed(type: PenguType): boolean {
-  return !(type.kind === "primitive" && type.name.startsWith("u"));
 }
 
 function infer_if(ctx: CheckContext, node: Extract<ExprNode, { kind: "if" }>): PenguType {
@@ -1205,6 +1311,7 @@ export function is_display(ctx: CheckContext, type: PenguType): boolean {
         // algebraicos no sabrían qué variante mostrar.
         return [...omen.variants.values()].every((variant) => variant.payload.length === 0);
       }
+      if (type.name === "Ordering") return true;
       const alias = ctx.module.env.aliases.get(type.name);
       if (alias !== undefined) return is_display(ctx, alias.target);
       return false;
@@ -1220,3 +1327,49 @@ export function is_display(ctx: CheckContext, type: PenguType): boolean {
 }
 
 const CONTAINER_TYPES: ReadonlySet<string> = new Set(["vector", "set", "map", "deque", "list", "span"]);
+
+const ORDERING_VARIANTS: ReadonlySet<string> = new Set(["Less", "Equal", "Greater"]);
+
+// Tipos a los que se les puede pedir `T::try_from(x)` / `T::from(x)`.
+export function is_conversion_target(name: string): boolean {
+  return is_primitive_type(name) && name !== "void" && name !== "nullptr_t";
+}
+
+function infer_primitive_conversion(
+  ctx: CheckContext,
+  target_name: string,
+  operation: "try_from" | "from",
+  args: readonly ArgNode[],
+  span: Span,
+): PenguType {
+  const target = primitive(target_name);
+  const result = operation === "try_from" ? optional(target) : target;
+  const context = `${target_name}::${operation}`;
+
+  if (args.length !== 1) {
+    report_error(
+      ctx,
+      CODES.wrong_arity,
+      `«${context}» espera 1 argumento, recibió ${args.length}`,
+      span,
+    );
+    return result;
+  }
+  const arg = args[0];
+  if (arg === undefined) return result;
+  const source = infer_expr(ctx, arg.expr);
+  if (is_any(source)) return result;
+
+  const numeric =
+    is_numeric(source) && is_numeric(target) && !is_name(source, "bool") && !is_name(target, "bool");
+  const from_text = is_string(source) && is_numeric(target);
+  if (!numeric && !from_text) {
+    report_error(
+      ctx,
+      CODES.type_mismatch,
+      `«${context}» no convierte «${type_display(source)}»`,
+      span,
+    );
+  }
+  return result;
+}

@@ -19,6 +19,8 @@ import {
 
 export const ANY_UNUSED = any_type("método incorporado");
 
+const FLOATING_METHODS: ReadonlySet<string> = new Set(["float", "double", "long double"]);
+
 const container_names = new Set([
   "vector",
   "deque",
@@ -78,6 +80,17 @@ export function map_key_value(type: PenguType): { key: PenguType; value: PenguTy
 
 export function member_of_builtin(type: PenguType, name: string): PenguType | undefined {
   if (type.kind === "any") return any_type("miembro desconocido");
+
+  if (type.kind === "primitive" && FLOATING_METHODS.has(type.name)) {
+    switch (name) {
+      case "sqrt":
+      case "abs":
+        return function_type([], type);
+      case "is_nan":
+        return function_type([], BOOL);
+    }
+    return undefined;
+  }
 
   if (type.kind === "optional") {
     if (name === "value") return function_type([], type.inner);

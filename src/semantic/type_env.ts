@@ -178,6 +178,9 @@ export function resolve_named_type(
     return named(name, args);
   }
 
+  // `Ordering` es el resultado de `<=>` y lo aporta el runtime.
+  if (name === "Ordering" && args.length === 0) return named("Ordering");
+
   sink.add(make_error(CODES.unknown_type, `no existe el tipo «${name}»`, span));
   return UNKNOWN;
 }

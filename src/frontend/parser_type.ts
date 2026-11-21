@@ -82,7 +82,7 @@ function parse_type_base(c: Cursor): TypeNode {
     advance(c);
     return parse_ref_type(c, false, token.span);
   }
-  if (name === "optional" && at(c, "<")) {
+  if (name === "optional" && peek(c, 1).kind === "<") {
     advance(c);
     const inner = parse_type_arguments_single(c, "optional");
     return {
@@ -91,13 +91,13 @@ function parse_type_base(c: Cursor): TypeNode {
       span: merge_span(token.span, inner.span),
     };
   }
-  if (name === "function" && at(c, "<")) {
+  if (name === "function" && peek(c, 1).kind === "<") {
     return parse_function_type(c);
   }
-  if (name === "tuple" && at(c, "<")) {
+  if (name === "tuple" && peek(c, 1).kind === "<") {
     return parse_tuple_type(c);
   }
-  if (name === "array" && at(c, "<")) {
+  if (name === "array" && peek(c, 1).kind === "<") {
     return parse_array_type(c);
   }
 

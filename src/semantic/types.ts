@@ -229,6 +229,86 @@ export function is_numeric(type: PenguType): boolean {
   return is_integer(type) || is_float(type);
 }
 
+// Anchos del modelo portable del lenguaje. `long` y los tipos de
+// tamaño fijo son de 64 bits en LP64 (lo que asume el proyecto).
+export interface IntegerShape {
+  readonly bits: number;
+  readonly signed: boolean;
+}
+
+export const INTEGER_SHAPES: Readonly<Record<string, IntegerShape>> = {
+  bool: { bits: 8, signed: false },
+  char: { bits: 8, signed: true },
+  "signed char": { bits: 8, signed: true },
+  "unsigned char": { bits: 8, signed: false },
+  byte: { bits: 8, signed: false },
+  short: { bits: 16, signed: true },
+  "unsigned short": { bits: 16, signed: false },
+  int: { bits: 32, signed: true },
+  "unsigned int": { bits: 32, signed: false },
+  long: { bits: 64, signed: true },
+  "unsigned long": { bits: 64, signed: false },
+  "long long": { bits: 64, signed: true },
+  "unsigned long long": { bits: 64, signed: false },
+  int8_t: { bits: 8, signed: true },
+  uint8_t: { bits: 8, signed: false },
+  int16_t: { bits: 16, signed: true },
+  uint16_t: { bits: 16, signed: false },
+  int32_t: { bits: 32, signed: true },
+  uint32_t: { bits: 32, signed: false },
+  int64_t: { bits: 64, signed: true },
+  uint64_t: { bits: 64, signed: false },
+  size_t: { bits: 64, signed: false },
+  ptrdiff_t: { bits: 64, signed: true },
+  intptr_t: { bits: 64, signed: true },
+  uintptr_t: { bits: 64, signed: false },
+  wchar_t: { bits: 32, signed: true },
+};
+
+export const FLOAT_RANKS: Readonly<Record<string, number>> = {
+  float: 1,
+  double: 2,
+  "long double": 3,
+};
+
+export function integer_shape(type: PenguType): IntegerShape | undefined {
+  if (type.kind !== "primitive") return undefined;
+  return INTEGER_SHAPES[type.name];
+}
+
+export function float_rank(type: PenguType): number | undefined {
+  if (type.kind !== "primitive") return undefined;
+  return FLOAT_RANKS[type.name];
+}
+
+// Nombre del tipo entero que C++ produciría tras la promoción.
+function promoted_integer_name(bits: number, signed: boolean): string {
+  if (bits <= 16) return "int";
+  if (bits === 32) return signed ? "int" : "unsigned int";
+  return signed ? "long" : "unsigned long";
+}
+
+// Tipo resultado de una operación aritmética. `undefined` cuando hay
+// que convertir de forma explícita (mismo ancho, signo distinto).
+export function numeric_join(a: PenguType, b: PenguType): PenguType | undefined {
+  const a_float = float_rank(a);
+  const b_float = float_rank(b);
+  if (a_float !== undefined || b_float !== undefined) {
+    const rank = Math.max(a_float ?? 0, b_float ?? 0);
+    const name = rank === 3 ? "long double" : rank === 2 ? "double" : "float";
+    return primitive(name);
+  }
+
+  const a_int = integer_shape(a);
+  const b_int = integer_shape(b);
+  if (a_int === undefined || b_int === undefined) return undefined;
+  if (a_int.bits === b_int.bits && a_int.signed !== b_int.signed) return undefined;
+
+  const bits = Math.max(a_int.bits, b_int.bits);
+  const signed = bits === a_int.bits ? a_int.signed : b_int.signed;
+  return primitive(promoted_integer_name(bits, signed));
+}
+
 export function is_name(type: PenguType, name: string): boolean {
   return type.kind === "primitive" && type.name === name;
 }
@@ -297,7 +377,7 @@ export function join_types(a: PenguType, b: PenguType): PenguType | undefined {
     return inner ? optional(inner) : undefined;
   }
   if (is_numeric(a) && is_numeric(b)) {
-    return is_float(a) || is_float(b) ? FLOAT : a;
+    return numeric_join(a, b);
   }
   return undefined;
 }

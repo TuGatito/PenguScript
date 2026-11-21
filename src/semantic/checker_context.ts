@@ -13,7 +13,15 @@ import type { Scope } from "./scopes.ts";
 import { make_scope } from "./scopes.ts";
 import type { PenguType } from "./types.ts";
 import type { ExprNode } from "../frontend/ast.ts";
-import { type_display, type_equals, is_any, UNKNOWN } from "./types.ts";
+import {
+  type_display,
+  type_equals,
+  is_any,
+  integer_shape,
+  float_rank,
+  UNKNOWN,
+} from "./types.ts";
+import type { IntegerShape } from "./types.ts";
 import type { ExternalImports } from "./external.ts";
 
 export interface CheckContext {
@@ -118,57 +126,7 @@ export function expect_bool(ctx: CheckContext, type: PenguType, span: Span, cont
 // unsigned → signed más ancho, entero → coma flotante y float → double.
 // Cualquier otra cosa exige `as` (y, si es estrecha, `unsafe`).
 
-interface IntShape {
-  readonly bits: number;
-  readonly signed: boolean;
-}
-
-// Modelo LP64: long y los tipos de tamaño fijo son de 64 bits.
-const INT_SHAPES: Readonly<Record<string, IntShape>> = {
-  char: { bits: 8, signed: true },
-  "signed char": { bits: 8, signed: true },
-  "unsigned char": { bits: 8, signed: false },
-  short: { bits: 16, signed: true },
-  "unsigned short": { bits: 16, signed: false },
-  int: { bits: 32, signed: true },
-  "unsigned int": { bits: 32, signed: false },
-  long: { bits: 64, signed: true },
-  "unsigned long": { bits: 64, signed: false },
-  "long long": { bits: 64, signed: true },
-  "unsigned long long": { bits: 64, signed: false },
-  int8_t: { bits: 8, signed: true },
-  uint8_t: { bits: 8, signed: false },
-  int16_t: { bits: 16, signed: true },
-  uint16_t: { bits: 16, signed: false },
-  int32_t: { bits: 32, signed: true },
-  uint32_t: { bits: 32, signed: false },
-  int64_t: { bits: 64, signed: true },
-  uint64_t: { bits: 64, signed: false },
-  size_t: { bits: 64, signed: false },
-  ptrdiff_t: { bits: 64, signed: true },
-  intptr_t: { bits: 64, signed: true },
-  uintptr_t: { bits: 64, signed: false },
-  byte: { bits: 8, signed: false },
-  wchar_t: { bits: 32, signed: true },
-};
-
-const FLOAT_RANK: Readonly<Record<string, number>> = {
-  float: 1,
-  double: 2,
-  "long double": 3,
-};
-
-function int_shape(type: PenguType): IntShape | undefined {
-  if (type.kind !== "primitive") return undefined;
-  return INT_SHAPES[type.name];
-}
-
-function float_rank(type: PenguType): number | undefined {
-  if (type.kind !== "primitive") return undefined;
-  return FLOAT_RANK[type.name];
-}
-
-function integer_assignable(target: IntShape, source: IntShape): boolean {
+function integer_assignable(target: IntegerShape, source: IntegerShape): boolean {
   if (target.signed === source.signed) return source.bits <= target.bits;
   return source.bits < target.bits;
 }
@@ -200,8 +158,8 @@ export function can_assign(target: PenguType, source: PenguType): boolean {
     );
   }
 
-  const target_int = int_shape(target);
-  const source_int = int_shape(source);
+  const target_int = integer_shape(target);
+  const source_int = integer_shape(source);
   if (target_int !== undefined && source_int !== undefined) {
     return integer_assignable(target_int, source_int);
   }
@@ -239,7 +197,7 @@ export function check_initialization(
 function literal_fits(expected: PenguType, actual: PenguType, value: ExprNode | undefined): boolean {
   if (value === undefined) return false;
   if (value.kind === "int_lit" && actual.kind === "primitive" && actual.name === "int") {
-    const shape = int_shape(expected);
+    const shape = integer_shape(expected);
     if (shape === undefined) return false;
     return literal_in_range(value.value, shape);
   }
@@ -249,7 +207,7 @@ function literal_fits(expected: PenguType, actual: PenguType, value: ExprNode | 
   return false;
 }
 
-function literal_in_range(text: string, shape: IntShape): boolean {
+function literal_in_range(text: string, shape: IntegerShape): boolean {
   let number: bigint;
   try {
     number = BigInt(text);

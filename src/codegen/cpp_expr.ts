@@ -29,6 +29,8 @@ import {
 import { cpp_identifier, cpp_type, cpp_type_node, cpp_value_type, sanitize_namespace } from "./cpp_types.ts";
 import { is_map_type, is_sequence_container } from "../semantic/builtin_members.ts";
 import type { PenguType } from "../semantic/types.ts";
+import { UNKNOWN, is_float, is_numeric, is_string, primitive } from "../semantic/types.ts";
+import { is_conversion_target } from "../semantic/checker_expr.ts";
 import { emit_block, emit_value_block } from "./cpp_stmt.ts";
 
 export function emit_expr(g: GenContext, node: ExprNode): string {
@@ -192,6 +194,17 @@ function emit_call(g: GenContext, node: CallNode): string {
     })
     .join(", ");
   const callee = node.callee;
+  if (callee.kind === "path" && callee.segments.length === 2) {
+    const target_name = callee.segments[0];
+    const operation = callee.segments[1];
+    if (
+      target_name !== undefined &&
+      (operation === "try_from" || operation === "from") &&
+      is_conversion_target(target_name)
+    ) {
+      return emit_conversion(g, target_name, operation, node);
+    }
+  }
   const type_args = node.type_args.map((arg) => cpp_type_node(arg, g.module.env, g.type_realms));
   if (callee.kind === "ident") {
     return emit_ident_call(g, callee.name, type_args, args, node);
@@ -315,6 +328,10 @@ function emit_path(g: GenContext, segments: readonly string[]): string {
   const constant = BUILTIN_CONSTANTS[segments.join("::")];
   if (constant !== undefined) return constant;
 
+  if (segments[0] === "Ordering" && segments.length === 2) {
+    return `::pengu::Ordering::${segments[1]}`;
+  }
+
   const first = segments[0];
   const realm = first !== undefined ? g.external_realms.get(first) : undefined;
   if (realm !== undefined) {
@@ -350,6 +367,32 @@ function emit_path_call(
   return `${joined}${sigils}(${args})`;
 }
 
+// `int::try_from(x)` se traduce a una comprobación en el runtime: el
+// resultado es `std::optional<T>` (`from` lo desenvuelve o aborta).
+function emit_conversion(
+  g: GenContext,
+  target_name: string,
+  operation: "try_from" | "from",
+  node: CallNode,
+): string {
+  const target = cpp_type(primitive(target_name), g.type_realms);
+  const arg = node.args[0];
+  const source = arg === undefined ? UNKNOWN : type_of(g, arg.expr);
+  const value = arg === undefined ? "" : emit_expr(g, arg.expr);
+  let conversion: string;
+  if (is_string(source)) {
+    conversion = `::pengu::try_parse<${target}>(${value})`;
+  } else if (is_float(source)) {
+    conversion = `::pengu::try_from_double<${target}>(static_cast<double>(${value}))`;
+  } else {
+    conversion = `::pengu::try_from_int<${target}>(static_cast<long long>(${value}))`;
+  }
+  if (operation === "from") {
+    return `::pengu::or_panic(${conversion}, "no se pudo convertir a ${target_name}")`;
+  }
+  return conversion;
+}
+
 function emit_member_call(g: GenContext, object: ExprNode, name: string, args: string): string {
   const rendered = emit_expr(g, object);
   const object_type = type_of(g, object);
@@ -359,6 +402,16 @@ function emit_member_call(g: GenContext, object: ExprNode, name: string, args: s
     const rune = g.module.env.runes.get(object_type.name);
     if (rune?.methods.has(name) === true) {
       return `${rendered}.${cpp_identifier(name)}(${args})`;
+    }
+  }
+  if (object_type.kind === "primitive" && (object_type.name === "float" || object_type.name === "double" || object_type.name === "long double")) {
+    switch (name) {
+      case "sqrt":
+        return `std::sqrt(${rendered})`;
+      case "abs":
+        return `std::abs(${rendered})`;
+      case "is_nan":
+        return `std::isnan(${rendered})`;
     }
   }
   switch (name) {
@@ -426,6 +479,13 @@ function emit_binary(g: GenContext, node: BinaryNode): string {
       return `(${left} || ${right})`;
     case "in":
       return `::pengu::contains(${right}, ${left})`;
+    case "<=>": {
+      const left_type = type_of(g, node.left);
+      if (is_numeric(left_type) || is_string(left_type)) {
+        return `::pengu::compare(${left}, ${right})`;
+      }
+      return `(${left} <=> ${right})`;
+    }
     default:
       return `(${left} ${node.op} ${right})`;
   }

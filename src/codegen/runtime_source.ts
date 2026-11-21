@@ -8,7 +8,10 @@ export const RUNTIME_HEADER = `// Runtime generado por pengu 0.1.0. No editar a 
 #pragma once
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
+#include <cmath>
+#include <limits>
 #include <cstddef>
 #include <cstdlib>
 #include <cstdint>
@@ -73,6 +76,28 @@ std::string to_string(T value) {
   std::ostringstream out;
   out << value;
   return out.str();
+}
+
+// Resultado de comparar dos valores con <=>.
+enum class Ordering { Less, Equal, Greater };
+
+inline std::string to_string(Ordering value) {
+  switch (value) {
+    case Ordering::Less:
+      return "less";
+    case Ordering::Equal:
+      return "equal";
+    case Ordering::Greater:
+      return "greater";
+  }
+  return "equal";
+}
+
+template <class A, class B>
+Ordering compare(const A& left, const B& right) {
+  if (left < right) return Ordering::Less;
+  if (right < left) return Ordering::Greater;
+  return Ordering::Equal;
 }
 
 template <class T>
@@ -413,6 +438,63 @@ E from(I value) {
 
 [[noreturn]] inline void panic(const std::string& message) {
   throw std::runtime_error(message);
+}
+
+// T::try_from(x): comprobación de rango en tiempo de ejecución.
+template <class T>
+std::optional<T> try_from_int(long long value) {
+  if constexpr (std::is_same_v<T, bool>) {
+    return value != 0;
+  } else if constexpr (std::is_integral_v<T>) {
+    const auto lowest = static_cast<long long>(std::numeric_limits<T>::lowest());
+    const auto highest = static_cast<long long>(std::numeric_limits<T>::max());
+    if (value < lowest || value > highest) return std::nullopt;
+    return static_cast<T>(value);
+  } else {
+    return static_cast<T>(value);
+  }
+}
+
+template <class T>
+std::optional<T> try_from_double(double value) {
+  if (std::isnan(value) || std::isinf(value)) return std::nullopt;
+  if constexpr (std::is_integral_v<T>) {
+    if (value < static_cast<double>(std::numeric_limits<T>::lowest())) return std::nullopt;
+    if (value > static_cast<double>(std::numeric_limits<T>::max())) return std::nullopt;
+    return static_cast<T>(value);
+  } else {
+    if (value < static_cast<double>(std::numeric_limits<T>::lowest())) return std::nullopt;
+    if (value > static_cast<double>(std::numeric_limits<T>::max())) return std::nullopt;
+    return static_cast<T>(value);
+  }
+}
+
+template <class T>
+std::optional<T> try_parse(const std::string& text) {
+  if (text.empty()) return std::nullopt;
+  if constexpr (std::is_integral_v<T>) {
+    T value{};
+    const char* first = text.data();
+    const char* last = first + text.size();
+    const auto result = std::from_chars(first, last, value);
+    if (result.ec != std::errc{} || result.ptr != last) return std::nullopt;
+    return value;
+  } else {
+    try {
+      std::size_t used = 0;
+      const double value = std::stod(text, &used);
+      if (used != text.size()) return std::nullopt;
+      return try_from_double<T>(value);
+    } catch (const std::exception&) {
+      return std::nullopt;
+    }
+  }
+}
+
+template <class T>
+T or_panic(std::optional<T> value, const std::string& message) {
+  if (!value.has_value()) panic(message);
+  return *value;
 }
 
 template <class F>
