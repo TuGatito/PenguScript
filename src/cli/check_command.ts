@@ -5,6 +5,10 @@
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { default_entry } from "./entry.ts";
+import { CODES } from "../diagnostics/codes.ts";
+import { error as make_error } from "../diagnostics/diagnostic.ts";
+import { make_source as source_of, span_from } from "../util/span.ts";
 import { analyze_graph } from "../driver/analyze.ts";
 import { make_sink } from "../diagnostics/sink.ts";
 import { render_diagnostics } from "../diagnostics/render.ts";
@@ -21,7 +25,7 @@ export function run_check(
   positionals: readonly string[],
   flags: Readonly<Record<string, string | true>>,
 ): CheckCommandResult {
-  const files = positionals.length > 0 ? positionals : ["main.pengu"];
+  const files = positionals.length > 0 ? positionals : [default_entry(positionals)];
   const messages: string[] = [];
   const sources = new Map<string, Source>();
   const diagnostics: Diagnostic[] = [];
@@ -33,7 +37,11 @@ export function run_check(
     try {
       text = readFileSync(absolute, "utf8");
     } catch {
-      messages.push(`error: no se pudo leer «${file}»`);
+      const source = source_of(absolute, "");
+      diagnostics.push(
+        make_error(CODES.file_not_found, `no existe el archivo «${file}»`, span_from(source, 0, 0)),
+      );
+      messages.push(`error: no existe el archivo «${file}»`);
       failed = true;
       continue;
     }

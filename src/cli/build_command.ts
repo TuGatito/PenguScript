@@ -7,6 +7,7 @@ import { render_diagnostics } from "../diagnostics/render.ts";
 import { make_source } from "../util/span.ts";
 import { readFileSync } from "node:fs";
 import { flag_string, type ParsedArgs } from "./args.ts";
+import { default_entry } from "./entry.ts";
 
 export interface CommandResult {
   readonly exit_code: number;
@@ -14,7 +15,7 @@ export interface CommandResult {
 }
 
 export function run_build(args: ParsedArgs): CommandResult {
-  const file = args.positionals[0] ?? "main.pengu";
+  const file = default_entry(args.positionals);
   const out = flag_string(args, "out");
   const compiler = flag_string(args, "compiler");
   const link = flag_string(args, "link");

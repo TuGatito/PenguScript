@@ -59,7 +59,8 @@ function main(argv: readonly string[]): number {
   switch (args.command) {
     case "check": {
       const result = run_check(args.positionals, args.flags);
-      if (result.exit_code === 0) print(result.output);
+      // `--json` siempre va a stdout: es la salida para máquinas.
+      if (result.exit_code === 0 || args.flags.json === true) print(result.output);
       else print_error(result.output);
       return result.exit_code;
     }

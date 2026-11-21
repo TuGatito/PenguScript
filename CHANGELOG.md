@@ -114,6 +114,9 @@ técnica conocida en el compilador.
 - **Diagnósticos**: conversiones numéricas portables y `T::try_from`/`T::from`,
   `Ordering` con `<=>`, mensajes con sugerencia de nombre y arreglo para la
   indentación, y `Display` obligatorio en interpolaciones y variádicas `any`.
+- **CLI**: `pengu run`, `build` y `check` sin argumentos usan el `entry` del
+  `pengu.toml` del proyecto; `check --json` escribe siempre en stdout y un
+  archivo ausente aparece como E0005 en el propio JSON.
 - **Herramientas**: `pengu check --json`, `docs/errors.md` con el catálogo de
   códigos y banco de conformidad en `tests/conformance/`.
 
