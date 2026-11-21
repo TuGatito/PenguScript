@@ -23,7 +23,12 @@ export function symbol_type_of(module: ModuleInfo, name: string): PenguType | un
   if (constant !== undefined) return constant.type;
 
   const fn = module.functions.get(name);
-  if (fn !== undefined) return function_type(fn.params.map((param) => param.type), fn.result);
+  if (fn !== undefined) return function_type(
+    fn.params.map((param) => param.type),
+    fn.result,
+    false,
+    fn.params.filter((param) => !param.has_default).length,
+  );
 
   const rune = module.env.runes.get(name);
   if (rune !== undefined) return named(name);

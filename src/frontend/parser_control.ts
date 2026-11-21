@@ -37,13 +37,18 @@ import { parse_pattern } from "./parser_pattern.ts";
 import type { TypeNode } from "./ast_type.ts";
 import { parse_type } from "./parser_type.ts";
 
+// Tras `then` cabe una expresión en la misma línea o un bloque
+// indentado; las dos formas producen un `Block`.
+function then_body(c: Cursor, context: string): Block {
+  if (at(c, "newline") || at(c, "indent")) return parse_block(c, context);
+  return block_of_expr(parse_expression(c));
+}
+
 export function parse_if(c: Cursor, unless: boolean): IfNode {
   const start = advance(c);
   const condition = parse_expression(c);
 
-  const then_block = eat(c, "then")
-    ? block_of_expr(parse_expression(c))
-    : parse_block(c, "del if");
+  const then_block = eat(c, "then") ? then_body(c, "del then") : parse_block(c, "del if");
 
   let else_block: Block | undefined;
   if (at(c, "else")) {
@@ -81,7 +86,7 @@ export function parse_switch(c: Cursor): SwitchNode {
         const patterns = [parse_expression(c)];
         while (eat(c, ",")) patterns.push(parse_expression(c));
         const body = eat(c, "then")
-          ? block_of_expr(parse_expression(c))
+          ? then_body(c, "del when")
           : parse_block(c, "del when");
         arms.push({ patterns, body, span: merge_span(when_token.span, body.span) });
       } else if (at(c, "else")) {
@@ -121,7 +126,7 @@ export function parse_match(c: Cursor): MatchNode {
         const pattern = parse_pattern(c);
         const guard = eat(c, "if") ? parse_expression(c) : undefined;
         const body = eat(c, "then")
-          ? block_of_expr(parse_expression(c))
+          ? then_body(c, "del when")
           : parse_block(c, "del when");
         arms.push({ pattern, guard, body, span: merge_span(when_token.span, body.span) });
       } else {

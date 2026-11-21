@@ -16,13 +16,15 @@ import type {
   SwitchArm,
 } from "../frontend/ast.ts";
 import { CODES } from "../diagnostics/codes.ts";
-import { error as make_error } from "../diagnostics/diagnostic.ts";
+import { error as make_error, warning as make_warning } from "../diagnostics/diagnostic.ts";
 import type { Span } from "../util/span.ts";
+import { suggest_name } from "../util/suggest.ts";
 import { declare, lookup } from "./scopes.ts";
 import type { CheckContext } from "./checker_context.ts";
 import { symbol_type_of } from "./external.ts";
 import {
   can_assign,
+  check_initialization,
   expect_bool,
   report_type_mismatch,
 } from "./checker_context.ts";
@@ -108,9 +110,22 @@ function infer_expr_impl(ctx: CheckContext, node: ExprNode): PenguType {
     case "char_lit":
       return CHAR;
     case "string_lit":
-      // Las interpolaciones `#{...}` también deben analizarse.
+      // Las interpolaciones `#{...}` también deben analizarse y su
+      // valor tiene que implementar `Display`.
       for (const part of node.parts) {
-        if (part.kind === "expr_part") infer_expr(ctx, part.expr);
+        if (part.kind !== "expr_part") continue;
+        const part_type = infer_expr(ctx, part.expr);
+        if (!is_display(ctx, part_type)) {
+          report_error(
+            ctx,
+            CODES.not_display,
+            `«${type_display(part_type)}» no se puede interpolar: no implementa «Display»`,
+            part.expr.span,
+            ctx.module.env.runes.has(type_display(part_type))
+              ? [`añade «enchanting ${type_display(part_type)}» con «to_string = -> string»`]
+              : [],
+          );
+        }
       }
       return STRING;
     case "none_lit":
@@ -164,12 +179,12 @@ function infer_expr_impl(ctx: CheckContext, node: ExprNode): PenguType {
       return tuple_type(node.items.map((item) => infer_expr(ctx, item)));
     case "vector_lit": {
       const element = node.items.length > 0 ? infer_expr(ctx, node.items[0] as ExprNode) : UNKNOWN;
-      for (const item of node.items) report_type_mismatch(ctx, element, infer_expr(ctx, item), item.span, "en el vector");
+      for (const item of node.items) check_initialization(ctx, element, infer_expr(ctx, item), item.span, "en el vector", item);
       return named("vector", [element]);
     }
     case "set_lit": {
       const element = node.items.length > 0 ? infer_expr(ctx, node.items[0] as ExprNode) : UNKNOWN;
-      for (const item of node.items) report_type_mismatch(ctx, element, infer_expr(ctx, item), item.span, "en el conjunto");
+      for (const item of node.items) check_initialization(ctx, element, infer_expr(ctx, item), item.span, "en el conjunto", item);
       return named("set", [element]);
     }
     case "map_lit": {
@@ -178,8 +193,8 @@ function infer_expr_impl(ctx: CheckContext, node: ExprNode): PenguType {
       const key = infer_expr(ctx, first.key);
       const value = infer_expr(ctx, first.value);
       for (const entry of node.entries) {
-        report_type_mismatch(ctx, key, infer_expr(ctx, entry.key), entry.key.span, "en la clave del mapa");
-        report_type_mismatch(ctx, value, infer_expr(ctx, entry.value), entry.value.span, "en el valor del mapa");
+        check_initialization(ctx, key, infer_expr(ctx, entry.key), entry.key.span, "en la clave del mapa", entry.key);
+        check_initialization(ctx, value, infer_expr(ctx, entry.value), entry.value.span, "en el valor del mapa", entry.value);
       }
       return named("map", [key, value]);
     }
@@ -241,8 +256,9 @@ function report_error(
   code: string,
   message: string,
   span: Span,
+  notes: readonly string[] = [],
 ): void {
-  ctx.sink.add(make_error(code, message, span));
+  ctx.sink.add(make_error(code, message, span, ...notes));
 }
 
 function infer_ident(ctx: CheckContext, name: string, span: Span): PenguType {
@@ -262,6 +278,8 @@ function infer_ident(ctx: CheckContext, name: string, span: Span): PenguType {
     return function_type(
       fn.params.map((param) => param.type),
       fn.result,
+      false,
+      fn.params.filter((param) => !param.has_default).length,
     );
   }
 
@@ -276,8 +294,26 @@ function infer_ident(ctx: CheckContext, name: string, span: Span): PenguType {
     if (type !== undefined) return type;
   }
 
-  report_error(ctx, CODES.unknown_identifier, `no existe «${name}» en este ámbito`, span);
+  const suggestion = suggest_name(name, known_names(ctx));
+  const hint = suggestion === undefined ? "" : `; ¿quisiste decir «${suggestion}»?`;
+  report_error(ctx, CODES.unknown_identifier, `no existe «${name}» en este ámbito${hint}`, span);
   return UNKNOWN;
+}
+
+// Nombres visibles en el ámbito: se usan para sugerir alternativas.
+function known_names(ctx: CheckContext): string[] {
+  const names: string[] = [];
+  let scope: typeof ctx.scope | undefined = ctx.scope;
+  while (scope !== undefined) {
+    names.push(...scope.vars.keys());
+    scope = scope.parent;
+  }
+  names.push(...ctx.module.functions.keys());
+  names.push(...ctx.module.consts.keys());
+  names.push(...ctx.module.env.runes.keys());
+  names.push(...ctx.module.env.omens.keys());
+  names.push(...ctx.module.env.aliases.keys());
+  return names;
 }
 
 function infer_path(ctx: CheckContext, segments: readonly string[], span: Span): PenguType {
@@ -339,7 +375,12 @@ function infer_path(ctx: CheckContext, segments: readonly string[], span: Span):
     if (constant !== undefined) return constant.type;
     const fn = ctx.module.functions.get(rest);
     if (fn !== undefined) {
-      return function_type(fn.params.map((param) => param.type), fn.result);
+      return function_type(
+        fn.params.map((param) => param.type),
+        fn.result,
+        false,
+        fn.params.filter((param) => !param.has_default).length,
+      );
     }
     return any_type(`símbolo ${rest}`);
   }
@@ -353,7 +394,9 @@ function infer_path(ctx: CheckContext, segments: readonly string[], span: Span):
     return named(first);
   }
 
-  report_error(ctx, CODES.unknown_identifier, `no se reconoce «${segments.join("::")}»`, span);
+  const suggestion = suggest_name(segments.join("::"), known_names(ctx));
+  const hint = suggestion === undefined ? "" : `; ¿quisiste decir «${suggestion}»?`;
+  report_error(ctx, CODES.unknown_identifier, `no se reconoce «${segments.join("::")}»${hint}`, span);
   return UNKNOWN;
 }
 
@@ -488,6 +531,7 @@ function infer_call(ctx: CheckContext, node: CallNode): PenguType {
       node.span,
       describe_callee(node.callee),
       callee_type.variadic,
+      callee_type.required,
     );
     return callee_type.result;
   }
@@ -575,12 +619,18 @@ function check_arguments(
   span: Span,
   name: string,
   variadic = false,
+  required = params.length,
 ): void {
-  if (variadic ? params.length > args.length : params.length !== args.length) {
+  if (args.length < required || (!variadic && args.length > params.length)) {
+    const expected = variadic
+      ? `al menos ${required}`
+      : required === params.length
+        ? `${params.length}`
+        : `entre ${required} y ${params.length}`;
     report_error(
       ctx,
       CODES.wrong_arity,
-      `«${name}» espera ${params.length} argumento(s), recibió ${args.length}`,
+      `«${name}» espera ${expected} argumento(s), recibió ${args.length}`,
       span,
     );
   }
@@ -826,11 +876,22 @@ function infer_switch(ctx: CheckContext, node: Extract<ExprNode, { kind: "switch
   const subject = infer_expr(ctx, node.subject);
   let result: PenguType | undefined;
   const arms = node.arms as readonly SwitchArm[];
+  const omen = subject.kind === "named" ? ctx.module.env.omens.get(subject.name) : undefined;
+  const covered = new Set<string>();
+
   for (const arm of arms) {
     for (const pattern of arm.patterns) {
-      const type = infer_expr(ctx, pattern);
+      // `when Rojo` nombra una variante directamente, sin `Color::`.
+      const bare_variant =
+        pattern.kind === "ident" && omen?.variants.has(pattern.name) ? pattern.name : undefined;
+      const type = bare_variant !== undefined ? subject : infer_expr(ctx, pattern);
+      if (pattern.kind === "path") {
+        covered.add(pattern.segments[pattern.segments.length - 1] ?? "");
+      } else if (bare_variant !== undefined) {
+        covered.add(bare_variant);
+      }
       if (!can_assign(subject, type) && !type_equals(subject, type)) {
-        report_type_mismatch(ctx, subject, type, pattern.span, "en un «when» del switch");
+        check_initialization(ctx, subject, type, pattern.span, "en un «when» del switch", pattern);
       }
     }
     const body = infer_block(ctx, arm.body);
@@ -841,6 +902,22 @@ function infer_switch(ctx: CheckContext, node: Extract<ExprNode, { kind: "switch
     const else_type = infer_block(ctx, node.else_block);
     result = result === undefined ? else_type : join_types(result, else_type) ?? any_type("ramas");
     return result;
+  }
+
+  // Un `switch` sin `else` sobre un omen de variantes unitarias avisa
+  // si deja variantes sin cubrir (un `match` sería más seguro).
+  if (omen !== undefined && !omen.is_flags) {
+    const unit_like = [...omen.variants.values()].every((variant) => variant.payload.length === 0);
+    const missing = [...omen.variants.keys()].filter((name) => !covered.has(name));
+    if (unit_like && missing.length > 0) {
+      ctx.sink.add(
+        make_warning(
+          CODES.omen_not_exhaustive,
+          `el «switch» no cubre ${missing.map((name) => `«${name}»`).join(", ")}; añade esas variantes o un «else»`,
+          node.span,
+        ),
+      );
+    }
   }
 
   if (result === undefined) return VOID;
@@ -1081,11 +1158,12 @@ function infer_lambda(ctx: CheckContext, node: LambdaNode): PenguType {
       return infer_block(ctx, node.body);
     });
 
+    const required = node.params.filter((param) => param.default_value === undefined).length;
     const result = declared_result ?? body;
-    if (declared_result !== undefined && !type_equals(declared_result, body)) {
-      report_type_mismatch(ctx, declared_result, body, node.span, "como valor de retorno de la lambda");
+    if (declared_result !== undefined) {
+      check_initialization(ctx, declared_result, body, node.span, "como valor de retorno de la lambda");
     }
-    return function_type(params, result);
+    return function_type(params, result, false, required);
   } finally {
     ctx.current_return = previous_return;
   }
@@ -1094,3 +1172,51 @@ function infer_lambda(ctx: CheckContext, node: LambdaNode): PenguType {
 // Reexportado para que el checker de declaraciones use el mismo
 // criterio al comprobar cuerpos.
 export { is_any, types_equal };
+
+// ¿El tipo puede aparecer dentro de una interpolación `"#{...}"`?
+// Los tipos nativos y los contenedores de tipos Display lo son; un
+// `rune` necesita declarar `to_string` en un bloque `enchanting`.
+export function is_display(ctx: CheckContext, type: PenguType): boolean {
+  switch (type.kind) {
+    case "any":
+    case "primitive":
+    case "none":
+    case "nullptr":
+      return true;
+    case "optional":
+      return is_display(ctx, type.inner);
+    case "ref":
+      return is_display(ctx, type.inner);
+    case "tuple":
+      return type.items.every((item) => is_display(ctx, item));
+    case "array":
+      return is_display(ctx, type.element);
+    case "range":
+      return is_display(ctx, type.element);
+    case "named": {
+      if (CONTAINER_TYPES.has(type.name)) {
+        return type.args.every((arg) => is_display(ctx, arg));
+      }
+      const rune = ctx.module.env.runes.get(type.name);
+      if (rune !== undefined) return rune.methods.has("to_string");
+      const omen = ctx.module.env.omens.get(type.name);
+      if (omen !== undefined) {
+        // Los omens unitarios y de flags se imprimen como número; los
+        // algebraicos no sabrían qué variante mostrar.
+        return [...omen.variants.values()].every((variant) => variant.payload.length === 0);
+      }
+      const alias = ctx.module.env.aliases.get(type.name);
+      if (alias !== undefined) return is_display(ctx, alias.target);
+      return false;
+    }
+    case "function":
+    case "raw":
+    case "unique":
+    case "shared":
+    case "weak":
+    case "void":
+      return false;
+  }
+}
+
+const CONTAINER_TYPES: ReadonlySet<string> = new Set(["vector", "set", "map", "deque", "list", "span"]);

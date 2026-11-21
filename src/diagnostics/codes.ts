@@ -50,6 +50,7 @@ export const CODES = {
   invalid_cast: "E0509",
   missing_return: "E0510",
   unreachable_code: "E0511",
+  not_display: "E0512",
 
   use_after_move: "E0601",
   exclusive_borrow: "E0602",

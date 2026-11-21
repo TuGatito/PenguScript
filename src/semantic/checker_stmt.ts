@@ -10,7 +10,7 @@ import { CODES } from "../diagnostics/codes.ts";
 import { error as make_error } from "../diagnostics/diagnostic.ts";
 import type { Span } from "../util/span.ts";
 import type { CheckContext } from "./checker_context.ts";
-import { can_assign, report_type_mismatch } from "./checker_context.ts";
+import { can_assign, check_initialization, report_type_mismatch } from "./checker_context.ts";
 import { declare, lookup } from "./scopes.ts";
 import { infer_expr, mark_moved } from "./checker_expr.ts";
 import {
@@ -37,7 +37,7 @@ export function check_statement(ctx: CheckContext, statement: StmtNode): PenguTy
         ? value
         : resolve_type_node(statement.declared_type, ctx.module.env, ctx.sink);
       if (statement.declared_type !== undefined) {
-        report_type_mismatch(ctx, type, value, statement.value.span, "en la constante");
+        check_initialization(ctx, type, value, statement.value.span, "en la constante", statement.value);
       }
       if (declare(ctx.scope, statement.name, type, {
         mutable: false,
@@ -91,7 +91,7 @@ function check_assign(ctx: CheckContext, node: AssignStmtNode): PenguType {
   // `x: T = v` declara la variable además de asignarla.
   if (node.declared_type !== undefined && node.targets.length === 1) {
     const declared = resolve_type_node(node.declared_type, ctx.module.env, ctx.sink);
-    report_type_mismatch(ctx, declared, value, node.value.span, "en la inicialización");
+    check_initialization(ctx, declared, value, node.value.span, "en la inicialización", node.value);
     const target = node.targets[0];
     if (target !== undefined && target.kind === "ident") {
       if (declare(ctx.scope, target.name, declared, {
@@ -184,9 +184,7 @@ function assign_target(
         );
         return;
       }
-      if (!can_assign(variable.type, value)) {
-        report_type_mismatch(ctx, variable.type, value, node.value.span, `al asignar a «${target.name}»`);
-      }
+      check_initialization(ctx, variable.type, value, node.value.span, `al asignar a «${target.name}»`, node.value);
       return;
     }
     case "member": {
@@ -204,14 +202,10 @@ function assign_target(
           );
           return;
         }
-        if (!can_assign(field.type, value)) {
-          report_type_mismatch(ctx, field.type, value, node.value.span, `al asignar a «${target.name}»`);
-        }
+        check_initialization(ctx, field.type, value, node.value.span, `al asignar a «${target.name}»`, node.value);
         return;
       }
-      if (!can_assign(expected, value)) {
-        report_type_mismatch(ctx, expected, value, node.value.span, `al asignar a «${target.name}»`);
-      }
+      check_initialization(ctx, expected, value, node.value.span, `al asignar a «${target.name}»`, node.value);
       return;
     }
     case "index": {
@@ -227,9 +221,7 @@ function assign_target(
         );
         return;
       }
-      if (!can_assign(expected, value)) {
-        report_type_mismatch(ctx, expected, value, node.value.span, "al asignar al índice");
-      }
+      check_initialization(ctx, expected, value, node.value.span, "al asignar al índice", node.value);
       return;
     }
     default:
@@ -279,7 +271,7 @@ function check_return(
     report_error(ctx, CODES.type_mismatch, "una función «void» no devuelve valor", valueNode.span);
     return VOID;
   }
-  report_type_mismatch(ctx, ctx.current_return, value, valueNode.span, "como valor de retorno");
+  check_initialization(ctx, ctx.current_return, value, valueNode.span, "como valor de retorno", valueNode);
   return VOID;
 }
 

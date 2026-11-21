@@ -18,7 +18,7 @@ import type { DiagnosticSink } from "../diagnostics/sink.ts";
 import { CODES } from "../diagnostics/codes.ts";
 import { error as make_error } from "../diagnostics/diagnostic.ts";
 import type { CheckContext } from "./checker_context.ts";
-import { make_context, report_type_mismatch } from "./checker_context.ts";
+import { check_initialization, make_context, report_type_mismatch } from "./checker_context.ts";
 import { collect_module } from "./module_info.ts";
 import type { ModuleInfo } from "./module_info.ts";
 import { declare } from "./scopes.ts";
@@ -105,7 +105,7 @@ function check_const(ctx: CheckContext, decl: ConstDecl): void {
   });
 
   if (info.declared_type !== undefined) {
-    report_type_mismatch(ctx, info.declared_type, value, decl.value.span, "en la constante");
+    check_initialization(ctx, info.declared_type, value, decl.value.span, "en la constante", decl.value);
   } else {
     info.type = value;
   }
@@ -129,10 +129,10 @@ function check_function(ctx: CheckContext, decl: FunctionDecl): void {
       if (ctx.current_return.kind === "void") {
         // Un cuerpo void puede terminar en cualquier expresión sin valor.
       } else if (!type_equals(body, ctx.current_return) && !is_any(body)) {
-        report_type_mismatch(ctx, ctx.current_return, body, decl.body.span, "en el retorno de la función");
+        check_initialization(ctx, ctx.current_return, body, decl.body.span, "en el retorno de la función");
       }
     } else if (!is_any(info.result) && !type_equals(body, info.result)) {
-      report_type_mismatch(ctx, info.result, body, decl.body.span, "en el retorno de la función");
+      check_initialization(ctx, info.result, body, decl.body.span, "en el retorno de la función");
     }
   } finally {
     ctx.current_return = previous_return;
@@ -156,7 +156,7 @@ function check_params(ctx: CheckContext, params: readonly ParamNode[]): void {
         statements: [{ kind: "expr_stmt", expr: param.default_value, span: param.default_value.span }],
         span: param.span,
       });
-      report_type_mismatch(ctx, type, value, param.default_value.span, `en el valor por defecto de «${param.name}»`);
+      check_initialization(ctx, type, value, param.default_value.span, `en el valor por defecto de «${param.name}»`, param.default_value);
     }
   }
 }
@@ -184,7 +184,7 @@ function check_rune(ctx: CheckContext, decl: RuneDecl): void {
         statements: [{ kind: "expr_stmt", expr: field.default_value, span: field.default_value.span }],
         span: field.span,
       });
-      report_type_mismatch(ctx, type, value, field.default_value.span, `en el campo «${field.name}»`);
+      check_initialization(ctx, type, value, field.default_value.span, `en el campo «${field.name}»`, field.default_value);
     }
 
     const constructor = decl.constructor;
@@ -244,7 +244,7 @@ function check_method(ctx: CheckContext, method: MethodDecl, self_type: ReturnTy
       !is_any(body) &&
       !type_equals(body, ctx.current_return)
     ) {
-      report_type_mismatch(ctx, ctx.current_return, body, method.body.span, `en el retorno de «${method.name}»`);
+      check_initialization(ctx, ctx.current_return, body, method.body.span, `en el retorno de «${method.name}»`);
     }
   } finally {
     ctx.self_type = previous_self;

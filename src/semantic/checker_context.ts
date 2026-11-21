@@ -13,7 +13,7 @@ import type { Scope } from "./scopes.ts";
 import { make_scope } from "./scopes.ts";
 import type { PenguType } from "./types.ts";
 import type { ExprNode } from "../frontend/ast.ts";
-import { type_display, type_equals, is_any, is_numeric, is_float } from "./types.ts";
+import { type_display, type_equals, is_any, UNKNOWN } from "./types.ts";
 import type { ExternalImports } from "./external.ts";
 
 export interface CheckContext {
@@ -112,7 +112,73 @@ export function expect_bool(ctx: CheckContext, type: PenguType, span: Span, cont
 }
 
 // Comprobación de asignación con las conversiones seguras del
-// lenguaje. `none` y `nullptr` encajan en opcionales y punteros.
+// lenguaje. `none` encaja en opcionales y `nullptr` solo en `raw<T>`.
+//
+// Las conversiones numéricas siguen el spec: ensanchado entero,
+// unsigned → signed más ancho, entero → coma flotante y float → double.
+// Cualquier otra cosa exige `as` (y, si es estrecha, `unsafe`).
+
+interface IntShape {
+  readonly bits: number;
+  readonly signed: boolean;
+}
+
+// Modelo LP64: long y los tipos de tamaño fijo son de 64 bits.
+const INT_SHAPES: Readonly<Record<string, IntShape>> = {
+  char: { bits: 8, signed: true },
+  "signed char": { bits: 8, signed: true },
+  "unsigned char": { bits: 8, signed: false },
+  short: { bits: 16, signed: true },
+  "unsigned short": { bits: 16, signed: false },
+  int: { bits: 32, signed: true },
+  "unsigned int": { bits: 32, signed: false },
+  long: { bits: 64, signed: true },
+  "unsigned long": { bits: 64, signed: false },
+  "long long": { bits: 64, signed: true },
+  "unsigned long long": { bits: 64, signed: false },
+  int8_t: { bits: 8, signed: true },
+  uint8_t: { bits: 8, signed: false },
+  int16_t: { bits: 16, signed: true },
+  uint16_t: { bits: 16, signed: false },
+  int32_t: { bits: 32, signed: true },
+  uint32_t: { bits: 32, signed: false },
+  int64_t: { bits: 64, signed: true },
+  uint64_t: { bits: 64, signed: false },
+  size_t: { bits: 64, signed: false },
+  ptrdiff_t: { bits: 64, signed: true },
+  intptr_t: { bits: 64, signed: true },
+  uintptr_t: { bits: 64, signed: false },
+  byte: { bits: 8, signed: false },
+  wchar_t: { bits: 32, signed: true },
+};
+
+const FLOAT_RANK: Readonly<Record<string, number>> = {
+  float: 1,
+  double: 2,
+  "long double": 3,
+};
+
+function int_shape(type: PenguType): IntShape | undefined {
+  if (type.kind !== "primitive") return undefined;
+  return INT_SHAPES[type.name];
+}
+
+function float_rank(type: PenguType): number | undefined {
+  if (type.kind !== "primitive") return undefined;
+  return FLOAT_RANK[type.name];
+}
+
+function integer_assignable(target: IntShape, source: IntShape): boolean {
+  if (target.signed === source.signed) return source.bits <= target.bits;
+  return source.bits < target.bits;
+}
+
+function float_assignable(target_rank: number, source_int: boolean, source_rank: number | undefined): boolean {
+  if (source_int) return true;
+  if (source_rank === undefined) return false;
+  return source_rank <= target_rank;
+}
+
 export function can_assign(target: PenguType, source: PenguType): boolean {
   if (is_any(target) || is_any(source)) return true;
   if (type_equals(target, source)) return true;
@@ -123,19 +189,26 @@ export function can_assign(target: PenguType, source: PenguType): boolean {
     return can_assign(target.inner, source);
   }
   if (source.kind === "none") return false;
-  if (source.kind === "nullptr") {
+  if (source.kind === "nullptr") return target.kind === "raw";
+
+  // Un literal tupla encaja en `pair<A, B>` / `tuple<A, B>`.
+  if (target.kind === "named" && source.kind === "tuple") {
+    if (target.name !== "pair" && target.name !== "tuple") return false;
     return (
-      target.kind === "raw" ||
-      target.kind === "unique" ||
-      target.kind === "shared" ||
-      target.kind === "weak"
+      target.args.length === source.items.length &&
+      target.args.every((item, index) => can_assign(item, source.items[index] ?? UNKNOWN))
     );
   }
 
-  // Promoción numérica: entero → coma flotante.
-  if (is_numeric(target) && is_numeric(source)) {
-    if (!is_float(target)) return true;
-    return true;
+  const target_int = int_shape(target);
+  const source_int = int_shape(source);
+  if (target_int !== undefined && source_int !== undefined) {
+    return integer_assignable(target_int, source_int);
+  }
+
+  const target_float = float_rank(target);
+  if (target_float !== undefined) {
+    return float_assignable(target_float, source_int !== undefined, float_rank(source));
   }
 
   // Un `ref<T>` acepta la dirección de un T.
@@ -144,4 +217,48 @@ export function can_assign(target: PenguType, source: PenguType): boolean {
   }
 
   return false;
+}
+
+// Comprueba una inicialización (declaración, constante, retorno o
+// valor por defecto) y solo diagnostica si de verdad no es asignable.
+export function check_initialization(
+  ctx: CheckContext,
+  expected: PenguType,
+  actual: PenguType,
+  span: Span,
+  context: string,
+  value?: ExprNode,
+): void {
+  if (is_any(expected) || is_any(actual)) return;
+  if (can_assign(expected, actual)) return;
+  if (literal_fits(expected, actual, value)) return;
+  report_type_mismatch(ctx, expected, actual, span, context);
+}
+
+// Un literal entero se ajusta al tipo declarado si su valor cabe.
+function literal_fits(expected: PenguType, actual: PenguType, value: ExprNode | undefined): boolean {
+  if (value === undefined) return false;
+  if (value.kind === "int_lit" && actual.kind === "primitive" && actual.name === "int") {
+    const shape = int_shape(expected);
+    if (shape === undefined) return false;
+    return literal_in_range(value.value, shape);
+  }
+  if (value.kind === "float_lit" && actual.kind === "primitive" && actual.name === "double") {
+    return float_rank(expected) !== undefined;
+  }
+  return false;
+}
+
+function literal_in_range(text: string, shape: IntShape): boolean {
+  let number: bigint;
+  try {
+    number = BigInt(text);
+  } catch {
+    return false;
+  }
+  if (!shape.signed) {
+    return number >= 0n && number < 1n << BigInt(shape.bits);
+  }
+  const limit = 1n << BigInt(shape.bits - 1);
+  return number >= -limit && number < limit;
 }

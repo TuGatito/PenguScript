@@ -40,6 +40,8 @@ import type { ParamNode } from "./ast_param.ts";
 import type { Block } from "./ast_stmt.ts";
 import type { TypeNode } from "./ast_type.ts";
 import type { Token } from "./token.ts";
+import { KEYWORDS, is_keyword } from "./token.ts";
+import { suggest_name } from "../util/suggest.ts";
 import type { Span } from "../util/span.ts";
 import { parse_type, parse_type_arguments, expect_close_angle } from "./parser_type.ts";
 import {
@@ -74,6 +76,20 @@ export function parse_program(c: Cursor): Program {
 
 export function parse_decl(c: Cursor): DeclNode | undefined {
   const token = peek(c);
+
+  // `Invoke`, `Rune`, `Omen`… no son palabras clave; el usuario casi
+  // siempre quería la versión en minúsculas.
+  if (token.kind === "ident" && is_keyword(token.text.toLowerCase())) {
+    push_error(
+      c,
+      CODES.invalid_declaration,
+      `«${token.text}» no es una palabra clave; ¿quisiste decir «${token.text.toLowerCase()}»?`,
+      token.span,
+    );
+    advance(c);
+    synchronize(c);
+    return undefined;
+  }
 
   switch (token.kind) {
     case "realm":
@@ -116,16 +132,19 @@ export function parse_decl(c: Cursor): DeclNode | undefined {
       return parse_extern(c, token.span);
     case "ident":
       return parse_named_decl(c);
-    default:
+    default: {
+      const suggestion = suggest_name(token.text, KEYWORDS);
+      const hint = suggestion === undefined ? "" : `; ¿quisiste decir «${suggestion}»?`;
       push_error(
         c,
         CODES.invalid_declaration,
-        `se esperaba una declaración, se encontró «${describe(c, token)}»`,
+        `se esperaba una declaración, se encontró «${describe(c, token)}»${hint}`,
         token.span,
       );
       advance(c);
       synchronize(c);
       return undefined;
+    }
   }
 }
 
@@ -181,16 +200,21 @@ function parse_invoke(c: Cursor): DeclNode {
 }
 
 function parse_static_decl(c: Cursor): DeclNode {
-  advance(c);
-  const mutable = eat(c, "mut") !== undefined;
-  if (!mutable) {
+  const start = advance(c);
+  const has_mut = eat(c, "mut") !== undefined;
+  if (!has_mut) {
     push_error(c, CODES.invalid_declaration, "el estado global debe declararse «static mut»", peek(c).span);
   }
-  return parse_const_decl(c, true, mutable);
+  return parse_const_decl(c, true, true, start.span);
 }
 
-function parse_const_decl(c: Cursor, is_static: boolean, mutable: boolean): DeclNode {
-  const start = advance(c);
+function parse_const_decl(
+  c: Cursor,
+  is_static: boolean,
+  mutable: boolean,
+  start_span?: Span,
+): DeclNode {
+  const start = start_span ?? advance(c).span;
   const name = expect_ident(c, "en la declaración");
   const declared_type = at(c, ":") ? (advance(c), parse_type(c)) : undefined;
   expect(c, "=", "en la declaración");
@@ -202,7 +226,7 @@ function parse_const_decl(c: Cursor, is_static: boolean, mutable: boolean): Decl
     value,
     is_static,
     mutable,
-    span: merge_span(start.span, value.span),
+    span: merge_span(start, value.span),
   };
 }
 

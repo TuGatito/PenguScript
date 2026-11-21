@@ -69,6 +69,8 @@ export interface FunctionType {
   readonly result: PenguType;
   // Las funciones variádicas aceptan argumentos extra (`io::println`).
   readonly variadic: boolean;
+  // Parámetros sin valor por defecto: la aridad mínima de la llamada.
+  readonly required: number;
 }
 
 export interface TupleType {
@@ -148,8 +150,9 @@ export function function_type(
   params: readonly PenguType[],
   result: PenguType,
   variadic = false,
+  required = params.length,
 ): FunctionType {
-  return { kind: "function", params, result, variadic };
+  return { kind: "function", params, result, variadic, required };
 }
 
 export function tuple_type(items: readonly PenguType[]): TupleType {

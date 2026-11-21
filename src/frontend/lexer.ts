@@ -2,7 +2,6 @@ import { CODES } from "../diagnostics/codes.ts";
 import { make_diagnostic, type Diagnostic } from "../diagnostics/diagnostic.ts";
 import { make_source, span_from, type Source } from "../util/span.ts";
 import { OPERATORS, is_keyword, type StringPart, type Token, type TokenKind } from "./token.ts";
-
 export interface LexResult {
   readonly source: Source;
   readonly tokens: readonly Token[];
@@ -448,19 +447,13 @@ function begin_line(state: LexerState, sink: Token[]): "code" | "blank" | "comme
     stack.push(width);
     emit(state, sink, "indent", start, probe);
   } else if (width < top) {
+    const open_levels = [...stack];
     while (stack.length > 1 && (stack[stack.length - 1] ?? 0) > width) {
       stack.pop();
       emit(state, sink, "dedent", start, probe);
     }
     if ((stack[stack.length - 1] ?? 0) !== width) {
-      fail(
-        state,
-        CODES.indent_mismatch,
-        `la indentación (${width}) no coincide con ningún bloque abierto`,
-        start,
-        probe,
-        `niveles abiertos: ${stack.join(", ")}`,
-      );
+      report_indent_mismatch(state, start, probe, width, open_levels);
       stack.push(width);
       emit(state, sink, "indent", start, probe);
     }
@@ -470,11 +463,50 @@ function begin_line(state: LexerState, sink: Token[]): "code" | "blank" | "comme
   return "code";
 }
 
+// El ancho no coincide con ningún nivel abierto. Se sugiere el nivel
+// más cercano y se ofrece un arreglo que reemplaza la sangría.
+function report_indent_mismatch(
+  state: LexerState,
+  start: number,
+  probe: number,
+  width: number,
+  open_levels: readonly number[],
+): void {
+  // El nivel más cercano; en caso de empate preferimos el mayor
+  // (la sangría a la que probablemente se quería llegar).
+  let expected = open_levels[0] ?? 0;
+  for (const level of open_levels) {
+    const distance = Math.abs(level - width);
+    const current = Math.abs(expected - width);
+    if (distance < current || (distance === current && level > expected)) expected = level;
+  }
+  const unit = state.text.slice(start, probe).includes("\t") ? "\t" : " ";
+  const fix = {
+    title: `usar ${expected} de sangría`,
+    span: span_from(state.source, start, probe),
+    replacement: unit.repeat(expected),
+  };
+  state.diagnostics.push(
+    make_diagnostic({
+      code: CODES.indent_mismatch,
+      message: `la indentación (${width}) no coincide con ningún bloque abierto`,
+      span: span_from(state.source, start, probe),
+      notes: [
+        `niveles abiertos: ${open_levels.join(", ")}`,
+        `la sangría más cercana es ${expected}`,
+      ],
+      fix,
+    }),
+  );
+}
+
 export function lex(source: Source): LexResult {
   const state: LexerState = {
     source,
     text: source.text,
-    index: 0,
+    // Un BOM UTF-8 al inicio no es parte del código: se salta sin
+    // desplazar las posiciones del resto del archivo.
+    index: source.text.charCodeAt(0) === 0xfeff ? 1 : 0,
     indent_stack: [0],
     paren_depth: 0,
     at_line_start: true,
