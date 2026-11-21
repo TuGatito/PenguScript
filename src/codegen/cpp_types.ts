@@ -74,6 +74,13 @@ const CONTAINERS: Readonly<Record<string, string>> = {
   tuple: "std::tuple",
   bitset: "std::bitset",
   atomic: "std::atomic",
+  complex: "std::complex",
+  variant: "std::variant",
+  init_list: "std::initializer_list",
+  mutex: "std::mutex",
+  shared_mutex: "std::shared_mutex",
+  condition_variable: "std::condition_variable",
+  thread: "std::thread",
 };
 
 // Nombre de tipo de usuario → realm que lo declara. Los tipos de otros

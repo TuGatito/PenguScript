@@ -7,6 +7,7 @@ import type { PenguType } from "./types.ts";
 import {
   BOOL,
   CHAR,
+  DOUBLE,
   SIZE_T,
   STRING,
   VOID,
@@ -30,7 +31,7 @@ const container_names = new Set([
   "array",
 ]);
 
-const set_names = new Set(["set", "multiset", "unordered_set"]);
+const set_names = new Set(["set", "multiset", "unordered_set", "unordered_multiset"]);
 
 const map_names = new Set([
   "map",
@@ -78,8 +79,81 @@ export function map_key_value(type: PenguType): { key: PenguType; value: PenguTy
   return { key, value };
 }
 
+const adapter_names = new Set(["stack", "queue", "priority_queue"]);
+
+const bitset_names = new Set(["bitset"]);
+
+const sync_names = new Set(["mutex", "shared_mutex", "condition_variable"]);
+
 export function member_of_builtin(type: PenguType, name: string): PenguType | undefined {
   if (type.kind === "any") return any_type("miembro desconocido");
+
+  if (type.kind === "named" && type.name === "atomic") {
+    const inner = type.args[0] ?? ANY_UNUSED;
+    if (name === "load") return function_type([], inner);
+    if (name === "store") return function_type([inner], VOID);
+    if (name === "fetch_add") return function_type([inner], inner);
+    return undefined;
+  }
+
+  if (type.kind === "named" && type.name === "complex") {
+    if (name === "real" || name === "imag") return function_type([], type.args[0] ?? DOUBLE);
+    return undefined;
+  }
+
+  if (type.kind === "named" && type.name === "thread") {
+    if (name === "join" || name === "detach") return function_type([], VOID);
+    return undefined;
+  }
+
+  if (type.kind === "named" && sync_names.has(type.name)) {
+    if (name === "lock" || name === "unlock") return function_type([], VOID);
+    if (name === "lock_shared" || name === "unlock_shared") return function_type([], VOID);
+    return undefined;
+  }
+
+  if (type.kind === "named" && adapter_names.has(type.name)) {
+    const element = type.args[0] ?? ANY_UNUSED;
+    switch (name) {
+      case "size":
+      case "len":
+        return function_type([], SIZE_T);
+      case "is_empty":
+        return function_type([], BOOL);
+      case "push":
+      case "push_back":
+        return function_type([element], VOID);
+      case "pop":
+        return function_type([], VOID);
+      case "top":
+      case "front":
+      case "back":
+        return function_type([], ref_to(element, false));
+      default:
+        return undefined;
+    }
+  }
+
+  if (type.kind === "named" && bitset_names.has(type.name)) {
+    switch (name) {
+      case "size":
+      case "len":
+      case "count":
+        return function_type([], SIZE_T);
+      case "test":
+        return function_type([SIZE_T], BOOL);
+      case "set":
+      case "reset":
+      case "flip":
+        return function_type([SIZE_T], VOID);
+      case "all":
+      case "any":
+      case "none":
+        return function_type([], BOOL);
+      default:
+        return undefined;
+    }
+  }
 
   if (type.kind === "primitive" && FLOATING_METHODS.has(type.name)) {
     switch (name) {
@@ -226,8 +300,8 @@ export function member_of_builtin(type: PenguType, name: string): PenguType | un
 
   if (type.kind === "tuple" || (type.kind === "named" && type.name === "pair")) {
     const items = type.kind === "tuple" ? type.items : type.args;
-    if (name === "first") return function_type([], items[0] ?? ANY_UNUSED);
-    if (name === "second") return function_type([], items[1] ?? ANY_UNUSED);
+    if (name === "first") return items[0] ?? ANY_UNUSED;
+    if (name === "second") return items[1] ?? ANY_UNUSED;
     return undefined;
   }
 

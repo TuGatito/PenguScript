@@ -174,6 +174,49 @@ These are methods, not free functions: `x.sqrt()`, not `sqrt(x)`. They are what 
 | `condition_variable` | `std::condition_variable` | `<condition_variable>` | |
 | `thread` | `std::thread` | `<thread>` | enforces structural `ThreadSafe` |
 
+### Construir contenedores y tipos compuestos
+
+Los contenedores se construyen vacíos con su tipo entre `<>` y, si hace
+falta, argumentos de constructor entre `()`:
+
+```pengu
+mut pila = stack<int>()          -- vacía
+mut bits = bitset<8>(0)          -- tamaño en bits + valor inicial
+cuenta: atomic<int> = atomic<int>(0)
+c = complex<double>(1.0, 2.0)
+mut m = mutex()
+hilo = thread(() -> io::println("hola"))
+```
+
+Los literales pueden llevar el tipo delante, que es obligatorio cuando
+no se puede inferir del contenido (por ejemplo un `set` que empieza
+vacío o un `map` con claves de omen):
+
+```pengu
+xs = vector<int>[1, 2, 3]
+ds = deque<int>[7, 8]
+ss = set<string>{"a", "b"}
+ms = map<string, int>{"uno": 1}
+arr = array<int, 4>[1, 2, 3, 4]
+```
+
+`array<T, N>` comprueba en compilación que el literal tenga exactamente
+`N` elementos. `pair<A, B>` y `tuple<...>` se leen con `.first`/`.second`
+y `.0`/`.1`/…, y se pueden desempaquetar con `mut a, b = par`.
+
+Una `variant<A, B>` guarda una de sus alternativas; se construye con
+`variant<A, B>(valor)` y se extrae con `as`, que comprueba en
+compilación que la alternativa exista:
+
+```pengu
+v: variant<int, string> = variant<int, string>(42)
+n = v as int
+```
+
+`string_view` acepta un `string` sin copiar; lo contrario no está
+permitido. `any` es una caja heterogénea pensada para `Display` y las
+variádicas: se puede imprimir, pero no extraer con `as`.
+
 ### Optional values — `T?`
 
 `T?` is sugar for `optional<T>`, and `optional<T>` is the long form. A value of type `T` is assignable to `T?`; `none` is the empty value (`nullopt` is accepted as an alternative spelling). There is no `some(...)` wrapper in the surface language — just use the value.

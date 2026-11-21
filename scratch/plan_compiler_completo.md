@@ -268,13 +268,13 @@ Leyenda: ✅ soportado y probado · 🟡 parcial · ❌ falta.
 | Primitivos de una palabra (`int`, `double`, `bool`, `char`, `string`, `size_t`…) | ✅ | — |
 | Primitivos multi-palabra (`long long`, `unsigned char`, `long double`…) | 🟡 (parseo OK; asignación falla) | F1/F2 |
 | Enteros de tamaño fijo (`int8_t`…`uint64_t`), `byte`, `ptrdiff_t` | 🟡 (tipo OK; literales fallan) | F2 |
-| `wstring`, `u8/16/32string`, `string_view` | 🟡 (tipo resuelve; codegen y métodos sin probar) | F4 |
+| `wstring`, `u8/16/32string`, `string_view` | ✅ (`string_view` desde `string`; impresión de cadenas anchas) | F4 |
 | `vector`, `map`, `set` (literales, acceso, edición, iteración) | ✅ | — |
-| `array<T,N>`, `deque`, `list`, `forward_list`, `multiset`, `unordered_*` | ❌ | F4 |
-| `stack`, `queue`, `priority_queue`, `span`, `bitset` | ❌ | F4 |
-| `pair`, `tuple` (tipo, literal, acceso, desempaquetado) | 🟡 (literal tupla y destructuring; asignación tipada falla) | F4 |
+| `array<T,N>`, `deque`, `list`, `forward_list`, `multiset`, `unordered_*` | ✅ | F4 |
+| `stack`, `queue`, `priority_queue`, `span`, `bitset` | ✅ | F4 |
+| `pair`, `tuple` (tipo, literal, acceso, desempaquetado) | ✅ | F4 |
 | `T?` / `optional<T>` (`value`, `value_or`, `is_some`, `is_none`) | ✅ (salvo `none` tipado) | F1 |
-| `variant<...>`, `any`, `init_list<T>`, `complex<T>`, `atomic`, `mutex`, `thread` | ❌ | F4 |
+| `variant<...>`, `any`, `init_list<T>`, `complex<T>`, `atomic`, `mutex`, `thread` | ✅ (variant con `as`; `any` es caja de Display; `init_list` como tipo de parámetro) | F4 |
 | `unique`, `shared`, `weak`, `raw`, `ref` | 🟡 (básico OK; reglas de préstamo faltan) | F7 |
 | `const` (declaración, evaluación en compilación) | 🟡 (se acepta cualquier expresión) | F8 |
 | `static mut` | ❌ (parseo) | F1/F7 |
@@ -604,6 +604,7 @@ constante, `needs` no cumplido, `[]` vacío sin tipo, `switch` no exhaustivo.
 
 | Fecha | Fase | Cambios | Pruebas |
 |---|---|---|---|
+| 2026-11-21 | F4 | `array<T,N>` con literal y comprobación de tamaño; literales con prefijo de tipo (`vector<int>[...]`, `deque<int>[...]`, `set<T>{...}`, `map<K,V>{...}`); `pair`/`tuple` construidos, accedidos y asignados con tipo exacto; contenedores auxiliares (`stack`, `queue`, `priority_queue`, `bitset`, `list`, `forward_list`, `multiset`, `unordered_*`, `span`) con tablas de métodos y codegen (`size`/`is_empty`/`push`/`pop`/`top`/`test`/`count`); construcciones `vector<int>()`, `mutex()`, `thread(...)`, `complex<T>(re, im)`, `atomic<T>(v)`; `variant<A,B>(v)` con `as` comprobado en compilación; `string_view` acepta `string`; cadenas anchas imprimibles; `Value` del runtime reordenado tras las sobrecargas de `to_string` (tuplas y pares imprimibles); `len` usa `std::distance` si no hay `.size()`; cabeceras de todos los contenedores incluidas en `pengu_rt.hpp`. | 143/143 (15 archivos) |
 | 2026-11-21 | F3 | Variádicas `(...xs: T)` con `...` como spread y `...` en tipos de función; dentro del cuerpo el parámetro es `vector<T>`; `any` resuelto como tipo real y empaquetado en `::pengu::Value` (render de `Display` vía `to_string` o `to_string_value`); `check_argument_value` exige Display en variádicas `any` (E0512); `std/io`, `std/format`, `std/log` pasan a `.pengu` con `declare` de primitivas `vector<any>`; `extern` variádico emitido como C varargs; aridad mínima correcta con variádicas. | 129/129 (14 archivos) |
 | 2026-11-21 | F2 | Modelo numérico portable (`INTEGER_SHAPES`, `numeric_join`, promoción al entero mayor, sin mezclas de signo del mismo ancho); `is_safe_cast` con matriz completa (enteros por ancho/signo, float, seal, omen subyacente); `T::try_from`/`T::from` para primitivos con comprobación de rango en runtime; métodos `.sqrt()/.abs()/.is_nan()`; `Ordering` con `<=>` (`::pengu::compare`) y variantes `Less/Equal/Greater`; `function<Sig>` ahora se analiza (lookahead de `<`); operadores de usuario recuperados para `+`/`-`/etc. | 119/119 (13 archivos) |
 | 2026-11-21 | F1 | BOM ignorado por el lexer; `check_initialization` con `can_assign` real (enteros por ancho y signo, float→double, `none`/`nullptr` restringidos, literales que caben, tupla→`pair`/`tuple`); `static mut` arreglado; `then` + bloque; aridad mínima con defaults (`FunctionType.required`); aviso E0701 en `switch` sin `else` sobre omen unitario; Display obligatorio en interpolaciones (E0512); sugerencias de nombre (E0403/E0208) y arreglo para E0101. | 106/106 (12 archivos) |

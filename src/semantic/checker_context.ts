@@ -141,6 +141,19 @@ export function can_assign(target: PenguType, source: PenguType): boolean {
   if (is_any(target) || is_any(source)) return true;
   if (type_equals(target, source)) return true;
 
+  if (
+    target.kind === "primitive" &&
+    target.name === "string_view" &&
+    source.kind === "primitive" &&
+    source.name === "string"
+  ) {
+    return true;
+  }
+
+  if (target.kind === "named" && target.name === "variant") {
+    return target.args.some((option) => can_assign(option, source));
+  }
+
   if (target.kind === "optional") {
     if (source.kind === "none") return true;
     if (source.kind === "optional") return can_assign(target.inner, source.inner);
@@ -188,9 +201,41 @@ export function check_initialization(
   value?: ExprNode,
 ): void {
   if (is_any(expected) || is_any(actual)) return;
+  if (compound_fits(ctx, expected, value, actual)) return;
   if (can_assign(expected, actual)) return;
   if (literal_fits(expected, actual, value)) return;
   report_type_mismatch(ctx, expected, actual, span, context);
+}
+
+// Un literal compuesto adopta el tipo esperado: `[1, 2, 3]` en un
+// `array<int, 3>` y `(1, "a")` en un `pair<int, string>`.
+function compound_fits(
+  ctx: CheckContext,
+  expected: PenguType,
+  value: ExprNode | undefined,
+  actual: PenguType,
+): boolean {
+  if (value === undefined) return false;
+
+  if (expected.kind === "array" && value.kind === "vector_lit") {
+    if (value.items.length !== expected.size) return false;
+    const element = actual.kind === "named" ? actual.args[0] : undefined;
+    if (element === undefined || !can_assign(expected.element, element)) return false;
+    ctx.types?.set(value, expected);
+    return true;
+  }
+
+  if (
+    expected.kind === "named" &&
+    (expected.name === "pair" || expected.name === "tuple") &&
+    value.kind === "tuple"
+  ) {
+    if (!can_assign(expected, actual)) return false;
+    ctx.types?.set(value, expected);
+    return true;
+  }
+
+  return false;
 }
 
 // Un literal entero se ajusta al tipo declarado si su valor cabe.

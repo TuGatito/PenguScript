@@ -211,6 +211,8 @@ export const BUILTIN_CONTAINERS: ReadonlySet<string> = new Set([
   "bitset",
   "optional",
   "variant",
+  "init_list",
+  "complex",
   "any",
   "function",
   "atomic",

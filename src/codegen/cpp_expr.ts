@@ -27,14 +27,35 @@ import {
   type_of,
 } from "./cpp_context.ts";
 import { cpp_identifier, cpp_type, cpp_type_node, cpp_value_type, sanitize_namespace } from "./cpp_types.ts";
-import { is_map_type, is_sequence_container } from "../semantic/builtin_members.ts";
+import { is_map_type, is_sequence_container, is_set_type } from "../semantic/builtin_members.ts";
 import type { PenguType } from "../semantic/types.ts";
-import { UNKNOWN, is_float, is_numeric, is_string, primitive } from "../semantic/types.ts";
+import { UNKNOWN, is_float, is_numeric, is_string, named, primitive, type_equals } from "../semantic/types.ts";
 import { is_conversion_target } from "../semantic/checker_expr.ts";
+import { resolve_type_node } from "../semantic/type_env.ts";
+import { STRING_TYPES } from "../frontend/ast_type.ts";
 import { emit_block, emit_value_block } from "./cpp_stmt.ts";
 
 export function emit_expr(g: GenContext, node: ExprNode): string {
   switch (node.kind) {
+    case "container_new": {
+      if (node.name === "bitset") {
+        const size = node.size === undefined ? "1" : emit_expr(g, node.size);
+        const inner = node.args.length > 0 ? emit_expr(g, node.args[0]!.expr) : "0";
+        return `std::bitset<${size}>(${inner})`;
+      }
+      const type_args = node.type_args.map((arg) => resolve_type_node(arg, g.module.env, g.sink));
+      const container = STRING_TYPES.has(node.name) && type_args.length === 0 ? primitive(node.name) : named(node.name, type_args);
+      const rendered = cpp_type(container, g.type_realms);
+      const args = node.args.map((arg) => emit_expr(g, arg.expr)).join(", ");
+      if (node.name === "variant" && node.args.length === 1) {
+        const value = node.args[0]!.expr;
+        const index = type_args.findIndex((option) => type_equals(option, type_of(g, value)));
+        if (index >= 0) {
+          return `${rendered}{std::in_place_index<${index}>, ${args}}`;
+        }
+      }
+      return `${rendered}{${args}}`;
+    }
     case "int_lit":
       return node.value;
     case "float_lit":
@@ -87,8 +108,15 @@ export function emit_expr(g: GenContext, node: ExprNode): string {
       return emit_cast(g, node);
     case "range":
       return `::pengu::Range{${emit_expr(g, node.start)}, ${emit_expr(g, node.end)}, ${node.inclusive ? "true" : "false"}}`;
-    case "tuple":
-      return `std::make_tuple(${node.items.map((item) => emit_expr(g, item)).join(", ")})`;
+    case "tuple": {
+      const items = node.items.map((item) => emit_expr(g, item));
+      const type = type_of(g, node);
+      if (type.kind === "named" && (type.name === "pair" || type.name === "tuple")) {
+        const args = type.args.map((arg) => cpp_type(arg, g.type_realms)).join(", ");
+        return `std::${type.name}<${args}>{${items.join(", ")}}`;
+      }
+      return `std::make_tuple(${items.join(", ")})`;
+    }
     case "vector_lit":
       return emit_vector_lit(g, node);
     case "map_lit":
@@ -451,6 +479,11 @@ function emit_member_call(g: GenContext, object: ExprNode, name: string, args: s
     }
   }
   switch (name) {
+    case "is_empty":
+      return `${rendered}.empty()`;
+    case "contains":
+      if (is_map_type(object_type) || is_set_type(object_type)) return `${rendered}.contains(${args})`;
+      return `::pengu::contains(${rendered}, ${args})`;
     case "is_some":
       return `${rendered}.has_value()`;
     case "is_none":
@@ -462,7 +495,8 @@ function emit_member_call(g: GenContext, object: ExprNode, name: string, args: s
     case "pop_opt":
       return `::pengu::pop_opt(${rendered})`;
     case "lock":
-      return `::pengu::lock_weak(${rendered})`;
+      if (object_type.kind === "weak") return `::pengu::lock_weak(${rendered})`;
+      return `${rendered}.lock(${args})`;
     case "get": {
       if (is_map_type(object_type)) return `::pengu::map_get(${rendered}, ${args})`;
       if (is_sequence_container(object_type)) return `::pengu::get_at(${rendered}, ${args})`;
@@ -531,6 +565,9 @@ function emit_cast(g: GenContext, node: CastNode): string {
   const target = cpp_type_node(node.type, g.module.env, g.type_realms);
   const value_type = type_of(g, node.value);
   let value = emit_expr(g, node.value);
+  if (value_type.kind === "named" && value_type.name === "variant") {
+    return `std::get<${target}>(${value})`;
+  }
   const is_seal = value_type.kind === "named" && g.module.env.aliases.get(value_type.name)?.seal === true;
   const is_self_value = g.self_value && node.value.kind === "self";
   if (is_seal && !is_self_value) {
@@ -541,16 +578,20 @@ function emit_cast(g: GenContext, node: CastNode): string {
 
 function emit_vector_lit(g: GenContext, node: import("../frontend/ast_expr.ts").VectorLitNode): string {
   const type = type_of(g, node);
-  const element = type.kind === "named" ? type.args[0] : undefined;
-  const prefix = element ? `std::vector<${cpp_type(element, g.type_realms)}>` : "std::vector<auto>";
-  return `${prefix}{${node.items.map((item) => emit_expr(g, item)).join(", ")}}`;
+  if (type.kind === "array") {
+    const prefix = `std::array<${cpp_type(type.element, g.type_realms)}, ${type.size}>`;
+    return `${prefix}{${node.items.map((item) => emit_expr(g, item)).join(", ")}}`;
+  }
+  if (type.kind === "named" && type.args.length === 1) {
+    const base = cpp_type(type, g.type_realms);
+    return `${base}{${node.items.map((item) => emit_expr(g, item)).join(", ")}}`;
+  }
+  return `std::vector<auto>{${node.items.map((item) => emit_expr(g, item)).join(", ")}}`;
 }
 
 function emit_map_lit(g: GenContext, node: import("../frontend/ast_expr.ts").MapLitNode): string {
   const type = type_of(g, node);
-  const key = type.kind === "named" ? type.args[0] : undefined;
-  const value = type.kind === "named" ? type.args[1] : undefined;
-  const prefix = key && value ? `std::map<${cpp_type(key)}, ${cpp_type(value)}>` : "std::map<auto, auto>";
+  const prefix = type.kind === "named" && type.args.length === 2 ? cpp_type(type, g.type_realms) : "std::map<auto, auto>";
   const entries = node.entries
     .map((entry) => `{${emit_expr(g, entry.key)}, ${emit_expr(g, entry.value)}}`)
     .join(", ");
@@ -559,8 +600,7 @@ function emit_map_lit(g: GenContext, node: import("../frontend/ast_expr.ts").Map
 
 function emit_set_lit(g: GenContext, node: import("../frontend/ast_expr.ts").SetLitNode): string {
   const type = type_of(g, node);
-  const element = type.kind === "named" ? type.args[0] : undefined;
-  const prefix = element ? `std::set<${cpp_type(element, g.type_realms)}>` : "std::set<auto>";
+  const prefix = type.kind === "named" && type.args.length === 1 ? cpp_type(type, g.type_realms) : "std::set<auto>";
   return `${prefix}{${node.items.map((item) => emit_expr(g, item)).join(", ")}}`;
 }
 

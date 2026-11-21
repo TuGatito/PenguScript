@@ -8,6 +8,23 @@ export const RUNTIME_HEADER = `// Runtime generado por pengu 0.1.0. No editar a 
 #pragma once
 
 #include <algorithm>
+#include <array>
+#include <atomic>
+#include <bitset>
+#include <complex>
+#include <condition_variable>
+#include <deque>
+#include <forward_list>
+#include <initializer_list>
+#include <list>
+#include <mutex>
+#include <queue>
+#include <shared_mutex>
+#include <stack>
+#include <span>
+#include <string_view>
+#include <unordered_map>
+#include <unordered_set>
 #include <any>
 #include <charconv>
 #include <chrono>
@@ -72,6 +89,24 @@ inline std::string to_string(const char* value) { return std::string(value); }
 inline std::string to_string(char value) { return std::string(1, value); }
 inline std::string to_string(bool value) { return value ? "true" : "false"; }
 
+// Cadenas anchas: se reducen a UTF-8 aproximado (byte a byte) para
+// poder imprimirlas. La conversión completa es trabajo de std/.
+inline std::string to_string(const std::wstring& value) { return std::string(value.begin(), value.end()); }
+inline std::string to_string(const std::u8string& value) {
+  return std::string(reinterpret_cast<const char*>(value.data()), value.size());
+}
+inline std::string to_string(const std::u16string& value) {
+  std::string out;
+  for (char16_t unit : value) out.push_back(static_cast<char>(unit));
+  return out;
+}
+inline std::string to_string(const std::u32string& value) {
+  std::string out;
+  for (char32_t unit : value) out.push_back(static_cast<char>(unit));
+  return out;
+}
+inline std::string to_string(std::string_view value) { return std::string(value); }
+
 template <class T>
   requires std::is_arithmetic_v<T>
 std::string to_string(T value) {
@@ -80,37 +115,10 @@ std::string to_string(T value) {
   return out.str();
 }
 
-// Renderiza un valor para Display: usa su método to_string() si lo
-// tiene y, si no, la sobrecarga libre de to_string.
-template <class T>
-std::string to_string_value(const T& value) {
-  if constexpr (requires { value.to_string(); }) {
-    return value.to_string();
-  } else {
-    return to_string(value);
-  }
-}
-
-// Caja heterogénea para las variádicas any.
-class Value {
- public:
-  Value() = default;
-
-  template <class T>
-  explicit Value(T value) : render_([value]() { return to_string_value(value); }) {}
-
-  std::string render() const { return render_ ? render_() : std::string(); }
-
- private:
-  std::function<std::string()> render_;
-};
-
-template <class T>
-Value value(T item) {
-  return Value(item);
-}
-
-inline std::string to_string(const Value& item) { return item.render(); }
+// Declaraciones adelantadas: las sobrecargas de contenedores pueden
+// necesitar imprimir un Value (por ejemplo vector de Value).
+class Value;
+std::string to_string(const Value& item);
 
 // Resultado de comparar dos valores con <=>.
 enum class Ordering { Less, Equal, Greater };
@@ -202,6 +210,38 @@ std::string to_string(const std::pair<A, B>& value) {
   return "(" + to_string(value.first) + ", " + to_string(value.second) + ")";
 }
 
+// Renderiza un valor para Display: usa su método to_string() si lo
+// tiene y, si no, la sobrecarga libre de to_string.
+template <class T>
+std::string to_string_value(const T& value) {
+  if constexpr (requires { value.to_string(); }) {
+    return value.to_string();
+  } else {
+    return to_string(value);
+  }
+}
+
+// Caja heterogénea para las variádicas any.
+class Value {
+ public:
+  Value() = default;
+
+  template <class T>
+  explicit Value(T value) : render_([value]() { return to_string_value(value); }) {}
+
+  std::string render() const { return render_ ? render_() : std::string(); }
+
+ private:
+  std::function<std::string()> render_;
+};
+
+template <class T>
+Value value(T item) {
+  return Value(item);
+}
+
+inline std::string to_string(const Value& item) { return item.render(); }
+
 template <class... Ts>
 void println(const Ts&... values) {
   std::string out;
@@ -274,7 +314,11 @@ inline std::vector<std::string> os_args() {
 
 template <class C>
 std::size_t len(const C& container) {
-  return static_cast<std::size_t>(container.size());
+  if constexpr (requires { container.size(); }) {
+    return static_cast<std::size_t>(container.size());
+  } else {
+    return static_cast<std::size_t>(std::distance(container.begin(), container.end()));
+  }
 }
 
 inline bool contains(const std::string& text, const std::string& needle) {

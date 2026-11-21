@@ -15,6 +15,8 @@ import {
   push_error,
   merge_span,
   describe,
+  save,
+  rewind,
 } from "./parser_cursor.ts";
 import { CODES } from "../diagnostics/codes.ts";
 import { is_keyword } from "./token.ts";
@@ -197,6 +199,19 @@ function parse_postfix(c: Cursor): ExprNode {
       continue;
     }
 
+    if (at(c, "(") && expr.kind === "ident" && DEFAULT_NEW_NAMES.has(expr.name)) {
+      const name = expr.name;
+      const parsed = parse_args(c);
+      expr = {
+        kind: "container_new",
+        name,
+        type_args: [],
+        args: parsed.args,
+        span: merge_span(expr.span, parsed.end),
+      };
+      continue;
+    }
+
     if (at(c, "(")) {
       const parsed = parse_args(c);
       expr = {
@@ -221,6 +236,35 @@ function parse_postfix(c: Cursor): ExprNode {
       continue;
     }
 
+    if (at(c, "<") && expr.kind === "ident" && is_container_new_name(expr.name)) {
+      const name = expr.name;
+      advance(c);
+      if (name === "bitset") {
+        const size = parse_expression(c, 5);
+        expect(c, ">", "al cerrar el tamaño del bitset");
+        const parsed = parse_args(c);
+        expr = {
+          kind: "container_new",
+          name,
+          type_args: [],
+          size,
+          args: parsed.args,
+          span: merge_span(expr.span, parsed.end),
+        };
+        continue;
+      }
+      const type_args = parse_type_arguments_open(c);
+      const parsed = parse_args(c);
+      expr = {
+        kind: "container_new",
+        name,
+        type_args,
+        args: parsed.args,
+        span: merge_span(expr.span, parsed.end),
+      };
+      continue;
+    }
+
     if (at(c, "<") && looks_like_sigil_call(c)) {
       const type_args = parse_type_arguments(c);
       const parsed = parse_args(c);
@@ -238,6 +282,71 @@ function parse_postfix(c: Cursor): ExprNode {
   }
 
   return expr;
+}
+
+
+const CONTAINER_NEW_NAMES: ReadonlySet<string> = new Set([
+  "vector",
+  "deque",
+  "list",
+  "forward_list",
+  "set",
+  "multiset",
+  "unordered_set",
+  "unordered_multiset",
+  "map",
+  "multimap",
+  "unordered_map",
+  "unordered_multimap",
+  "stack",
+  "queue",
+  "priority_queue",
+  "span",
+  "bitset",
+  "variant",
+  "complex",
+  "atomic",
+  "mutex",
+  "shared_mutex",
+  "condition_variable",
+  "thread",
+  "string",
+  "wstring",
+  "u8string",
+  "u16string",
+  "u32string",
+  "string_view",
+]);
+
+// Constructores sin argumentos de tipo (`mutex()`, `thread(...)`).
+const DEFAULT_NEW_NAMES: ReadonlySet<string> = new Set([
+  "mutex",
+  "shared_mutex",
+  "condition_variable",
+  "thread",
+  "string",
+  "wstring",
+  "u8string",
+  "u16string",
+  "u32string",
+  "string_view",
+]);
+
+function is_container_new_name(name: string): boolean {
+  return CONTAINER_NEW_NAMES.has(name);
+}
+
+// A diferencia de `parse_type_arguments`, ya se consumió el «<».
+function parse_type_arguments_open(c: Cursor): readonly TypeNode[] {
+  const args: TypeNode[] = [];
+  if (at(c, ">")) {
+    advance(c);
+    return args;
+  }
+  args.push(parse_type(c));
+  while (eat(c, ",")) args.push(parse_type(c));
+  expect(c, ">", "al cerrar los argumentos de tipo");
+  return args;
 }
 
 function looks_like_sigil_call(c: Cursor): boolean {
@@ -409,8 +518,10 @@ function parse_primary(c: Cursor): ExprNode {
     case "nullptr":
       advance(c);
       return { kind: "nullptr_lit", span: token.span };
-    case "ident":
-      return parse_ident_primary(c);
+    case "ident": {
+      const typed = try_typed_literal(c);
+      return typed ?? parse_ident_primary(c);
+    }
     case "@":
       return parse_self(c);
     case "parent": {
@@ -457,6 +568,82 @@ function parse_primary(c: Cursor): ExprNode {
   );
   advance(c);
   return { kind: "ident", name: "__error__", span: token.span };
+}
+
+
+// Literales con prefijo de tipo: `vector<int>[...]`, `deque<int>[...]`,
+// `map<string, int>{...}`, `set<int>{...}`, `array<int, 3>[...]`.
+const VECTOR_LITERAL_TYPES: ReadonlySet<string> = new Set([
+  "vector",
+  "deque",
+  "list",
+  "forward_list",
+  "span",
+  "array",
+  "bitset",
+]);
+const SET_LITERAL_TYPES: ReadonlySet<string> = new Set([
+  "set",
+  "multiset",
+  "unordered_set",
+  "unordered_multiset",
+]);
+const MAP_LITERAL_TYPES: ReadonlySet<string> = new Set([
+  "map",
+  "multimap",
+  "unordered_map",
+  "unordered_multimap",
+]);
+
+function try_typed_literal(c: Cursor): ExprNode | undefined {
+  const token = peek(c);
+  if (token.kind !== "ident" || peek(c, 1).kind !== "<") return undefined;
+
+  const name = token.text;
+  const vectorish = VECTOR_LITERAL_TYPES.has(name);
+  const setish = SET_LITERAL_TYPES.has(name);
+  const mapish = MAP_LITERAL_TYPES.has(name);
+  if (!vectorish && !setish && !mapish) return undefined;
+
+  const saved = save(c);
+  const type = parse_type(c);
+
+  if (mapish) {
+    if (!at(c, "{")) {
+      rewind(c, saved);
+      return undefined;
+    }
+    const literal = parse_map_literal(c);
+    if (literal.kind !== "map_lit") {
+      rewind(c, saved);
+      return undefined;
+    }
+    return { ...literal, declared_type: type, span: merge_span(type.span, literal.span) };
+  }
+
+  if (setish) {
+    if (!at(c, "{")) {
+      rewind(c, saved);
+      return undefined;
+    }
+    const literal = parse_set_literal(c, type.span);
+    if (literal.kind !== "set_lit") {
+      rewind(c, saved);
+      return undefined;
+    }
+    return { ...literal, declared_type: type, span: merge_span(type.span, literal.span) };
+  }
+
+  if (!at(c, "[")) {
+    rewind(c, saved);
+    return undefined;
+  }
+  const literal = parse_vector_literal(c);
+  if (literal.kind !== "vector_lit") {
+    rewind(c, saved);
+    return undefined;
+  }
+  return { ...literal, declared_type: type, span: merge_span(type.span, literal.span) };
 }
 
 function parse_ident_primary(c: Cursor): ExprNode {

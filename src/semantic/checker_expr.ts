@@ -62,7 +62,8 @@ import {
   types_equal,
 } from "./types.ts";
 import type { PenguType } from "./types.ts";
-import { is_primitive_type } from "../frontend/ast_type.ts";
+import { STRING_TYPES, is_primitive_type } from "../frontend/ast_type.ts";
+import type { TypeNode } from "../frontend/ast_type.ts";
 import type { OmenVariantInfo } from "./type_env.ts";
 import { function_type_of } from "./module_info.ts";
 import { builtin_function, is_builtin_module } from "./builtin_modules.ts";
@@ -110,6 +111,19 @@ export function infer_expr(ctx: CheckContext, node: ExprNode): PenguType {
 
 function infer_expr_impl(ctx: CheckContext, node: ExprNode): PenguType {
   switch (node.kind) {
+    case "container_new": {
+      const args = node.type_args.map((arg) => resolve_type_node(arg, ctx.module.env, ctx.sink));
+      for (const arg of node.args) infer_expr(ctx, arg.expr);
+      if (STRING_TYPES.has(node.name) && node.type_args.length === 0) return primitive(node.name);
+      if (node.name === "bitset") {
+        if (node.size !== undefined) {
+          const size = infer_expr(ctx, node.size);
+          check_initialization(ctx, INT, size, node.size.span, "en el tamaño del bitset", node.size);
+        }
+        return named("bitset", [INT]);
+      }
+      return named(node.name, args);
+    }
     case "int_lit":
       return INT;
     case "float_lit":
@@ -187,25 +201,46 @@ function infer_expr_impl(ctx: CheckContext, node: ExprNode): PenguType {
     case "tuple":
       return tuple_type(node.items.map((item) => infer_expr(ctx, item)));
     case "vector_lit": {
-      const element = node.items.length > 0 ? infer_expr(ctx, node.items[0] as ExprNode) : UNKNOWN;
-      for (const item of node.items) check_initialization(ctx, element, infer_expr(ctx, item), item.span, "en el vector", item);
-      return named("vector", [element]);
+      const declared = infer_declared(ctx, node.declared_type);
+      const element = literal_element(declared);
+      if (declared !== undefined && declared.kind === "array" && node.items.length !== declared.size) {
+        report_error(
+          ctx,
+          CODES.type_mismatch,
+          `el literal tiene ${node.items.length} elemento(s) y «${type_display(declared)}» espera ${declared.size}`,
+          node.span,
+        );
+      }
+      const first_type = element ?? (node.items.length > 0 ? infer_expr(ctx, node.items[0] as ExprNode) : UNKNOWN);
+      for (const item of node.items) {
+        check_initialization(ctx, first_type, infer_expr(ctx, item), item.span, "en el vector", item);
+      }
+      return declared ?? named("vector", [first_type]);
     }
     case "set_lit": {
-      const element = node.items.length > 0 ? infer_expr(ctx, node.items[0] as ExprNode) : UNKNOWN;
-      for (const item of node.items) check_initialization(ctx, element, infer_expr(ctx, item), item.span, "en el conjunto", item);
-      return named("set", [element]);
+      const declared = infer_declared(ctx, node.declared_type);
+      const element = literal_element(declared);
+      const first_type = element ?? (node.items.length > 0 ? infer_expr(ctx, node.items[0] as ExprNode) : UNKNOWN);
+      for (const item of node.items) {
+        check_initialization(ctx, first_type, infer_expr(ctx, item), item.span, "en el conjunto", item);
+      }
+      return declared ?? named("set", [first_type]);
     }
     case "map_lit": {
-      if (node.entries.length === 0) return named("map", [UNKNOWN, UNKNOWN]);
+      const declared = infer_declared(ctx, node.declared_type);
+      const declared_key = declared?.kind === "named" ? declared.args[0] : undefined;
+      const declared_value = declared?.kind === "named" ? declared.args[1] : undefined;
+      if (node.entries.length === 0) {
+        return declared ?? named("map", [declared_key ?? UNKNOWN, declared_value ?? UNKNOWN]);
+      }
       const first = node.entries[0]!;
-      const key = infer_expr(ctx, first.key);
-      const value = infer_expr(ctx, first.value);
+      const key = declared_key ?? infer_expr(ctx, first.key);
+      const value = declared_value ?? infer_expr(ctx, first.value);
       for (const entry of node.entries) {
         check_initialization(ctx, key, infer_expr(ctx, entry.key), entry.key.span, "en la clave del mapa", entry.key);
         check_initialization(ctx, value, infer_expr(ctx, entry.value), entry.value.span, "en el valor del mapa", entry.value);
       }
-      return named("map", [key, value]);
+      return declared ?? named("map", [key, value]);
     }
     case "comprehension":
       return infer_comprehension(ctx, node.container, node.body, node.key, node.clauses);
@@ -615,6 +650,20 @@ function describe_callee(callee: ExprNode): string {
 }
 
 // Busca `Circle(1.0)` sin `Omen::`: el nombre de la variante basta.
+
+// Tipo declarado de un literal con prefijo (`vector<int>[...]`).
+function infer_declared(ctx: CheckContext, node: TypeNode | undefined): PenguType | undefined {
+  if (node === undefined) return undefined;
+  return resolve_type_node(node, ctx.module.env, ctx.sink);
+}
+
+function literal_element(type: PenguType | undefined): PenguType | undefined {
+  if (type === undefined) return undefined;
+  if (type.kind === "array") return type.element;
+  if (type.kind === "named") return type.args[0];
+  return undefined;
+}
+
 function find_omen_variant(
   ctx: CheckContext,
   name: string,
@@ -984,6 +1033,18 @@ function infer_cast(ctx: CheckContext, node: Extract<ExprNode, { kind: "cast" }>
   const target = resolve_type_node(node.type, ctx.module.env, ctx.sink);
 
   if (is_any(source) || is_any(target)) return target;
+
+  if (source.kind === "named" && source.name === "variant" && source.args.length > 0) {
+    if (!source.args.some((option) => type_equals(option, target))) {
+      report_error(
+        ctx,
+        CODES.unsafe_required,
+        `«${type_display(source)}» no contiene «${type_display(target)}»`,
+        node.span,
+      );
+    }
+    return target;
+  }
 
   const safe = is_safe_cast(source, target, ctx.module.env);
   if (!safe) {

@@ -272,6 +272,8 @@ function parse_array_type(c: Cursor): ArrayTypeNode {
 // El tamaño de `array<T, N>` es una expresión constante. La
 // importación es circular a propósito: ambos módulos solo exportan
 // funciones, así que la evaluación de los módulos no se toca.
+// Expresión constante dentro de `<...>`: se detiene antes de `>`
+// (que cierra el tipo) para no confundirlo con una comparación.
 function parse_const_expression(c: Cursor): ExprNode {
-  return parse_expression(c);
+  return parse_expression(c, 5);
 }

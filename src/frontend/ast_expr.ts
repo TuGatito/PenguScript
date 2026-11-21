@@ -30,6 +30,7 @@ export type ExprNode =
   | CastNode
   | RangeNode
   | TupleNode
+  | ContainerNewNode
   | VectorLitNode
   | MapLitNode
   | SetLitNode
@@ -183,6 +184,18 @@ export interface TupleNode {
 export interface VectorLitNode {
   readonly kind: "vector_lit";
   readonly items: readonly ExprNode[];
+  // Prefijo explícito: `vector<int>[...]`, `array<int, 4>[...]`, ...
+  readonly declared_type?: TypeNode;
+  readonly span: Span;
+}
+
+export interface ContainerNewNode {
+  readonly kind: "container_new";
+  readonly name: string;
+  readonly type_args: readonly TypeNode[];
+  // `bitset<8>(...)`: el tamaño va como expresión, no como tipo.
+  readonly size?: ExprNode;
+  readonly args: readonly ArgNode[];
   readonly span: Span;
 }
 
@@ -195,12 +208,14 @@ export interface MapEntryNode {
 export interface MapLitNode {
   readonly kind: "map_lit";
   readonly entries: readonly MapEntryNode[];
+  readonly declared_type?: TypeNode;
   readonly span: Span;
 }
 
 export interface SetLitNode {
   readonly kind: "set_lit";
   readonly items: readonly ExprNode[];
+  readonly declared_type?: TypeNode;
   readonly span: Span;
 }
 
