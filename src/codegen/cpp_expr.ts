@@ -37,6 +37,7 @@ import { resolve_type_node } from "../semantic/type_env.ts";
 import { STRING_TYPES } from "../frontend/ast_type.ts";
 import type { TypeNode } from "../frontend/ast_type.ts";
 import { emit_block, emit_value_block } from "./cpp_stmt.ts";
+import { BUILTIN_FUNCTIONS } from "./builtins_emit.ts";
 import {
   emit_binary,
   emit_call,
@@ -113,14 +114,16 @@ export function emit_expr(g: GenContext, node: ExprNode): string {
     case "nullptr_lit":
       return "nullptr";
     case "ident": {
-      const imported_realm = g.selective_realms.get(node.name);
+      const imported = g.selective_symbols.get(node.name);
       if (
-        imported_realm !== undefined &&
+        imported !== undefined &&
         !is_local_declared(g, node.name) &&
         !g.module.functions.has(node.name) &&
         !g.module.consts.has(node.name)
       ) {
-        return `${sanitize_namespace(imported_realm)}::${cpp_identifier(node.name)}`;
+        const intrinsic = BUILTIN_FUNCTIONS[`${imported.realm}::${imported.name}`];
+        if (intrinsic !== undefined) return intrinsic;
+        return `${sanitize_namespace(imported.realm)}::${cpp_identifier(imported.name)}`;
       }
       return cpp_identifier(node.name);
     }
@@ -288,4 +291,4 @@ function emit_string(g: GenContext, parts: readonly import("../frontend/ast_expr
 // `cpp_stmt`, `cpp_decl` y `cpp_module` sigan importando desde aquí.
 export { emit_call, emit_index, emit_member_call, emit_vector_lit, emit_map_lit, emit_set_lit } from "./cpp_expr_call.ts";
 export { emit_as_statement, build_lambda } from "./cpp_expr_control.ts";
-export { BUILTIN_FUNCTIONS, BUILTIN_CONSTANTS } from "./cpp_expr_call.ts";
+export { BUILTIN_FUNCTIONS, BUILTIN_CONSTANTS } from "./builtins_emit.ts";

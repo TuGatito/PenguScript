@@ -126,7 +126,9 @@ export function parse_expression_or_tuple(c: Cursor): ExprNode {
 function parse_unary(c: Cursor): ExprNode {
   const token = peek(c);
 
-  if (token.kind === "not") {
+  // `!` en posición de prefijo es negación booleana; en posición de sufijo
+  // (`valor!`) es el desarrollo del opcional, que maneja `parse_postfix`.
+  if (token.kind === "not" || token.kind === "!") {
     advance(c);
     const operand = parse_expression(c, 4);
     return { kind: "unary", op: "not", operand, span: merge_span(token.span, operand.span) };

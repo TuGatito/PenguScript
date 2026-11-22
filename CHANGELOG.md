@@ -4,6 +4,59 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+### Biblioteca estándar: F9 (documentación)
+
+- **`scripts/gen_stdlib_docs.ts`** (nuevo): genera `docs/stdlib_api.md` desde el
+  parser real — runes con campos y constructor, enchantings con firmas,
+  funciones con valores por defecto, omens con variantes e intrínsecos. El
+  modo `--check` falla si el documento no está al día y la suite lo comprueba
+  (`tests/std/docs.test.ts`).
+- **`README.md`**: sección «Recetas» con tres programas completos (física,
+  CLI con flags y JSON, tiro parabólico) verificados con `pengu run`.
+- **`docs/stdlib.md`**: enlace a la referencia generada y módulos previstos
+  ajustados a 0.2.0.
+- `version` sigue en `0.1.0`: la 0.1.0 se publica cuando termine la fase F9
+  (documentación, extensión y `.vsix`).
+
+#### Corregido en F9
+
+- **`!` de prefijo** negaba mal: el parser solo reconocía `not valor`, así que
+  `if !opciones.is_ok()` producía `E0403 «__error__»` y rompía el bloque
+  siguiente. Ahora `!` en posición de prefijo es negación booleana (el `!` de
+  sufijo sigue siendo el desarrollo del opcional). Pruebas en
+  `tests/checker/checker.test.ts`.
+- **`docs/cheatsheet.md`** citaba `std/fmt`, que no existe: ahora dice
+  `std/format`.
+
+### Biblioteca estándar: F8 (avanzados)
+
+- **`std/file.pengu`** (nuevo): rune `File` sobre un manejador nativo con
+  `open`, `create`, `append`, `read_line`, `read_all`, `write`, `write_line`,
+  `flush`, `is_eof`, `close`, `path` y `mode`; libres `read_text`,
+  `write_text` y `append_text`. Los errores se devuelven como `T?`/`bool`.
+- **`std/process.pengu`** (nuevo): `run` (código de salida), `status`,
+  `output` (captura la salida estándar) y `exit`.
+- **`std/crypto.pengu`** (nuevo): `sha256` y `sha256_hex` con una
+  implementación propia en el runtime (vectores conocidos verificados).
+- Estudio de los módulos restantes en la bitácora del plan: `std/thread`,
+  `std/channel`, `std/net` y `std/regex` se aplazan a 0.2.0 porque necesitan
+  garantías de concurrencia, red o un motor de expresiones que 0.1.0 no debe
+  prometer; `std/debug` se reduce a lo que ya cubre `std/assert`.
+- `tests/std/advanced.test.ts` (nuevo): archivos con manejador, procesos,
+  SHA-256 y una herramienta de huellas que lee un archivo y lo verifica.
+
+#### Corregido en F8
+
+- **Importaciones selectivas con alias**: `invoke {sqrt as raiz} from "std/math"`
+  ahora emite la llamada al símbolo real (`std::sqrt`), no `math::raiz`; dos
+  `invoke {…} from "mismo/módulo"` se acumulan en lugar de perder el segundo.
+  Las tablas de intrínsecos viven en `src/codegen/builtins_emit.ts` para que el
+  emisor de valores y el de llamadas las consulten sin ciclos de imports.
+- `process::run` devuelve el código de salida del programa (antes el estado
+  en bruto de `std::system`).
+- El helper de lectura por líneas escapa correctamente `\n` y `\r` en el
+  runtime embebido.
+
 ### Biblioteca estándar: F7 (datos y CLI)
 
 - **`std/encoding.pengu`** (nuevo): `base64`, `base64_decode`, `base64_bytes`,
@@ -538,10 +591,11 @@ técnica conocida en el compilador.
 
 ### Verificado
 
-- `bun test`: 433 pruebas en 55 archivos (lexer, parser, checker, formateador,
+- `bun test`: 443 pruebas en 58 archivos (lexer, parser, checker, formateador,
   LSP de integración, de consultas, de sincronización y de rendimiento,
   medición de tamaños, bindgen, biblioteca estándar, conformidad y e2e de los
   ejemplos, de las fases F1–F9, G1–G6, H1–H7, I1–I8, L1–L6 y de la biblioteca
-  estándar (F0, F1, F2, F3, F4, F5, F6 y F7), y de la extensión de VS Code).
+  estándar (F0–F8), la documentación generada de la stdlib y las importaciones
+  selectivas, y de la extensión de VS Code).
 - `tsc --noEmit` sin errores y `pengu fmt --check` sin cambios pendientes.
 - Los 15 ejemplos de `examples/` compilan y ejecutan con el compilador final.

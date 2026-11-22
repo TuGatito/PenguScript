@@ -55,6 +55,9 @@ export const RUNTIME_HEADER = `// Runtime generado por pengu 0.1.0. No editar a 
 #include <filesystem>
 #include <fstream>
 #include <unistd.h>
+#ifndef _WIN32
+#include <sys/wait.h>
+#endif
 #include <functional>
 #include <numbers>
 #include <random>
@@ -933,6 +936,185 @@ inline bool write_file(const std::string& path, const std::string& contents) {
   if (!output) return false;
   output << contents;
   return static_cast<bool>(output);
+}
+
+// ---- Archivos con manejador (F8) -----------------------------------------
+//
+// Un archivo abierto se representa como el puntero de std::FILE convertido a
+// int64_t; 0 significa que no se pudo abrir. El rune «File» de std/file
+// guarda ese valor y ofrece una API con métodos.
+
+inline std::FILE* file_stream(std::int64_t handle) {
+  return reinterpret_cast<std::FILE*>(static_cast<std::intptr_t>(handle));
+}
+
+inline std::int64_t file_open_raw(const std::string& path, const std::string& mode) {
+  std::FILE* stream = std::fopen(path.c_str(), mode.c_str());
+  if (stream == nullptr) return 0;
+  return static_cast<std::int64_t>(reinterpret_cast<std::intptr_t>(stream));
+}
+
+inline bool file_close_raw(std::int64_t handle) {
+  std::FILE* stream = file_stream(handle);
+  if (stream == nullptr) return false;
+  return std::fclose(stream) == 0;
+}
+
+inline std::optional<std::string> file_read_all_raw(std::int64_t handle) {
+  std::FILE* stream = file_stream(handle);
+  if (stream == nullptr) return std::nullopt;
+  std::string text;
+  char buffer[4096];
+  std::size_t count = 0;
+  while ((count = std::fread(buffer, 1, sizeof(buffer), stream)) > 0) text.append(buffer, count);
+  if (std::ferror(stream) != 0) return std::nullopt;
+  return text;
+}
+
+inline std::optional<std::string> file_read_line_raw(std::int64_t handle) {
+  std::FILE* stream = file_stream(handle);
+  if (stream == nullptr) return std::nullopt;
+  std::string line;
+  int value = 0;
+  bool any = false;
+  while ((value = std::fgetc(stream)) != EOF) {
+    any = true;
+    if (value == '\\n') break;
+    line.push_back(static_cast<char>(value));
+  }
+  if (!any) return std::nullopt;
+  if (!line.empty() && line.back() == '\\r') line.pop_back();
+  return line;
+}
+
+inline bool file_write_raw(std::int64_t handle, const std::string& text) {
+  std::FILE* stream = file_stream(handle);
+  if (stream == nullptr) return false;
+  const std::size_t written = std::fwrite(text.data(), 1, text.size(), stream);
+  return written == text.size();
+}
+
+inline bool file_flush_raw(std::int64_t handle) {
+  std::FILE* stream = file_stream(handle);
+  if (stream == nullptr) return false;
+  return std::fflush(stream) == 0;
+}
+
+inline bool file_eof_raw(std::int64_t handle) {
+  std::FILE* stream = file_stream(handle);
+  if (stream == nullptr) return true;
+  return std::feof(stream) != 0;
+}
+
+// ---- Procesos (F8) -------------------------------------------------------
+
+inline int process_run_raw(const std::string& command) {
+  const int status = std::system(command.c_str());
+  if (status == -1) return -1;
+#ifndef _WIN32
+  if (WIFEXITED(status)) return WEXITSTATUS(status);
+#endif
+  return status;
+}
+
+inline std::string process_output_raw(const std::string& command) {
+  std::string output;
+  std::FILE* pipe = ::popen(command.c_str(), "r");
+  if (pipe == nullptr) return output;
+  char buffer[4096];
+  std::size_t count = 0;
+  while ((count = std::fread(buffer, 1, sizeof(buffer), pipe)) > 0) output.append(buffer, count);
+  ::pclose(pipe);
+  return output;
+}
+
+inline bool process_status_raw(const std::string& command) {
+  return std::system(command.c_str()) == 0;
+}
+
+inline void process_exit_raw(int code) {
+  std::exit(code);
+}
+
+// ---- SHA-256 (F8) --------------------------------------------------------
+
+inline std::uint32_t sha256_rotate(std::uint32_t value, std::uint32_t bits) {
+  return (value >> bits) | (value << (32 - bits));
+}
+
+inline std::string sha256_hex(const std::string& text) {
+  static const std::uint32_t constants[64] = {
+      0x428a2f98u, 0x71374491u, 0xb5c0fbcfu, 0xe9b5dba5u, 0x3956c25bu, 0x59f111f1u, 0x923f82a4u, 0xab1c5ed5u,
+      0xd807aa98u, 0x12835b01u, 0x243185beu, 0x550c7dc3u, 0x72be5d74u, 0x80deb1feu, 0x9bdc06a7u, 0xc19bf174u,
+      0xe49b69c1u, 0xefbe4786u, 0x0fc19dc6u, 0x240ca1ccu, 0x2de92c6fu, 0x4a7484aau, 0x5cb0a9dcu, 0x76f988dau,
+      0x983e5152u, 0xa831c66du, 0xb00327c8u, 0xbf597fc7u, 0xc6e00bf3u, 0xd5a79147u, 0x06ca6351u, 0x14292967u,
+      0x27b70a85u, 0x2e1b2138u, 0x4d2c6dfcu, 0x53380d13u, 0x650a7354u, 0x766a0abbu, 0x81c2c92eu, 0x92722c85u,
+      0xa2bfe8a1u, 0xa81a664bu, 0xc24b8b70u, 0xc76c51a3u, 0xd192e819u, 0xd6990624u, 0xf40e3585u, 0x106aa070u,
+      0x19a4c116u, 0x1e376c08u, 0x2748774cu, 0x34b0bcb5u, 0x391c0cb3u, 0x4ed8aa4au, 0x5b9cca4fu, 0x682e6ff3u,
+      0x748f82eeu, 0x78a5636fu, 0x84c87814u, 0x8cc70208u, 0x90befffau, 0xa4506cebu, 0xbef9a3f7u, 0xc67178f2u};
+  std::uint32_t state[8] = {0x6a09e667u, 0xbb67ae85u, 0x3c6ef372u, 0xa54ff53au,
+                            0x510e527fu, 0x9b05688cu, 0x1f83d9abu, 0x5be0cd19u};
+  std::string message = text;
+  const std::uint64_t bit_length = static_cast<std::uint64_t>(message.size()) * 8u;
+  message.push_back(static_cast<char>(0x80));
+  while (message.size() % 64u != 56u) message.push_back('\0');
+  for (int shift = 56; shift >= 0; shift -= 8) {
+    message.push_back(static_cast<char>((bit_length >> shift) & 0xffu));
+  }
+  for (std::size_t offset = 0; offset < message.size(); offset += 64) {
+    std::uint32_t words[64];
+    for (int index = 0; index < 16; index += 1) {
+      const std::size_t base = offset + static_cast<std::size_t>(index) * 4u;
+      words[index] = (static_cast<std::uint32_t>(static_cast<unsigned char>(message[base])) << 24) |
+                     (static_cast<std::uint32_t>(static_cast<unsigned char>(message[base + 1])) << 16) |
+                     (static_cast<std::uint32_t>(static_cast<unsigned char>(message[base + 2])) << 8) |
+                     static_cast<std::uint32_t>(static_cast<unsigned char>(message[base + 3]));
+    }
+    for (int index = 16; index < 64; index += 1) {
+      const std::uint32_t first = sha256_rotate(words[index - 15], 7) ^ sha256_rotate(words[index - 15], 18) ^ (words[index - 15] >> 3);
+      const std::uint32_t second = sha256_rotate(words[index - 2], 17) ^ sha256_rotate(words[index - 2], 19) ^ (words[index - 2] >> 10);
+      words[index] = words[index - 16] + first + words[index - 7] + second;
+    }
+    std::uint32_t a = state[0];
+    std::uint32_t b = state[1];
+    std::uint32_t c = state[2];
+    std::uint32_t d = state[3];
+    std::uint32_t e = state[4];
+    std::uint32_t f = state[5];
+    std::uint32_t g = state[6];
+    std::uint32_t h = state[7];
+    for (int index = 0; index < 64; index += 1) {
+      const std::uint32_t sum1 = sha256_rotate(e, 6) ^ sha256_rotate(e, 11) ^ sha256_rotate(e, 25);
+      const std::uint32_t choice = (e & f) ^ (~e & g);
+      const std::uint32_t temp1 = h + sum1 + choice + constants[index] + words[index];
+      const std::uint32_t sum0 = sha256_rotate(a, 2) ^ sha256_rotate(a, 13) ^ sha256_rotate(a, 22);
+      const std::uint32_t majority = (a & b) ^ (a & c) ^ (b & c);
+      const std::uint32_t temp2 = sum0 + majority;
+      h = g;
+      g = f;
+      f = e;
+      e = d + temp1;
+      d = c;
+      c = b;
+      b = a;
+      a = temp1 + temp2;
+    }
+    state[0] += a;
+    state[1] += b;
+    state[2] += c;
+    state[3] += d;
+    state[4] += e;
+    state[5] += f;
+    state[6] += g;
+    state[7] += h;
+  }
+  std::string output;
+  output.reserve(64);
+  for (std::uint32_t value : state) {
+    static const char digits[] = "0123456789abcdef";
+    for (int shift = 28; shift >= 0; shift -= 4) output.push_back(digits[(value >> shift) & 0x0fu]);
+  }
+  return output;
 }
 
 inline bool path_exists(const std::string& path) {

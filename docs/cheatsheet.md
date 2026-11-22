@@ -290,7 +290,7 @@ Namespaces and individual symbols can both be renamed at import time:
 invoke "utils/strings" as str
 s = str::upper("hello")
 
-invoke {format as fmt_std} from "std/fmt"
+invoke {format as fmt_std} from "std/format"
 invoke {format as fmt_json} from "json/fmt"
 ```
 

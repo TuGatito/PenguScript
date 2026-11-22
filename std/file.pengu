@@ -1,0 +1,120 @@
+-- Archivos con manejador (F8).
+--
+-- `File` guarda un puntero de `std::FILE` como `int64_t`. Si `open` falla
+-- devuelve `none`; los métodos de lectura/escritura devuelven `T?` o `bool`,
+-- nunca abortan el proceso. Cierra siempre con `close`.
+
+realm file
+
+invoke "std/int"
+invoke "std/optional"
+invoke "std/string"
+
+declare
+  open_raw = (ruta: string, modo: string) -> int64_t
+  close_raw = (manejador: int64_t) -> bool
+  read_all_raw = (manejador: int64_t) -> string?
+  read_line_raw = (manejador: int64_t) -> string?
+  write_raw = (manejador: int64_t, texto: string) -> bool
+  flush_raw = (manejador: int64_t) -> bool
+  eof_raw = (manejador: int64_t) -> bool
+
+rune File
+  manejador: int64_t
+  ruta: string
+  modo: string
+  abierto: bool
+
+  constructor(manejador: int64_t, ruta: string, modo: string, abierto: bool)
+    @manejador = manejador
+    @ruta = ruta
+    @modo = modo
+    @abierto = abierto
+
+enchanting File
+  is_open = -> bool
+    @abierto
+
+  path = -> string
+    @ruta
+
+  mode = -> string
+    @modo
+
+  mut close = -> bool
+    if not @abierto
+      false
+    else
+      cerrado = file::close_raw(@manejador)
+      @abierto = false
+      cerrado
+
+  mut read_all = -> string?
+    mut salida: string? = none
+    if @abierto
+      salida = file::read_all_raw(@manejador)
+    salida
+
+  mut read_line = -> string?
+    mut salida: string? = none
+    if @abierto
+      salida = file::read_line_raw(@manejador)
+    salida
+
+  mut write = (texto: string) -> bool
+    if not @abierto then false else file::write_raw(@manejador, texto)
+
+  mut write_line = (texto: string) -> bool
+    if not @abierto then false else file::write_raw(@manejador, texto + "\n")
+
+  mut flush = -> bool
+    if not @abierto then false else file::flush_raw(@manejador)
+
+  mut is_eof = -> bool
+    if not @abierto then true else file::eof_raw(@manejador)
+
+  to_string = -> string
+    "File(#{@ruta}, #{@modo})"
+
+open = (ruta: string, modo: string = "r") -> File?
+  manejador = file::open_raw(ruta, modo)
+  if manejador == 0
+    none
+  else
+    File(manejador, ruta, modo, true)
+
+create = (ruta: string) -> File?
+  open(ruta, "w")
+
+append = (ruta: string) -> File?
+  open(ruta, "a")
+
+read_text = (ruta: string) -> string?
+  archivo = open(ruta, "r")
+  mut salida: string? = none
+  if archivo.is_some()
+    mut abierto = archivo.value()
+    leido = abierto.read_all()
+    abierto.close()
+    salida = leido
+  salida
+
+write_text = (ruta: string, texto: string) -> bool
+  archivo = open(ruta, "w")
+  if archivo.is_none()
+    false
+  else
+    mut abierto = archivo.value()
+    escrito = abierto.write(texto)
+    abierto.close()
+    escrito
+
+append_text = (ruta: string, texto: string) -> bool
+  archivo = open(ruta, "a")
+  if archivo.is_none()
+    false
+  else
+    mut abierto = archivo.value()
+    escrito = abierto.write(texto)
+    abierto.close()
+    escrito

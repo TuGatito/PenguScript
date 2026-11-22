@@ -100,8 +100,12 @@ export function analyze_project(source_path: string, options: AnalyzeOptions = {
       external: { modules: external_modules, selective, enchants },
     });
 
-    const selective_realms = new Map<string, string>();
-    for (const [name, symbol] of loaded.selective) selective_realms.set(name, symbol.module.info.realm);
+    // Alias visible → realm de origen y nombre real del símbolo (puede diferir
+    // del alias: `invoke {format as fmt} from "std/format"`).
+    const selective_symbols = new Map<string, { realm: string; name: string }>();
+    for (const [name, symbol] of loaded.selective) {
+      selective_symbols.set(name, { realm: symbol.module.info.realm, name: symbol.name });
+    }
     modules.push({
       loaded,
       unit: {
@@ -110,7 +114,7 @@ export function analyze_project(source_path: string, options: AnalyzeOptions = {
         types,
         member_targets,
         external_realms,
-        selective_realms,
+        selective_symbols,
         external_modules,
       },
       types,

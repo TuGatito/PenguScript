@@ -1,0 +1,18 @@
+-- Criptografía (F8).
+--
+-- SHA-256 en hexadecimal; suficiente para huellas de integridad. Los hashes
+-- con clave (HMAC) y las firmas quedan fuera de 0.1.0.
+
+realm crypto
+
+invoke "std/encoding"
+invoke "std/string"
+
+declare
+  sha256_raw = (texto: string) -> string
+
+sha256 = (texto: string) -> string
+  crypto::sha256_raw(texto)
+
+sha256_hex = (texto: string) -> string
+  "sha256:#{sha256(texto)}"

@@ -1,0 +1,27 @@
+-- Procesos del sistema (F8).
+--
+-- `run`/`status` ejecutan una orden con el shell y devuelven el código de
+-- salida; `output` captura la salida estándar. `exit` termina el proceso.
+
+realm process
+
+invoke "std/int"
+invoke "std/string"
+
+declare
+  run_raw = (comando: string) -> int
+  output_raw = (comando: string) -> string
+  status_raw = (comando: string) -> bool
+  exit_raw = (codigo: int) -> void
+
+run = (comando: string) -> int
+  process::run_raw(comando)
+
+status = (comando: string) -> bool
+  process::status_raw(comando)
+
+output = (comando: string) -> string
+  process::output_raw(comando)
+
+exit = (codigo: int) -> void
+  process::exit_raw(codigo)

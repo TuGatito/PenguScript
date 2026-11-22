@@ -69,12 +69,17 @@ export interface ConstInfo {
   evaluable: boolean;
 }
 
+export interface SelectiveItem {
+  readonly name: string;
+  readonly alias: string | undefined;
+}
+
 export interface ImportInfo {
   readonly path: string;
   readonly alias: string;
   // `as nombre`: el alias lo eligió el programa, no el realm del módulo.
   readonly explicit: boolean;
-  readonly items: readonly string[] | undefined;
+  readonly items: readonly SelectiveItem[] | undefined;
   readonly span: Span;
 }
 
@@ -463,17 +468,18 @@ function register_import(decl: Extract<DeclNode, { kind: "invoke_decl" }>, impor
   const trimmed = decl.path.replace(/^\.\//, "");
   const alias = decl.alias ?? trimmed.split("/").filter(Boolean).pop() ?? trimmed;
   const explicit = decl.alias !== undefined;
-  if (imports.has(alias)) {
+  const items = decl.items?.map((item) => ({ name: item.name, alias: item.alias }));
+  const existing = imports.get(alias);
+  if (existing !== undefined) {
+    // Dos `invoke {…} from "mismo/módulo"` son legales: se acumulan los símbolos.
+    if (existing.items !== undefined && items !== undefined) {
+      imports.set(alias, { ...existing, items: [...existing.items, ...items] });
+      return;
+    }
     sink.add(make_error(CODES.duplicate_symbol, `el módulo «${alias}» ya está importado`, decl.span));
     return;
   }
-  imports.set(alias, {
-    path: decl.path,
-    alias,
-    explicit,
-    items: decl.items?.map((item) => item.alias ?? item.name),
-    span: decl.span,
-  });
+  imports.set(alias, { path: decl.path, alias, explicit, items, span: decl.span });
 }
 
 function register_extern(

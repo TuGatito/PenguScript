@@ -270,15 +270,20 @@ function load_one(state: LoadState, file: string): LoadedModule | undefined {
     if (imported.items === undefined) continue;
     const child = imports_by_alias.get(alias);
     if (child === undefined) continue;
-    for (const name of imported.items) {
-      if (symbol_type_of(child.info, name) === undefined && !child.info.env.runes.has(name) && !child.info.env.omens.has(name) && !child.info.env.aliases.has(name)) {
+    for (const item of imported.items) {
+      if (
+        symbol_type_of(child.info, item.name) === undefined &&
+        !child.info.env.runes.has(item.name) &&
+        !child.info.env.omens.has(item.name) &&
+        !child.info.env.aliases.has(item.name)
+      ) {
         report(
           state,
-          make_error(CODES.unknown_identifier, `el módulo «${alias}» no exporta «${name}»`, imported.span),
+          make_error(CODES.unknown_identifier, `el módulo «${alias}» no exporta «${item.name}»`, imported.span),
         );
         continue;
       }
-      selective.set(name, { module: child, name });
+      selective.set(item.alias ?? item.name, { module: child, name: item.name });
     }
   }
 

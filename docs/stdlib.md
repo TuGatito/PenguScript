@@ -1,6 +1,10 @@
 ## Standard Library
 ---
 
+La **referencia exacta** (módulo → runes, métodos y firmas) se genera desde el
+código en [`stdlib_api.md`](stdlib_api.md) con `bun run scripts/gen_stdlib_docs.ts`;
+las tablas de este documento resumen qué ofrece cada capa.
+
 Every stdlib module must be imported with `invoke`. There are no builtins. Each module is one or two files:
 
 - **`<module>.d.pengu`** — declaration file. Signatures without bodies. The implementation is a C++ primitive (FFI/intrinsic).
@@ -104,6 +108,9 @@ All `.pengu`, built on `std/sys` and `std/ffi`.
 |--------|-------|----------|
 | `std/io` | `.pengu` | `print`, `println`, `eprint`, `eprintln`, `read_line`, `read`, `write`, `flush`. `File` rune (`open`, `read`, `write`, `seek`, `close`). `BufReader`, `BufWriter`. |
 | `std/fs` | `.pengu` | `read_file`, `write_file`, `append_file`, `remove`, `rename`, `copy`, `exists`, `is_file`, `is_dir`, `mkdir`, `rmdir`, `read_dir`, `list_dir`, `symlink`, `read_link`, `canonicalize`, `metadata`. |
+| `std/file` | `.pengu` | `File` con `open`, `create`, `append`, `read_line`, `read_all`, `write`, `write_line`, `flush`, `is_eof`, `close`; libres `read_text`, `write_text`, `append_text`. |
+| `std/process` | `.pengu` | `run` (código de salida), `status`, `output` (captura la salida estándar) y `exit`. |
+| `std/crypto` | `.pengu` | `sha256` y `sha256_hex` (SHA-256 en hexadecimal). |
 | `std/path` | `.pengu` | `Path` rune: `join`, `parent`, `file_name`, `stem`, `extension`, `is_absolute`, `components`, `normalize`, `to_string`. |
 | `std/math` | `.pengu` | `<cmath>` wrappers: `sqrt`, `pow`, `cbrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `log`, `log2`, `log10`, `exp`, `floor`, `ceil`, `round`, `trunc`, `abs`, `min`, `max`, `clamp`. Constants: `pi`, `e`, `inf`, `nan`. Integers: `gcd`, `lcm`, `factorial`. |
 | `std/time` | `.pengu` | `Instant`, `Duration`, `SystemTime`. `now`, `elapsed`, `sleep`, `from_secs`, `from_millis`, `from_nanos`, `as_secs`, `as_millis`. |
@@ -131,7 +138,7 @@ All `.pengu`.
 | `std/test` | `.pengu` | `is_true`, `is_false`, `equal`, `not_equal`, `is_some`, `is_none` (panican con `assert::fail`). |
 | `std/cli` | `.pengu` | `Flag`, `Parsed`; `flag`, `option`, `short_flag`, `short_option`, `parse`, `usage`. Soporta `--nombre=valor`, `--nombre valor`, `-n valor`, `-n=valor`, `--` y posicionales. |
 
-### Layer 4 — Concurrency and I/O (previstos, fases F8–F9)
+### Layer 4 — Concurrency and I/O (previstos para 0.2.0)
 
 All `.pengu`. Not required for the language to be usable, but part of a "complete" stdlib.
 
@@ -143,7 +150,6 @@ All `.pengu`. Not required for the language to be usable, but part of a "complet
 | `std/channel` | `.pengu` | `Channel<T>`, `Sender<T>`, `Receiver<T>`. `send`, `recv`, `try_recv`, `close`, `select` (function taking a list of channels). |
 | `std/net` | `.pengu` | `TcpListener`, `TcpStream`, `UdpSocket`, `Address`, `IpAddr` omen, `Port`. Uses `sys::socket`, `sys::bind`, `sys::listen`, `sys::accept`, `sys::connect`. |
 | `std/regex` | `.pengu` | `Regex`, `Match`. `find`, `find_all`, `replace`, `split`, `captures`. Thompson NFA implementation in PenguScript. |
-| `std/crypto` | `.pengu` | `sha256`, `sha512`, `md5`, `blake3`. |
 
 ### Future modules (post v0.1.0)
 

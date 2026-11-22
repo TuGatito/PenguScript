@@ -23,8 +23,8 @@ export interface ProgramUnit {
   readonly member_targets: ReadonlyMap<ExprNode, MethodTarget>;
   // Alias de `invoke` del módulo → realm importado.
   readonly external_realms: ReadonlyMap<string, string>;
-  // Símbolo importado de forma selectiva → realm de origen.
-  readonly selective_realms: ReadonlyMap<string, string>;
+  // Símbolo importado de forma selectiva → realm de origen y nombre real.
+  readonly selective_symbols: ReadonlyMap<string, { readonly realm: string; readonly name: string }>;
   // Alias de `invoke` → módulo importado.
   readonly external_modules: ReadonlyMap<string, ModuleInfo>;
 }
@@ -70,7 +70,7 @@ export function generate_program(
       sink,
       type_realms,
       unit.external_realms,
-      unit.selective_realms,
+      unit.selective_symbols,
       unit.member_targets,
       unit.external_modules,
     );

@@ -1,5 +1,6 @@
 // Emisión de llamadas, índices, miembros y literales de contenedor.
 
+import { BUILTIN_CONSTANTS, BUILTIN_FUNCTIONS } from "./builtins_emit.ts";
 import type {
   BinaryNode,
   CallNode,
@@ -184,214 +185,7 @@ export function emit_call(g: GenContext, node: CallNode): string {
 
 // Las primitivas de «float» y «long double» se resuelven contra las
 // sobrecargas de <cmath>; el nombre del tipo no participa en el C++.
-const FLOAT_REALM_INTRINSICS: Readonly<Record<string, string>> = {
-  sqrt: "std::sqrt",
-  cbrt: "std::cbrt",
-  pow: "std::pow",
-  exp: "std::exp",
-  ln: "std::log",
-  log2: "std::log2",
-  log10: "std::log10",
-  floor: "std::floor",
-  ceil: "std::ceil",
-  round: "std::round",
-  trunc: "std::trunc",
-  hypot: "std::hypot",
-  is_finite: "std::isfinite",
-  is_infinite: "std::isinf",
-  is_nan: "std::isnan",
-  is_sign_negative: "std::signbit",
-  to_fixed: "::pengu::to_fixed",
-  to_scientific: "::pengu::to_scientific",
-};
 
-const FLOAT_REALM_FUNCTIONS: Readonly<Record<string, string>> = Object.fromEntries(
-  ["float", "long_double"].flatMap((realm) =>
-    Object.entries(FLOAT_REALM_INTRINSICS).map(([name, cpp]) => [`${realm}::${name}`, cpp]),
-  ),
-);
-
-// Límites de los enteros de ancho fijo: `int8_max()` y compañía.
-const INTEGER_LIMIT_TYPES: Readonly<Record<string, string>> = {
-  int8: "std::int8_t",
-  int16: "std::int16_t",
-  int32: "std::int32_t",
-  int64: "std::int64_t",
-  uint8: "std::uint8_t",
-  uint16: "std::uint16_t",
-  uint32: "std::uint32_t",
-  uint64: "std::uint64_t",
-  size: "std::size_t",
-  ptrdiff: "std::ptrdiff_t",
-};
-
-const INTEGER_LIMIT_FUNCTIONS: Readonly<Record<string, string>> = Object.fromEntries(
-  Object.entries(INTEGER_LIMIT_TYPES).flatMap(([short, cpp]) => [
-    [`integers::${short}_max`, `std::numeric_limits<${cpp}>::max`],
-    [`integers::${short}_min`, `std::numeric_limits<${cpp}>::min`],
-  ]),
-);
-
-// Conversión de caja de caracteres ASCII: devuelven `char` (la versión de
-// <cctype> devuelve `int`).
-const CHAR_FUNCTIONS: Readonly<Record<string, string>> = {
-  "char::to_upper_raw": "::pengu::char_upper",
-  "char::to_lower_raw": "::pengu::char_lower",
-};
-
-export const BUILTIN_FUNCTIONS: Readonly<Record<string, string>> = {
-  ...CHAR_FUNCTIONS,
-
-  ...FLOAT_REALM_FUNCTIONS,
-  ...INTEGER_LIMIT_FUNCTIONS,
-  "io::read_line": "::pengu::read_line",
-  "io::write_values": "::pengu::write_values",
-  "io::eprint_values": "::pengu::eprint_values",
-  "format::format_values": "::pengu::format_values",
-  "format::fixed": "::pengu::to_fixed",
-  "format::scientific": "::pengu::to_scientific",
-  "format::radix": "::pengu::to_radix",
-  "log::log_values": "::pengu::log_values",
-  "string::find_raw": "::pengu::find_raw",
-  "string::trim_raw": "::pengu::trim_raw",
-  "string::to_upper_raw": "::pengu::to_upper_raw",
-  "string::to_lower_raw": "::pengu::to_lower_raw",
-  "string::split_raw": "::pengu::split_raw",
-  "string::rfind_raw": "::pengu::rfind_raw",
-  "string::find_from_raw": "::pengu::find_from_raw",
-  "string::replace_first_raw": "::pengu::replace_first_raw",
-  "string::split_whitespace_raw": "::pengu::split_whitespace_raw",
-  "string::char_count_raw": "::pengu::char_count_raw",
-  "string::reverse_raw": "::pengu::reverse_raw",
-  "string::parse_int_raw": "::pengu::parse_int_raw",
-  "string::parse_double_raw": "::pengu::parse_double_raw",
-  "string::bytes_raw": "::pengu::bytes_raw",
-  "fs::read_bytes": "::pengu::read_bytes",
-  "fs::write_bytes": "::pengu::write_bytes",
-  "fs::append_string": "::pengu::append_file",
-  "fs::is_file": "::pengu::path_is_file",
-  "fs::list_dir": "::pengu::list_dir",
-  "fs::file_size": "::pengu::file_size",
-  "fs::rename": "::pengu::rename_path",
-  "fs::copy": "::pengu::copy_path",
-  "fs::canonicalize": "::pengu::canonical_path",
-  "os::set_env": "::pengu::set_env",
-  "os::pid": "::pengu::process_id",
-  "os::home_dir": "::pengu::home_dir",
-  "os::temp_dir": "::pengu::temp_dir",
-  "os::current_dir": "::pengu::current_dir",
-  "os::platform": "::pengu::platform_name",
-  "os::arch": "::pengu::arch_name",
-  "os::cpu_count": "::pengu::cpu_count",
-  "time::now_nanos": "::pengu::now_nanos",
-  "time::monotonic_millis": "::pengu::monotonic_millis",
-  "time::monotonic_nanos": "::pengu::monotonic_nanos",
-  "time::parts": "::pengu::time_parts",
-  "time::format_datetime": "::pengu::format_datetime",
-  "random::seed": "::pengu::seed_random",
-  "random::float_range": "::pengu::random_real",
-  "io::read_all": "::pengu::read_all_stdin",
-  "io::flush": "::pengu::flush_stdout",
-  "io::is_terminal": "::pengu::stdin_is_terminal",
-  "io::read_char": "::pengu::read_char",
-  "format::template_values": "::pengu::template_values",
-  "encoding::base64_raw": "::pengu::base64_encode",
-  "encoding::base64_decode_raw": "::pengu::base64_decode",
-  "encoding::hex_raw": "::pengu::hex_encode",
-  "encoding::hex_decode_raw": "::pengu::hex_decode",
-  "encoding::url_raw": "::pengu::url_encode",
-  "encoding::url_decode_raw": "::pengu::url_decode",
-  "encoding::bytes_raw": "::pengu::string_bytes",
-  "encoding::bytes_text_raw": "::pengu::bytes_text",
-  "encoding::from_bytes_raw": "::pengu::bytes_string",
-  "encoding::is_utf8_raw": "::pengu::valid_utf8",
-  "hash::fnv1a32_raw": "::pengu::fnv1a32",
-  "hash::fnv1a64_raw": "::pengu::fnv1a64",
-  "hash::djb2_raw": "::pengu::djb2",
-  "hash::crc32_raw": "::pengu::crc32",
-  "hash::adler32_raw": "::pengu::adler32",
-  "hash::hex32_raw": "::pengu::hex32_raw",
-  "hash::hex64_raw": "::pengu::hex64_raw",
-  "console::esc_raw": "::pengu::ansi_escape_raw",
-  "console::strip_raw": "::pengu::strip_ansi",
-  "json::code_char_raw": "::pengu::utf8_from_code",
-  "log::set_level_raw": "::pengu::set_log_level_raw",
-  "log::level_raw": "::pengu::log_level_raw",
-  "log::enabled_raw": "::pengu::log_enabled_raw",
-  "log::timestamped_raw": "::pengu::log_timestamped_raw",
-  "os::args": "::pengu::os_args",
-  "debug::println": "::pengu::println",
-  "console::println": "::pengu::println",
-  "math::sqrt": "std::sqrt",
-  "math::abs": "std::abs",
-  "math::floor": "std::floor",
-  "math::ceil": "std::ceil",
-  "math::round": "std::round",
-  "math::pow": "std::pow",
-  "math::min": "std::min",
-  "math::max": "std::max",
-  "math::sin": "std::sin",
-  "math::cos": "std::cos",
-  "math::tan": "std::tan",
-  "fs::read_to_string": "::pengu::read_file",
-  "fs::write_string": "::pengu::write_file",
-  "fs::exists": "::pengu::path_exists",
-  "fs::is_dir": "::pengu::path_is_dir",
-  "fs::remove": "::pengu::path_remove",
-  "fs::create_dir": "::pengu::create_dir",
-  "time::now_millis": "::pengu::now_millis",
-  "time::now_seconds": "::pengu::now_seconds",
-  "time::sleep_millis": "::pengu::sleep_millis",
-  "os::get_env": "::pengu::get_env",
-  "os::exit": "std::exit",
-  "random::int": "::pengu::random_int",
-  "random::float": "::pengu::random_float",
-  "random::bool": "::pengu::random_bool",
-  "assert::that": "::pengu::assert_that",
-  "assert::fail": "::pengu::panic",
-  "math::clamp": "std::clamp",
-  "math::cbrt": "std::cbrt",
-  "math::trunc": "std::trunc",
-  "math::nearbyint": "std::nearbyint",
-  "math::asin": "std::asin",
-  "math::acos": "std::acos",
-  "math::atan": "std::atan",
-  "math::atan2": "std::atan2",
-  "math::sinh": "std::sinh",
-  "math::cosh": "std::cosh",
-  "math::tanh": "std::tanh",
-  "math::asinh": "std::asinh",
-  "math::acosh": "std::acosh",
-  "math::atanh": "std::atanh",
-  "math::exp": "std::exp",
-  "math::exp2": "std::exp2",
-  "math::expm1": "std::expm1",
-  "math::ln": "std::log",
-  "math::log2": "std::log2",
-  "math::log10": "std::log10",
-  "math::log1p": "std::log1p",
-  "math::hypot": "std::hypot",
-  "math::fmod": "std::fmod",
-  "math::remainder": "std::remainder",
-  "math::fdim": "std::fdim",
-  "math::fmax": "std::fmax",
-  "math::fmin": "std::fmin",
-  "math::copysign": "std::copysign",
-  "math::fma": "std::fma",
-  "math::signbit": "std::signbit",
-  "math::is_finite": "std::isfinite",
-  "math::is_infinite": "std::isinf",
-  "math::is_nan": "std::isnan",
-  "math::infinite": "::pengu::infinite_double",
-  "math::not_a_number": "::pengu::nan_double",
-  "math::gcd": "std::gcd",
-  "math::lcm": "std::lcm",
-};
-
-export const BUILTIN_CONSTANTS: Readonly<Record<string, string>> = {
-  "math::pi": "std::numbers::pi",
-  "math::e": "std::numbers::e",
-};
 
 export function emit_ident_call(
   g: GenContext,
@@ -467,9 +261,14 @@ export function emit_ident_call(
   }
 
   const sigils = type_args.length > 0 ? `<${type_args.join(", ")}>` : "";
-  const imported_realm = g.selective_realms.get(name);
-  if (imported_realm !== undefined && !g.module.functions.has(name) && !g.module.consts.has(name)) {
-    return `${sanitize_namespace(imported_realm)}::${cpp_identifier(name)}${sigils}(${args})`;
+  const imported = g.selective_symbols.get(name);
+  if (imported !== undefined && !g.module.functions.has(name) && !g.module.consts.has(name)) {
+    // Un intrínseco selectivo (`invoke {sqrt as raiz} from "std/math"`) se
+    // emite como el helper o la función de C++ que le toca, no como
+    // `realm::nombre` (que no existe en C++).
+    const intrinsic = BUILTIN_FUNCTIONS[`${imported.realm}::${imported.name}`];
+    if (intrinsic !== undefined) return `${intrinsic}(${args})`;
+    return `${sanitize_namespace(imported.realm)}::${cpp_identifier(imported.name)}${sigils}(${args})`;
   }
   return `${cpp_identifier(name)}${sigils}(${args})`;
 }

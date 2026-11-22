@@ -266,3 +266,30 @@ main = ->
     expect_code(`f = (x: int) -> string\n  x\n`, "E0501");
   });
 });
+
+describe("negación booleana", () => {
+  test("`!` de prefijo niega la expresión y no rompe el bloque siguiente", () => {
+    expect_ok(
+      `main = -> void
+  a = 1
+  b = if !(a > 5) then 10 else 20
+  c = if !false then 1 else 0
+  b + c
+`,
+    );
+  });
+
+  test("`!` de prefijo con una llamada", () => {
+    expect_ok(
+      `listo = (valor: bool) -> bool
+  !valor
+
+main = ->
+  if !listo(true)
+    1
+  else
+    2
+`,
+    );
+  });
+});

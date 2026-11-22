@@ -42,7 +42,7 @@ export interface GenContext {
   // Alias de `invoke` → realm del módulo importado.
   external_realms: ReadonlyMap<string, string>;
   // Símbolo importado con `invoke {a, b} from "x"` → realm de origen.
-  selective_realms: ReadonlyMap<string, string>;
+  selective_symbols: ReadonlyMap<string, { readonly realm: string; readonly name: string }>;
   // Nodo del miembro → `realm::nombre` para métodos enhechizados.
   member_targets: ReadonlyMap<ExprNode, MethodTarget>;
   // Alias de `invoke` → módulo importado (para saber si una función es extern).
@@ -55,7 +55,7 @@ export function make_gen_context(
   sink: DiagnosticSink,
   type_realms: TypeRealms = new Map(),
   external_realms: ReadonlyMap<string, string> = new Map(),
-  selective_realms: ReadonlyMap<string, string> = new Map(),
+  selective_symbols: ReadonlyMap<string, { readonly realm: string; readonly name: string }> = new Map(),
   member_targets: ReadonlyMap<ExprNode, MethodTarget> = new Map(),
   external_modules: ReadonlyMap<string, ModuleInfo> = new Map(),
 ): GenContext {
@@ -73,7 +73,7 @@ export function make_gen_context(
     self_expression: undefined,
     type_realms,
     external_realms,
-    selective_realms,
+    selective_symbols,
     member_targets,
     external_modules,
     std_extra: [],
