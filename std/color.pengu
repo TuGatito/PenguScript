@@ -57,7 +57,7 @@ enchanting Color
     math::round(math::clamp(@a, 0.0, 1.0) * 255.0).to_int().value()
 
   channel_hex = (valor: int) -> string
-    format::pad_left_with(format::radix(valor, 16), size_t:: from (2), '0')
+    format::pad_left_with(format::radix(valor, 16), size_t::from(2), '0')
 
   to_rgb8 = -> tuple<int, int, int>
     (@red8(), @green8(), @blue8())

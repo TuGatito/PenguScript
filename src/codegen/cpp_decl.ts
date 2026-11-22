@@ -706,6 +706,10 @@ function emit_omen(g: GenContext, decl: OmenDecl): void {
 
   if (algebraic) {
     const sigil_args = decl.sigils.length > 0 ? `<${decl.sigils.join(", ")}>` : "";
+    // Los alternativos pueden referirse al propio `omen` (recursión): hay que
+    // declararlo antes para que `std::vector<Name>` pueda nombrarlo.
+    emit_template_header(g, decl.sigils);
+    line(g, `struct ${name};`);
     for (const variant of variants) {
       emit_template_header(g, decl.sigils);
       line(g, `struct ${name}_${variant.name} {`);

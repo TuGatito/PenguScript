@@ -38,7 +38,7 @@ count_if = <T>(items: ref<vector<T>>, f: function<(T) -> bool>) -> size_t
   for item in items
     if f(item)
       total += 1
-  size_t:: from (total)
+  size_t::from(total)
 
   -- ¿Hay algún elemento que cumpla `f`?
 any = <T>(items: ref<vector<T>>, f: function<(T) -> bool>) -> bool
@@ -70,7 +70,7 @@ position = <T>(items: ref<vector<T>>, f: function<(T) -> bool>) -> size_t?
   mut indice: int = 0
   for item in items
     if f(item)
-      return size_t:: from (indice)
+      return size_t::from(indice)
     indice += 1
   none
 
@@ -89,7 +89,7 @@ enumerate = <T>(items: ref<vector<T>>) -> vector<pair<size_t, T>>
   mut salida: vector<pair<size_t, T>> = []
   mut indice: int = 0
   for item in items
-    mut par: pair<size_t, T> = (size_t:: from (indice), item)
+    mut par: pair<size_t, T> = (size_t::from(indice), item)
     salida.push(par)
     indice += 1
   salida
@@ -98,7 +98,7 @@ enumerate = <T>(items: ref<vector<T>>) -> vector<pair<size_t, T>>
 take = <T>(items: ref<vector<T>>, cantidad: size_t) -> vector<T>
   mut salida: vector<T> = []
   mut indice = 0
-  while indice < #items and size_t:: from (indice) < cantidad
+  while indice < #items and size_t::from(indice) < cantidad
     salida.push(items[indice])
     indice += 1
   salida
@@ -108,7 +108,7 @@ skip = <T>(items: ref<vector<T>>, cantidad: size_t) -> vector<T>
   mut salida: vector<T> = []
   mut indice = 0
   while indice < #items
-    if size_t:: from (indice) >= cantidad
+    if size_t::from(indice) >= cantidad
       salida.push(items[indice])
     indice += 1
   salida

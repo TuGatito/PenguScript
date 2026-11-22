@@ -59,4 +59,19 @@ describe("formateador", () => {
     expect(once).toContain("if @ < otro then -1 else 1");
     expect(format_text("test.pengu", once)).toBe(once);
   });
+
+  test("una llamada cualificada no se separa aunque el nombre sea reservado", () => {
+    const source = "f = (n: int) -> size_t\n  size_t::from(n)\n";
+    const once = formatted(source);
+    expect(once).toContain("size_t::from(n)");
+    expect(formatted(once)).toBe(once);
+  });
+
+  test("un retorno cualificado conserva el nombre completo", () => {
+    const source = "f = (dato: int) -> result::Result<int, string>\n  result::ok<int, string>(dato)\n";
+    const once = formatted(source);
+    expect(once).toContain("-> result::Result<int, string>");
+    expect(once).toContain("result::ok<int, string>(dato)");
+    expect(formatted(once)).toBe(once);
+  });
 });

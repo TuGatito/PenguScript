@@ -95,7 +95,7 @@ src/
   cli/         comandos de la línea de órdenes
   diagnostics/ códigos, diagnósticos y render con caret
 std/           biblioteca estándar: firmas `*.d.pengu` que declara el bloque `declare`
-examples/      programas de ejemplo, de `01_hello` a `13_enchanting`
+examples/      programas de ejemplo, de `01_hello` a `16_herramienta`
 editors/vscode extensión de VS Code (gramática, snippets, comandos y LSP)
 scripts/       instalación del ejecutable y empaquetado del .vsix (sh + ps1)
 tests/         lexer, parser, checker, formatter, lsp, bindgen, extensión y e2e
@@ -126,6 +126,9 @@ funciones puras y módulos pequeños de una sola responsabilidad.
 - `examples/11_polimorfismo` — herencia, `parent`, operadores y despacho estático.
 - `examples/12_colecciones` — `std/string`, `vector`, `map`, `set`, `optional` e `int` enhechizados.
 - `examples/13_enchanting` — `enchanting`: métodos que añaden los módulos de `std/` a tipos incorporados.
+- `examples/14_geometria` — `std/geometry`: vectores, rectángulos, intersecciones y transformaciones.
+- `examples/15_juego` — física, easing y color en un bucle de juego.
+- `examples/16_herramienta` — `std/cli`, `std/hash` y `std/json` en una herramienta de línea de comandos.
 
 ## Enlaces con C
 

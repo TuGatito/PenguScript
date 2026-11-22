@@ -1,0 +1,43 @@
+-- Ejemplo 16: una herramienta de línea de comandos.
+--
+-- Lee banderas con `std/cli`, calcula una huella con `std/hash` y escribe un
+-- JSON con `std/json`. Sin argumentos usa valores por defecto, así que la
+-- salida es estable en las pruebas de extremo a extremo.
+
+invoke "std/cli"
+invoke "std/fs"
+invoke "std/hash"
+invoke "std/io"
+invoke "std/json"
+invoke "std/os"
+invoke "std/vector"
+
+main = -> void
+  mut banderas = vector<cli::Flag>[]
+  banderas.push(cli::short_option("titulo", "t", "título de la nota"))
+  banderas.push(cli::option("etiqueta", "etiqueta de la nota"))
+  banderas.push(cli::short_flag("verbose", "v", "muestra el proceso"))
+  mut argv = os::args()
+  opciones = cli::parse(ref(banderas), ref(argv))
+  if not opciones.is_ok()
+    io::eprintln("error: #{opciones.error()}")
+    io::eprintln(cli::usage("notas", ref(banderas)))
+    os::exit(1)
+
+  titulo = opciones.get("titulo").value_or("sin título")
+  etiqueta = opciones.get("etiqueta").value_or("general")
+  if opciones.has("verbose")
+    io::println("titulo=#{titulo} etiqueta=#{etiqueta}")
+
+  mut claves = vector<string>["titulo", "etiqueta", "huella"]
+  mut valores = vector<json::Value>[]
+  valores.push(json::text_value(titulo))
+  valores.push(json::text_value(etiqueta))
+  valores.push(json::text_value(hash::fnv1a32_hex(titulo + etiqueta)))
+  documento = json::object_value(claves, valores)
+
+  ruta = "nota.json"
+  fs::write_string(ruta, json::stringify(documento))
+  io::println(json::pretty(documento))
+  io::println("escrito: #{ruta}")
+  fs::remove_if_exists(ruta)

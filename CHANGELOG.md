@@ -4,6 +4,43 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+### Biblioteca estándar: F7 (datos y CLI)
+
+- **`std/encoding.pengu`** (nuevo): `base64`, `base64_decode`, `base64_bytes`,
+  `base64_to_bytes`, `hex`, `hex_decode`, `hex_bytes`, `hex_to_bytes`,
+  `url_encode`, `url_decode`, `bytes`, `from_bytes` e `is_utf8`, con soporte
+  UTF-8 real (no solo ASCII).
+- **`std/hash.pengu`** (nuevo): `fnv1a32`, `fnv1a64`, `djb2`, `crc32`,
+  `adler32`, `hex32`, `hex64` y las variantes `*_hex`; los valores coinciden con
+  las referencias públicas (FNV, CRC-32, Adler-32).
+- **`std/cli.pengu`** (nuevo): runes `Flag` y `Parsed`, constructores `flag`,
+  `option`, `short_flag`, `short_option`, `parse` y `usage`. Acepta
+  `--nombre=valor`, `--nombre valor`, `-n valor`, `-n=valor`, `--`, posicionales
+  y falla con mensajes claros en opciones desconocidas o sin valor.
+- **`std/console.pengu`** (nuevo): estilos ANSI, colores de 4, 8 y 24 bits,
+  `paint*`, `strip`, limpieza de pantalla y control del cursor.
+- **`std/json.pengu`** (nuevo): `Value` recursivo (`Null`, `Bool`, `Number`,
+  `Text`, `Array`, `Object`), constructores, accesos, `stringify`, `pretty` y un
+  analizador completo con escapes y pares sustitutos `\uXXXX`; `parse` y
+  `error` informan del motivo y la posición.
+- `tests/std/data.test.ts` (nuevo): codificación, huellas de referencia, CLI,
+  consola, JSON de ida y vuelta y una herramienta de aceptación que combina
+  banderas, archivo y JSON.
+- Nuevo ejemplo `examples/16_herramienta`: una herramienta de línea de comandos
+  que lee banderas con `std/cli`, calcula una huella con `std/hash` y escribe un
+  documento JSON con `std/json`.
+
+#### Corregido en F7
+
+- El `else` de un `match` usado como sentencia se ejecutaba siempre: ahora se
+  emite solo si ninguna variante coincidió (afectaba a `get`/`pretty` de JSON).
+- Las variantes nulas de un `omen` algebraico se emiten como valor
+  (`Value::Null()`); antes se emitía el nombre de la función estática.
+- Los `omen` recursivos se declaran antes de sus variantes, así que
+  `Array(vector<Value>)` compila.
+- `to_string` del runtime distingue `int8_t`/`uint8_t` de `char` y el formato
+  de números usa `format::fixed`.
+
 ### Biblioteca estándar: F6 (juegos)
 
 - **`std/geometry.pengu`** (nuevo): runes `Vec2`, `Vec3`, `Rect` y
@@ -501,10 +538,10 @@ técnica conocida en el compilador.
 
 ### Verificado
 
-- `bun test`: 424 pruebas en 54 archivos (lexer, parser, checker, formateador,
+- `bun test`: 433 pruebas en 55 archivos (lexer, parser, checker, formateador,
   LSP de integración, de consultas, de sincronización y de rendimiento,
   medición de tamaños, bindgen, biblioteca estándar, conformidad y e2e de los
   ejemplos, de las fases F1–F9, G1–G6, H1–H7, I1–I8, L1–L6 y de la biblioteca
-  estándar (F0, F1, F2, F3, F4, F5 y F6), y de la extensión de VS Code).
+  estándar (F0, F1, F2, F3, F4, F5, F6 y F7), y de la extensión de VS Code).
 - `tsc --noEmit` sin errores y `pengu fmt --check` sin cambios pendientes.
 - Los 15 ejemplos de `examples/` compilan y ejecutan con el compilador final.

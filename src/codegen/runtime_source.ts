@@ -104,6 +104,41 @@ inline void hash_combine(std::size_t& seed, const std::optional<T>& value) {
   if (value.has_value()) hash_combine(seed, *value);
 }
 
+template <class T>
+inline void hash_combine(std::size_t& seed, const std::vector<T>& value) {
+  hash_combine(seed, value.size());
+  for (const auto& item : value) hash_combine(seed, item);
+}
+
+template <class T, std::size_t N>
+inline void hash_combine(std::size_t& seed, const std::array<T, N>& value) {
+  for (const auto& item : value) hash_combine(seed, item);
+}
+
+template <class K, class V>
+inline void hash_combine(std::size_t& seed, const std::map<K, V>& value) {
+  hash_combine(seed, value.size());
+  for (const auto& item : value) hash_combine(seed, item);
+}
+
+template <class T>
+inline void hash_combine(std::size_t& seed, const std::set<T>& value) {
+  hash_combine(seed, value.size());
+  for (const auto& item : value) hash_combine(seed, item);
+}
+
+template <class K, class V>
+inline void hash_combine(std::size_t& seed, const std::unordered_map<K, V>& value) {
+  hash_combine(seed, value.size());
+  for (const auto& item : value) hash_combine(seed, item);
+}
+
+template <class T>
+inline void hash_combine(std::size_t& seed, const std::unordered_set<T>& value) {
+  hash_combine(seed, value.size());
+  for (const auto& item : value) hash_combine(seed, item);
+}
+
 struct Range {
   long long first;
   long long last;
@@ -1293,6 +1328,290 @@ T or_panic(std::optional<T> value, const std::string& message) {
 template <class F>
 constexpr bool has(F flags, F bit) {
   return (static_cast<std::uint64_t>(flags) & static_cast<std::uint64_t>(bit)) != 0;
+}
+
+
+// --- Codificación (F7) -----------------------------------------------------
+
+inline std::string base64_encode(const std::string& input) {
+  static const char* alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  std::string out;
+  std::uint32_t buffer = 0;
+  int bits = 0;
+  for (unsigned char byte : input) {
+    buffer = (buffer << 8) | byte;
+    bits += 8;
+    while (bits >= 6) {
+      bits -= 6;
+      out.push_back(alphabet[(buffer >> bits) & 0x3F]);
+    }
+  }
+  if (bits > 0) out.push_back(alphabet[(buffer << (6 - bits)) & 0x3F]);
+  while (out.size() % 4 != 0) out.push_back('=');
+  return out;
+}
+
+inline std::optional<std::string> base64_decode(const std::string& input) {
+  const auto digit_of = [](char c) -> int {
+    if (c >= 'A' && c <= 'Z') return c - 'A';
+    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+    if (c >= '0' && c <= '9') return c - '0' + 52;
+    if (c == '+') return 62;
+    if (c == '/') return 63;
+    return -1;
+  };
+  std::string out;
+  std::uint32_t buffer = 0;
+  int bits = 0;
+  for (char c : input) {
+    if (c == '=' || c == ' ' || c == '\\n' || c == '\\r' || c == '\\t') continue;
+    const int digit = digit_of(c);
+    if (digit < 0) return std::nullopt;
+    buffer = (buffer << 6) | static_cast<std::uint32_t>(digit);
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      out.push_back(static_cast<char>((buffer >> bits) & 0xFF));
+    }
+  }
+  return out;
+}
+
+inline std::string hex_encode(const std::string& input) {
+  static const char* digits = "0123456789abcdef";
+  std::string out;
+  out.reserve(input.size() * 2);
+  for (unsigned char byte : input) {
+    out.push_back(digits[(byte >> 4) & 0x0F]);
+    out.push_back(digits[byte & 0x0F]);
+  }
+  return out;
+}
+
+inline std::optional<std::string> hex_decode(const std::string& input) {
+  const auto value_of = [](char c) -> int {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+  };
+  std::string out;
+  int high = -1;
+  for (char c : input) {
+    if (c == ' ' || c == '\\n' || c == '\\t') continue;
+    const int value = value_of(c);
+    if (value < 0) return std::nullopt;
+    if (high < 0) {
+      high = value;
+    } else {
+      out.push_back(static_cast<char>((high << 4) | value));
+      high = -1;
+    }
+  }
+  if (high >= 0) return std::nullopt;
+  return out;
+}
+
+inline std::string url_encode(const std::string& input) {
+  static const char* digits = "0123456789ABCDEF";
+  std::string out;
+  for (unsigned char byte : input) {
+    const bool unreserved = (byte >= 'A' && byte <= 'Z') || (byte >= 'a' && byte <= 'z') ||
+                            (byte >= '0' && byte <= '9') || byte == '-' || byte == '_' ||
+                            byte == '.' || byte == '~';
+    if (unreserved) {
+      out.push_back(static_cast<char>(byte));
+    } else {
+      out.push_back('%');
+      out.push_back(digits[(byte >> 4) & 0x0F]);
+      out.push_back(digits[byte & 0x0F]);
+    }
+  }
+  return out;
+}
+
+inline std::optional<std::string> url_decode(const std::string& input) {
+  const auto value_of = [](char c) -> int {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+  };
+  std::string out;
+  for (std::size_t index = 0; index < input.size(); ++index) {
+    const char c = input[index];
+    if (c == '+') {
+      out.push_back(' ');
+    } else if (c == '%') {
+      if (index + 2 >= input.size()) return std::nullopt;
+      const int high = value_of(input[index + 1]);
+      const int low = value_of(input[index + 2]);
+      if (high < 0 || low < 0) return std::nullopt;
+      out.push_back(static_cast<char>((high << 4) | low));
+      index += 2;
+    } else {
+      out.push_back(c);
+    }
+  }
+  return out;
+}
+
+inline bool valid_utf8(const std::string& text) {
+  std::size_t index = 0;
+  while (index < text.size()) {
+    const unsigned char byte = static_cast<unsigned char>(text[index]);
+    if (byte < 0x80) {
+      index += 1;
+      continue;
+    }
+    int extra = 0;
+    std::uint32_t code = 0;
+    if ((byte & 0xE0) == 0xC0) {
+      extra = 1;
+      code = byte & 0x1F;
+    } else if ((byte & 0xF0) == 0xE0) {
+      extra = 2;
+      code = byte & 0x0F;
+    } else if ((byte & 0xF8) == 0xF0) {
+      extra = 3;
+      code = byte & 0x07;
+    } else {
+      return false;
+    }
+    if (index + static_cast<std::size_t>(extra) >= text.size()) return false;
+    for (int step = 1; step <= extra; ++step) {
+      const unsigned char next = static_cast<unsigned char>(text[index + static_cast<std::size_t>(step)]);
+      if ((next & 0xC0) != 0x80) return false;
+      code = (code << 6) | (next & 0x3F);
+    }
+    if (extra == 1 && code < 0x80) return false;
+    if (extra == 2 && code < 0x800) return false;
+    if (extra == 3 && code < 0x10000) return false;
+    if (code > 0x10FFFF) return false;
+    if (code >= 0xD800 && code <= 0xDFFF) return false;
+    index += static_cast<std::size_t>(extra) + 1;
+  }
+  return true;
+}
+
+inline std::string utf8_from_code(std::int64_t code) {
+  std::string out;
+  if (code < 0 || code > 0x10FFFF) return out;
+  const std::uint32_t value = static_cast<std::uint32_t>(code);
+  if (value < 0x80) {
+    out.push_back(static_cast<char>(value));
+  } else if (value < 0x800) {
+    out.push_back(static_cast<char>(0xC0 | (value >> 6)));
+    out.push_back(static_cast<char>(0x80 | (value & 0x3F)));
+  } else if (value < 0x10000) {
+    out.push_back(static_cast<char>(0xE0 | (value >> 12)));
+    out.push_back(static_cast<char>(0x80 | ((value >> 6) & 0x3F)));
+    out.push_back(static_cast<char>(0x80 | (value & 0x3F)));
+  } else {
+    out.push_back(static_cast<char>(0xF0 | (value >> 18)));
+    out.push_back(static_cast<char>(0x80 | ((value >> 12) & 0x3F)));
+    out.push_back(static_cast<char>(0x80 | ((value >> 6) & 0x3F)));
+    out.push_back(static_cast<char>(0x80 | (value & 0x3F)));
+  }
+  return out;
+}
+
+inline std::vector<std::uint8_t> string_bytes(const std::string& text) {
+  return std::vector<std::uint8_t>(text.begin(), text.end());
+}
+
+inline std::string bytes_text(const std::vector<std::uint8_t>& data) {
+  return std::string(data.begin(), data.end());
+}
+
+inline std::optional<std::string> bytes_string(const std::vector<std::uint8_t>& data) {
+  const std::string text(data.begin(), data.end());
+  if (!valid_utf8(text)) return std::nullopt;
+  return text;
+}
+
+// --- Terminal (F7) ---------------------------------------------------------
+
+inline std::string ansi_escape_raw() {
+  return std::string(1, static_cast<char>(0x1B));
+}
+
+inline std::string strip_ansi(const std::string& text) {
+  std::string out;
+  std::size_t index = 0;
+  while (index < text.size()) {
+    if (static_cast<unsigned char>(text[index]) == 0x1B && index + 1 < text.size() && text[index + 1] == '[') {
+      index += 2;
+      while (index < text.size()) {
+        const char c = text[index];
+        index += 1;
+        if (c >= '@' && c <= '~') break;
+      }
+      continue;
+    }
+    out.push_back(text[index]);
+    index += 1;
+  }
+  return out;
+}
+
+// --- Huellas (F7) ----------------------------------------------------------
+
+inline std::uint32_t fnv1a32(const std::string& text) {
+  std::uint32_t hash = 2166136261u;
+  for (unsigned char byte : text) {
+    hash ^= static_cast<std::uint32_t>(byte);
+    hash *= 16777619u;
+  }
+  return hash;
+}
+
+inline std::uint64_t fnv1a64(const std::string& text) {
+  std::uint64_t hash = 14695981039346656037ull;
+  for (unsigned char byte : text) {
+    hash ^= static_cast<std::uint64_t>(byte);
+    hash *= 1099511628211ull;
+  }
+  return hash;
+}
+
+inline std::uint32_t djb2(const std::string& text) {
+  std::uint32_t hash = 5381u;
+  for (unsigned char byte : text) hash = hash * 33u + static_cast<std::uint32_t>(byte);
+  return hash;
+}
+
+inline std::uint32_t crc32(const std::string& text) {
+  std::uint32_t crc = 0xFFFFFFFFu;
+  for (unsigned char byte : text) {
+    crc ^= static_cast<std::uint32_t>(byte);
+    for (int step = 0; step < 8; ++step) {
+      crc = (crc & 1u) != 0u ? (crc >> 1) ^ 0xEDB88320u : crc >> 1;
+    }
+  }
+  return crc ^ 0xFFFFFFFFu;
+}
+
+inline std::string hex32_raw(std::uint32_t value) {
+  std::ostringstream out;
+  out << std::hex << std::nouppercase << std::setfill('0') << std::setw(8) << value;
+  return out.str();
+}
+
+inline std::string hex64_raw(std::uint64_t value) {
+  std::ostringstream out;
+  out << std::hex << std::nouppercase << std::setfill('0') << std::setw(16) << value;
+  return out.str();
+}
+
+inline std::uint32_t adler32(const std::string& text) {
+  std::uint32_t low = 1;
+  std::uint32_t high = 0;
+  for (unsigned char byte : text) {
+    low = (low + byte) % 65521u;
+    high = (high + low) % 65521u;
+  }
+  return (high << 16) | low;
 }
 
 }  // namespace pengu

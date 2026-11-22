@@ -28,7 +28,7 @@ enchanting map<K, V>
     alternativa
 
   mut update = (clave: K, cambiar: function<(V) -> V>) -> bool
-    if not (clave in @)
+    if not(clave in @)
       return false
     @[clave] = cambiar(@[clave])
     true
@@ -53,7 +53,7 @@ enchanting map<K, V>
 
   mut merge = (otro: ref<map<K, V>>) -> void
     for clave, valor in otro
-      if not (clave in @)
+      if not(clave in @)
         @.insert(clave, valor)
 
   mut retain = (predicado: function<(K, V) -> bool>) -> void

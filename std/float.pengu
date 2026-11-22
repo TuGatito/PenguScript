@@ -105,7 +105,7 @@ enchanting float
     is_sign_negative(@)
 
   signum = -> float
-    if @ > 0.0 then float:: from (1.0) else if @ < 0.0 then float:: from (-1.0) else float:: from (0.0)
+    if @ > 0.0 then float::from(1.0) else if @ < 0.0 then float::from(-1.0) else float::from(0.0)
 
   lerp = (hacia: float, t: float) -> float
     @ + (hacia - @) * t

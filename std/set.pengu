@@ -31,29 +31,29 @@ enchanting set<T>
   difference = (otro: ref<set<T>>) -> set<T>
     mut salida: set<T> = set{}
     for valor in @
-      if not (valor in otro)
+      if not(valor in otro)
         salida.insert(valor)
     salida
 
   symmetric_difference = (otro: ref<set<T>>) -> set<T>
     mut salida: set<T> = set{}
     for valor in @
-      if not (valor in otro)
+      if not(valor in otro)
         salida.insert(valor)
     for valor in otro
-      if not (valor in @)
+      if not(valor in @)
         salida.insert(valor)
     salida
 
   is_subset = (otro: ref<set<T>>) -> bool
     for valor in @
-      if not (valor in otro)
+      if not(valor in otro)
         return false
     true
 
   is_superset = (otro: ref<set<T>>) -> bool
     for valor in otro
-      if not (valor in @)
+      if not(valor in @)
         return false
     true
 

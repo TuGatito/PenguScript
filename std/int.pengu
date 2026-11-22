@@ -42,16 +42,16 @@ enchanting int
   div_floor = (otro: int) -> int
     cociente = @ / otro
     resto = @ % otro
-    if resto != 0 and (resto < 0) != (otro < 0) then cociente - 1 else cociente
+    if resto != 0 and(resto < 0) != (otro < 0) then cociente - 1 else cociente
 
   div_ceil = (otro: int) -> int
     cociente = @ / otro
     resto = @ % otro
-    if resto != 0 and (resto < 0) == (otro < 0) then cociente + 1 else cociente
+    if resto != 0 and(resto < 0) == (otro < 0) then cociente + 1 else cociente
 
   mod_floor = (otro: int) -> int
     resto = @ % otro
-    if resto != 0 and (resto < 0) != (otro < 0) then resto + otro else resto
+    if resto != 0 and(resto < 0) != (otro < 0) then resto + otro else resto
 
     -- Resto siempre no negativo: el que usan los índices circulares.
   mod_euclid = (otro: int) -> int
@@ -66,7 +66,7 @@ enchanting int
     minimo + (@ - minimo).mod_euclid(maximo - minimo)
 
   next_multiple_of = (paso: int) -> int
-    if paso == 0 then @ else (@ + paso - 1).div_floor(paso) * paso
+    if paso == 0 then @ else(@ + paso - 1).div_floor(paso) * paso
 
   abs_diff = (otro: int) -> int
     diferencia = @ - otro
@@ -80,10 +80,10 @@ enchanting int
     while n >= 10
       n /= 10
       cuenta += 1
-    size_t:: from (cuenta)
+    size_t::from(cuenta)
 
   is_power_of_two = -> bool
-    @ > 0 and (@ & (@ - 1)) == 0
+    @ > 0 and(@ & (@ - 1)) == 0
 
   to_double = -> double
     @ as double
@@ -95,7 +95,7 @@ enchanting int
     @ as int64_t
 
   to_size = -> size_t
-    size_t:: from (@)
+    size_t::from(@)
 
   to_radix = (base: int) -> string
     format::radix(@, base)

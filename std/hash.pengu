@@ -1,0 +1,46 @@
+-- Huellas de texto: FNV-1a, djb2, CRC-32 y Adler-32.
+--
+-- Sirven para tablas hash propias, cachés y comparaciones rápidas. No son
+-- criptográficas: para eso llegará `std/crypto`.
+invoke "std/int"
+
+declare
+  fnv1a32_raw = (texto: string) -> uint32_t
+  fnv1a64_raw = (texto: string) -> uint64_t
+  djb2_raw = (texto: string) -> uint32_t
+  crc32_raw = (texto: string) -> uint32_t
+  adler32_raw = (texto: string) -> uint32_t
+  hex32_raw = (valor: uint32_t) -> string
+  hex64_raw = (valor: uint64_t) -> string
+
+fnv1a32 = (texto: string) -> uint32_t
+  fnv1a32_raw(texto)
+
+fnv1a64 = (texto: string) -> uint64_t
+  fnv1a64_raw(texto)
+
+djb2 = (texto: string) -> uint32_t
+  djb2_raw(texto)
+
+crc32 = (texto: string) -> uint32_t
+  crc32_raw(texto)
+
+adler32 = (texto: string) -> uint32_t
+  adler32_raw(texto)
+
+  -- Representación hexadecimal de 8/16 dígitos.
+
+hex32 = (valor: uint32_t) -> string
+  hex32_raw(valor)
+
+hex64 = (valor: uint64_t) -> string
+  hex64_raw(valor)
+
+fnv1a32_hex = (texto: string) -> string
+  hex32_raw(fnv1a32_raw(texto))
+
+fnv1a64_hex = (texto: string) -> string
+  hex64_raw(fnv1a64_raw(texto))
+
+crc32_hex = (texto: string) -> string
+  hex32_raw(crc32_raw(texto))

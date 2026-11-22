@@ -1,0 +1,70 @@
+-- Codificación de texto: base64, hexadecimal, URL y bytes UTF-8.
+--
+-- Las funciones trabajan con `string` (texto ya descodificado) y con
+-- `vector<byte>` cuando el contenido puede no ser válido como UTF-8.
+invoke "std/format"
+invoke "std/int"
+invoke "std/string"
+invoke "std/vector"
+
+declare
+  base64_raw = (texto: string) -> string
+  base64_decode_raw = (texto: string) -> string?
+  hex_raw = (texto: string) -> string
+  hex_decode_raw = (texto: string) -> string?
+  url_raw = (texto: string) -> string
+  url_decode_raw = (texto: string) -> string?
+  bytes_raw = (texto: string) -> vector<byte>
+  bytes_text_raw = (datos: vector<byte>) -> string
+  from_bytes_raw = (datos: vector<byte>) -> string?
+  is_utf8_raw = (texto: string) -> bool
+
+base64 = (texto: string) -> string
+  base64_raw(texto)
+
+base64_decode = (texto: string) -> string?
+  base64_decode_raw(texto)
+
+hex = (texto: string) -> string
+  hex_raw(texto)
+
+hex_decode = (texto: string) -> string?
+  hex_decode_raw(texto)
+
+url_encode = (texto: string) -> string
+  url_raw(texto)
+
+url_decode = (texto: string) -> string?
+  url_decode_raw(texto)
+
+bytes = (texto: string) -> vector<byte>
+  bytes_raw(texto)
+
+from_bytes = (datos: vector<byte>) -> string?
+  from_bytes_raw(datos)
+
+is_utf8 = (texto: string) -> bool
+  is_utf8_raw(texto)
+
+  -- Codifica bytes arbitrarios (no hace falta que sean UTF-8).
+
+base64_bytes = (datos: vector<byte>) -> string
+  base64_raw(bytes_text_raw(datos))
+
+base64_to_bytes = (texto: string) -> vector<byte>?
+  decodificado = base64_decode_raw(texto)
+  if decodificado.is_none()
+    return none
+  bytes_raw(decodificado.value())
+
+hex_bytes = (datos: vector<byte>) -> string
+  mut salida = ""
+  for valor in datos
+    salida += format::pad_left_with(format::radix(valor as int, 16), size_t::from(2), '0')
+  salida
+
+hex_to_bytes = (texto: string) -> vector<byte>?
+  decodificado = hex_decode_raw(texto)
+  if decodificado.is_none()
+    return none
+  bytes_raw(decodificado.value())

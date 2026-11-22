@@ -217,12 +217,18 @@ export function emit_match(g: GenContext, node: MatchNode): string {
   return build_lambda(g, "", result, () => {
     const subject = fresh_name(g, "m");
     line(g, `auto ${subject} = ${emit_expr(g, node.subject)};`);
+    // `else` de un `match` de sentencias: sin `else` real hay que recordar si
+    // alguna variante coincidió; si no, el bloque se ejecutaría siempre.
+    const needs_flag = node.else_block !== undefined && node.arms.length > 0;
+    const flag = fresh_name(g, "coincide");
+    if (needs_flag) line(g, `bool ${flag} = false;`);
     for (const arm of node.arms) {
       const pattern = arm.pattern as PatternNode;
       if (pattern.kind === "wildcard_pattern" || pattern.kind === "binding_pattern") {
         if (pattern.kind === "binding_pattern") {
           line(g, `auto& ${cpp_identifier(pattern.name)} = ${subject};`);
         }
+        if (needs_flag) line(g, `${flag} = true;`);
         emit_value_block(g, arm.body, result);
         continue;
       }
@@ -235,7 +241,7 @@ export function emit_match(g: GenContext, node: MatchNode): string {
           if (variant.payload.length === 0) {
             line(g, `if (std::holds_alternative<${omen_name}_${variant_name}${omen_args}>(${subject}.value)) {`);
             g.indent += 1;
-            emit_guard_and_body(g, arm, result, () => undefined);
+            emit_guard_and_body(g, arm, result, () => undefined, needs_flag ? () => line(g, `${flag} = true;`) : undefined);
             g.indent -= 1;
             line(g, "}");
             continue;
@@ -249,14 +255,14 @@ export function emit_match(g: GenContext, node: MatchNode): string {
                 declare_local(g, argument.name);
               }
             });
-          });
+          }, needs_flag ? () => line(g, `${flag} = true;`) : undefined);
           g.indent -= 1;
           line(g, "}");
           continue;
         }
         line(g, `if (${subject} == ${omen_name}::${variant_name}) {`);
         g.indent += 1;
-        emit_guard_and_body(g, arm, result, () => undefined);
+        emit_guard_and_body(g, arm, result, () => undefined, needs_flag ? () => line(g, `${flag} = true;`) : undefined);
         g.indent -= 1;
         line(g, "}");
         continue;
@@ -264,7 +270,15 @@ export function emit_match(g: GenContext, node: MatchNode): string {
       gc_error(g, "patrón no soportado en «match»", arm.span);
     }
     if (node.else_block !== undefined) {
-      emit_value_block(g, node.else_block, result);
+      if (needs_flag) {
+        line(g, `if (!${flag}) {`);
+        g.indent += 1;
+        emit_value_block(g, node.else_block, result);
+        g.indent -= 1;
+        line(g, "}");
+      } else {
+        emit_value_block(g, node.else_block, result);
+      }
     } else if (result !== "void") {
       line(g, `::pengu::panic("match sin variante");`);
     }
@@ -276,15 +290,18 @@ export function emit_guard_and_body(
   arm: import("../frontend/ast_expr.ts").MatchArm,
   result: string,
   bind: () => void,
+  matched?: () => void,
 ): void {
   bind();
   if (arm.guard) {
     line(g, `if (${emit_expr(g, arm.guard)}) {`);
     g.indent += 1;
+    matched?.();
     emit_value_block(g, arm.body, result);
     g.indent -= 1;
     line(g, "}");
   } else {
+    matched?.();
     emit_value_block(g, arm.body, result);
   }
 }

@@ -68,7 +68,7 @@ lerp = (a: double, b: double, t: double) -> double
   a + (b - a) * t
 
 inverse_lerp = (a: double, b: double, value: double) -> double
-  if a == b then 0.0 else (value - a) / (b - a)
+  if a == b then 0.0 else(value - a) / (b - a)
 
 remap = (value: double, in_low: double, in_high: double, out_low: double, out_high: double) -> double
   lerp(out_low, out_high, inverse_lerp(in_low, in_high, value))
@@ -140,7 +140,7 @@ ipow = (base: int, exponente: int) -> int
   resultado
 
 is_power_of_two = (value: int) -> bool
-  value > 0 and (value & (value - 1)) == 0
+  value > 0 and(value & (value - 1)) == 0
 
 next_power_of_two = (value: int) -> int
   if value <= 1
@@ -151,4 +151,4 @@ next_power_of_two = (value: int) -> int
   resultado
 
 align_up = (value: int, align: int) -> int
-  if align <= 1 then value else ((value + align - 1) / align) * align
+  if align <= 1 then value else((value + align - 1) / align) * align

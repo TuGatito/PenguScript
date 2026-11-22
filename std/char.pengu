@@ -16,7 +16,7 @@ enchanting char
     @ >= '0' and @ <= '9'
 
   is_alpha = -> bool
-    (@ >= 'a' and @ <= 'z') or (@ >= 'A' and @ <= 'Z')
+    (@ >= 'a' and @ <= 'z') or(@ >= 'A' and @ <= 'Z')
 
   is_alphanumeric = -> bool
     @.is_digit() or @.is_alpha()
@@ -34,7 +34,7 @@ enchanting char
     @.code() < 128
 
   is_hex_digit = -> bool
-    @.is_digit() or (@ >= 'a' and @ <= 'f') or (@ >= 'A' and @ <= 'F')
+    @.is_digit() or(@ >= 'a' and @ <= 'f') or(@ >= 'A' and @ <= 'F')
 
   is_control = -> bool
     @.code() < 32 or @.code() == 127

@@ -1,0 +1,489 @@
+realm json
+
+-- JSON: analizador y serializador sin dependencias externas.
+--
+-- El árbol es un `omen` recursivo (`Value`) y se recorre con `match`.
+-- El analizador acepta objetos, vectores, textos con escapes (incluidos
+-- `\uXXXX` con pares sustitutos), números, `true`, `false` y `null`.
+
+invoke "std/double"
+invoke "std/format"
+invoke "std/int"
+invoke "std/map"
+invoke "std/math"
+invoke "std/optional"
+invoke "std/string"
+invoke "std/vector"
+
+declare
+  code_char_raw = (codigo: int64_t) -> string
+
+omen Value
+  Null
+  Bool(bool)
+  Number(double)
+  Text(string)
+  Array(vector<Value>)
+  Object(vector<string>, vector<Value>)
+
+  -- Un `null`.
+null_value = -> Value
+  Value::Null
+
+  -- Un booleano.
+bool_value = (valor: bool) -> Value
+  Value::Bool(valor)
+
+  -- Un número.
+number_value = (valor: double) -> Value
+  Value::Number(valor)
+
+  -- Un entero como número.
+int_value = (valor: int) -> Value
+  Value::Number(valor as double)
+
+  -- Un texto.
+text_value = (valor: string) -> Value
+  Value::Text(valor)
+
+  -- Un vector.
+array_value = (elementos: vector<Value>) -> Value
+  Value::Array(elementos)
+
+  -- Un objeto vacío.
+object_empty = -> Value
+  Value::Object(vector<string>[], vector<Value>[])
+
+  -- Un objeto a partir de sus claves y valores, en orden.
+object_value = (claves: vector<string>, valores: vector<Value>) -> Value
+  Value::Object(claves, valores)
+
+  -- Un vector vacío.
+array_empty = -> Value
+  Value::Array(vector<Value>[])
+
+is_null = (valor: Value) -> bool
+  match valor
+    when Null then true
+    else
+      false
+
+as_bool = (valor: Value) -> bool?
+  match valor
+    when Bool(dato) then dato
+    else
+      none
+
+as_number = (valor: Value) -> double?
+  match valor
+    when Number(dato) then dato
+    when Bool(dato) then if dato then 1.0 else 0.0
+    else
+      none
+
+as_int = (valor: Value) -> int?
+  numero = as_number(valor)
+  if numero.is_none()
+    return none
+  numero.value().to_int()
+
+as_text = (valor: Value) -> string?
+  match valor
+    when Text(dato) then dato
+    else
+      none
+
+as_array = (valor: Value) -> vector<Value>?
+  match valor
+    when Array(datos) then datos
+    else
+      none
+
+length = (valor: Value) -> size_t
+  match valor
+    when Text(texto) then texto.char_count()
+    when Array(elementos) then elementos.size()
+    when Object(claves, valores) then claves.size()
+    else
+      size_t::from(0)
+
+keys = (valor: Value) -> vector<string>
+  match valor
+    when Object(claves, valores) then claves
+    else
+      vector<string>[]
+
+has = (valor: Value, clave: string) -> bool
+  match valor
+    when Object(claves, valores) then claves.contains(clave)
+    else
+      false
+
+get = (valor: Value, clave: string) -> Value?
+  mut resultado: Value? = none
+  match valor
+    when Object(claves, valores) then
+      indice = claves.index_of(clave)
+      if indice.is_some()
+        resultado = valores[indice.value()]
+    else
+      resultado = none
+  resultado
+
+at = (valor: Value, indice: size_t) -> Value?
+  elementos = as_array(valor)
+  if elementos.is_none()
+    return none
+  elementos.value().get(indice)
+
+  -- Serialización compacta.
+escaped_text = (texto: string) -> string
+  mut salida = ""
+  for caracter in texto.chars()
+    codigo = caracter as int
+    if caracter == '"'
+      salida += "\\\""
+    else if caracter == '\\'
+      salida += "\\\\"
+    else if caracter == '\n'
+      salida += "\\n"
+    else if caracter == '\r'
+      salida += "\\r"
+    else if caracter == '\t'
+      salida += "\\t"
+    else if codigo < 32
+      salida += "\\u" + format::pad_left_with(format::radix(codigo, 16), size_t::from(4), '0')
+    else
+      salida += "#{caracter}"
+  salida
+
+write_number = (numero: double) -> string
+  if numero.is_nan() or numero.is_infinite()
+    return "null"
+  if numero == math::floor(numero) and math::abs(numero) < 1000000000000000.0
+    return format::fixed(numero, 0)
+  format::fixed(numero, 6).trim_end_matches('0').trim_end_matches('.')
+
+write_value = (valor: Value) -> string
+  match valor
+    when Null then "null"
+    when Bool(dato) then if dato then "true" else "false"
+    when Number(dato) then write_number(dato)
+    when Text(dato) then "\"#{escaped_text(dato)}\""
+    when Array(elementos) then
+      mut partes = vector<string>[]
+      for elemento in elementos
+        partes.push(write_value(elemento))
+      "[" + partes.join(",") + "]"
+    when Object(claves, valores) then
+      mut partes = vector<string>[]
+      mut posicion = 0
+      while posicion < claves.size()
+        partes.push("\"#{escaped_text(claves[posicion])}\":" + write_value(valores[posicion]))
+        posicion += 1
+      "{" + partes.join(",") + "}"
+
+stringify = (valor: Value) -> string
+  write_value(valor)
+
+indent = (nivel: int, sangria: int) -> string
+  mut salida = ""
+  mut total = 0
+  while total < nivel * sangria
+    salida += " "
+    total += 1
+  salida
+
+write_pretty = (valor: Value, sangria: int, nivel: int) -> string
+  mut salida = write_value(valor)
+  match valor
+    when Array(elementos) then
+      if elementos.is_empty()
+        salida = "[]"
+      else
+        mut partes = vector<string>[]
+        for elemento in elementos
+          partes.push(indent(nivel + 1, sangria) + write_pretty(elemento, sangria, nivel + 1))
+        salida = "[\n" + partes.join(",\n") + "\n" + indent(nivel, sangria) + "]"
+    when Object(claves, valores) then
+      if claves.is_empty()
+        salida = "{}"
+      else
+        mut partes = vector<string>[]
+        mut posicion = 0
+        while posicion < claves.size()
+          partes.push(indent(nivel + 1, sangria) + "\"#{escaped_text(claves[posicion])}\": " + write_pretty(valores[posicion], sangria, nivel + 1))
+          posicion += 1
+        salida = "{\n" + partes.join(",\n") + "\n" + indent(nivel, sangria) + "}"
+    else
+      salida = write_value(valor)
+  salida
+
+pretty = (valor: Value, sangria: int = 2) -> string
+  write_pretty(valor, sangria, 0)
+
+  -- Analizador.
+rune JsonParser
+  texto: string
+  indice: size_t
+  error: string
+
+  constructor(texto: string)
+    @texto = texto
+    @indice = size_t::from(0)
+    @error = ""
+
+enchanting JsonParser
+  mut fallo = (mensaje: string) -> void
+    if @error.is_empty()
+      @error = mensaje
+
+  terminado = -> bool
+    @indice >= @texto.char_count()
+
+  actual = -> char
+    @texto.get(@indice).value_or(' ')
+
+  mut avanza = -> void
+    @indice += size_t::from(1)
+
+  mut saltar = -> void
+    while not @terminado()
+      caracter = @actual()
+      if caracter == ' ' or caracter == '\t' or caracter == '\n' or caracter == '\r'
+        @avanza()
+      else
+        return
+
+  mut esperar = (caracter: char) -> bool
+    if @terminado()
+      @fallo("fin inesperado del texto")
+      return false
+    if @actual() != caracter
+      @fallo("se esperaba «#{caracter}» en la posición #{@indice}")
+      return false
+    @avanza()
+    true
+
+  digito_hex = (caracter: char) -> int
+    codigo = caracter as int
+    if codigo >= 48 and codigo <= 57
+      return codigo - 48
+    if codigo >= 97 and codigo <= 102
+      return codigo - 87
+    if codigo >= 65 and codigo <= 70
+      return codigo - 55
+    0 - 1
+
+  mut leer_hex4 = -> int?
+    if @indice + size_t::from(4) > @texto.char_count()
+      @fallo("\\u incompleto")
+      return none
+    mut valor = 0
+    mut contador = 0
+    while contador < 4
+      digito = @digito_hex(@actual())
+      if digito < 0
+        @fallo("\\u con dígitos no hexadecimales")
+        return none
+      valor = valor * 16 + digito
+      @indice += size_t::from(1)
+      contador += 1
+    valor
+
+  mut parse_string = -> string?
+    if not @esperar('"')
+      return none
+    mut salida = ""
+    while not @terminado()
+      caracter = @actual()
+      @avanza()
+      if caracter == '"'
+        return salida
+      if caracter == '\\'
+        if @terminado()
+          @fallo("escape sin terminar")
+          return none
+        codigo = @actual()
+        @avanza()
+        if codigo == '"'
+          salida += "\""
+        else if codigo == '\\'
+          salida += "\\"
+        else if codigo == '/'
+          salida += "/"
+        else if codigo == 'n'
+          salida += "\n"
+        else if codigo == 't'
+          salida += "\t"
+        else if codigo == 'r'
+          salida += "\r"
+        else if codigo == 'b'
+          salida += code_char_raw(8 as int64_t)
+        else if codigo == 'f'
+          salida += code_char_raw(12 as int64_t)
+        else if codigo == 'u'
+          primera = @leer_hex4()
+          if primera.is_none()
+            return none
+          mut punto = primera.value()
+          if punto >= 55296 and punto <= 56319
+            if not @esperar('\\')
+              return none
+            if not @esperar('u')
+              return none
+            segunda = @leer_hex4()
+            if segunda.is_none()
+              return none
+            punto = 65536 + (punto - 55296) * 1024 + (segunda.value() - 56320)
+          salida += code_char_raw(punto as int64_t)
+        else
+          @fallo("escape desconocido: \\#{codigo}")
+          return none
+      else
+        salida += "#{caracter}"
+    @fallo("texto sin cerrar")
+    none
+
+  mut cerrar_numero = (inicio: size_t) -> double?
+    if @indice == inicio
+      @fallo("número vacío")
+      return none
+    fragmento = @texto.substring(inicio, @indice)
+    valor = fragmento.to_double()
+    if valor.is_none()
+      @fallo("número inválido: #{fragmento}")
+      return none
+    valor
+
+  mut parse_number = -> double?
+    inicio = @indice
+    while not @terminado()
+      caracter = @actual()
+      if caracter == '-' or caracter == '+' or caracter == '.' or caracter == 'e' or caracter == 'E' or(caracter >= '0' and caracter <= '9')
+        @avanza()
+      else
+        return @cerrar_numero(inicio)
+    @cerrar_numero(inicio)
+
+  mut parse_literal = (texto: string, resultado: Value) -> Value?
+    if @indice + size_t::from(texto.char_count()) > @texto.char_count()
+      @fallo("literal incompleto")
+      return none
+    fragmento = @texto.substring(@indice, @indice + size_t::from(texto.char_count()))
+    if fragmento != texto
+      @fallo("literal desconocido: #{fragmento}")
+      return none
+    @indice += size_t::from(texto.char_count())
+    resultado
+
+  mut parse_value = -> Value?
+    @saltar()
+    if @terminado()
+      @fallo("se esperaba un valor")
+      return none
+    caracter = @actual()
+    if caracter == '{'
+      return @parse_object()
+    if caracter == '['
+      return @parse_array()
+    if caracter == '"'
+      texto = @parse_string()
+      if texto.is_none()
+        return none
+      return Value::Text(texto.value())
+    if caracter == 't'
+      return @parse_literal("true", Value::Bool( true))
+    if caracter == 'f'
+      return @parse_literal("false", Value::Bool( false))
+    if caracter == 'n'
+      return @parse_literal("null", Value::Null)
+    numero = @parse_number()
+    if numero.is_none()
+      return none
+    Value::Number(numero.value())
+
+  mut parse_array = -> Value?
+    if not @esperar('[')
+      return none
+    mut elementos = vector<Value>[]
+    @saltar()
+    if not @terminado() and @actual() == ']'
+      @avanza()
+      return Value::Array(elementos)
+    while true
+      elemento = @parse_value()
+      if elemento.is_none()
+        return none
+      elementos.push(elemento.value())
+      @saltar()
+      if @terminado()
+        @fallo("vector sin cerrar")
+        return none
+      if @actual() == ','
+        @avanza()
+        continue
+      if @actual() == ']'
+        @avanza()
+        return Value::Array(elementos)
+      @fallo("se esperaba «,» o «]» en la posición #{@indice}")
+      return none
+    none
+
+  mut parse_object = -> Value?
+    if not @esperar('{')
+      return none
+    mut claves = vector<string>[]
+    mut valores = vector<Value>[]
+    @saltar()
+    if not @terminado() and @actual() == '}'
+      @avanza()
+      return Value::Object(claves, valores)
+    while true
+      @saltar()
+      clave = @parse_string()
+      if clave.is_none()
+        return none
+      @saltar()
+      if not @esperar(':')
+        return none
+      valor = @parse_value()
+      if valor.is_none()
+        return none
+      claves.push(clave.value())
+      valores.push(valor.value())
+      @saltar()
+      if @terminado()
+        @fallo("objeto sin cerrar")
+        return none
+      if @actual() == ','
+        @avanza()
+        continue
+      if @actual() == '}'
+        @avanza()
+        return Value::Object(claves, valores)
+      @fallo("se esperaba «,» o «}» en la posición #{@indice}")
+      return none
+    none
+
+    -- API de análisis.
+parse = (texto: string) -> Value?
+  mut analizador = JsonParser(texto)
+  valor = analizador.parse_value()
+  if valor.is_none()
+    return none
+  analizador.saltar()
+  if not analizador.terminado()
+    return none
+  valor
+
+error = (texto: string) -> string?
+  mut analizador = JsonParser(texto)
+  valor = analizador.parse_value()
+  if valor.is_some()
+    analizador.saltar()
+    if analizador.terminado()
+      return none
+  if not analizador.error.is_empty()
+    return analizador.error
+  "contenido sobrante tras el valor"

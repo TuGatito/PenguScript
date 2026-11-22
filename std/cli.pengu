@@ -1,0 +1,175 @@
+-- Análisis de argumentos de línea de órdenes.
+--
+-- El programa describe sus banderas con `cli::flag` (interruptor sin valor) y
+-- `cli::option` (con valor); `cli::parse` recibe la lista y `argv` y devuelve
+-- un `Parsed` con valores, interruptores y posicionales. Si algo no cuadra,
+-- `Parsed` trae `ok = false` y un mensaje listo para imprimir.
+invoke "std/map"
+invoke "std/optional"
+invoke "std/set"
+invoke "std/string"
+invoke "std/vector"
+
+rune Flag
+  nombre: string
+  corto: string
+  toma_valor: bool
+  descripcion: string
+
+  constructor(nombre: string, corto: string, toma_valor: bool, descripcion: string)
+    @nombre = nombre
+    @corto = corto
+    @toma_valor = toma_valor
+    @descripcion = descripcion
+
+rune Parsed
+  ok: bool
+  mensaje: string
+  valores: map<string, string>
+  interruptores: set<string>
+  posicionales: vector<string>
+
+  constructor(ok: bool, mensaje: string, valores: map<string, string>, interruptores: set<string>, posicionales: vector<string>)
+    @ok = ok
+    @mensaje = mensaje
+    @valores = valores
+    @interruptores = interruptores
+    @posicionales = posicionales
+
+enchanting Parsed
+  is_ok = -> bool
+    @ok
+
+  error = -> string
+    @mensaje
+
+  has = (nombre: string) -> bool
+    @valores.contains_key(nombre) or @interruptores.contains(nombre)
+
+  get = (nombre: string) -> string?
+    @valores.get(nombre)
+
+  value_or = (nombre: string, respaldo: string) -> string
+    @valores.get_or(nombre, respaldo)
+
+  positional = (indice: size_t) -> string?
+    if indice >= @posicionales.size()
+      return none
+    @posicionales.get(indice)
+
+  rest = -> vector<string>
+    @posicionales
+
+  to_string = -> string
+    if @ok
+      "Parsed(#{@valores}, #{@interruptores}, #{@posicionales})"
+    else
+      "Parsed(error: #{@mensaje})"
+
+      -- Constructores de banderas.
+
+flag = (nombre: string, descripcion: string = "") -> Flag
+  Flag(nombre, "", false, descripcion)
+
+option = (nombre: string, descripcion: string = "") -> Flag
+  Flag(nombre, "", true, descripcion)
+
+short_flag = (nombre: string, corto: string, descripcion: string = "") -> Flag
+  Flag(nombre, corto, false, descripcion)
+
+short_option = (nombre: string, corto: string, descripcion: string = "") -> Flag
+  Flag(nombre, corto, true, descripcion)
+
+  -- Busca la bandera por nombre largo o por nombre corto.
+
+buscar_larga = (banderas: ref<vector<Flag>>, nombre: string) -> Flag?
+  for bandera in banderas
+    if bandera.nombre == nombre
+      return bandera
+  none
+
+buscar_corta = (banderas: ref<vector<Flag>>, corto: string) -> Flag?
+  for bandera in banderas
+    if bandera.corto == corto
+      return bandera
+  none
+
+error_de = (mensaje: string) -> Parsed
+  Parsed( false, mensaje, map<string, string>{}, set<string>{}, vector<string>[])
+
+parse = (banderas: ref<vector<Flag>>, argv: ref<vector<string>>) -> Parsed
+  mut valores: map<string, string> = map<string, string>{}
+  mut interruptores: set<string> = set<string>{}
+  mut posicionales: vector<string> = vector<string>[]
+  mut indice = size_t::from(1)
+  mut solo_posicionales = false
+  while indice < argv.size()
+    argumento = argv[indice]
+    if solo_posicionales
+      posicionales.push(argumento)
+      indice += size_t::from(1)
+    else if argumento == "--"
+      solo_posicionales = true
+      indice += size_t::from(1)
+    else if argumento.starts_with("--")
+      cuerpo = argumento.substring(size_t::from(2), #argumento)
+      mut nombre = cuerpo
+      igual = cuerpo.find("=")
+      if igual.is_some()
+        nombre = cuerpo.substring(size_t::from(0), igual.value())
+      bandera = buscar_larga(banderas, nombre)
+      if bandera.is_none()
+        return error_de("opción desconocida: --#{nombre}")
+      if bandera.value().toma_valor
+        if igual.is_some()
+          valores.insert_or_assign(nombre, cuerpo.substring(igual.value() + size_t::from(1), #cuerpo))
+          indice += size_t::from(1)
+        else
+          if indice + size_t::from(1) >= argv.size()
+            return error_de("la opción --#{nombre} necesita un valor")
+          valores.insert_or_assign(nombre, argv[indice + size_t::from(1)])
+          indice += size_t::from(2)
+      else
+        if igual.is_some()
+          return error_de("la opción --#{nombre} no lleva valor")
+        interruptores.insert(nombre)
+        indice += size_t::from(1)
+    else if argumento.starts_with("-") and #argumento > 1
+      cuerpo = argumento.substring(size_t::from(1), #argumento)
+      mut corto = cuerpo
+      igual = cuerpo.find("=")
+      if igual.is_some()
+        corto = cuerpo.substring(size_t::from(0), igual.value())
+      bandera = buscar_corta(banderas, corto)
+      if bandera.is_none()
+        return error_de("opción desconocida: -#{corto}")
+      if bandera.value().toma_valor
+        if igual.is_some()
+          valores.insert_or_assign(bandera.value().nombre, cuerpo.substring(igual.value() + size_t::from(1), #cuerpo))
+          indice += size_t::from(1)
+        else
+          if indice + size_t::from(1) >= argv.size()
+            return error_de("la opción -#{corto} necesita un valor")
+          valores.insert_or_assign(bandera.value().nombre, argv[indice + size_t::from(1)])
+          indice += size_t::from(2)
+      else
+        interruptores.insert(bandera.value().nombre)
+        indice += size_t::from(1)
+    else
+      posicionales.push(argumento)
+      indice += size_t::from(1)
+  Parsed( true, "", valores, interruptores, posicionales)
+
+  -- Ayuda generada a partir de la descripción de las banderas.
+
+usage = (programa: string, banderas: ref<vector<Flag>>) -> string
+  mut lineas = vector<string>["uso: #{programa} [opciones]"]
+  for bandera in banderas
+    mut corto = ""
+    if #bandera.corto > 0
+      corto = "-#{bandera.corto}, "
+    mut valor = ""
+    if bandera.toma_valor
+      valor = " VALOR"
+    lineas.push("  #{corto}--#{bandera.nombre}#{valor}  #{bandera.descripcion}")
+  lineas.join("\n")

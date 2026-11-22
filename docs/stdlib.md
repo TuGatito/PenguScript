@@ -123,14 +123,15 @@ All `.pengu`.
 | Module | Files | Contents |
 |--------|-------|----------|
 | `std/sort` | `.pengu` | `merge_sort`, `quick_sort`, `radix_sort`, `binary_search`, `lower_bound`, `upper_bound`, `is_sorted`. |
-| `std/encoding` | `.pengu` | `base64_encode`, `base64_decode`, `hex_encode`, `hex_decode`, `utf8_validate`, `url_encode`, `url_decode`. |
-| `std/json` | `.pengu` | `Json` omen (`Null`, `Bool`, `Number`, `String`, `Array`, `Object`). `parse`, `stringify`, `to_json`, `from_json`. |
-| `std/hash` | `.pengu` | `fnv1a_32`, `fnv1a_64`, `xxhash64`, `murmur3_32`, `murmur3_128`, `cityhash64`. |
-| `std/console` | `.pengu` | ANSI colors (`Color` omen), `bold`, `dim`, `italic`, `underline`, `cursor_up`, `cursor_down`, `clear_screen`, `terminal_size`. |
+| `std/encoding` | `.pengu` | `base64`, `base64_decode`, `base64_bytes`, `base64_to_bytes`, `hex`, `hex_decode`, `hex_bytes`, `hex_to_bytes`, `url_encode`, `url_decode`, `bytes`, `from_bytes`, `is_utf8`. |
+| `std/json` | `.pengu` | `Value` omen (`Null`, `Bool`, `Number`, `Text`, `Array`, `Object`). Constructores `null_value`/`bool_value`/`number_value`/`int_value`/`text_value`/`array_value`/`object_value`; accesos `is_null`, `as_bool`, `as_number`, `as_int`, `as_text`, `as_array`, `length`, `keys`, `has`, `get`, `at`; `stringify`, `pretty`, `parse`, `error` (con `\uXXXX` y pares sustitutos). |
+| `std/hash` | `.pengu` | `fnv1a32`, `fnv1a64`, `djb2`, `crc32`, `adler32`, `hex32`, `hex64`, `fnv1a32_hex`, `fnv1a64_hex`, `crc32_hex`. |
+| `std/console` | `.pengu` | Estilos `bold`/`dim`/`italic`/`underline`/`blink`/`reverse`/`hidden`, colores `fg`/`bg`, `fg_256`, `bg_256`, `fg_rgb`, `bg_rgb`, `paint`, `paint_256`, `paint_rgb`, `strip`, `clear`, `clear_line`, `move_to`, `move_up/down/right/left`, cursores (`hide`/`show`/`save`/`restore`). |
 | `std/debug` | `.pengu` | `stacktrace`, `backtrace`, `inspect` (dump any rune to string), `memory_stats`. |
-| `std/test` | `.pengu` | `TestSuite`, `run_tests`, `expect`, `expect_eq`, `expect_err`. |
+| `std/test` | `.pengu` | `is_true`, `is_false`, `equal`, `not_equal`, `is_some`, `is_none` (panican con `assert::fail`). |
+| `std/cli` | `.pengu` | `Flag`, `Parsed`; `flag`, `option`, `short_flag`, `short_option`, `parse`, `usage`. Soporta `--nombre=valor`, `--nombre valor`, `-n valor`, `-n=valor`, `--` y posicionales. |
 
-### Layer 4 — Concurrency and I/O (v0.1.0, optional)
+### Layer 4 — Concurrency and I/O (previstos, fases F8–F9)
 
 All `.pengu`. Not required for the language to be usable, but part of a "complete" stdlib.
 
@@ -142,7 +143,6 @@ All `.pengu`. Not required for the language to be usable, but part of a "complet
 | `std/channel` | `.pengu` | `Channel<T>`, `Sender<T>`, `Receiver<T>`. `send`, `recv`, `try_recv`, `close`, `select` (function taking a list of channels). |
 | `std/net` | `.pengu` | `TcpListener`, `TcpStream`, `UdpSocket`, `Address`, `IpAddr` omen, `Port`. Uses `sys::socket`, `sys::bind`, `sys::listen`, `sys::accept`, `sys::connect`. |
 | `std/regex` | `.pengu` | `Regex`, `Match`. `find`, `find_all`, `replace`, `split`, `captures`. Thompson NFA implementation in PenguScript. |
-| `std/cli` | `.pengu` | `Args`, `Flag`, `Option`, `Subcommand`, `parse`. |
 | `std/crypto` | `.pengu` | `sha256`, `sha512`, `md5`, `blake3`. |
 
 ### Future modules (post v0.1.0)

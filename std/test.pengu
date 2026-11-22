@@ -19,7 +19,7 @@ is_false = (valor: bool, mensaje: string = "se esperaba false") -> void
 
     -- Dos valores son iguales.
 equal = <T>(actual: T, esperado: T, mensaje: string = "los valores no coinciden") -> void
-  if not (actual == esperado)
+  if not(actual == esperado)
     assert::fail(mensaje)
 
     -- Dos valores son distintos.

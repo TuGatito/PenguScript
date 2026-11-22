@@ -259,7 +259,7 @@ enchanting vector<T>
     for valor in @
       if #sin_repetidos == 0
         sin_repetidos.push(valor)
-      else if not (sin_repetidos[#sin_repetidos - 1] == valor)
+      else if not(sin_repetidos[#sin_repetidos - 1] == valor)
         sin_repetidos.push(valor)
     @ = sin_repetidos
 

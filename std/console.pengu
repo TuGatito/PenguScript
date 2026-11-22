@@ -1,0 +1,180 @@
+-- Colores y control del terminal con secuencias ANSI.
+--
+-- Todas las funciones de estilo devuelven el código como `string`, así que
+-- se combinan con `+` o con `paint`. `strip` los quita, útil para medir el
+-- ancho visible o para escribir en un archivo.
+invoke "std/string"
+invoke "std/vector"
+
+declare
+  esc_raw = -> string
+  strip_raw = (texto: string) -> string
+
+esc = -> string
+  esc_raw()
+
+reset = -> string
+  esc() + "[0m"
+
+bold = -> string
+  esc() + "[1m"
+
+dim = -> string
+  esc() + "[2m"
+
+italic = -> string
+  esc() + "[3m"
+
+underline = -> string
+  esc() + "[4m"
+
+blink = -> string
+  esc() + "[5m"
+
+reverse = -> string
+  esc() + "[7m"
+
+hidden = -> string
+  esc() + "[8m"
+
+  -- Colores de 8/16 tonos.
+
+black = -> string
+  esc() + "[30m"
+
+red = -> string
+  esc() + "[31m"
+
+green = -> string
+  esc() + "[32m"
+
+yellow = -> string
+  esc() + "[33m"
+
+blue = -> string
+  esc() + "[34m"
+
+magenta = -> string
+  esc() + "[35m"
+
+cyan = -> string
+  esc() + "[36m"
+
+white = -> string
+  esc() + "[37m"
+
+bright_black = -> string
+  esc() + "[90m"
+
+bright_red = -> string
+  esc() + "[91m"
+
+bright_green = -> string
+  esc() + "[92m"
+
+bright_yellow = -> string
+  esc() + "[93m"
+
+bright_blue = -> string
+  esc() + "[94m"
+
+bright_magenta = -> string
+  esc() + "[95m"
+
+bright_cyan = -> string
+  esc() + "[96m"
+
+bright_white = -> string
+  esc() + "[97m"
+
+  -- Fondos.
+
+on_black = -> string
+  esc() + "[40m"
+
+on_red = -> string
+  esc() + "[41m"
+
+on_green = -> string
+  esc() + "[42m"
+
+on_yellow = -> string
+  esc() + "[43m"
+
+on_blue = -> string
+  esc() + "[44m"
+
+on_magenta = -> string
+  esc() + "[45m"
+
+on_cyan = -> string
+  esc() + "[46m"
+
+on_white = -> string
+  esc() + "[47m"
+
+  -- 256 colores y color verdadero (24 bits).
+
+fg_256 = (tono: int) -> string
+  esc() + "[38;5;#{tono}m"
+
+bg_256 = (tono: int) -> string
+  esc() + "[48;5;#{tono}m"
+
+fg_rgb = (rojo: int, verde: int, azul: int) -> string
+  esc() + "[38;2;#{rojo};#{verde};#{azul}m"
+
+bg_rgb = (rojo: int, verde: int, azul: int) -> string
+  esc() + "[48;2;#{rojo};#{verde};#{azul}m"
+
+  -- Aplican un código alrededor del texto.
+
+paint = (texto: string, codigo: string) -> string
+  codigo + texto + reset()
+
+paint_256 = (texto: string, tono: int) -> string
+  fg_256(tono) + texto + reset()
+
+paint_rgb = (texto: string, rojo: int, verde: int, azul: int) -> string
+  fg_rgb(rojo, verde, azul) + texto + reset()
+
+strip = (texto: string) -> string
+  strip_raw(texto)
+
+  -- Control de pantalla y cursor.
+
+clear = -> string
+  esc() + "[2J" + esc() + "[H"
+
+clear_line = -> string
+  esc() + "[2K"
+
+home = -> string
+  esc() + "[H"
+
+move_to = (fila: int, columna: int) -> string
+  esc() + "[#{fila};#{columna}H"
+
+move_up = (filas: int) -> string
+  esc() + "[#{filas}A"
+
+move_down = (filas: int) -> string
+  esc() + "[#{filas}B"
+
+move_right = (columnas: int) -> string
+  esc() + "[#{columnas}C"
+
+move_left = (columnas: int) -> string
+  esc() + "[#{columnas}D"
+
+hide_cursor = -> string
+  esc() + "[?25l"
+
+show_cursor = -> string
+  esc() + "[?25h"
+
+save_cursor = -> string
+  esc() + "[s"
+
+restore_cursor = -> string
+  esc() + "[u"

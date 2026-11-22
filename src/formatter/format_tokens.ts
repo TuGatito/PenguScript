@@ -110,12 +110,17 @@ function space_between(
   if (text === ">>" && closes_type_arguments(next)) return false;
   if (previous.text === "operator") return true;
   if (is_operator_token(token) && NO_SPACE_BEFORE.has(text)) return false;
-  // `#@then` no: una palabra clave nunca se pega a `#`, `@`, `.` ni `::`.
-  if (is_operator_token(previous) && NO_SPACE_AFTER.has(previous.text) && !is_keyword(text)) return false;
+  // `#@then` no: una palabra clave nunca se pega a `#` ni `@`. Detrás de
+  // `::` o `.` sí se pega, aunque sea palabra reservada: `size_t::from(4)`,
+  // `result::Result`, `log::Level::Warn`.
+  if (is_operator_token(previous) && NO_SPACE_AFTER.has(previous.text)) {
+    if (!is_keyword(text)) return false;
+    if (previous.text === "::" || previous.text === ".") return false;
+  }
 
   // Llamadas: `f(x)`, `xs[0]`, `f<int>(x)`.
   if (text === "(" || text === "[") {
-    if (previous.kind === "ident" || previous.text === ")" || previous.text === "]") return false;
+    if (is_word(previous) || previous.text === ")" || previous.text === "]") return false;
     if (previous.text === "constructor" || previous.text === "destructor" || previous.text === "parent") return false;
   }
 

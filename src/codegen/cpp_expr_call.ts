@@ -295,6 +295,26 @@ export const BUILTIN_FUNCTIONS: Readonly<Record<string, string>> = {
   "io::is_terminal": "::pengu::stdin_is_terminal",
   "io::read_char": "::pengu::read_char",
   "format::template_values": "::pengu::template_values",
+  "encoding::base64_raw": "::pengu::base64_encode",
+  "encoding::base64_decode_raw": "::pengu::base64_decode",
+  "encoding::hex_raw": "::pengu::hex_encode",
+  "encoding::hex_decode_raw": "::pengu::hex_decode",
+  "encoding::url_raw": "::pengu::url_encode",
+  "encoding::url_decode_raw": "::pengu::url_decode",
+  "encoding::bytes_raw": "::pengu::string_bytes",
+  "encoding::bytes_text_raw": "::pengu::bytes_text",
+  "encoding::from_bytes_raw": "::pengu::bytes_string",
+  "encoding::is_utf8_raw": "::pengu::valid_utf8",
+  "hash::fnv1a32_raw": "::pengu::fnv1a32",
+  "hash::fnv1a64_raw": "::pengu::fnv1a64",
+  "hash::djb2_raw": "::pengu::djb2",
+  "hash::crc32_raw": "::pengu::crc32",
+  "hash::adler32_raw": "::pengu::adler32",
+  "hash::hex32_raw": "::pengu::hex32_raw",
+  "hash::hex64_raw": "::pengu::hex64_raw",
+  "console::esc_raw": "::pengu::ansi_escape_raw",
+  "console::strip_raw": "::pengu::strip_ansi",
+  "json::code_char_raw": "::pengu::utf8_from_code",
   "log::set_level_raw": "::pengu::set_log_level_raw",
   "log::level_raw": "::pengu::log_level_raw",
   "log::enabled_raw": "::pengu::log_enabled_raw",
@@ -425,7 +445,9 @@ export function emit_ident_call(
     const variant = omen.variants.get(name);
     if (variant === undefined) continue;
     if (variant.payload.length === 0) {
-      return `${cpp_identifier(omen_name)}::${cpp_identifier(name)}`;
+      const algebraic = [...omen.variants.values()].some((alternative) => alternative.payload.length > 0);
+      const suffix = algebraic ? "()" : "";
+      return `${cpp_identifier(omen_name)}::${cpp_identifier(name)}${suffix}`;
     }
     const rendered = variant.payload.map((_type, index) => `v${index}`).join(", ");
     return `${cpp_identifier(omen_name)}{${cpp_identifier(omen_name)}_${cpp_identifier(name)}{${args}}}`;
@@ -462,6 +484,14 @@ export function emit_path(g: GenContext, segments: readonly string[]): string {
   }
 
   const first = segments[0];
+  const omen = first !== undefined ? g.module.env.omens.get(first) : undefined;
+  if (omen !== undefined && segments.length === 2) {
+    const variant = omen.variants.get(segments[1] ?? "");
+    if (variant !== undefined && variant.payload.length === 0) {
+      const algebraic = [...omen.variants.values()].some((alternative) => alternative.payload.length > 0);
+      return `${cpp_identifier(first ?? "")}::${cpp_identifier(segments[1] ?? "")}${algebraic ? "()" : ""}`;
+    }
+  }
   const realm = first !== undefined ? g.external_realms.get(first) : undefined;
   if (realm !== undefined) {
     return [sanitize_namespace(realm), ...segments.slice(1).map(cpp_identifier)].join("::");
@@ -488,7 +518,10 @@ export function emit_path_call(
     const variant = omen.variants.get(last);
     if (variant !== undefined) {
       const sigils = type_args.length > 0 ? `<${type_args.join(", ")}>` : "";
-      if (variant.payload.length === 0) return `${head}${sigils}::${last}`;
+      if (variant.payload.length === 0) {
+        const algebraic = [...omen.variants.values()].some((alternative) => alternative.payload.length > 0);
+        return `${head}${sigils}::${last}${algebraic ? "()" : ""}`;
+      }
       return emit_generic_variant(g, head, last, type_args, args);
     }
   }
