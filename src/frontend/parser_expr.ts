@@ -511,6 +511,24 @@ export function looks_like_return_type(c: Cursor): boolean {
   }
 
   let offset = 1;
+  // `range<int>`, `vector<T>`…: un nombre con argumentos de tipo seguido de
+  // fin de línea es un tipo de retorno, no una expresión.
+  if (peek(c, offset).kind === "<") {
+    let depth = 0;
+    for (let cursor = offset; cursor < offset + 64; cursor++) {
+      const kind = peek(c, cursor).kind;
+      if (kind === "eof" || kind === "newline") return false;
+      if (kind === "<") depth += 1;
+      else if (kind === ">") depth -= 1;
+      else if (kind === ">>") depth -= 2;
+      else continue;
+      if (depth <= 0) {
+        const after = peek(c, cursor + 1).kind;
+        return after === "newline" || after === "eof" || after === "dedent" || after === "indent" || after === "?";
+      }
+    }
+    return false;
+  }
   if (peek(c, offset).kind === "?") offset++;
   const next = peek(c, offset).kind;
   return next === "newline" || next === "eof" || next === "dedent" || next === "indent";

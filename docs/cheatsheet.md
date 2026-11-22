@@ -2013,7 +2013,7 @@ for (int i = 1; i <= 100; ++i) {
 }
 ```
 
-Ranges are **not first-class values** in v0.2.0 — they only appear in `for`. Passing a range to a function (e.g. `sum(1..100)`) is a future feature.
+Ranges **are first-class values**: you can bind them (`r = 1..10`), annotate them (`r: range<int>`), pass them to functions, return them, measure them with `#r`, test membership with `x in r`, and iterate them with `for`. `#(1..10)` is 10, `#(1..<10)` is 9, and a reversed range such as `5..1` is empty. Ranges are values, not containers: they cannot be mutated or used as map keys. Annotated ranges require an integer element type (`range<int>`).
 
 ### Loop control — `break`, `continue`, `break value`
 

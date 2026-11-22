@@ -115,7 +115,20 @@ struct Range {
       return inclusive ? (step > 0 ? value <= last : value >= last)
                        : (step > 0 ? value < last : value > last);
     }
+
+    using iterator_category = std::input_iterator_tag;
+    using value_type = long long;
+    using difference_type = long long;
+    using pointer = const long long*;
+    using reference = long long;
   };
+
+  // Largo del rango: «#(1..10)» es 10 y «#(1..<10)» es 9.
+  std::size_t size() const {
+    if (last < first) return 0;
+    const long long total = last - first;
+    return static_cast<std::size_t>(inclusive ? total + 1 : total);
+  }
 
   iterator begin() const {
     return iterator{first, last, first <= last ? 1 : -1, inclusive};
@@ -394,6 +407,15 @@ std::size_t len(const C& container) {
   } else {
     return static_cast<std::size_t>(std::distance(container.begin(), container.end()));
   }
+}
+
+// «x in 1..10»: el rango no tiene find, así que se compara el elemento.
+template <class T>
+bool contains(const Range& range, const T& value) {
+  const auto target = static_cast<long long>(value);
+  if (target < range.first) return false;
+  if (range.inclusive ? target > range.last : target >= range.last) return false;
+  return true;
 }
 
 inline bool contains(const std::string& text, const std::string& needle) {
