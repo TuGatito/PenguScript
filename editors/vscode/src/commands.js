@@ -83,7 +83,21 @@ function register_commands(context, state) {
   register("pengu.doctor", () => run_in_terminal(`${quote(executable_setting())} doctor`, workspace_cwd()));
   register("pengu.restartServer", () => state.restart());
   register("pengu.showOutput", () => state.output.show(true));
+  register("pengu.showSize", () => show_size(state));
   register("pengu.configureExecutable", () => commands.executeCommand("workbench.action.openSettings", "pengu.executable"));
+}
+
+// Muestra el tamaño medido del símbolo bajo el cursor.
+async function show_size(state) {
+  const editor = window.activeTextEditor;
+  if (editor === undefined || editor.document.languageId !== "pengu") {
+    void window.showInformationMessage("Abre un archivo .pengu y coloca el cursor sobre un símbolo.");
+    return;
+  }
+  const { size_at, format_size } = require("./sizes");
+  const info = await size_at(state, editor.document, editor.selection.active);
+  const text = format_size(info);
+  void window.showInformationMessage(text === undefined ? "No hay un tamaño medido para ese símbolo." : text);
 }
 
 module.exports = { register_commands };

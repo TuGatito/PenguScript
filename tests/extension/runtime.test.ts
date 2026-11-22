@@ -137,6 +137,8 @@ const vscode_stub = {
       return Promise.resolve(undefined);
     },
     showInputBox: () => Promise.resolve(undefined),
+    onDidChangeTextEditorSelection: () => ({ dispose: () => {} }),
+    onDidChangeActiveTextEditor: () => ({ dispose: () => {} }),
   },
   workspace: {
     workspaceFolders: [],
@@ -205,7 +207,7 @@ describe("extensión en ejecución", () => {
     settings["pengu.executable"] = "pengu";
     await extension.activate(context);
     expect(recorded.status.at(-1)?.text).toContain("pengu 0.1.0");
-    expect(new Set(recorded.commands.map((entry) => entry.id)).size).toBe(11);
+    expect(new Set(recorded.commands.map((entry) => entry.id)).size).toBe(12);
     expect(recorded.task_providers).toContain("pengu");
     expect(context.subscriptions.length).toBeGreaterThan(5);
   });

@@ -25,6 +25,7 @@ bun run src/main.ts run examples/01_hello/main.pengu
 bun run src/main.ts check examples/03_control/main.pengu
 bun run src/main.ts fmt examples
 bun run src/main.ts lsp            # servidor LSP por stdio
+bun run src/main.ts size examples/11_polimorfismo/main.pengu   # tamaños medidos
 ```
 
 Para tener el comando en el `PATH` y la extensión de VS Code instalada:
@@ -44,8 +45,11 @@ Detalles en [scripts/README.md](scripts/README.md).
 
 `editors/vscode/` incluye la extensión completa: resaltado de todo el lenguaje,
 diagnósticos del LSP (y opcionalmente `pengu check` al guardar), snippets,
-autocompletado, formato y comandos para **ejecutar**, **compilar**, **verificar**
-y **formatear** el archivo actual, además de tareas con el *problem matcher*
+autocompletado de valores, tipos, miembros y `std/`, ayuda de firma, ir a la
+definición, referencias y renombrado por proyecto, inlay hints de tipos
+inferidos, tokens semánticos, plegado, enlaces y lentes, formato y comandos
+para **ejecutar**, **compilar**, **verificar**, **formatear** y **ver el tamaño
+del símbolo** bajo el cursor, además de tareas con el *problem matcher*
 `$pengu`.
 
 ```bash
@@ -65,6 +69,7 @@ están en [editors/vscode/README.md](editors/vscode/README.md).
 | `pengu check <archivo>` | Solo análisis: lexer, parser y checker |
 | `pengu fmt [ruta]` | Formatea (`--check` para verificar sin escribir) |
 | `pengu lsp` | Servidor LSP por stdin/stdout |
+| `pengu size [archivo]` | Bytes y alineación medidos (`--json`, `--type`, `--fields`) |
 | `pengu bindgen <cabecera>` | Genera `*.d.pengu` desde una cabecera C/C++ |
 | `pengu init [dir] [nombre]` | Crea un proyecto con `pengu.toml` |
 | `pengu doctor` | Muestra versiones de Bun y de los compiladores |
@@ -132,6 +137,8 @@ las valida y el generador emite los prototipos correspondientes.
 
 - [`docs/cheatsheet.md`](docs/cheatsheet.md): referencia del lenguaje.
 - [`docs/stdlib.md`](docs/stdlib.md): biblioteca estándar.
+- `docs/lsp.md`: capacidades del servidor LSP y ajustes de la extensión.
 - `docs/errors.md`: catálogo de códigos de diagnóstico.
 - [`scratch/plan_typescript.md`](scratch/plan_typescript.md): plan por fases.
 - [`scratch/plan_extension_vscode.md`](scratch/plan_extension_vscode.md): auditoría y fases de la extensión.
+- [`scratch/plan_lsp_intellisense.md`](scratch/plan_lsp_intellisense.md): plan de IntelliSense, tamaños e inlay hints.

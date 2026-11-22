@@ -9,6 +9,11 @@ const MANIFEST = "pengu.toml";
 // Biblioteca estándar que acompaña al compilador (`std/` del repositorio).
 const BUNDLED_STD = fileURLToPath(new URL("../../std", import.meta.url));
 
+// `std/` es de solo lectura: el proyecto no debe renombrarlo ni editarlo.
+export function is_bundled(path: string): boolean {
+  return path === BUNDLED_STD || path.startsWith(`${BUNDLED_STD}/`);
+}
+
 // Directorio del proyecto: el ancestro más cercano con `pengu.toml`.
 export function find_project_root(start: string): string {
   let current = resolve(start);

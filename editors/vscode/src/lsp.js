@@ -1,6 +1,7 @@
 // Ciclo de vida del cliente LSP: arranque, reinicio y parada.
 
 const { workspace, window, Trace } = require("vscode");
+const { inlay_sizes, inlay_types, completion_docs, status_size } = require("./settings");
 const { LanguageClient, TransportKind } = require("vscode-languageclient/node");
 
 function trace_setting() {
@@ -20,6 +21,12 @@ function client_options(output) {
     documentSelector: [{ scheme: "file", language: "pengu" }],
     outputChannel: output,
     synchronize: { fileEvents: workspace.createFileSystemWatcher("**/*.pengu") },
+    // El servidor decide con esto si añade tamaños a los hints.
+    initializationOptions: {
+      inlayHints: { types: inlay_types(), sizes: inlay_sizes() },
+      completion: { docs: completion_docs() },
+      statusBar: { size: status_size() },
+    },
   };
 }
 
@@ -52,4 +59,4 @@ async function restart_client(state, executable, cwd, on_missing) {
   await start_client(state, executable, cwd, on_missing);
 }
 
-module.exports = { start_client, stop_client, restart_client };
+module.exports = { start_client, stop_client, restart_client, client_options, server_options };

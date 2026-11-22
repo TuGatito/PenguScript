@@ -7,6 +7,7 @@ export const COMMANDS = [
   "fmt",
   "lsp",
   "bindgen",
+  "size",
   "init",
   "doctor",
   "clean",
@@ -32,6 +33,7 @@ export function main_help(): string {
     "  fmt       Formatea archivos .pengu.",
     "  lsp       Inicia el servidor de lenguaje (JSON-RPC por stdio).",
     "  bindgen   Genera declaraciones .d.pengu desde cabeceras C/C++.",
+    "  size      Mide tamaños y alineación reales de los tipos del proyecto.",
     "  init      Crea un proyecto nuevo con pengu.toml y src/main.pengu.",
     "  doctor    Muestra el estado del toolchain (bun, g++, clang++).",
     "  clean     Borra la caché de compilación.",
@@ -78,6 +80,12 @@ const COMMAND_HELP: Readonly<Record<CommandName, string>> = {
     `Uso: ${TOOL_NAME} lsp [--stdio]`,
     "",
     "  Servidor de lenguaje. Habla JSON-RPC 2.0 por stdin/stdout.",
+  ].join("\n"),
+  size: [
+    `Uso: ${TOOL_NAME} size [archivo.pengu] [opciones]`,
+    "",
+    "  --json             Emite la tabla en JSON.",
+    "  --compiler <cxx>   Compilador con el que medir (g++ por defecto).",
   ].join("\n"),
   bindgen: [
     `Uso: ${TOOL_NAME} bindgen <cabecera.h> [opciones]`,

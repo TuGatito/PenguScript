@@ -21,7 +21,7 @@ import type { ParamNode } from "../frontend/ast_param.ts";
 import { suggest_name } from "../util/suggest.ts";
 import { declare, lookup } from "./scopes.ts";
 import type { CheckContext } from "./checker_context.ts";
-import { with_scope } from "./checker_context.ts";
+import { record_local, with_scope } from "./checker_context.ts";
 import { symbol_type_of } from "./external.ts";
 import {
   add_borrow,
@@ -190,7 +190,7 @@ export function infer_match(ctx: CheckContext, node: Extract<ExprNode, { kind: "
       if (arm.pattern.kind === "variant_pattern") covered.add(arm.pattern.path[arm.pattern.path.length - 1] ?? "");
     }
     const body = with_pattern_scope(ctx, () => {
-      bind_pattern(ctx, arm.pattern, subject, omen, match_mapping(subject, omen));
+      bind_pattern(ctx, arm.pattern, subject, omen, match_mapping(subject, omen), arm.body.span);
       return infer_block(ctx, arm.body);
     });
     result = result === undefined ? body : join_types(result, body) ?? any_type("ramas");
@@ -243,6 +243,7 @@ export function bind_pattern(
   subject: PenguType,
   omen: OmenInfo | undefined,
   mapping: ReadonlyMap<string, PenguType> = new Map(),
+  scope?: Span,
 ): void {
   switch (pattern.kind) {
     case "wildcard_pattern":
@@ -255,11 +256,12 @@ export function bind_pattern(
         kind: "local",
         span: pattern.span,
       });
+      record_local(ctx, pattern.name, subject, pattern.mutable, "variable", pattern.span, scope ?? ctx.block_span ?? pattern.span);
       return;
     case "tuple_pattern": {
       const items = subject.kind === "tuple" ? subject.items : [];
       pattern.items.forEach((item, index) => {
-        bind_pattern(ctx, item, items[index] ?? UNKNOWN, omen, mapping);
+        bind_pattern(ctx, item, items[index] ?? UNKNOWN, omen, mapping, scope);
       });
       return;
     }
@@ -277,7 +279,7 @@ export function bind_pattern(
         return;
       }
       pattern.args.forEach((arg, index) => {
-        bind_pattern(ctx, arg, substitute_generics(variant.payload[index] ?? UNKNOWN, mapping), omen, mapping);
+        bind_pattern(ctx, arg, substitute_generics(variant.payload[index] ?? UNKNOWN, mapping), omen, mapping, scope);
       });
       if (pattern.args.length !== variant.payload.length) {
         report_error(
@@ -309,8 +311,11 @@ export function infer_comprehension(
         const index = INT;
         declare(ctx.scope, first, index, { mutable: clause.mutable, kind: "local", span: clause.span });
         declare(ctx.scope, second, element, { mutable: clause.mutable, kind: "local", span: clause.span });
+        record_local(ctx, first, index, clause.mutable, "variable", clause.span, body.span);
+        record_local(ctx, second, element, clause.mutable, "variable", clause.span, body.span);
       } else {
         declare(ctx.scope, first, element, { mutable: clause.mutable, kind: "local", span: clause.span });
+        record_local(ctx, first, element, clause.mutable, "variable", clause.span, body.span);
       }
       if (clause.condition !== undefined) {
         expect_bool(ctx, infer_expr(ctx, clause.condition), clause.condition.span, "el filtro de la comprensión");
@@ -366,6 +371,7 @@ export function infer_for_numeric(
       kind: "local",
       span: node.span,
     });
+    record_local(ctx, node.variable, variable_type, node.mutable, "variable", node.span, node.body.span);
     const break_types: PenguType[] = [];
     with_loop(ctx, () => infer_block(ctx, node.body), break_types);
     if (node.else_block !== undefined) infer_block(ctx, node.else_block);
@@ -393,8 +399,11 @@ export function infer_for_iter(
       const second_type = pair === undefined ? element : pair.value;
       declare(ctx.scope, first, first_type, { mutable: false, kind: "local", span: node.span });
       declare(ctx.scope, second, second_type, { mutable: node.mutable, kind: "local", span: node.span });
+      record_local(ctx, first, first_type, false, "variable", node.span, node.body.span);
+      record_local(ctx, second, second_type, node.mutable, "variable", node.span, node.body.span);
     } else {
       declare(ctx.scope, first, element, { mutable: node.mutable, kind: "local", span: node.span });
+      record_local(ctx, first, element, node.mutable, "variable", node.span, node.body.span);
     }
     const break_types: PenguType[] = [];
     try {
@@ -423,11 +432,13 @@ export function infer_lambda(ctx: CheckContext, node: LambdaNode): PenguType {
   try {
     const body = with_new_scope(ctx, () => {
       node.params.forEach((param, index) => {
-        declare(ctx.scope, param.name, param_binding_type(param, params[index] ?? UNKNOWN), {
+        const binding = param_binding_type(param, params[index] ?? UNKNOWN);
+        declare(ctx.scope, param.name, binding, {
           mutable: param.mutable,
           kind: "param",
           span: param.span,
         });
+        record_local(ctx, param.name, binding, param.mutable, "parameter", param.span, node.body.span);
       });
       return infer_block(ctx, node.body);
     });

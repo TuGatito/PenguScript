@@ -9,6 +9,7 @@ import { run_clean } from "./cli/clean_command.ts";
 import { run_fmt } from "./cli/fmt_command.ts";
 import { run_lsp } from "./cli/lsp_command.ts";
 import { run_bindgen } from "./cli/bindgen_command.ts";
+import { run_size } from "./cli/size_command.ts";
 import { probe_toolchain } from "./driver/toolchain.ts";
 import { LANGUAGE_NAME, LANGUAGE_VERSION } from "./version.ts";
 import { TOOL_NAME, VERSION } from "./version.ts";
@@ -84,6 +85,12 @@ function main(argv: readonly string[]): number {
     case "lsp": {
       return run_lsp(args).exit_code;
     }
+    case "size": {
+      const result = run_size(args.positionals, args.flags);
+      if (result.exit_code === 0 || args.flags.json === true) print(result.output);
+      else print_error(result.output);
+      return result.exit_code;
+    }
     case "bindgen": {
       const result = run_bindgen(args);
       if (result.exit_code === 0) print(result.output);
@@ -113,13 +120,6 @@ function main(argv: readonly string[]): number {
       for (const info of toolchains) print(`${info.compiler} ${info.version}`);
       return 0;
     }
-    case "fmt":
-    case "lsp":
-    case "bindgen":
-    case "init":
-    case "clean":
-      print_error(`error: el comando '${args.command}' todavía no está implementado (fase P0)`);
-      return 3;
   }
 }
 

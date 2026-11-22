@@ -334,3 +334,20 @@ export function builtin_index_result(type: PenguType): PenguType | undefined {
   if (is_string_type(type)) return CHAR;
   return undefined;
 }
+
+// Nombres de miembros incorporados que puede tener un tipo: los usa la
+// finalización del LSP para enumerar sin duplicar las tablas.
+const MEMBER_CANDIDATES: readonly string[] = [
+  "size", "len", "is_empty", "push", "push_back", "pop", "pop_back", "pop_opt",
+  "get", "get_unchecked", "front", "back", "top", "contains", "clear", "remove",
+  "remove_at", "insert", "insert_or_assign", "get_or", "extract", "keys", "values",
+  "find", "substr", "starts_with", "ends_with", "value", "value_or", "is_some",
+  "is_none", "first", "second", "lock", "unlock", "lock_shared", "unlock_shared",
+  "is_lt", "is_eq", "is_gt", "reverse", "load", "store", "fetch_add", "real",
+  "imag", "join", "detach", "test", "set", "reset", "flip", "count", "all",
+  "any", "none", "sqrt", "abs", "is_nan",
+];
+
+export function builtin_member_names(type: PenguType): string[] {
+  return MEMBER_CANDIDATES.filter((name) => member_of_builtin(type, name) !== undefined);
+}

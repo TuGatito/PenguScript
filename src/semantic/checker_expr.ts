@@ -33,6 +33,7 @@ import {
   expect_bool,
   is_generic_type,
   report_type_mismatch,
+  with_block_span,
 } from "./checker_context.ts";
 import {
   BOOL,
@@ -104,13 +105,13 @@ import {
 } from "./checker_control.ts";
 
 export function infer_block(ctx: CheckContext, block: Block): PenguType {
-  return with_new_scope(ctx, () => {
+  return with_block_span(ctx, block.span, () => with_new_scope(ctx, () => {
     let last: PenguType = VOID;
     for (const statement of block.statements) {
       last = check_statement(ctx, statement);
     }
     return last;
-  });
+  }));
 }
 
 export function with_new_scope<T>(ctx: CheckContext, fn: () => T): T {

@@ -8,6 +8,8 @@ const { register_commands } = require("./commands");
 const { register: register_tasks } = require("./tasks");
 const { check_document, clear } = require("./diagnostics");
 const { project_cwd } = require("./terminal");
+const { size_at, format_size, create_size_item } = require("./sizes");
+const { status_size } = require("./settings");
 
 let active_state;
 
@@ -34,6 +36,7 @@ function show_status(status, state) {
 async function activate(context) {
   const output = window.createOutputChannel("PenguScript");
   const status = window.createStatusBarItem(StatusBarAlignment.Left, 10);
+  const size_item = create_size_item();
   const state = { client: undefined, output, available: false, version: undefined };
   let warned = false;
 
@@ -69,14 +72,39 @@ async function activate(context) {
     await start();
   };
 
+  const refresh_size = () => {
+    if (!status_size()) {
+      size_item.hide();
+      return;
+    }
+    const editor = window.activeTextEditor;
+    if (editor === undefined || editor.document.languageId !== "pengu") {
+      size_item.hide();
+      return;
+    }
+    void size_at(state, editor.document, editor.selection.active).then((info) => {
+      const text = format_size(info);
+      if (text === undefined) {
+        size_item.hide();
+        return;
+      }
+      size_item.text = `$(symbol-ruler) ${text}`;
+      size_item.tooltip = "Tamaño medido del símbolo bajo el cursor";
+      size_item.show();
+    });
+  };
+
   active_state = state;
   register_commands(context, state);
-  context.subscriptions.push(status, output, register_tasks());
+  context.subscriptions.push(status, output, size_item, register_tasks());
+  context.subscriptions.push(
+    window.onDidChangeTextEditorSelection(() => refresh_size()),
+    window.onDidChangeActiveTextEditor(() => refresh_size()),
+  );
   context.subscriptions.push(
     workspace.onDidChangeConfiguration((event) => {
-      if (event.affectsConfiguration("pengu.executable") || event.affectsConfiguration("pengu.lsp.trace.server")) {
-        void state.restart();
-      }
+      const restarts = ["pengu.executable", "pengu.lsp.trace.server", "pengu.inlayHints.sizes", "pengu.completion.docs"];
+      if (restarts.some((key) => event.affectsConfiguration(key))) void state.restart();
     }),
     workspace.onDidSaveTextDocument((document) => {
       if (state.available) check_document(document, executable_setting());

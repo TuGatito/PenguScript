@@ -46,10 +46,16 @@ export function collect_type_realms(units: readonly ProgramUnit[]): TypeRealms {
   return realms;
 }
 
+export interface GenerateOptions {
+  // `false` genera solo declaraciones (medición de tamaños).
+  readonly emit_main?: boolean;
+}
+
 export function generate_program(
   units: readonly ProgramUnit[],
   entry: ModuleInfo,
   sink: DiagnosticSink,
+  options: GenerateOptions = {},
 ): GeneratedModule {
   const type_realms = collect_type_realms(units);
   const header: string[] = ['#include "pengu_rt.hpp"', "#include <cmath>", ""];
@@ -88,7 +94,7 @@ export function generate_program(
   }
 
   const main = entry.functions.get("main");
-  if (main !== undefined) {
+  if (main !== undefined && options.emit_main !== false) {
     const realm = sanitize_namespace(entry.realm);
     body.push("int main(int argc, char** argv) {");
     body.push("  ::pengu::set_args(argc, argv);");

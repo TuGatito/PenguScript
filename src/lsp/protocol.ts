@@ -31,6 +31,7 @@ export interface LspDocumentSymbol {
   readonly kind: number;
   readonly range: LspRange;
   readonly selectionRange: LspRange;
+  readonly children?: readonly LspDocumentSymbol[];
 }
 
 export interface LspTextEdit {
@@ -86,6 +87,9 @@ export const COMPLETION_KIND = {
   variable: 6,
   class: 7,
   enum_member: 20,
+  module: 9,
+  method: 2,
+  type: 25,
 } as const;
 
 export const DIAGNOSTIC_SEVERITY = {

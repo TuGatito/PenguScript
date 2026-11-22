@@ -11,7 +11,7 @@ import { error as make_error } from "../diagnostics/diagnostic.ts";
 import type { Span } from "../util/span.ts";
 import type { CheckContext } from "./checker_context.ts";
 import { ensure_not_borrowed } from "./checker_context.ts";
-import { can_assign, check_initialization, report_type_mismatch } from "./checker_context.ts";
+import { can_assign, check_initialization, record_local, report_type_mismatch, with_block_span } from "./checker_context.ts";
 import { declare, lookup } from "./scopes.ts";
 import { infer_expr, mark_moved, root_ident } from "./checker_expr.ts";
 import { find_rune_field, find_rune_method } from "./type_env.ts";
@@ -47,6 +47,8 @@ export function check_statement(ctx: CheckContext, statement: StmtNode): PenguTy
         span: statement.span,
       }) === undefined) {
         report_error(ctx, CODES.duplicate_symbol, `«${statement.name}» ya está declarado`, statement.span);
+      } else {
+        record_local(ctx, statement.name, type, false, "variable", statement.span, ctx.block_span ?? statement.span);
       }
       return VOID;
     }
@@ -104,6 +106,7 @@ function check_assign(ctx: CheckContext, node: AssignStmtNode): PenguType {
         report_error(ctx, CODES.duplicate_symbol, `«${target.name}» ya está declarado`, node.span);
       }
       ctx.types?.set(target, declared);
+      record_local(ctx, target.name, declared, node.mutable, "variable", target.span, ctx.block_span ?? node.span);
       return VOID;
     }
   }
@@ -210,6 +213,7 @@ function assign_target(
             span: target.span,
           });
           ctx.types?.set(target, value);
+          record_local(ctx, target.name, value, node.mutable, "variable", target.span, ctx.block_span ?? node.span);
           return;
         }
         report_error(ctx, CODES.unknown_identifier, `no existe «${target.name}» en este ámbito`, target.span);
@@ -358,16 +362,18 @@ function check_return(
 export function check_block(ctx: CheckContext, block: Block): PenguType {
   const previous = ctx.scope;
   ctx.scope = { parent: previous, vars: new Map() };
-  try {
-    let last: PenguType = VOID;
-    for (const statement of block.statements) {
-      last = check_statement(ctx, statement);
-      if (statement.kind === "return" || statement.kind === "break" || statement.kind === "continue") {
-        last = VOID;
+  return with_block_span(ctx, block.span, () => {
+    try {
+      let last: PenguType = VOID;
+      for (const statement of block.statements) {
+        last = check_statement(ctx, statement);
+        if (statement.kind === "return" || statement.kind === "break" || statement.kind === "continue") {
+          last = VOID;
+        }
       }
+      return last;
+    } finally {
+      ctx.scope = previous;
     }
-    return last;
-  } finally {
-    ctx.scope = previous;
-  }
+  });
 }

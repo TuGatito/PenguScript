@@ -132,7 +132,8 @@ main = ->
     });
     const completion = await wait_for(server.messages, (message) => message.id === 4);
     const labels = (completion.result as readonly { label: string }[]).map((item) => item.label);
-    expect(labels).toEqual(["compare"]);
+    expect(labels).toContain("compare");
+    expect(labels[0]).toBe("compare");
 
     server.send({
       jsonrpc: "2.0",
@@ -167,7 +168,7 @@ main = ->
       jsonrpc: "2.0",
       id: 4,
       method: "textDocument/completion",
-      params: { textDocument: { uri }, position: { line: 4, character: 2 } },
+      params: { textDocument: { uri }, position: { line: 4, character: 7 } },
     });
     const completion = await wait_for(server.messages, (message) => message.id === 4);
     const labels = (completion.result as readonly { label: string }[]).map((item) => item.label);

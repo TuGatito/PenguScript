@@ -16,4 +16,28 @@ function check_on_save() {
   return configuration().get("check.onSave", false);
 }
 
-module.exports = { configuration, extra_args, check_on_save };
+function inlay_sizes() {
+  return configuration().get("inlayHints.sizes", false);
+}
+
+function inlay_types() {
+  return configuration().get("inlayHints.types", true);
+}
+
+function completion_docs() {
+  return configuration().get("completion.docs", true);
+}
+
+function status_size() {
+  return configuration().get("statusBar.size", true);
+}
+
+module.exports = {
+  configuration,
+  extra_args,
+  check_on_save,
+  inlay_sizes,
+  inlay_types,
+  completion_docs,
+  status_size,
+};

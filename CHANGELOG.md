@@ -189,11 +189,51 @@ técnica conocida en el compilador.
 - El formateador escribe `ref<set<T>>` pegado y `#@ then` con espacio.
 - `map{}` sin argumentos de tipo funciona cuando el contexto lo anota.
 
+### Añadido en las fases I1–I8 (IntelliSense y tamaños)
+
+- **Análisis de proyecto en el LSP**: el servidor reconstruye el grafo completo
+  (documento abierto, sus `invoke` y `std/`) con *overlays* de los buffers sin
+  guardar, publica diagnósticos por archivo y comparte un índice de símbolos.
+- **Autocompletado completo**: ámbitos con sombreado, miembros de runes
+  (heredados), omens, sellos, ecos, tipos incorporados y métodos enhechizados
+  de `std/` y de módulos propios; `::` ofrece variantes y exportaciones; tras
+  `:` y `->` se ofrecen tipos del proyecto, `vector<T>`, `map<K, V>` y `T?`.
+- **Hover y ayuda de firma**: firma, documentación extraída de los comentarios
+  `--`, contenedor, tamaño y desplazamiento de campos; `signatureHelp` marca el
+  parámetro activo, también en variádicas.
+- **Navegación y refactor**: definición de locales, parámetros, campos, métodos
+  y símbolos de `std/`; referencias y renombrado por proyecto con sombreado;
+  `prepareRename`; `std/` protegido contra renombrado; símbolos jerárquicos del
+  documento y símbolos del workspace.
+- **`pengu size`**: mide bytes y alineación reales compilando un programa de
+  sondeo con el mismo toolchain (`--json`, `--type`, `--fields`). Cubre tipos
+  primitivos, runes, omens, sellos, ecos, constantes y funciones (retorno +
+  parámetros, y tamaño de `std::function`). La tabla se cachea por contenido y
+  nunca inventa cifras: sin compilador informa y falla.
+- **Inlay hints** de tipos inferidos (`x = 1` → `: int`) con opción de añadir el
+  tamaño; **tokens semánticos**, **plegado** y **acciones de código**
+  (arreglos rápidos y «añadir tipo explícito»).
+- **Extensión**: ajustes `pengu.inlayHints.types`, `pengu.inlayHints.sizes`,
+  `pengu.completion.docs` y `pengu.statusBar.size`, barra de estado con el
+  tamaño del símbolo bajo el cursor y comando «Mostrar tamaño del símbolo».
+
+### Corregido en las fases I1–I8
+
+- El autocompletado de miembros ya no pierde los métodos enhechizados del
+  módulo propio y calcula bien el receptor con un prefijo a medio escribir.
+- La finalización de `string` incluye `compare`, `trim`, `split`… y los
+  métodos enhechizados aparecen primero.
+- Los símbolos de función llevan su tipo `function<…>`, lo que habilita la
+  ayuda de firma y el hover con firma.
+- Los tokens semánticos usan el formato de cinco enteros por token exigido por
+  el protocolo.
+- La medición de tamaños cualifica los tipos de cada realm y omite `void`.
+
 ### Verificado
 
-- `bun test`: 314 pruebas en 38 archivos (lexer, parser, checker, formateador,
-  LSP de integración, bindgen, biblioteca estándar, conformidad y e2e de los
-  ejemplos, de las fases F1–F9 y H1–H7, y de la extensión de VS Code
-  (`tests/extension`, 36 pruebas).
+- `bun test`: 339 pruebas en 40 archivos (lexer, parser, checker, formateador,
+  LSP de integración y de consultas, medición de tamaños, bindgen, biblioteca
+  estándar, conformidad y e2e de los ejemplos, de las fases F1–F9, H1–H7 e
+  I1–I8, y de la extensión de VS Code).
 - `tsc --noEmit` sin errores y `pengu fmt --check` sin cambios pendientes.
 - Los 13 ejemplos de `examples/` compilan y ejecutan con el compilador final.

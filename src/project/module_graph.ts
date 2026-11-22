@@ -37,6 +37,13 @@ export interface ModuleGraph {
   readonly entry: LoadedModule | undefined;
   readonly order: readonly LoadedModule[];
   readonly diagnostics: readonly Diagnostic[];
+  // Diagnósticos por archivo: el LSP los publica documento a documento.
+  readonly by_file: ReadonlyMap<string, readonly Diagnostic[]>;
+}
+
+export interface LoadOptions {
+  // El LSP lee primero los buffers abiertos, después el disco.
+  readonly read_file?: (path: string) => string | undefined;
 }
 
 interface LoadState {
@@ -44,7 +51,17 @@ interface LoadState {
   readonly visiting: Set<string>;
   readonly order: LoadedModule[];
   readonly diagnostics: Diagnostic[];
+  readonly by_file: Map<string, Diagnostic[]>;
   readonly root: string;
+  readonly read_file: ((path: string) => string | undefined) | undefined;
+}
+
+// Un diagnóstico se guarda en la lista global y en la de su archivo.
+function report(state: LoadState, diagnostic: Diagnostic): void {
+  state.diagnostics.push(diagnostic);
+  const list = state.by_file.get(diagnostic.span.file);
+  if (list === undefined) state.by_file.set(diagnostic.span.file, [diagnostic]);
+  else list.push(diagnostic);
 }
 
 // Un realm puede reabrirse en varios archivos, pero un mismo nombre de
@@ -62,7 +79,8 @@ function check_realm_collisions(state: LoadState): void {
       if (!is_type_declaration(decl)) continue;
       const previous = names.get(decl.name);
       if (previous !== undefined && previous.file !== module.file) {
-        state.diagnostics.push(
+        report(
+          state,
           make_error(
             CODES.realm_duplicate,
             `«${decl.name}» ya está declarado en el realm «${realm}» por «${previous.file}»`,
@@ -148,7 +166,8 @@ function load_one(state: LoadState, file: string): LoadedModule | undefined {
   if (cached !== undefined) return cached;
 
   if (state.visiting.has(file)) {
-    state.diagnostics.push(
+    report(
+      state,
       make_error(CODES.import_cycle, `ciclo de importaciones en «${file}»`, {
         file,
         start: { line: 1, column: 1, offset: 0 },
@@ -159,10 +178,12 @@ function load_one(state: LoadState, file: string): LoadedModule | undefined {
   }
 
   let text: string;
+  const overlaid = state.read_file?.(file);
   try {
-    text = readFileSync(file, "utf8");
+    text = overlaid ?? readFileSync(file, "utf8");
   } catch {
-    state.diagnostics.push(
+    report(
+      state,
       make_error(CODES.module_not_found, `no se puede leer «${file}»`, {
         file,
         start: { line: 1, column: 1, offset: 0 },
@@ -174,11 +195,11 @@ function load_one(state: LoadState, file: string): LoadedModule | undefined {
 
   const source = make_source(file, text);
   const parse = parse_text(file, text);
-  state.diagnostics.push(...parse.diagnostics);
+  for (const diagnostic of parse.diagnostics) report(state, diagnostic);
 
   const sink = make_sink({ max: 200 });
   const info = collect_module(file, parse.program, sink);
-  state.diagnostics.push(...sink.diagnostics);
+  for (const diagnostic of sink.diagnostics) report(state, diagnostic);
 
   state.visiting.add(file);
 
@@ -191,7 +212,8 @@ function load_one(state: LoadState, file: string): LoadedModule | undefined {
       continue;
     }
     if (resolved === undefined) {
-      state.diagnostics.push(
+      report(
+        state,
         make_error(
           CODES.module_not_found,
           `no se encuentra el módulo «${imported.path}»`,
@@ -215,7 +237,8 @@ function load_one(state: LoadState, file: string): LoadedModule | undefined {
     if (child === undefined) continue;
     for (const name of imported.items) {
       if (symbol_type_of(child.info, name) === undefined && !child.info.env.runes.has(name) && !child.info.env.omens.has(name) && !child.info.env.aliases.has(name)) {
-        state.diagnostics.push(
+        report(
+          state,
           make_error(CODES.unknown_identifier, `el módulo «${alias}» no exporta «${name}»`, imported.span),
         );
         continue;
@@ -233,14 +256,16 @@ function load_one(state: LoadState, file: string): LoadedModule | undefined {
   return module;
 }
 
-export function load_graph(entry_file: string): ModuleGraph {
+export function load_graph(entry_file: string, options: LoadOptions = {}): ModuleGraph {
   const root = find_project_root(dirname(entry_file));
   const state: LoadState = {
     loaded: new Map(),
     visiting: new Set(),
     order: [],
     diagnostics: [],
+    by_file: new Map(),
     root,
+    read_file: options.read_file,
   };
   const entry = load_one(state, entry_file);
   check_realm_collisions(state);
@@ -249,5 +274,6 @@ export function load_graph(entry_file: string): ModuleGraph {
     entry,
     order: state.order,
     diagnostics: state.diagnostics,
+    by_file: state.by_file,
   };
 }

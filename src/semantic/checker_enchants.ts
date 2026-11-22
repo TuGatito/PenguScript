@@ -44,7 +44,7 @@ interface ActualArg {
 }
 
 // Clave del registro: nombre base y aridad del receptor.
-function receiver_shape(type: PenguType): { base: string; arity: number } | undefined {
+export function receiver_shape(type: PenguType): { base: string; arity: number } | undefined {
   if (type.kind === "primitive") return { base: type.name, arity: 0 };
   if (type.kind === "named" && !type.generic) return { base: type.name, arity: type.args.length };
   if (type.kind === "tuple") return { base: "tuple", arity: type.items.length };

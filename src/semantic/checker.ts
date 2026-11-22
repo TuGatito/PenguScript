@@ -18,7 +18,7 @@ import type { DiagnosticSink } from "../diagnostics/sink.ts";
 import { CODES } from "../diagnostics/codes.ts";
 import { error as make_error } from "../diagnostics/diagnostic.ts";
 import type { CheckContext } from "./checker_context.ts";
-import { annotate_literal, check_initialization, make_context, report_type_mismatch } from "./checker_context.ts";
+import { annotate_literal, check_initialization, make_context, record_local, report_type_mismatch } from "./checker_context.ts";
 import { collect_module } from "./module_info.ts";
 import { eval_const, make_const_scope } from "./const_eval.ts";
 import type { ModuleInfo } from "./module_info.ts";
@@ -42,6 +42,8 @@ import { STRING_TYPES, is_primitive_type } from "../frontend/ast_type.ts";
 import { enchant_target_of, type_pattern_type } from "./enchant_targets.ts";
 import type { PenguType } from "./types.ts";
 import type { ExternalImports } from "./external.ts";
+import type { LocalSymbol } from "./symbols.ts";
+import type { Span } from "../util/span.ts";
 
 export interface CheckOptions {
   // Si se pasa, el checker anota el tipo de cada expresión. Lo usa el
@@ -49,6 +51,8 @@ export interface CheckOptions {
   readonly types?: Map<ExprNode, PenguType>;
   readonly member_targets?: Map<ExprNode, MethodTarget>;
   readonly external?: ExternalImports;
+  // Si se pasa, el checker acumula las declaraciones locales aquí.
+  readonly locals?: LocalSymbol[];
 }
 
 export function check_program(
@@ -73,6 +77,7 @@ export function check_loaded_module(
   ctx.types = options.types;
   ctx.member_targets = options.member_targets;
   ctx.external = options.external;
+  if (options.locals !== undefined) ctx.locals = options.locals;
 
   for (const decl of program.decls) {
     check_decl(ctx, decl);
@@ -178,7 +183,7 @@ function check_function(ctx: CheckContext, decl: FunctionDecl): void {
   with_sigils(ctx, decl.sigils, () => {
   try {
     const body = with_fresh_scope(ctx, () => {
-      check_params(ctx, decl.params);
+      check_params(ctx, decl.params, decl.body.span);
       return infer_block(ctx, decl.body);
     });
     if (ctx.current_return !== undefined) {
@@ -199,16 +204,18 @@ function check_function(ctx: CheckContext, decl: FunctionDecl): void {
   });
 }
 
-function check_params(ctx: CheckContext, params: readonly ParamNode[]): void {
+function check_params(ctx: CheckContext, params: readonly ParamNode[], scope: Span): void {
   for (const param of params) {
     const type = param.type === undefined
       ? any_type(`parámetro ${param.name}`)
       : resolve_type_node(param.type, ctx.module.env, ctx.sink);
-    declare(ctx.scope, param.name, param_binding_type(param, type), {
+    const binding = param_binding_type(param, type);
+    declare(ctx.scope, param.name, binding, {
       mutable: param.mutable,
       kind: "param",
       span: param.span,
     });
+    record_local(ctx, param.name, binding, param.mutable, "parameter", param.span, scope);
     if (param.default_value !== undefined) {
       const value = infer_block(ctx, {
         kind: "block",
@@ -275,7 +282,7 @@ function check_rune(ctx: CheckContext, decl: RuneDecl): void {
       ctx.self_assign = true;
       ctx.current_return = undefined;
       with_fresh_scope(ctx, () => {
-        check_params(ctx, constructor.params);
+        check_params(ctx, constructor.params, constructor.body.span);
         infer_block(ctx, constructor.body);
       });
       ctx.self_assign = false;
@@ -429,7 +436,7 @@ function check_method(ctx: CheckContext, method: MethodDecl, self_type: PenguTyp
 
   try {
     const body = with_fresh_scope(ctx, () => {
-      check_params(ctx, method.params);
+      check_params(ctx, method.params, method.body.span);
       return infer_block(ctx, method.body);
     });
     if (ctx.current_return !== undefined) {

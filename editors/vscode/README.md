@@ -24,8 +24,10 @@ absoluta (`Ctrl+,` → busca «pengu.executable»).
   los operadores.
 - **Diagnósticos en tiempo real** del servidor LSP y, opcionalmente,
   `pengu check --json` al guardar (`pengu.check.onSave`).
-- **Autocompletado, hover, ir a la definición, símbolos del documento y
-  formato** (heredados del LSP, incluidos los métodos de `enchanting`).
+- **IntelliSense completo** (ver más abajo), incluidos los métodos de
+  `enchanting`, los tipos del proyecto y `std/`.
+- **Tamaños medidos** del símbolo bajo el cursor en la barra de estado y
+  comando «Mostrar tamaño del símbolo».
 - **Snippets** (`snippets/penguscript.code-snippets`): 49 plantillas para
   `main`, `invoke`, `rune`, `omen`, `match`, `for`, `unsafe`, operadores, etc.
 - **Comandos** (paleta con `Ctrl+Shift+P`, menú contextual del editor y del
@@ -63,6 +65,23 @@ Ejemplo de `tasks.json`:
 - **Barra de estado** con la versión del ejecutable o un aviso si no se
   encuentra.
 
+
+## IntelliSense
+
+El cliente LSP analiza el **proyecto completo** (el archivo, sus `invoke` y
+`std/`), incluyendo los buffers sin guardar:
+
+- autocompletado con ámbito y sombreado, miembros de runes/omens/sellos/ecos,
+  miembros incorporados y métodos enhechizados (primero), `::` con variantes y
+  exportaciones, y tipos tras `:` o `->`;
+- *hover* con firma, documentación de los comentarios `--`, contenedor, tamaño
+  y desplazamiento de campos;
+- ayuda de firma con el parámetro activo;
+- ir a la definición (incluidos locales y `std/`), referencias y renombrado por
+  proyecto (renombrar `std/` se rechaza);
+- inlay hints de tipos inferidos, tokens semánticos, plegado, acciones de código,
+  enlaces en los `invoke` y lente «▶ Ejecutar» sobre `main`.
+
 ## Ajustes
 
 | Ajuste | Por defecto | Descripción |
@@ -72,6 +91,10 @@ Ejemplo de `tasks.json`:
 | `pengu.run.args` | `[]` | Argumentos extra para `pengu run`. |
 | `pengu.check.onSave` | `false` | Verifica al guardar con `pengu check --json`. |
 | `pengu.lsp.trace.server` | `off` | Traza de la comunicación LSP (`messages`/`verbose`). |
+| `pengu.inlayHints.types` | `true` | Muestra `: T` en los bindings sin anotación. |
+| `pengu.inlayHints.sizes` | `false` | Añade `· N B` a los inlay hints. |
+| `pengu.completion.docs` | `true` | Muestra la documentación en el autocompletado. |
+| `pengu.statusBar.size` | `true` | Barra de estado con el tamaño del símbolo. |
 
 Además, los archivos `.pengu` usan por defecto 2 espacios, sin detección
 automática de sangría (el lenguaje es sensible a la indentación).

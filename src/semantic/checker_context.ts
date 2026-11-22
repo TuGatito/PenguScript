@@ -26,6 +26,7 @@ import {
 } from "./types.ts";
 import type { IntegerShape } from "./types.ts";
 import type { ExternalImports } from "./external.ts";
+import type { LocalSymbol } from "./symbols.ts";
 
 // Préstamo activo de una variable (`r = ref(x)`): mientras viva, `x`
 // no se puede mutar ni pasar como `mut` (Ley de Exclusividad).
@@ -60,6 +61,35 @@ export interface CheckContext {
   // Contenedores que se están recorriendo con `for`: mutarlos
   // estructuralmente invalida el iterador.
   iterating: { readonly name: string; readonly span: Span }[];
+  // Declaraciones locales (parámetros, variables de bucle, patrones):
+  // alimentan el índice de símbolos del LSP.
+  locals: LocalSymbol[];
+  // Bloque que se está chequeando: ámbito de las variables declaradas.
+  block_span: Span | undefined;
+}
+
+// Registra una declaración local para el índice de símbolos.
+export function record_local(
+  ctx: CheckContext,
+  name: string,
+  type: PenguType,
+  mutable: boolean,
+  kind: "parameter" | "variable",
+  span: Span,
+  scope: Span,
+): void {
+  ctx.locals.push({ name, type, mutable, kind, span, scope });
+}
+
+// Ejecuta `fn` con `block_span` apuntando al bloque indicado.
+export function with_block_span<T>(ctx: CheckContext, span: Span | undefined, fn: () => T): T {
+  const previous = ctx.block_span;
+  ctx.block_span = span ?? previous;
+  try {
+    return fn();
+  } finally {
+    ctx.block_span = previous;
+  }
 }
 
 export function make_context(
@@ -85,6 +115,8 @@ export function make_context(
     borrows: [],
     scope_depth: 0,
     iterating: [],
+    locals: [],
+    block_span: undefined,
   };
 }
 
