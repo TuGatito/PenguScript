@@ -1,0 +1,154 @@
+realm math
+
+-- Constantes que se usan a diario en física, gráficos y simulaciones.
+const pi: double = 3.141592653589793
+const e: double = 2.718281828459045
+const tau: double = 6.283185307179586
+const phi: double = 1.618033988749895
+const sqrt2: double = 1.4142135623730951
+const ln2: double = 0.6931471805599453
+const ln10: double = 2.302585092994046
+const radians_per_degree: double = 0.017453292519943295
+const degrees_per_radian: double = 57.29577951308232
+
+-- Primitivas del runtime: cada una se traduce a una función de <cmath>.
+declare
+  abs = (x: double) -> double
+  sqrt = (x: double) -> double
+  cbrt = (x: double) -> double
+  floor = (x: double) -> double
+  ceil = (x: double) -> double
+  round = (x: double) -> double
+  trunc = (x: double) -> double
+  nearbyint = (x: double) -> double
+  sin = (x: double) -> double
+  cos = (x: double) -> double
+  tan = (x: double) -> double
+  asin = (x: double) -> double
+  acos = (x: double) -> double
+  atan = (x: double) -> double
+  atan2 = (y: double, x: double) -> double
+  sinh = (x: double) -> double
+  cosh = (x: double) -> double
+  tanh = (x: double) -> double
+  asinh = (x: double) -> double
+  acosh = (x: double) -> double
+  atanh = (x: double) -> double
+  exp = (x: double) -> double
+  exp2 = (x: double) -> double
+  expm1 = (x: double) -> double
+  ln = (x: double) -> double
+  log2 = (x: double) -> double
+  log10 = (x: double) -> double
+  log1p = (x: double) -> double
+  pow = (base: double, exponent: double) -> double
+  hypot = (x: double, y: double) -> double
+  fmod = (x: double, y: double) -> double
+  remainder = (x: double, y: double) -> double
+  fdim = (x: double, y: double) -> double
+  fmax = (x: double, y: double) -> double
+  fmin = (x: double, y: double) -> double
+  copysign = (magnitude: double, sign: double) -> double
+  fma = (x: double, y: double, z: double) -> double
+  min = (a: double, b: double) -> double
+  max = (a: double, b: double) -> double
+  clamp = (value: double, low: double, high: double) -> double
+  signbit = (x: double) -> bool
+  is_finite = (x: double) -> bool
+  is_infinite = (x: double) -> bool
+  is_nan = (x: double) -> bool
+  infinite = () -> double
+  not_a_number = () -> double
+  gcd = (a: int, b: int) -> int
+  lcm = (a: int, b: int) -> int
+
+  -- Utilidades puras de física y juegos. Todas son const-evaluables cuando
+  -- sus argumentos lo son.
+lerp = (a: double, b: double, t: double) -> double
+  a + (b - a) * t
+
+inverse_lerp = (a: double, b: double, value: double) -> double
+  if a == b then 0.0 else (value - a) / (b - a)
+
+remap = (value: double, in_low: double, in_high: double, out_low: double, out_high: double) -> double
+  lerp(out_low, out_high, inverse_lerp(in_low, in_high, value))
+
+clamp01 = (value: double) -> double
+  clamp(value, 0.0, 1.0)
+
+sign = (value: double) -> double
+  if value > 0.0 then 1.0 else if value < 0.0 then -1.0 else 0.0
+
+smoothstep = (edge0: double, edge1: double, x: double) -> double
+  t = clamp01((x - edge0) / (edge1 - edge0))
+  t * t * (3.0 - 2.0 * t)
+
+smootherstep = (edge0: double, edge1: double, x: double) -> double
+  t = clamp01((x - edge0) / (edge1 - edge0))
+  t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
+
+deg_to_rad = (grados: double) -> double
+  grados * radians_per_degree
+
+rad_to_deg = (radianes: double) -> double
+  radianes * degrees_per_radian
+
+  -- Envuelve `value` en [low, high), sin bucles ni desbordamiento.
+wrap = (value: double, low: double, high: double) -> double
+  span = high - low
+  low + (value - low) - span * floor((value - low) / span)
+
+  -- Envuelve un ángulo a [-pi, pi).
+wrap_angle = (angulo: double) -> double
+  wrap(angulo, -pi, pi)
+
+  -- Interpolación angular por el camino corto.
+lerp_angle = (a: double, b: double, t: double) -> double
+  a + wrap_angle(b - a) * t
+
+move_towards = (actual: double, objetivo: double, paso: double) -> double
+  if abs(objetivo - actual) <= paso then objetivo else actual + sign(objetivo - actual) * paso
+
+  -- Suavizado independiente del paso de tiempo (Frame Rate Independent Damping).
+damp = (actual: double, objetivo: double, lambda: double, dt: double) -> double
+  lerp(actual, objetivo, 1.0 - exp(-lambda * dt))
+
+approx_eq = (a: double, b: double, epsilon: double = 1e-9) -> bool
+  abs(a - b) <= epsilon
+
+min3 = (a: double, b: double, c: double) -> double
+  min(min(a, b), c)
+
+max3 = (a: double, b: double, c: double) -> double
+  max(max(a, b), c)
+
+average = (a: double, b: double) -> double
+  (a + b) * 0.5
+
+  -- Potencia entera por cuadrados: exacta y sin depender de `pow`.
+ipow = (base: int, exponente: int) -> int
+  if exponente < 0
+    return 0
+  mut resultado = 1
+  mut b = base
+  mut e = exponente
+  while e > 0
+    if e % 2 == 1
+      resultado *= b
+    b *= b
+    e /= 2
+  resultado
+
+is_power_of_two = (value: int) -> bool
+  value > 0 and (value & (value - 1)) == 0
+
+next_power_of_two = (value: int) -> int
+  if value <= 1
+    return 1
+  mut resultado = 1
+  while resultado < value
+    resultado *= 2
+  resultado
+
+align_up = (value: int, align: int) -> int
+  if align <= 1 then value else ((value + align - 1) / align) * align

@@ -306,12 +306,54 @@ técnica conocida en el compilador.
   `tests/std/std.test.ts` revisa los `declare` de cualquier archivo de `std/`
   y que todos los módulos se analicen sin diagnósticos.
 
+### Biblioteca estándar: F1 (núcleo numérico)
+
+- `std/math` pasa a `std/math.pengu`: constantes (`pi`, `e`, `tau`, `phi`,
+  `sqrt2`, `ln2`, `ln10`), la trigonometría completa (directas e inversas,
+  hiperbólicas), `exp*`, `ln`, `log2`, `log10`, `cbrt`, `hypot`, `fmod`,
+  `remainder`, `trunc`, `nearbyint`, `fdim`, `fmax`, `fmin`, `copysign`, `fma`,
+  `signbit`, `is_finite`, `is_infinite`, `is_nan`, `infinite`,
+  `not_a_number`, `gcd` y `lcm`, más utilidades puras para física y juegos
+  (`lerp`, `inverse_lerp`, `remap`, `clamp01`, `smoothstep`, `smootherstep`,
+  `deg_to_rad`, `rad_to_deg`, `wrap`, `wrap_angle`, `lerp_angle`,
+  `move_towards`, `damp`, `approx_eq`, `sign`, `min3`, `max3`, `average`,
+  `ipow`, `is_power_of_two`, `next_power_of_two`, `align_up`).
+- `std/int` añade `div_floor`, `div_ceil`, `mod_floor`, `mod_euclid`, `pow`,
+  `wrap`, `next_multiple_of`, `abs_diff`, `digits`, `is_power_of_two`,
+  `between`, `is_positive`, `is_negative`, `is_zero`, `to_float`, `to_int64`,
+  `to_size` y `to_radix`.
+- `std/double` añade redondeos (`fract`, `round_to`), raíces y exponenciales
+  (`sqrt`, `cbrt`, `pow`, `exp`, `ln`, `log2`, `log10`), `hypot`, las
+  comprobaciones de `NaN`/infinito, `signum`, `lerp`, `approx_eq`, ángulos
+  (`to_radians`, `to_degrees`), texto con precisión (`to_fixed`,
+  `to_scientific`) y conversiones seguras.
+- Nuevos `std/float` y `std/long_double` con la misma superficie, con las
+  primitivas de `<cmath>` declaradas por tipo para conservar el ancho.
+- Nuevo `std/integers` (generado por `scripts/gen_integers.ts`): límites y
+  métodos para `int8_t`…`uint64_t`. `size_t` y `ptrdiff_t` son alias de
+  `uint64_t`/`int64_t` en LP64 y se convierten con `as`.
+- Nuevo `std/char`: clasificación ASCII (`is_digit`, `is_alpha`,
+  `is_alphanumeric`, `is_space`, `is_upper`, `is_lower`, `is_ascii`,
+  `is_hex_digit`, `is_control`, `is_punctuation`), `code`, `digit_value`,
+  `hex_value`, `to_upper` y `to_lower`.
+- Correcciones de la fase: `::pengu::try_from_int` ya convierte a los destinos
+  de 64 bits sin signo (`size_t::from(1)` paniqueaba siempre); `to_string` de
+  `int8_t`/`uint8_t` los imprime como número y no como carácter; los literales
+  `char` escapan `\r`, `\v`, `\f`, `\0` y los caracteres de control; las
+  llamadas a métodos de `std/integers` con literales `int` ya no son ambiguas
+  en C++ (el codegen convierte cada argumento a su tipo de parámetro); el
+  formateador conserva `long double` y la resta tras `@`/`#@`.
+- Pruebas nuevas: `tests/std/numbers.test.ts` (int, double, float,
+  long double, integers y char) y `tests/std/math.test.ts` (constantes,
+  utilidades y la aceptación de caída libre con rebote), más casos del
+  formateador para nombres compuestos y operadores tras `@`.
+
 ### Verificado
 
-- `bun test`: 370 pruebas en 47 archivos (lexer, parser, checker, formateador,
+- `bun test`: 381 pruebas en 49 archivos (lexer, parser, checker, formateador,
   LSP de integración, de consultas, de sincronización y de rendimiento,
   medición de tamaños, bindgen, biblioteca estándar, conformidad y e2e de los
   ejemplos, de las fases F1–F9, G1–G6, H1–H7, I1–I8, L1–L6 y de la fundación
-  de la biblioteca estándar (F0), y de la extensión de VS Code).
+  de la biblioteca estándar (F0 y F1), y de la extensión de VS Code).
 - `tsc --noEmit` sin errores y `pengu fmt --check` sin cambios pendientes.
 - Los 13 ejemplos de `examples/` compilan y ejecutan con el compilador final.

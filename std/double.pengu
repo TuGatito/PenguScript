@@ -1,5 +1,8 @@
 realm double
 
+invoke "std/math"
+invoke "std/format"
+
 enchanting double
   abs = -> double
     if @ < 0.0 then -@ else @
@@ -13,5 +16,105 @@ enchanting double
   clamp = (minimo: double, maximo: double) -> double
     if @ < minimo then minimo else if @ > maximo then maximo else @
 
+  is_positive = -> bool
+    @ > 0.0
+
+  is_negative = -> bool
+    @ < 0.0
+
+  is_zero = -> bool
+    @ == 0.0
+
+  between = (minimo: double, maximo: double) -> bool
+    @ >= minimo and @ <= maximo
+
+    -- Raíces, exponenciales y logaritmos.
+  sqrt = -> double
+    math::sqrt(@)
+
+  cbrt = -> double
+    math::cbrt(@)
+
+  pow = (exponente: double) -> double
+    math::pow(@, exponente)
+
+  exp = -> double
+    math::exp(@)
+
+  ln = -> double
+    math::ln(@)
+
+  log2 = -> double
+    math::log2(@)
+
+  log10 = -> double
+    math::log10(@)
+
+    -- Redondeos.
+  floor = -> double
+    math::floor(@)
+
+  ceil = -> double
+    math::ceil(@)
+
+  round = -> double
+    math::round(@)
+
+  trunc = -> double
+    math::trunc(@)
+
+  fract = -> double
+    @ - math::floor(@)
+
+  round_to = (decimales: int) -> double
+    factor = math::pow(10.0, decimales as double)
+    math::round(@ * factor) / factor
+
+    -- Geometría y comparaciones.
+  hypot = (otro: double) -> double
+    math::hypot(@, otro)
+
+  is_finite = -> bool
+    math::is_finite(@)
+
+  is_infinite = -> bool
+    math::is_infinite(@)
+
+  is_nan = -> bool
+    math::is_nan(@)
+
+  is_sign_negative = -> bool
+    math::signbit(@)
+
+  signum = -> double
+    if @ > 0.0 then 1.0 else if @ < 0.0 then -1.0 else 0.0
+
+  lerp = (hacia: double, t: double) -> double
+    @ + (hacia - @) * t
+
+  approx_eq = (otro: double, epsilon: double = 1e-9) -> bool
+    math::abs(@ - otro) <= epsilon
+
+    -- Ángulos.
+  to_radians = -> double
+    math::deg_to_rad(@)
+
+  to_degrees = -> double
+    math::rad_to_deg(@)
+
+    -- Texto con precisión controlada.
+  to_fixed = (decimales: int) -> string
+    format::fixed(@, decimales)
+
+  to_scientific = (decimales: int) -> string
+    format::scientific(@, decimales)
+
+    -- Conversiones. Las que pierden información piden `try_from` explícito.
   to_int = -> int?
     int::try_from(@)
+
+  to_float = -> float?
+    float::try_from(@)
+
+  to_long_double = -> long double
+    @ as long double

@@ -54,8 +54,8 @@ enchanting string
     if #@ == 0
       none
     else
-      ultimo = @[#@ -1]
-      @ = @.substr(0, #@ -1)
+      ultimo = @[#@ - 1]
+      @ = @.substr(0, #@ - 1)
       ultimo
 
   repeat = (veces: int) -> string

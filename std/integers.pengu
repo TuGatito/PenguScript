@@ -1,0 +1,414 @@
+realm integers
+
+-- Enteros de ancho fijo. Archivo generado por scripts/gen_integers.ts:
+-- no lo edites a mano, cambia la tabla del generador y vuelve a ejecutarlo.
+
+declare
+  int8_max = () -> int8_t
+  int8_min = () -> int8_t
+  int16_max = () -> int16_t
+  int16_min = () -> int16_t
+  int32_max = () -> int32_t
+  int32_min = () -> int32_t
+  int64_max = () -> int64_t
+  int64_min = () -> int64_t
+  uint8_max = () -> uint8_t
+  uint8_min = () -> uint8_t
+  uint16_max = () -> uint16_t
+  uint16_min = () -> uint16_t
+  uint32_max = () -> uint32_t
+  uint32_min = () -> uint32_t
+  uint64_max = () -> uint64_t
+  uint64_min = () -> uint64_t
+
+enchanting int8_t
+  abs = -> int8_t
+    if @ < 0 then -@ else @
+
+  min = (otro: int8_t) -> int8_t
+    if @ < otro then @ else otro
+
+  max = (otro: int8_t) -> int8_t
+    if @ > otro then @ else otro
+
+  clamp = (minimo: int8_t, maximo: int8_t) -> int8_t
+    if @ < minimo then minimo else if @ > maximo then maximo else @
+
+  sign = -> int
+    if @ > 0 then 1 else if @ < 0 then -1 else 0
+
+  is_even = -> bool
+    (@ & 1) == 0
+
+  is_odd = -> bool
+    (@ & 1) != 0
+
+  is_positive = -> bool
+    @ > 0
+
+  is_negative = -> bool
+    @ < 0
+
+  is_zero = -> bool
+    @ == 0
+
+  min_value = -> int8_t
+    int8_min()
+
+  max_value = -> int8_t
+    int8_max()
+
+  to_int = -> int?
+    int::try_from(@)
+
+  to_int64 = -> int64_t?
+    int64_t::try_from(@)
+
+  to_uint64 = -> uint64_t?
+    uint64_t::try_from(@)
+
+  to_double = -> double
+    @ as double
+
+  to_size = -> size_t?
+    size_t::try_from(@)
+
+enchanting int16_t
+  abs = -> int16_t
+    if @ < 0 then -@ else @
+
+  min = (otro: int16_t) -> int16_t
+    if @ < otro then @ else otro
+
+  max = (otro: int16_t) -> int16_t
+    if @ > otro then @ else otro
+
+  clamp = (minimo: int16_t, maximo: int16_t) -> int16_t
+    if @ < minimo then minimo else if @ > maximo then maximo else @
+
+  sign = -> int
+    if @ > 0 then 1 else if @ < 0 then -1 else 0
+
+  is_even = -> bool
+    (@ & 1) == 0
+
+  is_odd = -> bool
+    (@ & 1) != 0
+
+  is_positive = -> bool
+    @ > 0
+
+  is_negative = -> bool
+    @ < 0
+
+  is_zero = -> bool
+    @ == 0
+
+  min_value = -> int16_t
+    int16_min()
+
+  max_value = -> int16_t
+    int16_max()
+
+  to_int = -> int?
+    int::try_from(@)
+
+  to_int64 = -> int64_t?
+    int64_t::try_from(@)
+
+  to_uint64 = -> uint64_t?
+    uint64_t::try_from(@)
+
+  to_double = -> double
+    @ as double
+
+  to_size = -> size_t?
+    size_t::try_from(@)
+
+enchanting int32_t
+  abs = -> int32_t
+    if @ < 0 then -@ else @
+
+  min = (otro: int32_t) -> int32_t
+    if @ < otro then @ else otro
+
+  max = (otro: int32_t) -> int32_t
+    if @ > otro then @ else otro
+
+  clamp = (minimo: int32_t, maximo: int32_t) -> int32_t
+    if @ < minimo then minimo else if @ > maximo then maximo else @
+
+  sign = -> int
+    if @ > 0 then 1 else if @ < 0 then -1 else 0
+
+  is_even = -> bool
+    (@ & 1) == 0
+
+  is_odd = -> bool
+    (@ & 1) != 0
+
+  is_positive = -> bool
+    @ > 0
+
+  is_negative = -> bool
+    @ < 0
+
+  is_zero = -> bool
+    @ == 0
+
+  min_value = -> int32_t
+    int32_min()
+
+  max_value = -> int32_t
+    int32_max()
+
+  to_int = -> int?
+    int::try_from(@)
+
+  to_int64 = -> int64_t?
+    int64_t::try_from(@)
+
+  to_uint64 = -> uint64_t?
+    uint64_t::try_from(@)
+
+  to_double = -> double
+    @ as double
+
+  to_size = -> size_t?
+    size_t::try_from(@)
+
+enchanting int64_t
+  abs = -> int64_t
+    if @ < 0 then -@ else @
+
+  min = (otro: int64_t) -> int64_t
+    if @ < otro then @ else otro
+
+  max = (otro: int64_t) -> int64_t
+    if @ > otro then @ else otro
+
+  clamp = (minimo: int64_t, maximo: int64_t) -> int64_t
+    if @ < minimo then minimo else if @ > maximo then maximo else @
+
+  sign = -> int
+    if @ > 0 then 1 else if @ < 0 then -1 else 0
+
+  is_even = -> bool
+    (@ & 1) == 0
+
+  is_odd = -> bool
+    (@ & 1) != 0
+
+  is_positive = -> bool
+    @ > 0
+
+  is_negative = -> bool
+    @ < 0
+
+  is_zero = -> bool
+    @ == 0
+
+  min_value = -> int64_t
+    int64_min()
+
+  max_value = -> int64_t
+    int64_max()
+
+  to_int = -> int?
+    int::try_from(@)
+
+  to_int64 = -> int64_t?
+    int64_t::try_from(@)
+
+  to_uint64 = -> uint64_t?
+    uint64_t::try_from(@)
+
+  to_double = -> double
+    @ as double
+
+  to_size = -> size_t?
+    size_t::try_from(@)
+
+enchanting uint8_t
+  min = (otro: uint8_t) -> uint8_t
+    if @ < otro then @ else otro
+
+  max = (otro: uint8_t) -> uint8_t
+    if @ > otro then @ else otro
+
+  clamp = (minimo: uint8_t, maximo: uint8_t) -> uint8_t
+    if @ < minimo then minimo else if @ > maximo then maximo else @
+
+  is_even = -> bool
+    (@ & 1) == 0
+
+  is_odd = -> bool
+    (@ & 1) != 0
+
+  is_positive = -> bool
+    @ > 0
+
+  is_negative = -> bool
+    @ < 0
+
+  is_zero = -> bool
+    @ == 0
+
+  min_value = -> uint8_t
+    uint8_min()
+
+  max_value = -> uint8_t
+    uint8_max()
+
+  to_int = -> int?
+    int::try_from(@)
+
+  to_int64 = -> int64_t?
+    int64_t::try_from(@)
+
+  to_uint64 = -> uint64_t?
+    uint64_t::try_from(@)
+
+  to_double = -> double
+    @ as double
+
+  to_size = -> size_t?
+    size_t::try_from(@)
+
+enchanting uint16_t
+  min = (otro: uint16_t) -> uint16_t
+    if @ < otro then @ else otro
+
+  max = (otro: uint16_t) -> uint16_t
+    if @ > otro then @ else otro
+
+  clamp = (minimo: uint16_t, maximo: uint16_t) -> uint16_t
+    if @ < minimo then minimo else if @ > maximo then maximo else @
+
+  is_even = -> bool
+    (@ & 1) == 0
+
+  is_odd = -> bool
+    (@ & 1) != 0
+
+  is_positive = -> bool
+    @ > 0
+
+  is_negative = -> bool
+    @ < 0
+
+  is_zero = -> bool
+    @ == 0
+
+  min_value = -> uint16_t
+    uint16_min()
+
+  max_value = -> uint16_t
+    uint16_max()
+
+  to_int = -> int?
+    int::try_from(@)
+
+  to_int64 = -> int64_t?
+    int64_t::try_from(@)
+
+  to_uint64 = -> uint64_t?
+    uint64_t::try_from(@)
+
+  to_double = -> double
+    @ as double
+
+  to_size = -> size_t?
+    size_t::try_from(@)
+
+enchanting uint32_t
+  min = (otro: uint32_t) -> uint32_t
+    if @ < otro then @ else otro
+
+  max = (otro: uint32_t) -> uint32_t
+    if @ > otro then @ else otro
+
+  clamp = (minimo: uint32_t, maximo: uint32_t) -> uint32_t
+    if @ < minimo then minimo else if @ > maximo then maximo else @
+
+  is_even = -> bool
+    (@ & 1) == 0
+
+  is_odd = -> bool
+    (@ & 1) != 0
+
+  is_positive = -> bool
+    @ > 0
+
+  is_negative = -> bool
+    @ < 0
+
+  is_zero = -> bool
+    @ == 0
+
+  min_value = -> uint32_t
+    uint32_min()
+
+  max_value = -> uint32_t
+    uint32_max()
+
+  to_int = -> int?
+    int::try_from(@)
+
+  to_int64 = -> int64_t?
+    int64_t::try_from(@)
+
+  to_uint64 = -> uint64_t?
+    uint64_t::try_from(@)
+
+  to_double = -> double
+    @ as double
+
+  to_size = -> size_t?
+    size_t::try_from(@)
+
+enchanting uint64_t
+  min = (otro: uint64_t) -> uint64_t
+    if @ < otro then @ else otro
+
+  max = (otro: uint64_t) -> uint64_t
+    if @ > otro then @ else otro
+
+  clamp = (minimo: uint64_t, maximo: uint64_t) -> uint64_t
+    if @ < minimo then minimo else if @ > maximo then maximo else @
+
+  is_even = -> bool
+    (@ & 1) == 0
+
+  is_odd = -> bool
+    (@ & 1) != 0
+
+  is_positive = -> bool
+    @ > 0
+
+  is_negative = -> bool
+    @ < 0
+
+  is_zero = -> bool
+    @ == 0
+
+  min_value = -> uint64_t
+    uint64_min()
+
+  max_value = -> uint64_t
+    uint64_max()
+
+  to_int = -> int?
+    int::try_from(@)
+
+  to_int64 = -> int64_t?
+    int64_t::try_from(@)
+
+  to_uint64 = -> uint64_t?
+    uint64_t::try_from(@)
+
+  to_double = -> double
+    @ as double
+
+  to_size = -> size_t?
+    size_t::try_from(@)

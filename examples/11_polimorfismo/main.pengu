@@ -76,7 +76,7 @@ echo Metros = double
 
 enchanting Metros
   doble = -> double
-    @ *2
+    @ * 2
 
 presentar = (animal: ref<Animal>) -> void
   io::println(animal.describir())

@@ -38,6 +38,10 @@ function is_operator_token(token: Token): boolean {
   return OPERATOR_KINDS.has(token.kind);
 }
 
+function is_word(token: Token): boolean {
+  return token.kind === "ident" || is_keyword(token.text);
+}
+
 function is_comment(token: Token): boolean {
   return token.kind === "comment";
 }
@@ -50,6 +54,9 @@ function is_unary_position(previous: Token | undefined): boolean {
   if (previous === undefined) return true;
   if (is_layout(previous) || is_comment(previous)) return true;
   if (is_keyword(previous.kind)) return true;
+  // `@` y `#` designan un valor (el receptor o una interpolación): detrás de
+  // ellos un `-` es resta, no signo.
+  if (previous.text === "@" || previous.text === "#") return false;
   if (is_operator_token(previous)) {
     if (previous.text === ")" || previous.text === "]" || previous.text === "}") return false;
     return previous.text !== "?";
@@ -79,9 +86,14 @@ function space_between(
   // La cercanía del prefijo (`#xs`, `@campo`) no debe pegar el operador
   // binario que venga después: `@ < otro`, no `@< otro`.
   if (tight) {
+    // La puntuación nunca se separa: `f(x, y)`, `xs[0]`.
+    if (NO_SPACE_BEFORE.has(token.text)) return false;
+    // Un operador binario detrás de `@`/`#` es una operación: `@ - x`.
+    if (is_operator_token(token) && BINARY_OPERATORS.has(token.text)) return true;
     // Una palabra clave nunca se pega al operador de prefijo: `#@ then`.
     if (is_keyword(token.text)) return true;
-    return is_operator_token(token) && BINARY_OPERATORS.has(token.text);
+    if (NO_SPACE_AFTER.has(previous.text)) return false;
+    return false;
   }
 
   const text = token.text;
@@ -117,6 +129,9 @@ function space_between(
   if (is_keyword(text)) return true;
   if (is_keyword(previous.text)) return true;
   if (is_operator_token(previous) && BINARY_OPERATORS.has(previous.text)) return true;
+  // Dos palabras seguidas son un nombre compuesto: «long double»,
+  // «unsigned long». Pegarlas cambiaría el tipo.
+  if (is_word(previous) && is_word(token)) return true;
   return false;
 }
 

@@ -3,12 +3,12 @@
 
 Every stdlib module must be imported with `invoke`. There are no builtins. Each module is one or two files:
 
-- **`<module>.d.pengu`** — declaration file. Signatures without bodies. The implementation is either a C++ primitive (FFI/intrinsic) or a `.pengu` file of the same name.
-- **`<module>.pengu`** — implementation file. Pure PenguScript.
+- **`<module>.d.pengu`** — declaration file. Signatures without bodies. The implementation is a C++ primitive (FFI/intrinsic).
+- **`<module>.pengu`** — implementation file. Pure PenguScript, con sus propias primitivas declaradas con `declare`.
 
-A module that has both uses the `.d.pengu` for its FFI/intrinsic layer and the `.pengu` for its safe public API. Users `invoke "<module>"` and get both realms merged.
+Un módulo se resuelve a **un solo archivo**: `<module>.pengu` si existe, si no `<module>.d.pengu`. Si necesitas primitivas y API segura en el mismo módulo, declara las primitivas con `declare` dentro del `.pengu` (es lo que hacen `std/math`, `std/io` o `std/char`).
 
-All FFI is **centralized** in `std/sys` (OS syscalls) and `std/ffi` (C++ library bindings). No other `.d.pengu` declares C functions. This makes the OS surface auditable in one place.
+Las primitivas declaradas con `declare` están centralizadas: el generador C++ solo emite la llamada al helper de `src/codegen/runtime_source.ts` o a la función de la librería estándar de C++ mapeada en `BUILTIN_FUNCTIONS`.
 
 ### Estado en 0.1.0
 
@@ -16,7 +16,9 @@ Ya implementado y cubierto por pruebas:
 
 | Archivo | Contenido |
 |---------|-----------|
-| `std/math.d.pengu` | `abs`, `sqrt`, `floor`, `ceil`, `round`, `sin`, `cos`, `tan`, `pow`, `min`, `max`, `clamp`, `pi`, `e`. |
+| `std/math.pengu` | Constantes `pi`, `e`, `tau`, `phi`, `sqrt2`, `ln2`, `ln10`; trigonometría completa, `exp*`, `ln`, `log2`, `log10`, `cbrt`, `hypot`, `fmod`, `trunc`, `nearbyint`, `fdim`, `fmax`, `fmin`, `copysign`, `fma`, `signbit`, `is_finite`, `is_infinite`, `is_nan`, `infinite`, `not_a_number`, `gcd`, `lcm`; utilidades `lerp`, `inverse_lerp`, `remap`, `clamp01`, `smoothstep`, `smootherstep`, `deg_to_rad`, `rad_to_deg`, `wrap`, `wrap_angle`, `lerp_angle`, `move_towards`, `damp`, `approx_eq`, `sign`, `min3`, `max3`, `average`, `ipow`, `is_power_of_two`, `next_power_of_two`, `align_up`. |
+| `std/char.pengu` | `char`: `is_digit`, `is_alpha`, `is_alphanumeric`, `is_space`, `is_upper`, `is_lower`, `is_ascii`, `is_hex_digit`, `is_control`, `is_punctuation`, `code`, `digit_value`, `hex_value`, `to_upper`, `to_lower`. |
+| `std/integers.pengu` | `int8_t`…`uint64_t`: límites `max_value`/`min_value`, `abs`, `sign`, `min`, `max`, `clamp`, `is_even`, `is_odd`, `is_positive`, `is_negative`, `is_zero`, `to_int`, `to_int64`, `to_uint64`, `to_double`, `to_size` (archivo generado por `scripts/gen_integers.ts`). |
 | `std/fs.d.pengu` | `read_to_string`, `write_string`, `exists`, `is_dir`, `remove`, `create_dir`. |
 | `std/time.d.pengu` | `now_millis`, `now_seconds`, `sleep_millis`. |
 | `std/random.d.pengu` | `int`, `float`, `bool`. |
@@ -46,10 +48,16 @@ explícita para que los métodos existan en el archivo:
 | `std/optional.pengu` | `T?`: `is_empty`, `or_else`, `filter`, `to_vector`. |
 | `std/pair.pengu` | `pair<A, B>`: `swap`, `to_tuple`. |
 | `std/tuple.pengu` | `tuple<A, B>` y `tuple<A, B, C>`: `len`, `swap`, `to_pair`, `third`. |
-| `std/int.pengu` | `int`: `abs`, `min`, `max`, `clamp`, `is_even`, `is_odd`, `sign`, `to_double`. |
-| `std/double.pengu` | `double`: `abs`, `min`, `max`, `clamp`, `to_int`. |
+| `std/int.pengu` | `int`: `abs`, `min`, `max`, `clamp`, `is_even`, `is_odd`, `is_positive`, `is_negative`, `is_zero`, `sign`, `between`, `div_floor`, `div_ceil`, `mod_floor`, `mod_euclid`, `pow`, `wrap`, `next_multiple_of`, `abs_diff`, `digits`, `is_power_of_two`, `to_double`, `to_float`, `to_int64`, `to_size`, `to_radix`. |
+| `std/double.pengu` | `double`: `abs`, `min`, `max`, `clamp`, `between`, `sqrt`, `cbrt`, `pow`, `exp`, `ln`, `log2`, `log10`, `floor`, `ceil`, `round`, `trunc`, `fract`, `round_to`, `hypot`, `is_finite`, `is_infinite`, `is_nan`, `is_sign_negative`, `signum`, `lerp`, `approx_eq`, `to_radians`, `to_degrees`, `to_fixed`, `to_scientific`, `to_int`, `to_float`, `to_long_double`. |
+| `std/float.pengu` | `float`: la misma superficie que `double` (con `to_fixed`/`to_scientific` y conversiones propias). |
+| `std/long_double.pengu` | `long double`: la misma superficie que `double`. |
 | `std/ordering.pengu` | `Ordering`: `then`. |
 | `std/memory.pengu` | `unique<T>`/`shared<T>`: `get`, `mut set`; `weak<T>`: `is_alive`. |
+
+### Módulos previstos (fases F2–F9)
+
+El plan `scratch/plan_stdlib.md` define el resto de la biblioteca. `std/sys` y `std/ffi` de las secciones siguientes son el diseño objetivo: todavía **no existen** como archivos y se implementarán en fases posteriores (contenedores, texto, sistema, algoritmos, juegos, datos/CLI).
 
 ### Layer 0 — FFI
 

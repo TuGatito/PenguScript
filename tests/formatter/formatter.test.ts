@@ -32,6 +32,27 @@ describe("formateador", () => {
     expect(formatted(text)).toBe("main = ->\n  while true\n    break\n");
   });
 
+  test("un nombre de tipo compuesto conserva su espacio", () => {
+    const source = "enchanting long double\n  doble = -> long double\n    @\n";
+    expect(formatted(source)).toBe(source);
+  });
+
+  test("resta suelta después del receptor y de la longitud", () => {
+    const source =
+      "enchanting double\n  fract = -> double\n    @ - math::floor(@)\n\n  ultimo = (xs: vector<int>) -> int\n    xs[#xs - 1]\n";
+    const once = formatted(source);
+    expect(once).toContain("@ - math::floor(@)");
+    expect(once).toContain("xs[#xs - 1]");
+    expect(formatted(once)).toBe(once);
+  });
+
+  test("no separa la puntuación de una llamada con receptor", () => {
+    const source = "f = (a: int, b: int) -> int\n  math::pow(@, b)\n";
+    const once = formatted(source);
+    expect(once).toContain("math::pow(@, b)");
+    expect(formatted(once)).toBe(once);
+  });
+
   test("un prefijo no se pega al operador binario que le sigue", () => {
     const source = "enchanting string\n  compare = (otro: string) -> int\n    if @< otro then -1 else 1\n";
     const once = format_text("test.pengu", source);

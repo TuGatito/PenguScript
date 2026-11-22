@@ -1,0 +1,126 @@
+realm float
+
+invoke "std/math"
+
+-- Primitivas específicas de «float»: las de <cmath> tienen una sobrecarga
+-- por ancho, así que el resultado conserva el tipo.
+declare
+  sqrt = (x: float) -> float
+  cbrt = (x: float) -> float
+  pow = (base: float, exponent: float) -> float
+  exp = (x: float) -> float
+  ln = (x: float) -> float
+  log2 = (x: float) -> float
+  log10 = (x: float) -> float
+  floor = (x: float) -> float
+  ceil = (x: float) -> float
+  round = (x: float) -> float
+  trunc = (x: float) -> float
+  hypot = (x: float, y: float) -> float
+  is_finite = (x: float) -> bool
+  is_infinite = (x: float) -> bool
+  is_nan = (x: float) -> bool
+  is_sign_negative = (x: float) -> bool
+  to_fixed = (x: float, decimals: int) -> string
+  to_scientific = (x: float, decimals: int) -> string
+
+enchanting float
+  abs = -> float
+    if @ < 0.0 then -@ else @
+
+  min = (otro: float) -> float
+    if @ < otro then @ else otro
+
+  max = (otro: float) -> float
+    if @ > otro then @ else otro
+
+  clamp = (minimo: float, maximo: float) -> float
+    if @ < minimo then minimo else if @ > maximo then maximo else @
+
+  is_positive = -> bool
+    @ > 0.0
+
+  is_negative = -> bool
+    @ < 0.0
+
+  is_zero = -> bool
+    @ == 0.0
+
+  between = (minimo: float, maximo: float) -> bool
+    @ >= minimo and @ <= maximo
+
+  sqrt = -> float
+    sqrt(@)
+
+  cbrt = -> float
+    cbrt(@)
+
+  pow = (exponente: float) -> float
+    pow(@, exponente)
+
+  exp = -> float
+    exp(@)
+
+  ln = -> float
+    ln(@)
+
+  log2 = -> float
+    log2(@)
+
+  log10 = -> float
+    log10(@)
+
+  floor = -> float
+    floor(@)
+
+  ceil = -> float
+    ceil(@)
+
+  round = -> float
+    round(@)
+
+  trunc = -> float
+    trunc(@)
+
+  fract = -> float
+    @ - floor(@)
+
+  round_to = (decimales: int) -> float
+    factor = pow(10 as float, decimales as float)
+    round(@ * factor) / factor
+
+  hypot = (otro: float) -> float
+    hypot(@, otro)
+
+  is_finite = -> bool
+    is_finite(@)
+
+  is_infinite = -> bool
+    is_infinite(@)
+
+  is_nan = -> bool
+    is_nan(@)
+
+  is_sign_negative = -> bool
+    is_sign_negative(@)
+
+  signum = -> float
+    if @ > 0.0 then float:: from (1.0) else if @ < 0.0 then float:: from (-1.0) else float:: from (0.0)
+
+  lerp = (hacia: float, t: float) -> float
+    @ + (hacia - @) * t
+
+  approx_eq = (otro: float, epsilon: float) -> bool
+    (@ - otro).abs() <= epsilon
+
+  to_fixed = (decimales: int) -> string
+    to_fixed(@, decimales)
+
+  to_scientific = (decimales: int) -> string
+    to_scientific(@, decimales)
+
+  to_double = -> double
+    @ as double
+
+  to_int = -> int?
+    int::try_from(@)

@@ -240,10 +240,28 @@ export function cpp_string(text: string): string {
 }
 
 function cpp_char(text: string): string {
-  if (text === "\\") return "'\\\\'";
-  if (text === "'") return "'\\''";
-  if (text === "\n") return "'\\n'";
-  if (text === "\t") return "'\\t'";
+  switch (text) {
+    case "\\":
+      return "'\\\\'";
+    case "'":
+      return "'\\''";
+    case "\n":
+      return "'\\n'";
+    case "\t":
+      return "'\\t'";
+    case "\r":
+      return "'\\r'";
+    case "\v":
+      return "'\\v'";
+    case "\f":
+      return "'\\f'";
+    case "\0":
+      return "'\\0'";
+    default:
+      break;
+  }
+  const code = text.codePointAt(0) ?? 0;
+  if (code < 32 || code === 127) return `static_cast<char>(${code})`;
   return `'${text}'`;
 }
 

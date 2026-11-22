@@ -36,6 +36,7 @@ export const RUNTIME_HEADER = `// Runtime generado por pengu 0.1.0. No editar a 
 #include <cctype>
 #include <cmath>
 #include <limits>
+#include <numeric>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
@@ -144,6 +145,18 @@ struct Range {
 inline std::string to_string(const std::string& value) { return value; }
 inline std::string to_string(const char* value) { return std::string(value); }
 inline std::string to_string(char value) { return std::string(1, value); }
+inline char char_upper(char value) {
+  return static_cast<char>(std::toupper(static_cast<unsigned char>(value)));
+}
+inline char char_lower(char value) {
+  return static_cast<char>(std::tolower(static_cast<unsigned char>(value)));
+}
+// «int8_t»/«uint8_t» son «signed char»/«unsigned char»: sin estas sobrecargas
+// el operador de flujo los imprimiría como caracteres.
+inline std::string to_string(std::int8_t value) { return std::to_string(static_cast<int>(value)); }
+inline std::string to_string(std::uint8_t value) {
+  return std::to_string(static_cast<unsigned int>(value));
+}
 inline std::string to_string(bool value) { return value ? "true" : "false"; }
 
 // Cadenas anchas: se reducen a UTF-8 aproximado (byte a byte) para
@@ -646,6 +659,10 @@ inline std::string to_scientific(double value, int decimals) {
   return out.str();
 }
 
+// Las sobrecargas de «long double» reutilizan la implementación de «double».
+inline std::string to_fixed(long double value, int decimals) { return to_fixed(static_cast<double>(value), decimals); }
+inline std::string to_scientific(long double value, int decimals) { return to_scientific(static_cast<double>(value), decimals); }
+
 inline std::string to_radix(std::int64_t value, int base) {
   if (base < 2 || base > 36) throw std::runtime_error("base fuera de rango (2..36)");
   if (value == 0) return "0";
@@ -744,6 +761,11 @@ inline long long random_int(long long min, long long max) {
   return distribution(random_engine());
 }
 
+// «math::infinite()» y «math::not_a_number()» no pueden ser constantes
+// const-evaluables, así que se exponen como funciones del runtime.
+inline double infinite_double() { return std::numeric_limits<double>::infinity(); }
+inline double nan_double() { return std::numeric_limits<double>::quiet_NaN(); }
+
 inline double random_float() {
   std::uniform_real_distribution<double> distribution(0.0, 1.0);
   return distribution(random_engine());
@@ -780,9 +802,17 @@ std::optional<T> try_from_int(long long value) {
   if constexpr (std::is_same_v<T, bool>) {
     return value != 0;
   } else if constexpr (std::is_integral_v<T>) {
-    const auto lowest = static_cast<long long>(std::numeric_limits<T>::lowest());
-    const auto highest = static_cast<long long>(std::numeric_limits<T>::max());
-    if (value < lowest || value > highest) return std::nullopt;
+    // El destino puede ser de 64 bits sin signo: comparar siempre en el
+    // dominio de «long long» desbordaría al convertir «T::max()».
+    if constexpr (std::is_signed_v<T>) {
+      const auto lowest = static_cast<long long>(std::numeric_limits<T>::lowest());
+      const auto highest = static_cast<long long>(std::numeric_limits<T>::max());
+      if (value < lowest || value > highest) return std::nullopt;
+    } else {
+      if (value < 0) return std::nullopt;
+      const auto highest = static_cast<unsigned long long>(std::numeric_limits<T>::max());
+      if (static_cast<unsigned long long>(value) > highest) return std::nullopt;
+    }
     return static_cast<T>(value);
   } else {
     return static_cast<T>(value);

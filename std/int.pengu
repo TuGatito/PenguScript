@@ -1,5 +1,8 @@
 realm int
 
+invoke "std/math"
+invoke "std/format"
+
 enchanting int
   abs = -> int
     if @ < 0 then -@ else @
@@ -22,5 +25,77 @@ enchanting int
   sign = -> int
     if @ > 0 then 1 else if @ < 0 then -1 else 0
 
+  is_positive = -> bool
+    @ > 0
+
+  is_negative = -> bool
+    @ < 0
+
+  is_zero = -> bool
+    @ == 0
+
+  between = (minimo: int, maximo: int) -> bool
+    @ >= minimo and @ <= maximo
+
+    -- División y resto que redondean hacia abajo: con los operadores
+    -- `-7 / 2` da `-3` y `-7 % 2` da `-1`; aquí dan `-4` y `1`.
+  div_floor = (otro: int) -> int
+    cociente = @ / otro
+    resto = @ % otro
+    if resto != 0 and (resto < 0) != (otro < 0) then cociente - 1 else cociente
+
+  div_ceil = (otro: int) -> int
+    cociente = @ / otro
+    resto = @ % otro
+    if resto != 0 and (resto < 0) == (otro < 0) then cociente + 1 else cociente
+
+  mod_floor = (otro: int) -> int
+    resto = @ % otro
+    if resto != 0 and (resto < 0) != (otro < 0) then resto + otro else resto
+
+    -- Resto siempre no negativo: el que usan los índices circulares.
+  mod_euclid = (otro: int) -> int
+    resto = @ % otro
+    if resto < 0 then resto + otro.abs() else resto
+
+  pow = (exponente: int) -> int
+    math::ipow(@, exponente)
+
+    -- Encaje circular en [minimo, maximo).
+  wrap = (minimo: int, maximo: int) -> int
+    minimo + (@ - minimo).mod_euclid(maximo - minimo)
+
+  next_multiple_of = (paso: int) -> int
+    if paso == 0 then @ else (@ + paso - 1).div_floor(paso) * paso
+
+  abs_diff = (otro: int) -> int
+    diferencia = @ - otro
+    if diferencia < 0 then -diferencia else diferencia
+
+  digits = -> size_t
+    mut n = @ as int64_t
+    if n < 0
+      n = -n
+    mut cuenta = 1
+    while n >= 10
+      n /= 10
+      cuenta += 1
+    size_t:: from (cuenta)
+
+  is_power_of_two = -> bool
+    @ > 0 and (@ & (@ - 1)) == 0
+
   to_double = -> double
     @ as double
+
+  to_float = -> float
+    @ as float
+
+  to_int64 = -> int64_t
+    @ as int64_t
+
+  to_size = -> size_t
+    size_t:: from (@)
+
+  to_radix = (base: int) -> string
+    format::radix(@, base)

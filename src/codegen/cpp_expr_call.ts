@@ -96,6 +96,28 @@ function is_extern_callee(g: GenContext, callee: ExprNode): boolean {
   return false;
 }
 
+// Los enhechizados de `std/integers` emiten un `min`/`clamp` por cada ancho:
+// con literales `int` la sobrecarga de C++ sería ambigua. Convertimos cada
+// argumento a su tipo de parámetro para elegir la sobrecarga exacta.
+function emit_enchanting_args(
+  g: GenContext,
+  node: CallNode,
+  params: readonly PenguType[],
+  variadic: boolean,
+): string {
+  const fixed = variadic ? params.slice(0, -1) : params;
+  return node.args
+    .map((arg, index) => {
+      const declared = index < fixed.length ? fixed[index] : variadic ? params[params.length - 1] : undefined;
+      const rendered = emit_expr(g, arg.expr);
+      const param = declared;
+      if (param === undefined || param.kind !== "primitive") return rendered;
+      if (type_equals(type_of(g, arg.expr), param)) return rendered;
+      return `static_cast<${cpp_type(param, g.type_realms)}>(${rendered})`;
+    })
+    .join(", ");
+}
+
 export function emit_call(g: GenContext, node: CallNode): string {
   const callee_type = type_of(g, node.callee);
   const variadic = callee_type.kind === "function" && callee_type.variadic;
@@ -141,12 +163,78 @@ export function emit_call(g: GenContext, node: CallNode): string {
     return emit_path_call(g, callee.segments, type_args, args);
   }
   if (callee.kind === "member") {
-    return emit_member_call(g, callee.object, callee.name, args, callee);
+    const target = g.member_targets.get(callee);
+    const args_text =
+      target !== undefined && target.params.length > 0
+        ? emit_enchanting_args(g, node, target.params, target.variadic)
+        : args;
+    return emit_member_call(g, callee.object, callee.name, args_text, callee);
   }
   return `(${emit_expr(g, callee)})(${args})`;
 }
 
+// Las primitivas de «float» y «long double» se resuelven contra las
+// sobrecargas de <cmath>; el nombre del tipo no participa en el C++.
+const FLOAT_REALM_INTRINSICS: Readonly<Record<string, string>> = {
+  sqrt: "std::sqrt",
+  cbrt: "std::cbrt",
+  pow: "std::pow",
+  exp: "std::exp",
+  ln: "std::log",
+  log2: "std::log2",
+  log10: "std::log10",
+  floor: "std::floor",
+  ceil: "std::ceil",
+  round: "std::round",
+  trunc: "std::trunc",
+  hypot: "std::hypot",
+  is_finite: "std::isfinite",
+  is_infinite: "std::isinf",
+  is_nan: "std::isnan",
+  is_sign_negative: "std::signbit",
+  to_fixed: "::pengu::to_fixed",
+  to_scientific: "::pengu::to_scientific",
+};
+
+const FLOAT_REALM_FUNCTIONS: Readonly<Record<string, string>> = Object.fromEntries(
+  ["float", "long_double"].flatMap((realm) =>
+    Object.entries(FLOAT_REALM_INTRINSICS).map(([name, cpp]) => [`${realm}::${name}`, cpp]),
+  ),
+);
+
+// Límites de los enteros de ancho fijo: `int8_max()` y compañía.
+const INTEGER_LIMIT_TYPES: Readonly<Record<string, string>> = {
+  int8: "std::int8_t",
+  int16: "std::int16_t",
+  int32: "std::int32_t",
+  int64: "std::int64_t",
+  uint8: "std::uint8_t",
+  uint16: "std::uint16_t",
+  uint32: "std::uint32_t",
+  uint64: "std::uint64_t",
+  size: "std::size_t",
+  ptrdiff: "std::ptrdiff_t",
+};
+
+const INTEGER_LIMIT_FUNCTIONS: Readonly<Record<string, string>> = Object.fromEntries(
+  Object.entries(INTEGER_LIMIT_TYPES).flatMap(([short, cpp]) => [
+    [`integers::${short}_max`, `std::numeric_limits<${cpp}>::max`],
+    [`integers::${short}_min`, `std::numeric_limits<${cpp}>::min`],
+  ]),
+);
+
+// Conversión de caja de caracteres ASCII: devuelven `char` (la versión de
+// <cctype> devuelve `int`).
+const CHAR_FUNCTIONS: Readonly<Record<string, string>> = {
+  "char::to_upper_raw": "::pengu::char_upper",
+  "char::to_lower_raw": "::pengu::char_lower",
+};
+
 export const BUILTIN_FUNCTIONS: Readonly<Record<string, string>> = {
+  ...CHAR_FUNCTIONS,
+
+  ...FLOAT_REALM_FUNCTIONS,
+  ...INTEGER_LIMIT_FUNCTIONS,
   "io::read_line": "::pengu::read_line",
   "io::write_values": "::pengu::write_values",
   "io::eprint_values": "::pengu::eprint_values",
@@ -191,6 +279,42 @@ export const BUILTIN_FUNCTIONS: Readonly<Record<string, string>> = {
   "assert::that": "::pengu::assert_that",
   "assert::fail": "::pengu::panic",
   "math::clamp": "std::clamp",
+  "math::cbrt": "std::cbrt",
+  "math::trunc": "std::trunc",
+  "math::nearbyint": "std::nearbyint",
+  "math::asin": "std::asin",
+  "math::acos": "std::acos",
+  "math::atan": "std::atan",
+  "math::atan2": "std::atan2",
+  "math::sinh": "std::sinh",
+  "math::cosh": "std::cosh",
+  "math::tanh": "std::tanh",
+  "math::asinh": "std::asinh",
+  "math::acosh": "std::acosh",
+  "math::atanh": "std::atanh",
+  "math::exp": "std::exp",
+  "math::exp2": "std::exp2",
+  "math::expm1": "std::expm1",
+  "math::ln": "std::log",
+  "math::log2": "std::log2",
+  "math::log10": "std::log10",
+  "math::log1p": "std::log1p",
+  "math::hypot": "std::hypot",
+  "math::fmod": "std::fmod",
+  "math::remainder": "std::remainder",
+  "math::fdim": "std::fdim",
+  "math::fmax": "std::fmax",
+  "math::fmin": "std::fmin",
+  "math::copysign": "std::copysign",
+  "math::fma": "std::fma",
+  "math::signbit": "std::signbit",
+  "math::is_finite": "std::isfinite",
+  "math::is_infinite": "std::isinf",
+  "math::is_nan": "std::isnan",
+  "math::infinite": "::pengu::infinite_double",
+  "math::not_a_number": "::pengu::nan_double",
+  "math::gcd": "std::gcd",
+  "math::lcm": "std::lcm",
 };
 
 export const BUILTIN_CONSTANTS: Readonly<Record<string, string>> = {

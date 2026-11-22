@@ -1,0 +1,62 @@
+realm char
+
+-- Utilidades para `char`: clasificación y conversión de caja.
+-- Los métodos `to_upper`/`to_lower` son intrínsecos porque `int -> char`
+-- exige `unsafe` y aquí no queremos que el usuario lo pague.
+
+declare
+  to_upper_raw = (valor: char) -> char
+  to_lower_raw = (valor: char) -> char
+
+enchanting char
+  code = -> int
+    @ as int
+
+  is_digit = -> bool
+    @ >= '0' and @ <= '9'
+
+  is_alpha = -> bool
+    (@ >= 'a' and @ <= 'z') or (@ >= 'A' and @ <= 'Z')
+
+  is_alphanumeric = -> bool
+    @.is_digit() or @.is_alpha()
+
+  is_space = -> bool
+    @ == ' ' or @ == '\t' or @ == '\n' or @ == '\r' or @ == '\v' or @ == '\f'
+
+  is_upper = -> bool
+    @ >= 'A' and @ <= 'Z'
+
+  is_lower = -> bool
+    @ >= 'a' and @ <= 'z'
+
+  is_ascii = -> bool
+    @.code() < 128
+
+  is_hex_digit = -> bool
+    @.is_digit() or (@ >= 'a' and @ <= 'f') or (@ >= 'A' and @ <= 'F')
+
+  is_control = -> bool
+    @.code() < 32 or @.code() == 127
+
+  is_punctuation = -> bool
+    @.is_ascii() and not @.is_alphanumeric() and not @.is_space() and not @.is_control()
+
+  digit_value = -> int
+    if @.is_digit() then @.code() - '0'.code() else 0
+
+  hex_value = -> int
+    if @.is_digit() then
+      @.code() - '0'.code()
+    else if @ >= 'a' and @ <= 'f' then
+      @.code() - 'a'.code() + 10
+    else if @ >= 'A' and @ <= 'F' then
+      @.code() - 'A'.code() + 10
+    else
+      -1
+
+  to_upper = -> char
+    to_upper_raw(@)
+
+  to_lower = -> char
+    to_lower_raw(@)

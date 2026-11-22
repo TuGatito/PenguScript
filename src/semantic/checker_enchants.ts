@@ -235,7 +235,12 @@ function validate_arguments(
 }
 
 function annotate(ctx: CheckContext, node: ExprNode, method: EnchantedMethod): void {
-  ctx.member_targets?.set(node, { realm: method.realm, name: method.info.name });
+  ctx.member_targets?.set(node, {
+    realm: method.realm,
+    name: method.info.name,
+    params: method.info.params,
+    variadic: method.info.variadic,
+  });
 }
 
 /** Resuelve `obj.metodo(args)`; `undefined` si no hay enhechizamiento. */

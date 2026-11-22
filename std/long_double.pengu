@@ -1,0 +1,129 @@
+realm long_double
+
+invoke "std/math"
+
+-- Primitivas específicas de «long double»: las de <cmath> tienen una sobrecarga
+-- por ancho, así que el resultado conserva el tipo.
+declare
+  sqrt = (x: long double) -> long double
+  cbrt = (x: long double) -> long double
+  pow = (base: long double, exponent: long double) -> long double
+  exp = (x: long double) -> long double
+  ln = (x: long double) -> long double
+  log2 = (x: long double) -> long double
+  log10 = (x: long double) -> long double
+  floor = (x: long double) -> long double
+  ceil = (x: long double) -> long double
+  round = (x: long double) -> long double
+  trunc = (x: long double) -> long double
+  hypot = (x: long double, y: long double) -> long double
+  is_finite = (x: long double) -> bool
+  is_infinite = (x: long double) -> bool
+  is_nan = (x: long double) -> bool
+  is_sign_negative = (x: long double) -> bool
+  to_fixed = (x: long double, decimals: int) -> string
+  to_scientific = (x: long double, decimals: int) -> string
+
+enchanting long double
+  abs = -> long double
+    if @ < 0.0 then -@ else @
+
+  min = (otro: long double) -> long double
+    if @ < otro then @ else otro
+
+  max = (otro: long double) -> long double
+    if @ > otro then @ else otro
+
+  clamp = (minimo: long double, maximo: long double) -> long double
+    if @ < minimo then minimo else if @ > maximo then maximo else @
+
+  is_positive = -> bool
+    @ > 0.0
+
+  is_negative = -> bool
+    @ < 0.0
+
+  is_zero = -> bool
+    @ == 0.0
+
+  between = (minimo: long double, maximo: long double) -> bool
+    @ >= minimo and @ <= maximo
+
+  sqrt = -> long double
+    sqrt(@)
+
+  cbrt = -> long double
+    cbrt(@)
+
+  pow = (exponente: long double) -> long double
+    pow(@, exponente)
+
+  exp = -> long double
+    exp(@)
+
+  ln = -> long double
+    ln(@)
+
+  log2 = -> long double
+    log2(@)
+
+  log10 = -> long double
+    log10(@)
+
+  floor = -> long double
+    floor(@)
+
+  ceil = -> long double
+    ceil(@)
+
+  round = -> long double
+    round(@)
+
+  trunc = -> long double
+    trunc(@)
+
+  fract = -> long double
+    @ - floor(@)
+
+  round_to = (decimales: int) -> long double
+    factor = pow(10 as long double, decimales as long double)
+    round(@ * factor) / factor
+
+  hypot = (otro: long double) -> long double
+    hypot(@, otro)
+
+  is_finite = -> bool
+    is_finite(@)
+
+  is_infinite = -> bool
+    is_infinite(@)
+
+  is_nan = -> bool
+    is_nan(@)
+
+  is_sign_negative = -> bool
+    is_sign_negative(@)
+
+  signum = -> long double
+    if @ > 0.0 then 1.0 else if @ < 0.0 then -1.0 else 0.0
+
+  lerp = (hacia: long double, t: long double) -> long double
+    @ + (hacia - @) * t
+
+  approx_eq = (otro: long double, epsilon: long double = 1e-6) -> bool
+    (@ - otro).abs() <= epsilon
+
+  to_fixed = (decimales: int) -> string
+    to_fixed(@, decimales)
+
+  to_scientific = (decimales: int) -> string
+    to_scientific(@, decimales)
+
+  to_double = -> double?
+    double::try_from(@)
+
+  to_float = -> float?
+    float::try_from(@)
+
+  to_int = -> int?
+    int::try_from(@)

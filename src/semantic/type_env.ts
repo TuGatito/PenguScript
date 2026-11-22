@@ -107,6 +107,10 @@ export interface EnchantedMethod {
 export interface MethodTarget {
   readonly realm: string;
   readonly name: string;
+  /** Tipos de los parámetros declarados: el codegen los usa para convertir
+   *  literales y elegir la sobrecarga correcta en C++. */
+  readonly params: readonly PenguType[];
+  readonly variadic: boolean;
 }
 
 /** Métodos declarados sobre un tipo incorporado, por aridad. */

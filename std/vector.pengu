@@ -8,7 +8,7 @@ enchanting vector<T>
     if #@ == 0 then none else @[0]
 
   last = -> T?
-    if #@ == 0 then none else @[#@ -1]
+    if #@ == 0 then none else @[#@ - 1]
 
   index_of = (buscado: T) -> size_t?
     mut i: size_t = 0
@@ -44,7 +44,7 @@ enchanting vector<T>
     if #@ == 0
       return
     mut i: size_t = 0
-    mut j: size_t = #@ -1
+    mut j: size_t = #@ - 1
     while i < j
       temporal = @[i]
       @[i] = @[j]
