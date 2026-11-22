@@ -1,0 +1,284 @@
+-- Geometría para juegos: vectores, rectángulos y transformaciones.
+--
+-- Los runes no tienen métodos estáticos, así que los constructores con
+-- nombre propio son funciones libres (`geometry::zero_vec2()`). El tipo
+-- se nombra cualificado desde otros módulos (`geometry::Vec2`).
+invoke "std/io"
+invoke "std/math"
+invoke "std/ordering"
+
+rune Vec2
+  x: double
+  y: double
+
+  constructor(x: double, y: double)
+    @x = x
+    @y = y
+
+enchanting Vec2
+  length_squared = -> double
+    @x * @x + @y * @y
+
+  length = -> double
+    math::sqrt(@length_squared())
+
+  dot = (otro: Vec2) -> double
+    @x * otro.x + @y * otro.y
+
+  cross = (otro: Vec2) -> double
+    @x * otro.y - @y * otro.x
+
+  normalized = -> Vec2
+    tamano = @length()
+    if tamano == 0.0
+      return Vec2(0.0, 0.0)
+    Vec2(@x / tamano, @y / tamano)
+
+  distance_to = (otro: Vec2) -> double
+    (Vec2(@x - otro.x, @y - otro.y)).length()
+
+  direction_to = (otro: Vec2) -> Vec2
+    Vec2(otro.x - @x, otro.y - @y).normalized()
+
+  lerp = (hacia: Vec2, t: double) -> Vec2
+    Vec2(@x + (hacia.x - @x) * t, @y + (hacia.y - @y) * t)
+
+  angle = -> double
+    math::atan2(@y, @x)
+
+  rotated = (radianes: double) -> Vec2
+    coseno = math::cos(radianes)
+    seno = math::sin(radianes)
+    Vec2(@x * coseno - @y * seno, @x * seno + @y * coseno)
+
+  perpendicular = -> Vec2
+    Vec2(-@y, @x)
+
+  abs = -> Vec2
+    Vec2(math::abs(@x), math::abs(@y))
+
+  clamp_length = (maximo: double) -> Vec2
+    if @length_squared() <= maximo * maximo
+      return Vec2(@x, @y)
+    @normalized() * maximo
+
+  is_zero = -> bool
+    @x == 0.0 and @y == 0.0
+
+  equals = (otro: Vec2, epsilon: double = 1e-9) -> bool
+    math::abs(@x - otro.x) <= epsilon and math::abs(@y - otro.y) <= epsilon
+
+  mut add = (otro: ref<Vec2>) -> void
+    @x += otro.x
+    @y += otro.y
+
+  mut scale = (factor: double) -> void
+    @x *= factor
+    @y *= factor
+
+  mut move_towards = (objetivo: Vec2, paso: double) -> void
+    distancia = @distance_to(objetivo)
+    if distancia <= paso or distancia == 0.0
+      @x = objetivo.x
+      @y = objetivo.y
+    else
+      direccion = @direction_to(objetivo)
+      @x += direccion.x * paso
+      @y += direccion.y * paso
+
+  operator + = (otro: ref<Vec2>) -> Vec2
+    Vec2(@x + otro.x, @y + otro.y)
+
+  operator - = (otro: ref<Vec2>) -> Vec2
+    Vec2(@x - otro.x, @y - otro.y)
+
+  operator * = (escala: double) -> Vec2
+    Vec2(@x * escala, @y * escala)
+
+  operator / = (escala: double) -> Vec2
+    Vec2(@x / escala, @y / escala)
+
+  operator == = (otro: ref<Vec2>) -> bool
+    @x == otro.x and @y == otro.y
+
+  operator <=> = (otro: ref<Vec2>) -> Ordering
+    if @x != otro.x
+      return @x <=> otro.x
+    @y <=> otro.y
+
+  to_string = -> string
+    "(#{@x}, #{@y})"
+
+rune Vec3
+  x: double
+  y: double
+  z: double
+
+  constructor(x: double, y: double, z: double)
+    @x = x
+    @y = y
+    @z = z
+
+enchanting Vec3
+  length_squared = -> double
+    @x * @x + @y * @y + @z * @z
+
+  length = -> double
+    math::sqrt(@length_squared())
+
+  dot = (otro: Vec3) -> double
+    @x * otro.x + @y * otro.y + @z * otro.z
+
+  cross = (otro: Vec3) -> Vec3
+    Vec3(@y * otro.z - @z * otro.y, @z * otro.x - @x * otro.z, @x * otro.y - @y * otro.x)
+
+  normalized = -> Vec3
+    tamano = @length()
+    if tamano == 0.0
+      return Vec3(0.0, 0.0, 0.0)
+    Vec3(@x / tamano, @y / tamano, @z / tamano)
+
+  distance_to = (otro: Vec3) -> double
+    Vec3(@x - otro.x, @y - otro.y, @z - otro.z).length()
+
+  lerp = (hacia: Vec3, t: double) -> Vec3
+    Vec3(@x + (hacia.x - @x) * t, @y + (hacia.y - @y) * t, @z + (hacia.z - @z) * t)
+
+  is_zero = -> bool
+    @x == 0.0 and @y == 0.0 and @z == 0.0
+
+  operator + = (otro: Vec3) -> Vec3
+    Vec3(@x + otro.x, @y + otro.y, @z + otro.z)
+
+  operator - = (otro: Vec3) -> Vec3
+    Vec3(@x - otro.x, @y - otro.y, @z - otro.z)
+
+  operator * = (escala: double) -> Vec3
+    Vec3(@x * escala, @y * escala, @z * escala)
+
+  operator == = (otro: Vec3) -> bool
+    @x == otro.x and @y == otro.y and @z == otro.z
+
+  to_string = -> string
+    "(#{@x}, #{@y}, #{@z})"
+
+rune Rect
+  x: double
+  y: double
+  width: double
+  height: double
+
+  constructor(x: double, y: double, width: double, height: double)
+    @x = x
+    @y = y
+    @width = width
+    @height = height
+
+enchanting Rect
+  right = -> double
+    @x + @width
+
+  bottom = -> double
+    @y + @height
+
+  center = -> Vec2
+    Vec2(@x + @width / 2.0, @y + @height / 2.0)
+
+  area = -> double
+    @width * @height
+
+  is_empty = -> bool
+    @width <= 0.0 or @height <= 0.0
+
+  contains = (punto: Vec2) -> bool
+    punto.x >= @x and punto.x <= @right() and punto.y >= @y and punto.y <= @bottom()
+
+  contains_rect = (otro: Rect) -> bool
+    otro.x >= @x and otro.y >= @y and otro.right() <= @right() and otro.bottom() <= @bottom()
+
+  intersects = (otro: Rect) -> bool
+    @x < otro.right() and otro.x < @right() and @y < otro.bottom() and otro.y < @bottom()
+
+  intersection = (otro: Rect) -> Rect?
+    izquierda = math::max(@x, otro.x)
+    arriba = math::max(@y, otro.y)
+    derecha = math::min(@right(), otro.right())
+    abajo = math::min(@bottom(), otro.bottom())
+    if derecha <= izquierda or abajo <= arriba
+      return none
+    Rect(izquierda, arriba, derecha - izquierda, abajo - arriba)
+
+  union = (otro: Rect) -> Rect
+    izquierda = math::min(@x, otro.x)
+    arriba = math::min(@y, otro.y)
+    derecha = math::max(@right(), otro.right())
+    abajo = math::max(@bottom(), otro.bottom())
+    Rect(izquierda, arriba, derecha - izquierda, abajo - arriba)
+
+  expanded = (margen: double) -> Rect
+    Rect(@x - margen, @y - margen, @width + margen * 2.0, @height + margen * 2.0)
+
+  translated = (dx: double, dy: double) -> Rect
+    Rect(@x + dx, @y + dy, @width, @height)
+
+  overlaps = (punto: Vec2) -> bool
+    @contains(punto)
+
+  to_string = -> string
+    "Rect(#{@x}, #{@y}, #{@width}, #{@height})"
+
+rune Transform2D
+  position: Vec2
+  rotation: double
+  scale: Vec2
+
+  constructor(position: Vec2, rotation: double, scale: Vec2)
+    @position = position
+    @rotation = rotation
+    @scale = scale
+
+enchanting Transform2D
+  apply = (punto: Vec2) -> Vec2
+    escalado = Vec2(punto.x * @scale.x, punto.y * @scale.y)
+    rotado = escalado.rotated(@rotation)
+    rotado + @position
+
+  apply_direction = (direccion: Vec2) -> Vec2
+    Vec2(direccion.x * @scale.x, direccion.y * @scale.y).rotated(@rotation)
+
+  inverse_apply = (punto: Vec2) -> Vec2
+    relativo = Vec2(punto.x - @position.x, punto.y - @position.y)
+    desrotado = relativo.rotated(-@rotation)
+    Vec2(desrotado.x / @scale.x, desrotado.y / @scale.y)
+
+  to_string = -> string
+    "Transform2D(#{@position}, #{@rotation}, #{@scale})"
+
+    -- Constructores libres (los runes no admiten métodos estáticos).
+
+vec2 = (x: double, y: double) -> Vec2
+  Vec2(x, y)
+
+zero_vec2 = -> Vec2
+  Vec2(0.0, 0.0)
+
+unit_vec2 = (x: double, y: double) -> Vec2
+  Vec2(x, y).normalized()
+
+vec3 = (x: double, y: double, z: double) -> Vec3
+  Vec3(x, y, z)
+
+zero_vec3 = -> Vec3
+  Vec3(0.0, 0.0, 0.0)
+
+rect = (x: double, y: double, width: double, height: double) -> Rect
+  Rect(x, y, width, height)
+
+rect_from_center = (centro: Vec2, width: double, height: double) -> Rect
+  Rect(centro.x - width / 2.0, centro.y - height / 2.0, width, height)
+
+transform_identity = -> Transform2D
+  Transform2D(Vec2(0.0, 0.0), 0.0, Vec2(1.0, 1.0))
+
+transform_at = (posicion: Vec2) -> Transform2D
+  Transform2D(Vec2(posicion.x, posicion.y), 0.0, Vec2(1.0, 1.0))

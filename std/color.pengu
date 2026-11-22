@@ -1,0 +1,159 @@
+-- Color RGBA en coma flotante (0.0 a 1.0) con conversiones a bytes y hex.
+--
+-- Los componentes quedan sin recortar para poder sumar luz y hacer
+-- blending; `clamped()` devuelve una copia válida para pintar.
+invoke "std/double"
+invoke "std/format"
+invoke "std/int"
+invoke "std/math"
+
+rune Color
+  r: double
+  g: double
+  b: double
+  a: double
+
+  constructor(r: double, g: double, b: double, a: double)
+    @r = r
+    @g = g
+    @b = b
+    @a = a
+
+enchanting Color
+  clamped = -> Color
+    Color(math::clamp(@r, 0.0, 1.0), math::clamp(@g, 0.0, 1.0), math::clamp(@b, 0.0, 1.0), math::clamp(@a, 0.0, 1.0))
+
+  with_alpha = (alpha: double) -> Color
+    Color(@r, @g, @b, math::clamp(alpha, 0.0, 1.0))
+
+  is_opaque = -> bool
+    @a >= 1.0
+
+  is_transparent = -> bool
+    @a <= 0.0
+
+  luminance = -> double
+    @r * 0.2126 + @g * 0.7152 + @b * 0.0722
+
+  inverted = -> Color
+    Color(1.0 - @r, 1.0 - @g, 1.0 - @b, @a)
+
+  scale = (factor: double) -> Color
+    Color(@r * factor, @g * factor, @b * factor, @a)
+
+  lerp = (hacia: Color, t: double) -> Color
+    Color(@r + (hacia.r - @r) * t, @g + (hacia.g - @g) * t, @b + (hacia.b - @b) * t, @a + (hacia.a - @a) * t)
+
+  red8 = -> int
+    math::round(math::clamp(@r, 0.0, 1.0) * 255.0).to_int().value()
+
+  green8 = -> int
+    math::round(math::clamp(@g, 0.0, 1.0) * 255.0).to_int().value()
+
+  blue8 = -> int
+    math::round(math::clamp(@b, 0.0, 1.0) * 255.0).to_int().value()
+
+  alpha8 = -> int
+    math::round(math::clamp(@a, 0.0, 1.0) * 255.0).to_int().value()
+
+  channel_hex = (valor: int) -> string
+    format::pad_left_with(format::radix(valor, 16), size_t:: from (2), '0')
+
+  to_rgb8 = -> tuple<int, int, int>
+    (@red8(), @green8(), @blue8())
+
+  to_rgba8 = -> tuple<int, int, int, int>
+    (@red8(), @green8(), @blue8(), @alpha8())
+
+  to_hex = -> string
+    "#" + @channel_hex(@red8()) + @channel_hex(@green8()) + @channel_hex(@blue8())
+
+  to_hex_rgba = -> string
+    @to_hex() + @channel_hex(@alpha8())
+
+  to_hsv = -> tuple<double, double, double>
+    maximo = math::max(math::max(@r, @g), @b)
+    minimo = math::min(math::min(@r, @g), @b)
+    delta = maximo - minimo
+    mut tono = 0.0
+    if delta != 0.0
+      if maximo == @r
+        tono = 60.0 * math::fmod((@g - @b) / delta, 6.0)
+      if maximo == @g
+        tono = 60.0 * ((@b - @r) / delta + 2.0)
+      if maximo == @b
+        tono = 60.0 * ((@r - @g) / delta + 4.0)
+    if tono < 0.0
+      tono += 360.0
+    mut saturacion = 0.0
+    if maximo != 0.0
+      saturacion = delta / maximo
+    mut salida: tuple<double, double, double> = (tono, saturacion, maximo)
+    salida
+
+  operator == = (otro: ref<Color>) -> bool
+    @r == otro.r and @g == otro.g and @b == otro.b and @a == otro.a
+
+  to_string = -> string
+    "Color(#{@r}, #{@g}, #{@b}, #{@a})"
+
+    -- Constructores libres.
+
+rgb = (r: double, g: double, b: double) -> Color
+  Color(r, g, b, 1.0)
+
+rgba = (r: double, g: double, b: double, a: double) -> Color
+  Color(r, g, b, a)
+
+byte_a_double = (valor: int) -> double
+  valor.clamp(0, 255).to_double() / 255.0
+
+from_rgb8 = (r: int, g: int, b: int) -> Color
+  Color(byte_a_double(r), byte_a_double(g), byte_a_double(b), 1.0)
+
+from_hex = (valor: int) -> Color
+  rojo = (valor >> 16) & 255
+  verde = (valor >> 8) & 255
+  azul = valor & 255
+  Color(byte_a_double(rojo), byte_a_double(verde), byte_a_double(azul), 1.0)
+
+from_hsv = (tono: double, saturacion: double, brillo: double) -> Color
+  mut h = math::fmod(tono, 360.0)
+  if h < 0.0
+    h += 360.0
+  s = math::clamp(saturacion, 0.0, 1.0)
+  v = math::clamp(brillo, 0.0, 1.0)
+  c = v * s
+  x = c * (1.0 - math::abs(math::fmod(h / 60.0, 2.0) - 1.0))
+  m = v - c
+  mut rojo = 0.0
+  mut verde = 0.0
+  mut azul = 0.0
+  if h < 60.0
+    rojo = c
+    verde = x
+  else if h < 120.0
+    rojo = x
+    verde = c
+  else if h < 180.0
+    verde = c
+    azul = x
+  else if h < 240.0
+    verde = x
+    azul = c
+  else if h < 300.0
+    rojo = x
+    azul = c
+  else
+    rojo = c
+    azul = x
+  Color(rojo + m, verde + m, azul + m, 1.0)
+
+white = -> Color
+  Color(1.0, 1.0, 1.0, 1.0)
+
+black = -> Color
+  Color(0.0, 0.0, 0.0, 1.0)
+
+transparent = -> Color
+  Color(0.0, 0.0, 0.0, 0.0)

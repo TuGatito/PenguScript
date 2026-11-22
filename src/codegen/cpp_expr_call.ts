@@ -528,6 +528,18 @@ export function emit_conversion(
   return conversion;
 }
 
+// Un método de rune se emite como llamada miembro: vale tanto para los
+// runes del módulo actual como para los declarados en otro archivo.
+function rune_has_method(g: GenContext, type_name: string, method: string): boolean {
+  const own = g.module.env.runes.get(type_name);
+  if (own !== undefined) return own.methods.has(method);
+  for (const module of g.external_modules.values()) {
+    const rune = module.env.runes.get(type_name);
+    if (rune !== undefined) return rune.methods.has(method);
+  }
+  return false;
+}
+
 export function emit_member_call(
   g: GenContext,
   object: ExprNode,
@@ -550,8 +562,7 @@ export function emit_member_call(
   // Los métodos declarados por el usuario tienen prioridad sobre las
   // tablas de métodos incorporados (por ejemplo `len` en un rune).
   if (object_type.kind === "named") {
-    const rune = g.module.env.runes.get(object_type.name);
-    if (rune?.methods.has(name) === true) {
+    if (rune_has_method(g, object_type.name, name)) {
       return `${rendered}.${cpp_identifier(name)}(${args})`;
     }
     // Omens: los métodos son funciones libres (`nombre(color)`).

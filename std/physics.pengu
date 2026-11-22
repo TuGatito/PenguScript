@@ -1,0 +1,107 @@
+-- Cuerpos rígidos muy sencillos: integración, gravedad y rebotes.
+--
+-- Es física de juego, no simulación: sin rotación ni fricción real, con
+-- amortiguación y rebote configurables. Todo se mide en unidades del
+-- juego (píxeles, metros) por segundo.
+invoke "std/geometry"
+invoke "std/int"
+invoke "std/math"
+
+rune Body
+  position: geometry::Vec2
+  velocity: geometry::Vec2
+  mass: double
+  restitution: double
+
+  constructor(position: geometry::Vec2, velocity: geometry::Vec2, mass: double, restitution: double)
+    @position = position
+    @velocity = velocity
+    @mass = mass
+    @restitution = restitution
+
+enchanting Body
+  speed = -> double
+    @velocity.length()
+
+  is_moving = -> bool
+    not @velocity.is_zero()
+
+  momentum = -> geometry::Vec2
+    @velocity * @mass
+
+  kinetic_energy = -> double
+    0.5 * @mass * @velocity.length_squared()
+
+  mut apply_force = (fuerza: geometry::Vec2, dt: double) -> void
+    if @mass <= 0.0
+      return
+    @velocity = @velocity + fuerza * (dt / @mass)
+
+  mut apply_impulse = (impulso: geometry::Vec2) -> void
+    if @mass <= 0.0
+      return
+    @velocity = @velocity + impulso * (1.0 / @mass)
+
+  mut apply_gravity = (gravedad: geometry::Vec2, dt: double) -> void
+    @velocity = @velocity + gravedad * dt
+
+  mut integrate = (dt: double) -> void
+    @position = @position + @velocity * dt
+
+  mut damp = (coeficiente: double, dt: double) -> void
+    if coeficiente <= 0.0
+      return
+    factor = math::max(0.0, 1.0 - coeficiente * dt)
+    @velocity = @velocity * factor
+
+  mut bounce_floor = (suelo: double, restitucion: double) -> void
+    if @position.y > suelo or @velocity.y >= 0.0
+      return
+    @position = geometry::Vec2(@position.x, suelo)
+    @velocity = geometry::Vec2(@velocity.x, -@velocity.y * restitucion)
+
+  mut bounce_bounds = (ancho: double, alto: double, restitucion: double) -> void
+    if @position.x < 0.0
+      @position = geometry::Vec2(0.0, @position.y)
+      @velocity = geometry::Vec2(-@velocity.x * restitucion, @velocity.y)
+    if @position.x > ancho
+      @position = geometry::Vec2(ancho, @position.y)
+      @velocity = geometry::Vec2(-@velocity.x * restitucion, @velocity.y)
+    if @position.y < 0.0
+      @position = geometry::Vec2(@position.x, 0.0)
+      @velocity = geometry::Vec2(@velocity.x, -@velocity.y * restitucion)
+    if @position.y > alto
+      @position = geometry::Vec2(@position.x, alto)
+      @velocity = geometry::Vec2(@velocity.x, -@velocity.y * restitucion)
+
+  mut stop = -> void
+    @velocity = geometry::Vec2(0.0, 0.0)
+
+  to_string = -> string
+    "Body(#{@position}, #{@velocity}, m=#{@mass}, e=#{@restitution})"
+
+    -- Constructores libres.
+
+body = (posicion: geometry::Vec2, velocidad: geometry::Vec2, masa: double, restitucion: double) -> Body
+  Body(posicion, velocidad, masa, restitucion)
+
+body_at = (posicion: geometry::Vec2) -> Body
+  Body(posicion, geometry::Vec2(0.0, 0.0), 1.0, 0.5)
+
+body_moving = (posicion: geometry::Vec2, velocidad: geometry::Vec2) -> Body
+  Body(posicion, velocidad, 1.0, 0.5)
+
+  -- Fuerza de gravedad sobre una masa: `F = m · g`.
+gravity_force = (masa: double, gravedad: geometry::Vec2) -> geometry::Vec2
+  gravedad * masa
+
+  -- Paso completo de simulación: gravedad, amortiguación e integración.
+  --
+  -- Devuelve el cuerpo en vez de mutarlo por referencia para que el bucle de
+  -- juego sea una expresión: `cuerpo = physics::step(cuerpo, gravedad, 0.0, 0.016)`.
+step = (cuerpo: Body, gravedad: geometry::Vec2, amortiguacion: double, dt: double) -> Body
+  mut copia = cuerpo
+  copia.apply_gravity(gravedad, dt)
+  copia.damp(amortiguacion, dt)
+  copia.integrate(dt)
+  copia

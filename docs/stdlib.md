@@ -60,12 +60,17 @@ explícita para que los métodos existan en el archivo:
 | `std/result.pengu` | `Result<T, E>` con `is_ok`, `is_err`, `value`, `value_or`, `error`, `error_or`, `expect`, `to_string`; libres `ok`, `err`, `map`, `map_err`, `and_then`, `from_optional`. |
 | `std/test.pengu` | `test::is_true`, `is_false`, `equal`, `not_equal`, `is_some`, `is_none`; panican con un mensaje si fallan. |
 | `std/memory.pengu` | `unique<T>`/`shared<T>`: `get`, `mut set`; `weak<T>`: `is_alive`. |
+| `std/geometry.pengu` | Runes `Vec2`, `Vec3`, `Rect` y `Transform2D`. `Vec2`/`Vec3`: `length_squared`, `length`, `dot`, `cross`, `normalized`, `distance_to`, `direction_to`, `lerp`, `angle`, `rotated`, `perpendicular`, `abs`, `clamp_length`, `is_zero`, `equals`, `mut add`, `mut scale`, `mut move_towards`; operadores `+`, `-`, `*`, `/`, `==`, `<=>` y `to_string`. `Rect`: `right`, `bottom`, `center`, `area`, `is_empty`, `contains`, `contains_rect`, `intersects`, `intersection`, `union`, `expanded`, `translated`, `overlaps`. `Transform2D`: `apply`, `apply_direction`, `inverse_apply`. Libres: `vec2`, `zero_vec2`, `unit_vec2`, `vec3`, `zero_vec3`, `rect`, `rect_from_center`, `transform_identity`, `transform_at`. |
+| `std/easing.pengu` | `linear`, `clamp_unit`, `ping_pong`, `steps`, `smoothstep`, `smootherstep`, `quadratic_*`, `cubic_*`, `quartic_*`, `quintic_in/out`, `sine_*`, `exponential_*`, `circular_*`, `back_*`, `bounce_*`, `elastic_*` (con variantes `in`, `out` e `in_out`). |
+| `std/noise.pengu` | `hash`, `suavizar`, `mezclar`, `value_1d`, `value_2d`, `signed_2d`, `fractal_2d(x, y, octavas, semilla = 0, lacunaridad = 2.0, ganancia = 0.5)`, `turbulence_2d`, `ridged_2d`. Determinista: la misma posición y semilla dan el mismo valor. |
+| `std/color.pengu` | Rune `Color {r, g, b, a}` con `clamped`, `with_alpha`, `is_opaque`, `is_transparent`, `luminance`, `inverted`, `scale`, `lerp`, `red8`/`green8`/`blue8`/`alpha8`, `to_rgb8`, `to_rgba8`, `to_hex`, `to_hex_rgba`, `to_hsv`. Libres: `rgb`, `rgba`, `byte_a_double`, `from_rgb8`, `from_hex(0xRRGGBB)`, `from_hsv`, `white`, `black`, `transparent`. |
+| `std/physics.pengu` | Rune `Body {position, velocity, mass, restitution}` con `speed`, `is_moving`, `momentum`, `kinetic_energy`, `mut apply_force`, `mut apply_impulse`, `mut apply_gravity`, `mut integrate`, `mut damp`, `mut bounce_floor`, `mut bounce_bounds`, `mut stop`. Libres: `body`, `body_at`, `body_moving`, `gravity_force`, `step` (funcional: `cuerpo = physics::step(cuerpo, gravedad, amortiguacion, dt)`). |
 
-Los tipos de un módulo importado se pueden nombrar cualificados: `result::Result<int, string>`, `time::Duration`. Si escribes solo el nombre base, el checker sugiere el nombre completo cuando es único.
+Los tipos de un módulo importado se pueden nombrar cualificados: `result::Result<int, string>`, `time::Duration`, `geometry::Vec2`. Si escribes solo el nombre base, el checker sugiere el nombre completo cuando es único.
 
-### Módulos previstos (fases F6–F9)
+### Módulos previstos (fases F7–F9)
 
-El plan `scratch/plan_stdlib.md` define el resto de la biblioteca. `std/sys` y `std/ffi` de las secciones siguientes son el diseño objetivo: todavía **no existen** como archivos y se implementarán en fases posteriores (juegos, datos/CLI y avanzados).
+El plan `scratch/plan_stdlib.md` define el resto de la biblioteca. `std/sys` y `std/ffi` de las secciones siguientes son el diseño objetivo: todavía **no existen** como archivos y se implementarán en fases posteriores (datos/CLI y avanzados).
 
 ### Layer 0 — FFI
 

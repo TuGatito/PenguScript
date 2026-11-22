@@ -1,0 +1,81 @@
+-- Ruido de valor determinista: sirve para terreno, texturas y temblores.
+--
+-- Es una función pura de (coordenada, semilla): la misma entrada da
+-- siempre el mismo resultado, sin estado global. El ruido fractal suma
+-- varias octavas y normaliza el resultado a 0..1.
+invoke "std/int"
+invoke "std/math"
+
+-- Hash clásico de GLSL: estable, barato y suficiente para juegos.
+hash = (x: double, y: double, semilla: int) -> double
+  valor = math::sin(x * 127.1 + y * 311.7 + semilla.to_double() * 74.7) * 43758.5453123
+  valor - math::floor(valor)
+
+suavizar = (t: double) -> double
+  t * t * (3.0 - 2.0 * t)
+
+mezclar = (a: double, b: double, t: double) -> double
+  a + (b - a) * t
+
+value_1d = (x: double, semilla: int = 0) -> double
+  celda = math::floor(x)
+  resto = x - celda
+  izquierda = hash(celda, 0.0, semilla)
+  derecha = hash(celda + 1.0, 0.0, semilla)
+  mezclar(izquierda, derecha, suavizar(resto))
+
+value_2d = (x: double, y: double, semilla: int = 0) -> double
+  celda_x = math::floor(x)
+  celda_y = math::floor(y)
+  resto_x = x - celda_x
+  resto_y = y - celda_y
+  arriba_izquierda = hash(celda_x, celda_y, semilla)
+  arriba_derecha = hash(celda_x + 1.0, celda_y, semilla)
+  abajo_izquierda = hash(celda_x, celda_y + 1.0, semilla)
+  abajo_derecha = hash(celda_x + 1.0, celda_y + 1.0, semilla)
+  arriba = mezclar(arriba_izquierda, arriba_derecha, suavizar(resto_x))
+  abajo = mezclar(abajo_izquierda, abajo_derecha, suavizar(resto_x))
+  mezclar(arriba, abajo, suavizar(resto_y))
+
+signed_2d = (x: double, y: double, semilla: int = 0) -> double
+  value_2d(x, y, semilla) * 2.0 - 1.0
+
+fractal_2d = (x: double, y: double, octavas: int, semilla: int = 0, lacunaridad: double = 2.0, ganancia: double = 0.5) -> double
+  if octavas <= 0
+    return 0.0
+  mut total = 0.0
+  mut amplitud = 1.0
+  mut frecuencia = 1.0
+  mut normalizacion = 0.0
+  mut i = 0
+  while i < octavas
+    total += value_2d(x * frecuencia, y * frecuencia, semilla + i) * amplitud
+    normalizacion += amplitud
+    amplitud *= ganancia
+    frecuencia *= lacunaridad
+    i += 1
+  if normalizacion == 0.0
+    return 0.0
+  total / normalizacion
+
+turbulence_2d = (x: double, y: double, octavas: int, semilla: int = 0, lacunaridad: double = 2.0, ganancia: double = 0.5) -> double
+  if octavas <= 0
+    return 0.0
+  mut total = 0.0
+  mut amplitud = 1.0
+  mut frecuencia = 1.0
+  mut normalizacion = 0.0
+  mut i = 0
+  while i < octavas
+    onda = value_2d(x * frecuencia, y * frecuencia, semilla + i)
+    total += math::abs(onda * 2.0 - 1.0) * amplitud
+    normalizacion += amplitud
+    amplitud *= ganancia
+    frecuencia *= lacunaridad
+    i += 1
+  if normalizacion == 0.0
+    return 0.0
+  total / normalizacion
+
+ridged_2d = (x: double, y: double, octavas: int, semilla: int = 0) -> double
+  1.0 - turbulence_2d(x, y, octavas, semilla)

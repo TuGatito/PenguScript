@@ -4,6 +4,36 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+### Biblioteca estándar: F6 (juegos)
+
+- **`std/geometry.pengu`** (nuevo): runes `Vec2`, `Vec3`, `Rect` y
+  `Transform2D` con operadores (`+`, `-`, `*`, `/`, `==`, `<=>`), productos
+  escalar y vectorial, normalización, rotación, distancias, intersecciones y
+  transformaciones afines 2D.
+- **`std/easing.pengu`** (nuevo): curvas `linear`, `smoothstep`, `smootherstep`,
+  `ping_pong`, `steps` y las familias `quadratic`, `cubic`, `quartic`,
+  `quintic`, `sine`, `exponential`, `circular`, `back`, `bounce` y `elastic`
+  con variantes `in`, `out` e `in_out`.
+- **`std/noise.pengu`** (nuevo): `value_1d`, `value_2d`, `signed_2d`,
+  `fractal_2d`, `turbulence_2d` y `ridged_2d`, deterministas por semilla.
+- **`std/color.pengu`** (nuevo): rune `Color` con conversiones a `#RRGGBB`/
+  `#RRGGBBAA`, `lerp`, `luminance`, `inverted`, `to_hsv` y constructores
+  `rgb`, `rgba`, `from_rgb8`, `from_hex` y `from_hsv`.
+- **`std/physics.pengu`** (nuevo): rune `Body` con gravedad, impulsos,
+  amortiguación, integración y rebotes en suelo y paredes; `step` es funcional
+  (`cuerpo = physics::step(cuerpo, gravedad, 0.0, 0.016)`).
+- Nuevos ejemplos `examples/14_geometria` (rectángulos, intersecciones y
+  transformaciones) y `examples/15_juego` (bucle con gravedad, rebote, easing
+  y color).
+
+#### Corregido en F6
+
+- Los métodos de un rune importado se emiten como miembros (`Rect.contains`,
+  `Color.to_hex`) en vez de caer en el miembro incorporado del mismo nombre.
+- `pengu size` mide también las constantes: el sondeo de tamaños emite solo las
+  constantes (sin cuerpos de funciones), así que las cachés siguen siendo
+  estables y `sizeof` de cada valor existe.
+
 ### Biblioteca estándar: F5 (algoritmos)
 
 - **`std/iter.pengu`** (nuevo): `map`, `filter`, `fold`, `count_if`, `any`,
@@ -471,10 +501,10 @@ técnica conocida en el compilador.
 
 ### Verificado
 
-- `bun test`: 415 pruebas en 53 archivos (lexer, parser, checker, formateador,
+- `bun test`: 424 pruebas en 54 archivos (lexer, parser, checker, formateador,
   LSP de integración, de consultas, de sincronización y de rendimiento,
   medición de tamaños, bindgen, biblioteca estándar, conformidad y e2e de los
   ejemplos, de las fases F1–F9, G1–G6, H1–H7, I1–I8, L1–L6 y de la biblioteca
-  estándar (F0, F1, F2, F3, F4 y F5), y de la extensión de VS Code).
+  estándar (F0, F1, F2, F3, F4, F5 y F6), y de la extensión de VS Code).
 - `tsc --noEmit` sin errores y `pengu fmt --check` sin cambios pendientes.
-- Los 13 ejemplos de `examples/` compilan y ejecutan con el compilador final.
+- Los 15 ejemplos de `examples/` compilan y ejecutan con el compilador final.

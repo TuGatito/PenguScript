@@ -1,0 +1,41 @@
+-- Un bucle de juego mínimo: gravedad, rebotes, amortiguación y color.
+--
+-- No hay motor ni ventana: es la física y las curvas que usarías dentro de
+-- uno. `physics::step` devuelve el cuerpo, así que el bucle es una línea.
+invoke "std/io"
+invoke "std/math"
+invoke "std/geometry"
+invoke "std/physics"
+invoke "std/easing"
+invoke "std/color"
+invoke "std/format"
+
+main = ->
+  mut cuerpo = physics::body_moving(geometry::Vec2(10.0, 0.0), geometry::Vec2(9.0, -14.0))
+  gravedad = geometry::Vec2(0.0, 20.0)
+  mut frames = 0
+  mut rebotes = 0
+  while frames < 120
+    cuerpo = physics::step(cuerpo, gravedad, 0.4, 0.016)
+    anterior = cuerpo.velocity.y
+    cuerpo.bounce_floor(100.0, 0.6)
+    if cuerpo.velocity.y != anterior
+      rebotes += 1
+    cuerpo.bounce_bounds(60.0, 100.0, 0.6)
+    frames += 1
+  io::println("posición: #{cuerpo.position}")
+  io::println("velocidad: #{cuerpo.velocity}")
+  io::println("rapidez: #{format::fixed(cuerpo.speed(), 3)} rebotes: #{rebotes}")
+  io::println("energía cinética: #{format::fixed(cuerpo.kinetic_energy(), 3)}")
+
+  -- Curvas de animación entre 0 y 1.
+  io::println("easing lineal: #{format::fixed(easing::linear(0.25), 3)}")
+  io::println("easing suave: #{format::fixed(easing::quadratic_in_out(0.25), 3)}")
+  io::println("easing con rebote: #{format::fixed(easing::bounce_out(0.25), 3)}")
+
+  -- Colores para el HUD.
+  fondo = color::from_hex(0x101820)
+  aviso = color::from_hsv(30.0, 0.9, 1.0)
+  io::println("fondo: #{fondo.to_hex()} aviso: #{aviso.to_hex()}")
+  io::println("aviso con alpha: #{aviso.with_alpha(0.5).to_hex_rgba()}")
+  io::println("mezcla: #{fondo.lerp(aviso, 0.5).to_hex()}")

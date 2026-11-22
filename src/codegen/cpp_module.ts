@@ -13,7 +13,7 @@ import type { MethodTarget } from "../semantic/type_env.ts";
 import { cpp_type, sanitize_namespace } from "./cpp_types.ts";
 import type { TypeRealms } from "./cpp_types.ts";
 import { make_gen_context, line } from "./cpp_context.ts";
-import { emit_rest_declarations, emit_type_declarations } from "./cpp_decl.ts";
+import { emit_const_declarations, emit_rest_declarations, emit_type_declarations } from "./cpp_decl.ts";
 
 export interface ProgramUnit {
   readonly program: Program;
@@ -91,6 +91,16 @@ export function generate_program(
       g.lines = body;
       g.indent = 1;
       emit_rest_declarations(g, unit.program.decls);
+      g.indent = 0;
+      body.push(`}  // namespace ${realm}`);
+      body.push("");
+    } else {
+      // En el sondeo de tamaños solo hacen falta las constantes: los cuerpos
+      // de las funciones no cambian `sizeof` y sí cambian el hash de la caché.
+      body.push(`namespace ${realm} {`);
+      g.lines = body;
+      g.indent = 1;
+      emit_const_declarations(g, unit.program.decls);
       g.indent = 0;
       body.push(`}  // namespace ${realm}`);
       body.push("");

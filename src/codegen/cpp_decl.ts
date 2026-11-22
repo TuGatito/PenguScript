@@ -89,11 +89,18 @@ export function emit_type_declarations(g: GenContext, decls: readonly DeclNode[]
   emit_hash_specializations(g, types);
 }
 
+// Solo las constantes: lo usa el sondeo de tamaños, que necesita poder
+// medir `sizeof` de cada valor sin arrastrar los cuerpos de las funciones.
+export function emit_const_declarations(g: GenContext, decls: readonly DeclNode[]): void {
+  // Las constantes van en orden de dependencia entre ellas.
+  for (const decl of order_consts(decls)) emit_const(g, decl);
+}
+
 // Constantes, funciones, externos y bloques `enchanting`.
 export function emit_rest_declarations(g: GenContext, decls: readonly DeclNode[]): void {
   // Las constantes van antes que las funciones (que pueden usarlas) y
   // en orden de dependencia entre ellas.
-  for (const decl of order_consts(decls)) emit_const(g, decl);
+  emit_const_declarations(g, decls);
 
   // Después el resto, en el orden del fuente.
   for (const decl of decls) {

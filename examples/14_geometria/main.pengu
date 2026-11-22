@@ -1,0 +1,36 @@
+-- Geometría 2D para juegos: vectores, rectángulos y transformaciones.
+--
+-- Todo es `double`, así que la precisión es la de un juego 2D normal.
+-- Los operadores de `Vec2` permiten escribir fórmulas casi tal cual:
+-- `posicion = posicion + velocidad * dt`.
+invoke "std/io"
+invoke "std/math"
+invoke "std/geometry"
+invoke "std/format"
+
+main = ->
+  a = geometry::vec2(3.0, 4.0)
+  b = geometry::vec2(1.0, 2.0)
+  io::println("a: #{a}")
+  io::println("longitud de a: #{format::fixed(a.length(), 3)}")
+  io::println("a + b: #{a + b}")
+  io::println("a · b: #{format::fixed(a.dot(b), 3)}")
+  io::println("a × b: #{format::fixed(a.cross(b), 3)}")
+  io::println("a normalizado: #{a.normalized()}")
+  io::println("a girado 90°: #{a.rotated(math::pi / 2.0)}")
+  io::println("distancia a→b: #{format::fixed(a.distance_to(b), 3)}")
+
+  caja = geometry::rect(0.0, 0.0, 10.0, 10.0)
+  otra = geometry::rect(5.0, 5.0, 5.0, 5.0)
+  io::println("caja: #{caja} área: #{format::fixed(caja.area(), 3)}")
+  io::println("centro: #{caja.center()} esquina: (#{caja.right()}, #{caja.bottom()})")
+  io::println("¿se cruzan?: #{caja.intersects(otra)}")
+  io::println("intersección: #{caja.intersection(otra).value_or(geometry::rect(0.0, 0.0, 0.0, 0.0))}")
+  io::println("unión: #{caja.union(otra)}")
+
+  punto = geometry::vec2(5.0, 5.0)
+  io::println("¿caja contiene (5, 5)?: #{caja.contains(punto)}")
+
+  transformacion = geometry::Transform2D(geometry::vec2(10.0, 0.0), math::pi / 2.0, geometry::vec2(2.0, 2.0))
+  io::println("aplicada a (3, 0): #{transformacion.apply(geometry::vec2(3.0, 0.0))}")
+  io::println("inversa de (10, 2): #{transformacion.inverse_apply(geometry::vec2(10.0, 2.0))}")

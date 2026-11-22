@@ -1,0 +1,187 @@
+-- Curvas de interpolación para animaciones.
+--
+-- Todas reciben un `t` normalizado (0.0 a 1.0) y devuelven un valor
+-- normalizado; no recortan `t` para permitir rebotes y elasticidad.
+invoke "std/int"
+invoke "std/math"
+
+linear = (t: double) -> double
+  t
+
+clamp_unit = (t: double) -> double
+  if t < 0.0
+    return 0.0
+  if t > 1.0
+    return 1.0
+  t
+
+ping_pong = (t: double) -> double
+  mut ciclo = math::fmod(t, 2.0)
+  if ciclo < 0.0
+    ciclo += 2.0
+  if ciclo <= 1.0
+    return ciclo
+  2.0 - ciclo
+
+steps = (t: double, pasos: int) -> double
+  if pasos <= 1
+    return 0.0
+  math::floor(clamp_unit(t) * pasos.to_double()) / (pasos - 1).to_double()
+
+smoothstep = (borde0: double, borde1: double, x: double) -> double
+  if borde1 == borde0
+    return 0.0
+  t = clamp_unit((x - borde0) / (borde1 - borde0))
+  t * t * (3.0 - 2.0 * t)
+
+smootherstep = (borde0: double, borde1: double, x: double) -> double
+  if borde1 == borde0
+    return 0.0
+  t = clamp_unit((x - borde0) / (borde1 - borde0))
+  t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
+
+quadratic_in = (t: double) -> double
+  t * t
+
+quadratic_out = (t: double) -> double
+  1.0 - (1.0 - t) * (1.0 - t)
+
+quadratic_in_out = (t: double) -> double
+  if t < 0.5
+    return 2.0 * t * t
+  1.0 - 2.0 * (1.0 - t) * (1.0 - t)
+
+cubic_in = (t: double) -> double
+  t * t * t
+
+cubic_out = (t: double) -> double
+  u = 1.0 - t
+  1.0 - u * u * u
+
+cubic_in_out = (t: double) -> double
+  if t < 0.5
+    return 4.0 * t * t * t
+  u = 1.0 - t
+  1.0 - 4.0 * u * u * u
+
+quartic_in = (t: double) -> double
+  t * t * t * t
+
+quartic_out = (t: double) -> double
+  u = 1.0 - t
+  1.0 - u * u * u * u
+
+quartic_in_out = (t: double) -> double
+  if t < 0.5
+    return 8.0 * t * t * t * t
+  u = 1.0 - t
+  1.0 - 8.0 * u * u * u * u
+
+quintic_in = (t: double) -> double
+  t * t * t * t * t
+
+quintic_out = (t: double) -> double
+  u = 1.0 - t
+  1.0 - u * u * u * u * u
+
+sine_in = (t: double) -> double
+  1.0 - math::cos(t * math::pi / 2.0)
+
+sine_out = (t: double) -> double
+  math::sin(t * math::pi / 2.0)
+
+sine_in_out = (t: double) -> double
+  0.5 * (1.0 - math::cos(t * math::pi))
+
+exponential_in = (t: double) -> double
+  if t == 0.0
+    return 0.0
+  math::pow(2.0, 10.0 * (t - 1.0))
+
+exponential_out = (t: double) -> double
+  if t == 1.0
+    return 1.0
+  1.0 - math::pow(2.0, -10.0 * t)
+
+exponential_in_out = (t: double) -> double
+  if t == 0.0
+    return 0.0
+  if t == 1.0
+    return 1.0
+  if t < 0.5
+    return 0.5 * math::pow(2.0, 20.0 * t - 10.0)
+  1.0 - 0.5 * math::pow(2.0, -20.0 * t + 10.0)
+
+circular_in = (t: double) -> double
+  1.0 - math::sqrt(1.0 - t * t)
+
+circular_out = (t: double) -> double
+  math::sqrt(1.0 - (t - 1.0) * (t - 1.0))
+
+circular_in_out = (t: double) -> double
+  if t < 0.5
+    return 0.5 * (1.0 - math::sqrt(1.0 - 4.0 * t * t))
+  0.5 * (math::sqrt(1.0 - (-2.0 * t + 2.0) * (-2.0 * t + 2.0)) + 1.0)
+
+back_in = (t: double) -> double
+  c = 1.70158
+  t * t * ((c + 1.0) * t - c)
+
+back_out = (t: double) -> double
+  c = 1.70158
+  u = t - 1.0
+  u * u * ((c + 1.0) * u + c) + 1.0
+
+back_in_out = (t: double) -> double
+  c = 1.70158 * 1.525
+  if t < 0.5
+    u = 2.0 * t
+    return 0.5 * (u * u * ((c + 1.0) * u - c))
+  u = 2.0 * t - 2.0
+  0.5 * (u * u * ((c + 1.0) * u + c) + 2.0)
+
+bounce_out = (t: double) -> double
+  if t < 1.0 / 2.75
+    return 7.5625 * t * t
+  if t < 2.0 / 2.75
+    u = t - 1.5 / 2.75
+    return 7.5625 * u * u + 0.75
+  if t < 2.5 / 2.75
+    u = t - 2.25 / 2.75
+    return 7.5625 * u * u + 0.9375
+  u = t - 2.625 / 2.75
+  7.5625 * u * u + 0.984375
+
+bounce_in = (t: double) -> double
+  1.0 - bounce_out(1.0 - t)
+
+bounce_in_out = (t: double) -> double
+  if t < 0.5
+    return 0.5 * bounce_in(t * 2.0)
+  0.5 * bounce_out(t * 2.0 - 1.0) + 0.5
+
+elastic_out = (t: double) -> double
+  if t == 0.0
+    return 0.0
+  if t == 1.0
+    return 1.0
+  c = 2.0 * math::pi / 3.0
+  math::pow(2.0, -10.0 * t) * math::sin((t * 10.0 - 0.75) * c) + 1.0
+
+elastic_in = (t: double) -> double
+  if t == 0.0
+    return 0.0
+  if t == 1.0
+    return 1.0
+  c = 2.0 * math::pi / 3.0
+  -math::pow(2.0, 10.0 * t - 10.0) * math::sin((t * 10.0 - 10.75) * c)
+
+elastic_in_out = (t: double) -> double
+  if t == 0.0
+    return 0.0
+  if t == 1.0
+    return 1.0
+  c = 2.0 * math::pi / 4.5
+  if t < 0.5
+    return -0.5 * math::pow(2.0, 20.0 * t - 10.0) * math::sin((20.0 * t - 11.125) * c)
+  0.5 * math::pow(2.0, -20.0 * t + 10.0) * math::sin((20.0 * t - 11.125) * c) + 1.0
