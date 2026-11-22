@@ -1,0 +1,14 @@
+invoke "std/io"
+invoke "std/memory"
+
+rune Caja
+  valor: int
+  constructor(valor: int)
+
+main = ->
+  mut caja = unique<Caja>(4)
+  caja.set(Caja(9))
+  io::println("caja: #{caja.get().valor}")
+  s = shared<Caja>(2)
+  w = weak(s)
+  io::println("vivo: #{w.is_alive()}")

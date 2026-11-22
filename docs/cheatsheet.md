@@ -33,7 +33,7 @@ This guide is the source of truth for the language. These are the decisions the 
 | Display | Interpolation `"#{expr}"` requires `Display`; runes opt in with a const `to_string = -> string`. |
 | Inheritance | Single inheritance; slicing is forbidden; a child field may not shadow an inherited field (method shadowing is allowed). |
 | Platform | Primitive widths are portable by default (intersection of LP64 and LLP64); the project may pin `lp64` or `llp64`. |
-| Not in v0.2.0 | No exceptions, no virtual dispatch, no user-defined constraints, no operator overloading on omens, no borrow-checker lifetime annotations (`'a`). |
+| Not in v0.2.0 | No exceptions, no virtual dispatch (inheritance is static), no user-defined constraints, no operator overloading on omens, no borrow-checker lifetime annotations (`'a`). |
 
 ## Types
 ---
@@ -174,6 +174,14 @@ These are methods, not free functions: `x.sqrt()`, not `sqrt(x)`. They are what 
 | `condition_variable` | `std::condition_variable` | `<condition_variable>` | |
 | `thread` | `std::thread` | `<thread>` | enforces structural `ThreadSafe` |
 
+State in 0.1.0: `any` is implemented as `::pengu::Value`, a heterogeneous
+`Display` box (it can be printed and passed to variadics, but not extracted
+with `as`; that is E0514). `init_list<T>` is accepted only as a parameter
+type — there is no syntax to build one. `atomic<T>`, `mutex`,
+`shared_mutex`, `condition_variable` and `thread` are mapped to their C++
+counterparts; their full API is not wrapped yet, so use `enchanting` or
+`unsafe` for the missing operations.
+
 ### Construir contenedores y tipos compuestos
 
 Los contenedores se construyen vacíos con su tipo entre `<>` y, si hace
@@ -215,7 +223,7 @@ n = v as int
 
 `string_view` acepta un `string` sin copiar; lo contrario no está
 permitido. `any` es una caja heterogénea pensada para `Display` y las
-variádicas: se puede imprimir, pero no extraer con `as`.
+variádicas: se puede imprimir, pero no extraer con `as` (es E0514).
 
 ### Optional values — `T?`
 
@@ -3202,6 +3210,10 @@ Rules:
 | `std/double` | `abs`, `min`, `max`, `clamp`, `to_int`. |
 | `std/ordering` | `then`. |
 | `std/memory` | `unique<T>`/`shared<T>`: `get`, `mut set`; `weak<T>`: `is_alive`. `raw<T>` no se puede enhechizar. |
+| `std/int`, `std/double` | `abs`, `min`, `max`, `clamp`; en `int`, además `is_even`, `is_odd`, `sign`, `to_double`; en `double`, `to_int`. |
+
+Note: `to_upper` and `to_lower` from `std/string` are ASCII-only; they do not
+change `ü`, `ñ` or any other non-ASCII letter.
 
 ### Limitations (v0.2.0)
 

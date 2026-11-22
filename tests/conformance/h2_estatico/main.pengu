@@ -1,0 +1,23 @@
+invoke "std/io"
+
+rune Animal
+  nombre: string
+  constructor(nombre: string)
+
+enchanting Animal
+  hablar = -> string
+    "..."
+
+rune Perro heir Animal
+  constructor(nombre: string)
+    parent(nombre)
+
+enchanting Perro
+  hablar = -> string
+    "guau"
+
+main = ->
+  perro = Perro("Toby")
+  io::println("directo: #{perro.hablar()}")
+  animal = ref<Animal>(ref(perro))
+  io::println("estático: #{animal.hablar()}")

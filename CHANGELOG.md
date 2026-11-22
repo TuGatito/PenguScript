@@ -134,10 +134,46 @@ técnica conocida en el compilador.
   `function<Sig>`, `if ... then` con bloque y la aridad con argumentos por
   defecto.
 
+### Añadido en las fases H1–H7
+
+- **Rangos como valores**: `range<T>` se anota, se pasa, se devuelve, se mide
+  con `#`, se prueba con `in` y se recorre con `for`.
+- **`std/memory.pengu`**: `unique<T>` y `shared<T>` ganan `get` y `mut set`;
+  `weak<T>` gana `is_alive`.
+- **`std/string`**: `get(i) -> char?` y `mut pop() -> char?`.
+- **`std/set`**: `intersection`, `difference`, `symmetric_difference` e
+  `is_subset`.
+- **Hash sintetizado** para runes y sellos, de modo que pueden usarse como
+  claves de `unordered_map`/`unordered_set`.
+- **Banco de conformidad H1–H6** en `tests/conformance/` (21 casos).
+
+### Cambiado en las fases H1–H7
+
+- La herencia usa **despacho estático**: ya no se emite `virtual`. Así lo
+  documenta el lenguaje y así lo muestran `examples/11_polimorfismo` y las
+  pruebas de F6.
+- A partir de `operator <=>` se derivan `<`, `>`, `<=` y `>=`.
+- `pengu bindgen` ya enlaza funciones C variádicas.
+
+### Corregido en las fases H1–H7
+
+- `any` no se puede convertir con `as` (E0514) ni `mut`/`unsafe` son valores de
+  primera clase (E0515).
+- Un índice fuera de rango imprime `panic: índice 5 fuera de rango (tamaño 2)`
+  y termina con código 1 en lugar de abortar sin mensaje.
+- `@ = valor` funciona en métodos `mut`; un método `mut` sobre un temporal da
+  E0406.
+- Un `return` dentro de un `for`/`while` usado como sentencia sale de la
+  función (antes salía de una lambda).
+- La interpolación evalúa sus partes de izquierda a derecha.
+- `for k, v in mapa` liga la clave y el valor (antes ligaba un índice entero).
+- El formateador escribe `ref<set<T>>` pegado y `#@ then` con espacio.
+- `map{}` sin argumentos de tipo funciona cuando el contexto lo anota.
+
 ### Verificado
 
-- `bun test`: 195 pruebas en 21 archivos (lexer, parser, checker, formateador,
+- `bun test`: 278 pruebas en 31 archivos (lexer, parser, checker, formateador,
   LSP de integración, bindgen, biblioteca estándar, conformidad y e2e de los
-  ejemplos y de las fases F1–F8).
+  ejemplos y de las fases F1–F9 y H1–H6).
 - `tsc --noEmit` sin errores y `pengu fmt --check` sin cambios pendientes.
 - Los 13 ejemplos de `examples/` compilan y ejecutan con el compilador final.

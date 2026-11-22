@@ -328,8 +328,11 @@ const LITERAL_KINDS: ReadonlySet<string> = new Set(["vector_lit", "map_lit", "se
 // no se puede comprobar, pero el codegen necesita saber qué emitir.
 export function annotate_literal(ctx: CheckContext, expected: PenguType, value: ExprNode | undefined): void {
   if (value === undefined) return;
-  if (!contains_generic(expected)) return;
   if (!LITERAL_KINDS.has(value.kind)) return;
+  // Un literal de contenedor toma el tipo del contexto también cuando es
+  // concreto: `map{}` anotado como `map<string, int>` debe emitirse así.
+  const contextual = expected.kind === "named" || expected.kind === "array" || expected.kind === "tuple";
+  if (!contextual && !contains_generic(expected)) return;
   ctx.types?.set(value, expected);
 }
 
@@ -347,6 +350,7 @@ export function check_initialization(
     ctx.types?.set(value, expected);
     return;
   }
+  annotate_literal(ctx, expected, value);
   if (expected.kind === "function") check_first_class_value(ctx, value);
   if (compound_fits(ctx, expected, value, actual)) return;
   if (can_assign(expected, actual, ctx.module.env)) return;

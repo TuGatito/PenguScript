@@ -69,7 +69,7 @@ src/
   cli/         comandos de la línea de órdenes
   diagnostics/ códigos, diagnósticos y render con caret
 std/           biblioteca estándar: firmas `*.d.pengu` que declara el bloque `declare`
-examples/      programas de ejemplo, de `01_hello` a `12_colecciones`
+examples/      programas de ejemplo, de `01_hello` a `13_enchanting`
 editors/vscode extensión de VS Code (gramática + cliente LSP)
 scripts/       instalación del ejecutable y empaquetado del .vsix (sh + ps1)
 tests/         lexer, parser, checker, formatter, lsp, bindgen y e2e
@@ -77,8 +77,9 @@ docs/          especificación del lenguaje (cheatsheet y stdlib)
 ```
 
 La biblioteca estándar se escribe en `std/*.d.pengu` con firmas `declare`
-(el runtime en C++ las implementa); `io`, `format` y `log` son intrínsecas
-porque aún no hay funciones variádicas en el lenguaje.
+(el runtime en C++ las implementa). `io`, `format` y `log` son módulos
+`.pengu` que envuelven intrínsecos sobre `vector<any>`: las funciones
+variádicas aceptan cualquier valor que implemente `Display`.
 
 El estilo del propio compilador sigue las convenciones de PenguScript:
 `snake_case` para valores y archivos, `PascalCase` para tipos, sin clases,
@@ -98,6 +99,7 @@ funciones puras y módulos pequeños de una sola responsabilidad.
 - `examples/10_ownership` — `unique<T>`, movimiento y `use after move`.
 - `examples/11_polimorfismo` — herencia, `parent`, operadores y despacho estático.
 - `examples/12_colecciones` — `std/string`, `vector`, `map`, `set`, `optional` e `int` enhechizados.
+- `examples/13_enchanting` — `enchanting`: métodos que añaden los módulos de `std/` a tipos incorporados.
 
 ## Enlaces con C
 

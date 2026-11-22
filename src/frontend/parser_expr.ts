@@ -708,6 +708,12 @@ function try_typed_literal(c: Cursor): ExprNode | undefined {
 function parse_ident_primary(c: Cursor): ExprNode {
   const token = advance(c);
   if (token.text === "set" && at(c, "{")) return parse_set_literal(c, token.span);
+  // `map{...}` sin argumentos de tipo: el checker lo infiere del contexto,
+  // igual que `set{...}` y `[...]`.
+  if (token.text === "map" && at(c, "{")) {
+    const literal = parse_map_literal(c);
+    return literal.kind === "map_lit" ? { ...literal, span: merge_span(token.span, literal.span) } : literal;
+  }
   return { kind: "ident", name: token.text, span: token.span };
 }
 

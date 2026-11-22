@@ -1,0 +1,12 @@
+invoke "std/io"
+invoke "std/string"
+invoke "std/set"
+
+main = ->
+  mut texto = "hola"
+  io::println("get: #{texto.get(0)}")
+  io::println("pop: #{texto.pop()}")
+  io::println("resto: #{texto}")
+  a = set{1, 2, 3}
+  b = set{3, 4}
+  io::println("intersección: #{a.intersection(ref(b))}")

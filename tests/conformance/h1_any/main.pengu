@@ -1,0 +1,6 @@
+invoke "std/io"
+
+main = ->
+  xs = [1, 2, 3]
+  io::println("largo: #{#xs}")
+  io::println("dos: #{xs[1]}")

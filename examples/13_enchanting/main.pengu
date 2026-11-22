@@ -1,0 +1,30 @@
+-- Enchanting de tipos incorporados: los módulos de `std/` añaden métodos
+-- a `string`, `vector<T>`, `set<T>`… sin tocar el lenguaje. Los imports son
+-- explícitos: si no importas el módulo, el método no existe.
+invoke "std/io"
+invoke "std/string"
+invoke "std/vector"
+invoke "std/set"
+
+main = ->
+  texto = "  PenguScript, el lenguaje de los pingüinos  "
+  limpio = texto.trim()
+  io::println("texto: [#{limpio}]")
+  io::println("mayúsculas: #{limpio.to_upper()}")
+  io::println("empieza por Pengu: #{limpio.starts_with("Pengu")}")
+  io::println("palabras: #{#limpio.split(", ")}")
+
+  mut notas = vector<int>[9, 4, 7]
+  io::println("notas: #{notas.join(" / ")}")
+  io::println("primera: #{notas.first().value_or(0)}")
+  notas.sort()
+  io::println("ordenadas: #{notas}")
+
+  letras = set{"a", "b", "a"}
+  io::println("letras: #{letras} — #{#letras} en total")
+
+  mut nombre = "ada"
+  nombre.pop()
+  nombre += "m"
+  -- `to_upper`/`to_lower` son ASCII: no cambian «ü» ni «ñ».
+  io::println("nombre: #{nombre} / #{nombre.to_upper()}")

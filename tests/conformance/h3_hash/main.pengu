@@ -1,0 +1,21 @@
+invoke "std/io"
+
+rune Punto
+  x: int
+  y: int
+
+  constructor(x: int, y: int)
+
+enchanting Punto
+  operator == = (otro: Punto) -> bool
+    @x == otro.x and @y == otro.y
+
+  operator <=> = (otro: Punto) -> Ordering
+    if @x == otro.x then @y <=> otro.y else @x <=> otro.x
+
+main = ->
+  mut visitas: map<Punto, int> = map<Punto, int>{}
+  visitas.insert(Punto(1, 2), 5)
+  visitas.insert(Punto(3, 4), 9)
+  io::println("claves: #{#visitas}")
+  io::println("visitas: #{visitas.get_or(Punto(3, 4), 0)}")

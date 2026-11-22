@@ -1,0 +1,13 @@
+invoke "std/io"
+
+sumar = (r: range<int>) -> int
+  mut total = 0
+  for x in r
+    total += x
+  total
+
+main = ->
+  r = 1..4
+  io::println("largo: #{#r}")
+  io::println("suma: #{sumar(r)}")
+  io::println("tres: #{3 in r}")
