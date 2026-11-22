@@ -54,6 +54,7 @@ export const RUNTIME_HEADER = `// Runtime generado por pengu 0.1.0. No editar a 
 #include <tuple>
 #include <filesystem>
 #include <fstream>
+#include <unistd.h>
 #include <functional>
 #include <numbers>
 #include <random>
@@ -185,6 +186,13 @@ std::string to_string(T value) {
   std::ostringstream out;
   out << value;
   return out.str();
+}
+
+// Un rune con «to_string» implementa Display: su propio método manda.
+template <class T>
+  requires requires(const T& value) { value.to_string(); }
+std::string to_string(const T& value) {
+  return value.to_string();
 }
 
 // Declaraciones adelantadas: las sobrecargas de contenedores pueden
@@ -913,6 +921,74 @@ inline bool create_dir(const std::string& path) {
   return !error;
 }
 
+inline bool append_file(const std::string& path, const std::string& contents) {
+  std::ofstream output(path, std::ios::binary | std::ios::app);
+  if (!output) return false;
+  output << contents;
+  return static_cast<bool>(output);
+}
+
+inline std::optional<std::vector<std::uint8_t>> read_bytes(const std::string& path) {
+  std::ifstream input(path, std::ios::binary);
+  if (!input) return std::nullopt;
+  std::vector<std::uint8_t> out;
+  char byte = 0;
+  while (input.get(byte)) out.push_back(static_cast<std::uint8_t>(byte));
+  return out;
+}
+
+inline bool write_bytes(const std::string& path, const std::vector<std::uint8_t>& bytes) {
+  std::ofstream output(path, std::ios::binary);
+  if (!output) return false;
+  for (const std::uint8_t byte : bytes) output.put(static_cast<char>(byte));
+  return static_cast<bool>(output);
+}
+
+inline bool path_is_file(const std::string& path) {
+  std::error_code error;
+  return std::filesystem::is_regular_file(path, error);
+}
+
+inline std::vector<std::string> list_dir(const std::string& path) {
+  std::vector<std::string> out;
+  std::error_code error;
+  for (const auto& entry : std::filesystem::directory_iterator(path, error)) {
+    out.push_back(entry.path().filename().string());
+  }
+  std::sort(out.begin(), out.end());
+  return out;
+}
+
+inline std::optional<std::int64_t> file_size(const std::string& path) {
+  std::error_code error;
+  const auto size = std::filesystem::file_size(path, error);
+  if (error) return std::nullopt;
+  return static_cast<std::int64_t>(size);
+}
+
+inline bool rename_path(const std::string& from, const std::string& to) {
+  std::error_code error;
+  std::filesystem::rename(from, to, error);
+  return !error;
+}
+
+inline bool copy_path(const std::string& from, const std::string& to) {
+  std::error_code error;
+  std::filesystem::copy(
+      from,
+      to,
+      std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing,
+      error);
+  return !error;
+}
+
+inline std::optional<std::string> canonical_path(const std::string& path) {
+  std::error_code error;
+  const auto result = std::filesystem::weakly_canonical(path, error);
+  if (error) return std::nullopt;
+  return result.string();
+}
+
 // --- Tiempo, entorno y azar ------------------------------------------------
 
 inline long long now_millis() {
@@ -939,6 +1015,20 @@ inline std::mt19937& random_engine() {
   return engine;
 }
 
+// Baraja y elige sobre cualquier contenedor secuencial: la plantilla deduce
+// el tipo del elemento, así que vale para «vector<T>» con cualquier «T».
+template <typename C>
+inline void shuffle_values(C& values) {
+  std::shuffle(values.begin(), values.end(), random_engine());
+}
+
+template <typename C>
+inline std::optional<typename C::value_type> choose_value(const C& values) {
+  if (values.empty()) return std::nullopt;
+  std::uniform_int_distribution<std::size_t> distribution(0, values.size() - 1);
+  return values[distribution(random_engine())];
+}
+
 inline long long random_int(long long min, long long max) {
   if (max < min) std::swap(min, max);
   std::uniform_int_distribution<long long> distribution(min, max);
@@ -958,6 +1048,133 @@ inline double random_float() {
 inline bool random_bool() {
   std::uniform_int_distribution<int> distribution(0, 1);
   return distribution(random_engine()) == 1;
+}
+
+inline void seed_random(std::int64_t seed) {
+  random_engine().seed(static_cast<std::mt19937::result_type>(seed));
+}
+
+inline long long random_range(double min, double max) {
+  if (max < min) std::swap(min, max);
+  std::uniform_real_distribution<double> distribution(min, max);
+  return static_cast<long long>(distribution(random_engine()));
+}
+
+inline double random_real(double min, double max) {
+  if (max < min) std::swap(min, max);
+  std::uniform_real_distribution<double> distribution(min, max);
+  return distribution(random_engine());
+}
+
+// --- Reloj (F4) ------------------------------------------------------------
+
+inline std::int64_t now_nanos() {
+  using namespace std::chrono;
+  return duration_cast<nanoseconds>(system_clock::now().time_since_epoch()).count();
+}
+
+inline std::int64_t monotonic_millis() {
+  using namespace std::chrono;
+  return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+}
+
+inline std::int64_t monotonic_nanos() {
+  using namespace std::chrono;
+  return duration_cast<nanoseconds>(steady_clock::now().time_since_epoch()).count();
+}
+
+// Año, mes, día, hora, minuto y segundo locales de un instante.
+inline std::vector<std::int64_t> time_parts(std::int64_t millis) {
+  const std::time_t seconds = static_cast<std::time_t>(millis / 1000);
+  std::tm local{};
+  localtime_r(&seconds, &local);
+  return {
+      static_cast<std::int64_t>(local.tm_year + 1900),
+      static_cast<std::int64_t>(local.tm_mon + 1),
+      static_cast<std::int64_t>(local.tm_mday),
+      static_cast<std::int64_t>(local.tm_hour),
+      static_cast<std::int64_t>(local.tm_min),
+      static_cast<std::int64_t>(local.tm_sec),
+  };
+}
+
+inline std::string format_datetime(std::int64_t millis) {
+  const auto parts = time_parts(millis);
+  std::ostringstream out;
+  out << std::setfill('0') << std::setw(4) << parts[0] << '-' << std::setw(2) << parts[1] << '-'
+      << std::setw(2) << parts[2] << ' ' << std::setw(2) << parts[3] << ':' << std::setw(2)
+      << parts[4] << ':' << std::setw(2) << parts[5];
+  return out.str();
+}
+
+// --- Entorno y proceso (F4) ------------------------------------------------
+
+inline bool set_env(const std::string& name, const std::string& value) {
+  return ::setenv(name.c_str(), value.c_str(), 1) == 0;
+}
+
+inline std::int64_t process_id() { return static_cast<std::int64_t>(::getpid()); }
+
+inline std::optional<std::string> home_dir() {
+  const char* value = std::getenv("HOME");
+  if (value == nullptr) return std::nullopt;
+  return std::string(value);
+}
+
+inline std::optional<std::string> temp_dir() {
+  std::error_code error;
+  const auto result = std::filesystem::temp_directory_path(error);
+  if (error) return std::nullopt;
+  return result.string();
+}
+
+inline std::optional<std::string> current_dir() {
+  std::error_code error;
+  const auto result = std::filesystem::current_path(error);
+  if (error) return std::nullopt;
+  return result.string();
+}
+
+inline std::string platform_name() {
+#if defined(_WIN32)
+  return "windows";
+#elif defined(__APPLE__)
+  return "macos";
+#else
+  return "linux";
+#endif
+}
+
+inline std::string arch_name() {
+#if defined(__x86_64__) || defined(_M_X64)
+  return "x86_64";
+#elif defined(__aarch64__) || defined(_M_ARM64)
+  return "aarch64";
+#else
+  return "desconocida";
+#endif
+}
+
+inline std::int64_t cpu_count() {
+  return static_cast<std::int64_t>(std::thread::hardware_concurrency());
+}
+
+// --- Entrada y salida (F4) -------------------------------------------------
+
+inline std::string read_all_stdin() {
+  std::ostringstream buffer;
+  buffer << std::cin.rdbuf();
+  return buffer.str();
+}
+
+inline void flush_stdout() { std::cout.flush(); }
+
+inline bool stdin_is_terminal() { return ::isatty(0) == 1; }
+
+inline std::optional<char> read_char() {
+  char letter = 0;
+  if (!std::cin.get(letter)) return std::nullopt;
+  return letter;
 }
 
 inline void assert_that(bool condition) {

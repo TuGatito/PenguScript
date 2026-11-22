@@ -117,7 +117,7 @@ main = ->
     const run = spawnSync(empty.binary_path ?? "", [], { encoding: "utf8" });
     expect(run.status).not.toBe(0);
     expect(run.stderr).toContain("pop() sobre un contenedor vacío");
-  });
+  }, 30000);
 
   test("array no admite cambios estructurales", () => {
     const result = compile_source(

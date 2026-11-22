@@ -1,0 +1,22 @@
+realm os
+
+declare
+  args = -> vector<string>
+  get_env = (nombre: string) -> string?
+  set_env = (nombre: string, valor: string) -> bool
+  exit = (codigo: int) -> void
+  pid = -> int
+  home_dir = -> string?
+  temp_dir = -> string?
+  current_dir = -> string?
+  platform = -> string
+  arch = -> string
+  cpu_count = -> int
+
+  -- Variable de entorno con valor por defecto.
+env_or = (nombre: string, respaldo: string) -> string
+  valor = get_env(nombre)
+  if valor.is_some() then valor.value() else respaldo
+
+has_env = (nombre: string) -> bool
+  get_env(nombre).is_some()

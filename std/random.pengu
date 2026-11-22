@@ -1,0 +1,22 @@
+realm random
+
+invoke "std/time"
+
+declare
+  int = (minimo: int, maximo: int) -> int
+  float = -> double
+  bool = -> bool
+  seed = (semilla: int64_t) -> void
+  float_range = (minimo: double, maximo: double) -> double
+
+  -- `true` con probabilidad `probabilidad` (0.0 a 1.0).
+chance = (probabilidad: double) -> bool
+  float() < probabilidad
+
+  -- Elige con reparto uniforme entre `desde` y `hasta`, ambos incluidos.
+int_range = (desde: int, hasta: int) -> int
+  int(desde, hasta)
+
+  -- Semilla a partir del reloj: útil para una partida nueva.
+seed_from_time = -> void
+  seed(time::now_millis())

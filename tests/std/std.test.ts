@@ -74,7 +74,7 @@ describe("biblioteca estándar", () => {
     const graph = load_graph(main);
     expect(graph.diagnostics).toEqual([]);
     const files = graph.order.map((module) => module.file);
-    expect(files.some((file) => file.endsWith("std/fs.d.pengu"))).toBe(true);
+    expect(files.some((file) => file.endsWith("std/fs.pengu"))).toBe(true);
     expect(files.some((file) => file.endsWith("std/math.pengu"))).toBe(true);
     const entry = graph.entry;
     const sqrt = entry?.selective.get("sqrt");

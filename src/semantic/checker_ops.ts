@@ -78,6 +78,7 @@ import type { FunctionInfo } from "./module_info.ts";
 import { builtin_function, is_builtin_module } from "./builtin_modules.ts";
 import { shared_type, unique_type, weak_type } from "./types.ts";
 import { find_echo_method, find_rune_field, find_rune_method, is_heir_of, resolve_type_node } from "./type_env.ts";
+import { rune_lookup, rune_method_of } from "./rune_lookup.ts";
 import type { TypeEnv } from "./type_env.ts";
 import type { OmenInfo } from "./type_env.ts";
 import {
@@ -109,8 +110,7 @@ export function infer_unary(
       const type = infer_expr(ctx, operand);
       if (is_any(type) || is_numeric(type)) return type;
       if (type.kind === "named") {
-        const rune = ctx.module.env.runes.get(type.name);
-        const method = rune === undefined ? undefined : find_rune_method(ctx.module.env, rune, "-");
+        const method = rune_method_of(ctx, type.name, "-");
         if (method !== undefined) return method.result;
       }
       report_error(ctx, CODES.type_mismatch, `«-» espera un número, recibió «${type_display(type)}»`, span);
@@ -197,8 +197,8 @@ export function infer_binary(
       if (is_numeric(left) && is_numeric(right)) return BOOL;
       if (is_string(left) && is_string(right)) return BOOL;
       if (left.kind === "named") {
-        const methods = ctx.module.env.runes.get(left.name)?.methods;
-        if (methods?.has("<=>") === true || methods?.has("operator <=>") === true) return BOOL;
+        if (rune_method_of(ctx, left.name, "<=>") !== undefined) return BOOL;
+        if (rune_method_of(ctx, left.name, "operator <=>") !== undefined) return BOOL;
       }
       report_error(ctx, CODES.type_mismatch, `«${operator}» no compara «${type_display(left)}» con «${type_display(right)}»`, span);
       return BOOL;
@@ -242,8 +242,7 @@ export function infer_binary(
 
   // Operadores declarados por el usuario.
   if (left.kind === "named") {
-    const rune = ctx.module.env.runes.get(left.name);
-    const method = rune === undefined ? undefined : find_rune_method(ctx.module.env, rune, operator);
+    const method = rune_method_of(ctx, left.name, operator);
     if (method !== undefined) return method.result;
   }
 
@@ -309,8 +308,7 @@ export function ordering_result(ctx: CheckContext, left: PenguType, right: Pengu
     return named("Ordering");
   }
   if (left.kind === "named") {
-    const methods = ctx.module.env.runes.get(left.name)?.methods;
-    const method = methods?.get("<=>") ?? methods?.get("operator <=>");
+    const method = rune_method_of(ctx, left.name, "operator <=>") ?? rune_method_of(ctx, left.name, "<=>");
     if (method !== undefined) return method.result;
     // Sellos y echoes declaran `<=>` en su bloque `enchanting`.
     const alias = ctx.module.env.aliases.get(left.name);
@@ -427,7 +425,7 @@ export function is_display(ctx: CheckContext, type: PenguType): boolean {
       if (CONTAINER_TYPES.has(type.name)) {
         return type.args.every((arg) => is_display(ctx, arg));
       }
-      const rune = ctx.module.env.runes.get(type.name);
+      const rune = rune_lookup(ctx, type.name)?.rune;
       if (rune !== undefined) return rune.methods.has("to_string");
       const omen = ctx.module.env.omens.get(type.name);
       if (omen !== undefined) {

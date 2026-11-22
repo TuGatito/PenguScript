@@ -1,9 +1,0 @@
-realm fs
-
-declare
-  read_to_string = (path: string) -> string?
-  write_string = (path: string, contents: string) -> bool
-  exists = (path: string) -> bool
-  is_dir = (path: string) -> bool
-  remove = (path: string) -> bool
-  create_dir = (path: string) -> bool

@@ -76,6 +76,7 @@ import type { FunctionInfo } from "./module_info.ts";
 import { builtin_function, is_builtin_module } from "./builtin_modules.ts";
 import { shared_type, unique_type, weak_type } from "./types.ts";
 import { find_echo_method, find_rune_field, find_rune_method, is_heir_of, resolve_type_node } from "./type_env.ts";
+import { rune_lookup, rune_method_of } from "./rune_lookup.ts";
 import type { TypeEnv } from "./type_env.ts";
 import type { OmenInfo } from "./type_env.ts";
 import {
@@ -165,7 +166,7 @@ export function infer_path(
       return UNKNOWN;
     }
 
-    const rune = ctx.module.env.runes.get(first);
+    const rune = rune_lookup(ctx, first)?.rune;
     if (rune !== undefined) {
       const method = rune.methods.get(second);
       if (method !== undefined) {
@@ -195,7 +196,7 @@ export function infer_path(
     return any_type(`símbolo importado ${segments.join("::")}`);
   }
 
-  if (ctx.module.env.omens.has(first) || ctx.module.env.runes.has(first)) {
+  if (ctx.module.env.omens.has(first) || rune_lookup(ctx, first) !== undefined) {
     return named(first);
   }
 
@@ -212,9 +213,7 @@ export function rune_operator_method(
   operator: string,
 ): PenguType | undefined {
   if (type.kind !== "named") return undefined;
-  const rune = ctx.module.env.runes.get(type.name);
-  if (rune === undefined) return undefined;
-  return find_rune_method(ctx.module.env, rune, operator)?.result;
+  return rune_method_of(ctx, type.name, operator)?.result;
 }
 
 export function infer_member(
@@ -235,11 +234,11 @@ export function infer_member(
   }
 
   if (object.kind === "named") {
-    const rune = ctx.module.env.runes.get(object.name);
-    if (rune !== undefined) {
-      const field = find_rune_field(ctx.module.env, rune, name);
+    const lookup = rune_lookup(ctx, object.name);
+    if (lookup !== undefined) {
+      const field = find_rune_field(lookup.env, lookup.rune, name);
       if (field !== undefined) return field.type;
-      const method = find_rune_method(ctx.module.env, rune, name);
+      const method = find_rune_method(lookup.env, lookup.rune, name);
       if (method !== undefined) {
         return function_type(
           method.params,

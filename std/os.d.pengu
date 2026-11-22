@@ -1,6 +1,0 @@
-realm os
-
-declare
-  args = -> vector<string>
-  get_env = (name: string) -> string?
-  exit = (code: int) -> void

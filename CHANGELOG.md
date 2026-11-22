@@ -4,6 +4,37 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+### Biblioteca estándar: F4 (sistema)
+
+- **`std/fs.pengu`**: `read_to_string`, `read_bytes`, `write_string`,
+  `write_bytes`, `append_string`, `append_line`, `read_lines`, `write_lines`,
+  `exists`, `is_file`, `is_dir`, `remove`, `remove_if_exists`, `create_dir`,
+  `ensure_dir`, `list_dir`, `file_size`, `rename`, `copy`, `canonicalize`,
+  `read_or` y `write_new`.
+- **`std/path.pengu`** (nuevo): `separator`, `is_absolute`, `join`,
+  `join_all`, `file_name`, `extension`, `stem`, `parent_dir`,
+  `with_extension`, `normalize` y `components`.
+- **`std/time.pengu`**: runes `Duration`, `Instant` y `DateTime` con
+  aritmética, comparación, `Display` y conversiones; `duration_from_*`,
+  `instant_now`, `datetime_now` y los intrínsecos de reloj.
+- **`std/random.pengu`**: `seed`, `seed_from_time`, `float_range`, `chance`,
+  `int_range` y los miembros `shuffle()`/`choose()` en secuencias.
+- **`std/os.pengu`**: `args`, `get_env`, `set_env`, `env_or`, `has_env`,
+  `pid`, `home_dir`, `temp_dir`, `current_dir`, `platform`, `arch` y
+  `cpu_count`.
+- **`std/io.pengu`**: `read_all`, `flush`, `is_terminal`, `read_char` y
+  `read_line_trimmed`.
+
+#### Corregido en F4
+
+- Los runes declarados en un módulo importado ya resuelven campos, métodos,
+  operadores, `<=>` y `Display` (nuevo `src/semantic/rune_lookup.ts`).
+- El runtime imprime cualquier rune que declare `to_string` mediante una
+  sobrecarga restringida de `::pengu::to_string`.
+- Los milisegundos de `std/time` usan `int64_t`: `int` es de 32 bits en
+  PenguScript y truncaba las fechas.
+- `path::with_extension` conserva el directorio de la ruta original.
+
 ## [0.1.0] - 2026-11-20
 
 Primera versión funcional del *toolchain* completo, escrita en TypeScript y
@@ -412,10 +443,10 @@ técnica conocida en el compilador.
 
 ### Verificado
 
-- `bun test`: 400 pruebas en 51 archivos (lexer, parser, checker, formateador,
+- `bun test`: 406 pruebas en 52 archivos (lexer, parser, checker, formateador,
   LSP de integración, de consultas, de sincronización y de rendimiento,
   medición de tamaños, bindgen, biblioteca estándar, conformidad y e2e de los
   ejemplos, de las fases F1–F9, G1–G6, H1–H7, I1–I8, L1–L6 y de la biblioteca
-  estándar (F0, F1, F2 y F3), y de la extensión de VS Code).
+  estándar (F0, F1, F2, F3 y F4), y de la extensión de VS Code).
 - `tsc --noEmit` sin errores y `pengu fmt --check` sin cambios pendientes.
 - Los 13 ejemplos de `examples/` compilan y ejecutan con el compilador final.

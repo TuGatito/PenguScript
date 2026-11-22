@@ -1,9 +1,15 @@
 realm io
 
+invoke "std/string"
+
 declare
   write_values = (partes: vector<any>, nueva_linea: bool) -> void
   eprint_values = (partes: vector<any>, nueva_linea: bool) -> void
   read_line = -> string
+  read_all = -> string
+  flush = -> void
+  is_terminal = -> bool
+  read_char = -> char?
 
 println = (...partes: any) -> void
   write_values(partes, true)
@@ -16,3 +22,7 @@ eprintln = (...partes: any) -> void
 
 eprint = (...partes: any) -> void
   eprint_values(partes, false)
+
+  -- Lee una línea y quita el salto final.
+read_line_trimmed = -> string
+  read_line().trim_end()

@@ -275,6 +275,10 @@ export function member_of_builtin(type: PenguType, name: string): PenguType | un
       case "sum":
       case "product":
         return function_type([], element);
+      case "shuffle":
+        return function_type([], VOID);
+      case "choose":
+        return function_type([], optional(element));
       default:
         return undefined;
     }

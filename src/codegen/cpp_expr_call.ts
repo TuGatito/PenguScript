@@ -266,6 +266,34 @@ export const BUILTIN_FUNCTIONS: Readonly<Record<string, string>> = {
   "string::parse_int_raw": "::pengu::parse_int_raw",
   "string::parse_double_raw": "::pengu::parse_double_raw",
   "string::bytes_raw": "::pengu::bytes_raw",
+  "fs::read_bytes": "::pengu::read_bytes",
+  "fs::write_bytes": "::pengu::write_bytes",
+  "fs::append_string": "::pengu::append_file",
+  "fs::is_file": "::pengu::path_is_file",
+  "fs::list_dir": "::pengu::list_dir",
+  "fs::file_size": "::pengu::file_size",
+  "fs::rename": "::pengu::rename_path",
+  "fs::copy": "::pengu::copy_path",
+  "fs::canonicalize": "::pengu::canonical_path",
+  "os::set_env": "::pengu::set_env",
+  "os::pid": "::pengu::process_id",
+  "os::home_dir": "::pengu::home_dir",
+  "os::temp_dir": "::pengu::temp_dir",
+  "os::current_dir": "::pengu::current_dir",
+  "os::platform": "::pengu::platform_name",
+  "os::arch": "::pengu::arch_name",
+  "os::cpu_count": "::pengu::cpu_count",
+  "time::now_nanos": "::pengu::now_nanos",
+  "time::monotonic_millis": "::pengu::monotonic_millis",
+  "time::monotonic_nanos": "::pengu::monotonic_nanos",
+  "time::parts": "::pengu::time_parts",
+  "time::format_datetime": "::pengu::format_datetime",
+  "random::seed": "::pengu::seed_random",
+  "random::float_range": "::pengu::random_real",
+  "io::read_all": "::pengu::read_all_stdin",
+  "io::flush": "::pengu::flush_stdout",
+  "io::is_terminal": "::pengu::stdin_is_terminal",
+  "io::read_char": "::pengu::read_char",
   "format::template_values": "::pengu::template_values",
   "log::set_level_raw": "::pengu::set_log_level_raw",
   "log::level_raw": "::pengu::log_level_raw",
@@ -578,6 +606,10 @@ export function emit_member_call(
       return `::pengu::insert_at(${rendered}, ${args})`;
     case "sum":
       return `::pengu::sum_of(${rendered})`;
+    case "shuffle":
+      return `::pengu::shuffle_values(${rendered})`;
+    case "choose":
+      return `::pengu::choose_value(${rendered})`;
     case "product":
       return `::pengu::product_of(${rendered})`;
     case "clear":

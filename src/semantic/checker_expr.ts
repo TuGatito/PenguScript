@@ -78,6 +78,7 @@ import type { FunctionInfo } from "./module_info.ts";
 import { builtin_function, is_builtin_module } from "./builtin_modules.ts";
 import { shared_type, unique_type, weak_type } from "./types.ts";
 import { find_echo_method, find_rune_field, find_rune_method, is_heir_of, resolve_type_node } from "./type_env.ts";
+import { has_rune, rune_lookup } from "./rune_lookup.ts";
 import type { TypeEnv } from "./type_env.ts";
 import type { OmenInfo } from "./type_env.ts";
 import {
@@ -160,7 +161,7 @@ function infer_expr_impl(ctx: CheckContext, node: ExprNode): PenguType {
             CODES.not_display,
             `«${type_display(part_type)}» no se puede interpolar: no implementa «Display»`,
             part.expr.span,
-            ctx.module.env.runes.has(type_display(part_type))
+            rune_lookup(ctx, type_display(part_type)) !== undefined
               ? [`añade «enchanting ${type_display(part_type)}» con «to_string = -> string»`]
               : [],
           );
@@ -349,7 +350,7 @@ function infer_ident(ctx: CheckContext, name: string, span: Span): PenguType {
   const fn = ctx.module.functions.get(name);
   if (fn !== undefined) return function_type_of(fn);
 
-  if (ctx.module.env.runes.has(name) || ctx.module.env.omens.has(name)) {
+  if (has_rune(ctx, name) || ctx.module.env.omens.has(name)) {
     return named(name);
   }
 
@@ -377,6 +378,7 @@ export function known_names(ctx: CheckContext): string[] {
   names.push(...ctx.module.functions.keys());
   names.push(...ctx.module.consts.keys());
   names.push(...ctx.module.env.runes.keys());
+  for (const module of ctx.external?.modules.values() ?? []) names.push(...module.env.runes.keys());
   names.push(...ctx.module.env.omens.keys());
   names.push(...ctx.module.env.aliases.keys());
   return names;

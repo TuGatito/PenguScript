@@ -79,6 +79,7 @@ import type { FunctionInfo } from "./module_info.ts";
 import { builtin_function, is_builtin_module } from "./builtin_modules.ts";
 import { shared_type, unique_type, weak_type } from "./types.ts";
 import { find_echo_method, find_rune_field, find_rune_method, is_heir_of, resolve_type_node } from "./type_env.ts";
+import { rune_lookup, rune_method_of } from "./rune_lookup.ts";
 import type { TypeEnv } from "./type_env.ts";
 import type { OmenInfo } from "./type_env.ts";
 import {
@@ -343,6 +344,7 @@ export const MUTATING_MEMBERS = new Set([
   "set",
   "reset",
   "flip",
+  "shuffle",
 ]);
 
 export function check_mut_receiver(
@@ -384,10 +386,7 @@ export function check_mut_receiver(
 
 export function is_mutating_method(ctx: CheckContext, receiver: PenguType, name: string): boolean {
   if (receiver.kind !== "named") return false;
-  const rune = ctx.module.env.runes.get(receiver.name);
-  if (rune === undefined) return false;
-  const method = find_rune_method(ctx.module.env, rune, name);
-  return method?.mutable === true;
+  return rune_method_of(ctx, receiver.name, name)?.mutable === true;
 }
 
 // `mut` declarado por el destino de la llamada, en orden. Lista vacía si
@@ -409,14 +408,11 @@ export function param_mutables_of(ctx: CheckContext, callee: ExprNode): readonly
   if (callee.kind === "member") {
     const receiver = type_of_member_object(ctx, callee.object);
     if (receiver !== undefined && receiver.kind === "named") {
-      const rune = ctx.module.env.runes.get(receiver.name);
-      if (rune !== undefined) {
-        const method = find_rune_method(ctx.module.env, rune, callee.name);
-        if (method !== undefined) return method.param_mutables;
-      }
-      const alias = ctx.module.env.aliases.get(receiver.name);
-      const method = alias?.methods.get(callee.name);
+      const method = rune_method_of(ctx, receiver.name, callee.name);
       if (method !== undefined) return method.param_mutables;
+      const alias = ctx.module.env.aliases.get(receiver.name);
+      const alias_method = alias?.methods.get(callee.name);
+      if (alias_method !== undefined) return alias_method.param_mutables;
     }
     return [];
   }
@@ -481,7 +477,7 @@ export function infer_construction(
     return alias.seal ? named(name) : alias.target;
   }
 
-  const rune = ctx.module.env.runes.get(name);
+  const rune = rune_lookup(ctx, name)?.rune;
   if (rune === undefined) return any_type(name);
 
   if (rune.constructor !== undefined) {

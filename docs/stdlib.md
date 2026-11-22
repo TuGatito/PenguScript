@@ -19,12 +19,13 @@ Ya implementado y cubierto por pruebas:
 | `std/math.pengu` | Constantes `pi`, `e`, `tau`, `phi`, `sqrt2`, `ln2`, `ln10`; trigonometría completa, `exp*`, `ln`, `log2`, `log10`, `cbrt`, `hypot`, `fmod`, `trunc`, `nearbyint`, `fdim`, `fmax`, `fmin`, `copysign`, `fma`, `signbit`, `is_finite`, `is_infinite`, `is_nan`, `infinite`, `not_a_number`, `gcd`, `lcm`; utilidades `lerp`, `inverse_lerp`, `remap`, `clamp01`, `smoothstep`, `smootherstep`, `deg_to_rad`, `rad_to_deg`, `wrap`, `wrap_angle`, `lerp_angle`, `move_towards`, `damp`, `approx_eq`, `sign`, `min3`, `max3`, `average`, `ipow`, `is_power_of_two`, `next_power_of_two`, `align_up`. |
 | `std/char.pengu` | `char`: `is_digit`, `is_alpha`, `is_alphanumeric`, `is_space`, `is_upper`, `is_lower`, `is_ascii`, `is_hex_digit`, `is_control`, `is_punctuation`, `code`, `digit_value`, `hex_value`, `to_upper`, `to_lower`. |
 | `std/integers.pengu` | `int8_t`…`uint64_t`: límites `max_value`/`min_value`, `abs`, `sign`, `min`, `max`, `clamp`, `is_even`, `is_odd`, `is_positive`, `is_negative`, `is_zero`, `to_int`, `to_int64`, `to_uint64`, `to_double`, `to_size` (archivo generado por `scripts/gen_integers.ts`). |
-| `std/fs.d.pengu` | `read_to_string`, `write_string`, `exists`, `is_dir`, `remove`, `create_dir`. |
-| `std/time.d.pengu` | `now_millis`, `now_seconds`, `sleep_millis`. |
-| `std/random.d.pengu` | `int`, `float`, `bool`. |
-| `std/os.d.pengu` | `args`, `get_env`, `exit`. |
+| `std/fs.pengu` | `read_to_string`, `read_bytes`, `write_string`, `write_bytes`, `append_string`, `append_line`, `read_lines`, `write_lines`, `exists`, `is_file`, `is_dir`, `remove`, `remove_if_exists`, `create_dir`, `ensure_dir`, `list_dir`, `file_size`, `rename`, `copy`, `canonicalize`, `read_or`, `write_new`. |
+| `std/path.pengu` | `separator`, `is_absolute`, `join`, `join_all`, `file_name`, `extension`, `stem`, `parent_dir`, `with_extension`, `normalize`, `components`. |
+| `std/time.pengu` | Runes `Duration`, `Instant`, `DateTime`; `now_millis`, `now_nanos`, `now_seconds`, `monotonic_*`, `sleep_millis`, `parts`, `format_datetime`; `duration_from_millis/seconds/double_seconds/minutes/hours/days`, `duration_zero`, `instant_now`, `instant_from_millis`, `datetime_now`, `datetime_from_millis`. |
+| `std/random.pengu` | `int`, `float`, `bool`, `seed`, `float_range`, `chance`, `int_range`, `seed_from_time`; miembros `shuffle()` y `choose()` en secuencias. |
+| `std/os.pengu` | `args`, `get_env`, `set_env`, `exit`, `pid`, `home_dir`, `temp_dir`, `current_dir`, `platform`, `arch`, `cpu_count`, `env_or`, `has_env`. |
 | `std/assert.d.pengu` | `that`, `fail`. |
-| `std/io.pengu` | `println`, `print`, `eprintln`, `eprint` (variádicas `...partes: any`) sobre `write_values` / `eprint_values` / `read_line`. |
+| `std/io.pengu` | `println`, `print`, `eprintln`, `eprint` (variádicas `...partes: any`) sobre `write_values` / `eprint_values` / `read_line`; `read_line_trimmed`, `read_all`, `flush`, `is_terminal`, `read_char`. |
 | `std/format.pengu` | `format(...partes: any) -> string` sobre `format_values`; `fixed(valor, decimales)`, `scientific(valor, decimales)`, `radix(valor, base)`, `hex`/`bin`/`oct`, `pad_left`/`pad_right`/`center` (y sus variantes `_with`), `join(partes, separador)`, `separated(valor, separador)` y `template(texto, ...partes)`. |
 | `std/log.pengu` | Omen `Level` (`Debug`, `Info`, `Warn`, `Error`) con `name()` y `to_int()`; `debug`, `info`, `warn`, `error`; `set_level(nivel)`, `level()`, `enabled(nivel)` y `timestamped(activo)`. Filtra por nivel (`info` por defecto) y antepone `[nivel] [HH:MM:SS]` si la marca de tiempo está activa. |
 
@@ -56,9 +57,9 @@ explícita para que los métodos existan en el archivo:
 | `std/deque.pengu` | `deque<T>`: doble extremo: `is_empty`, `first`, `last`, `get_or`, `index_of`, `contains`, `to_vector`, `join`; builtins: `push`, `push_front`, `pop`, `pop_front`, `insert_at`, `remove_at`, `clear`. |
 | `std/memory.pengu` | `unique<T>`/`shared<T>`: `get`, `mut set`; `weak<T>`: `is_alive`. |
 
-### Módulos previstos (fases F3–F9)
+### Módulos previstos (fases F5–F9)
 
-El plan `scratch/plan_stdlib.md` define el resto de la biblioteca. `std/sys` y `std/ffi` de las secciones siguientes son el diseño objetivo: todavía **no existen** como archivos y se implementarán en fases posteriores (texto, sistema, algoritmos, juegos, datos/CLI).
+El plan `scratch/plan_stdlib.md` define el resto de la biblioteca. `std/sys` y `std/ffi` de las secciones siguientes son el diseño objetivo: todavía **no existen** como archivos y se implementarán en fases posteriores (algoritmos, juegos, datos/CLI y avanzados).
 
 ### Layer 0 — FFI
 

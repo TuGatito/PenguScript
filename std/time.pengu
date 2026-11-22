@@ -1,0 +1,172 @@
+realm time
+
+invoke "std/format"
+invoke "std/int"
+invoke "std/integers"
+invoke "std/string"
+invoke "std/vector"
+
+declare
+  now_millis = -> int64_t
+  now_nanos = -> int64_t
+  now_seconds = -> int64_t
+  monotonic_millis = -> int64_t
+  monotonic_nanos = -> int64_t
+  sleep_millis = (millis: int64_t) -> void
+  parts = (millis: int64_t) -> vector<int>
+  format_datetime = (millis: int64_t) -> string
+
+rune Duration
+  millis: int64_t
+
+  constructor(millis: int64_t)
+    @millis = millis
+
+enchanting Duration
+  as_millis = -> int64_t
+    @millis
+
+  as_seconds = -> double
+    (@millis as double) / 1000.0
+
+  as_seconds_int = -> int64_t
+    @millis / 1000
+
+  as_minutes = -> double
+    (@millis as double) / 60000.0
+
+  is_zero = -> bool
+    @millis == 0
+
+  is_negative = -> bool
+    @millis < 0
+
+  abs = -> Duration
+    Duration(@millis.abs())
+
+  scaled = (factor: double) -> Duration
+    Duration(int64_t::try_from((@millis as double) * factor).value_or(0))
+
+  add = (otra: Duration) -> Duration
+    Duration(@millis + otra.as_millis())
+
+  sub = (otra: Duration) -> Duration
+    Duration(@millis - otra.as_millis())
+
+  to_string = -> string
+    if @millis.abs() >= 1000
+      "#{format::fixed(@millis as double / 1000.0, 3)}s"
+    else
+      "#{@millis}ms"
+
+  operator + = (otra: Duration) -> Duration
+    Duration(@millis + otra.as_millis())
+
+  operator - = (otra: Duration) -> Duration
+    Duration(@millis - otra.as_millis())
+
+  operator * = (factor: int64_t) -> Duration
+    Duration(@millis * factor)
+
+  operator <=> = (otra: Duration) -> Ordering
+    @millis <=> otra.as_millis()
+
+  operator == = (otra: Duration) -> bool
+    @millis == otra.as_millis()
+
+rune DateTime
+  millis: int64_t
+  year: int
+  month: int
+  day: int
+  hour: int
+  minute: int
+  second: int
+
+  constructor(millis: int64_t, year: int, month: int, day: int, hour: int, minute: int, second: int)
+    @millis = millis
+    @year = year
+    @month = month
+    @day = day
+    @hour = hour
+    @minute = minute
+    @second = second
+
+enchanting DateTime
+  to_string = -> string
+    format_datetime(@millis)
+
+  as_millis = -> int64_t
+    @millis
+
+datetime_from_millis = (millis: int64_t) -> DateTime
+  partes = parts(millis)
+  DateTime(millis, partes[0], partes[1], partes[2], partes[3], partes[4], partes[5])
+
+datetime_now = -> DateTime
+  datetime_from_millis(now_millis())
+
+rune Instant
+  millis: int64_t
+
+  constructor(millis: int64_t)
+    @millis = millis
+
+enchanting Instant
+  as_millis = -> int64_t
+    @millis
+
+  as_seconds = -> double
+    (@millis as double) / 1000.0
+
+  add = (duracion: Duration) -> Instant
+    Instant(@millis + duracion.as_millis())
+
+  sub = (duracion: Duration) -> Instant
+    Instant(@millis - duracion.as_millis())
+
+  elapsed = -> Duration
+    Duration(now_millis() - @millis)
+
+  until = (otro: Instant) -> Duration
+    Duration(otro.as_millis() - @millis)
+
+  to_string = -> string
+    format_datetime(@millis)
+
+  to_datetime = -> DateTime
+    partes = parts(@millis)
+    DateTime(@millis, partes[0], partes[1], partes[2], partes[3], partes[4], partes[5])
+
+  operator - = (otro: Instant) -> Duration
+    Duration(@millis - otro.as_millis())
+
+  operator <=> = (otro: Instant) -> Ordering
+    @millis <=> otro.as_millis()
+
+duration_from_millis = (millis: int64_t) -> Duration
+  Duration(millis)
+
+duration_from_seconds = (segundos: int64_t) -> Duration
+  Duration(segundos * 1000)
+
+duration_from_double_seconds = (segundos: double) -> Duration
+  Duration(int64_t::try_from(segundos * 1000.0).value_or(0))
+
+duration_from_minutes = (minutos: int64_t) -> Duration
+  Duration(minutos * 60000)
+
+duration_from_hours = (horas: int64_t) -> Duration
+  Duration(horas * 3600000)
+
+duration_from_days = (dias: int64_t) -> Duration
+  Duration(dias * 86400000)
+
+duration_zero = -> Duration
+  Duration(0)
+
+instant_now = -> Instant
+  Instant(now_millis())
+
+instant_from_millis = (millis: int64_t) -> Instant
+  Instant(millis)

@@ -1,6 +1,0 @@
-realm random
-
-declare
-  int = (min: int, max: int) -> int
-  float = -> double
-  bool = -> bool

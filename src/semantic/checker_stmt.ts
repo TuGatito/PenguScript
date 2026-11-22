@@ -15,6 +15,7 @@ import { can_assign, check_initialization, record_local, report_type_mismatch, w
 import { declare, lookup } from "./scopes.ts";
 import { infer_expr, mark_moved, root_ident } from "./checker_expr.ts";
 import { find_rune_field, find_rune_method } from "./type_env.ts";
+import { rune_field_of, rune_method_of } from "./rune_lookup.ts";
 import {
   UNKNOWN,
   VOID,
@@ -139,9 +140,7 @@ function check_assign(ctx: CheckContext, node: AssignStmtNode): PenguType {
   // Asignación compuesta: el valor debe operar con el tipo actual.
   if (!is_any(expected) && !is_any(value)) {
     const binary = node.op.slice(0, -1);
-    const rune = expected.kind === "named" ? ctx.module.env.runes.get(expected.name) : undefined;
-    const user_operator =
-      rune === undefined ? undefined : find_rune_method(ctx.module.env, rune, node.op);
+    const user_operator = expected.kind === "named" ? rune_method_of(ctx, expected.name, node.op) : undefined;
     const valid =
       user_operator !== undefined ||
       (binary === "+" && (is_numeric(expected) || is_string(expected))) ||
@@ -237,8 +236,7 @@ function assign_target(
       if (!require_mutable_root(ctx, target, "modificar")) return;
       const expected = member_of_builtin(object, target.name);
       if (expected === undefined) {
-        const rune = object.kind === "named" ? ctx.module.env.runes.get(object.name) : undefined;
-        const field = rune === undefined ? undefined : find_rune_field(ctx.module.env, rune, target.name);
+        const field = object.kind === "named" ? rune_field_of(ctx, object.name, target.name) : undefined;
         if (field === undefined) {
           report_error(
             ctx,
@@ -305,9 +303,7 @@ function index_value_type(type: PenguType | undefined): PenguType | undefined {
 // Tipo que devuelve el `operator []` de una rune, si lo declara.
 export function rune_index_result(ctx: CheckContext, type: PenguType): PenguType | undefined {
   if (type.kind !== "named") return undefined;
-  const rune = ctx.module.env.runes.get(type.name);
-  if (rune === undefined) return undefined;
-  return find_rune_method(ctx.module.env, rune, "[]")?.result;
+  return rune_method_of(ctx, type.name, "[]")?.result;
 }
 
 function target_type(ctx: CheckContext, target: ExprNode): PenguType {

@@ -1,6 +1,0 @@
-realm time
-
-declare
-  now_millis = -> int
-  now_seconds = -> int
-  sleep_millis = (millis: int) -> void

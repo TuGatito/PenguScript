@@ -1,0 +1,124 @@
+realm path
+
+invoke "std/string"
+invoke "std/vector"
+
+separator: string = "/"
+
+is_absolute = (ruta: string) -> bool
+  ruta.starts_with(separator)
+
+join = (base: string, resto: string) -> string
+  if base.is_empty()
+    return resto
+  if resto.is_empty()
+    return base
+  if resto.starts_with(separator)
+    return resto
+  if base.ends_with(separator)
+    return base + resto
+  base + separator + resto
+
+join_all = (partes: ref<vector<string>>) -> string
+  mut salida = ""
+  for parte in partes
+    salida = join(salida, parte)
+  salida
+
+file_name = (ruta: string) -> string?
+  mut fin: size_t = #ruta
+  while fin > 0 and ruta[fin - 1] == '/'
+    fin -= 1
+  if fin == 0
+    return none
+  mut inicio: size_t = fin
+  while inicio > 0 and ruta[inicio - 1] != '/'
+    inicio -= 1
+  ruta.substr(inicio, fin - inicio)
+
+extension = (ruta: string) -> string?
+  nombre = file_name(ruta)
+  if nombre.is_none()
+    return none
+  texto = nombre.value()
+  posicion = texto.rfind(".")
+  if posicion.is_none()
+    return none
+  if posicion.value() == 0
+    return none
+  texto.substr(posicion.value() + 1, #texto - posicion.value() - 1)
+
+stem = (ruta: string) -> string?
+  nombre = file_name(ruta)
+  if nombre.is_none()
+    return none
+  texto = nombre.value()
+  posicion = texto.rfind(".")
+  if posicion.is_none()
+    return texto
+  if posicion.value() == 0
+    return texto
+  texto.substr(0, posicion.value())
+
+parent_dir = (ruta: string) -> string?
+  mut fin: size_t = #ruta
+  while fin > 1 and ruta[fin - 1] == '/'
+    fin -= 1
+  mut i: size_t = fin
+  mut corte: size_t = 0
+  mut encontrado = false
+  while i > 0 and not encontrado
+    i -= 1
+    if ruta[i] == '/'
+      corte = i
+      encontrado = true
+  if not encontrado
+    return none
+  if corte == 0
+    return "/"
+  ruta.substr(0, corte)
+
+with_extension = (ruta: string, nueva: string) -> string
+  base = stem(ruta)
+  if base.is_none()
+    return ruta
+  carpeta = parent_dir(ruta)
+  if nueva.is_empty()
+    if carpeta.is_some()
+      return join(carpeta.value(), base.value())
+    return base.value()
+  if nueva.starts_with(".")
+    if carpeta.is_some()
+      return join(carpeta.value(), "#{base.value()}#{nueva}")
+    return "#{base.value()}#{nueva}"
+  if carpeta.is_some()
+    return join(carpeta.value(), "#{base.value()}.#{nueva}")
+  "#{base.value()}.#{nueva}"
+
+  -- Colapsa «//», «.» y «..» sin tocar el disco.
+normalize = (ruta: string) -> string
+  absoluta = ruta.starts_with("/")
+  mut partes: vector<string> = []
+  for parte in ruta.split("/")
+    if not parte.is_empty() and parte != "."
+      if parte == ".."
+        if not partes.is_empty()
+          partes.resize(#partes - 1)
+        else if not absoluta
+          partes.push("..")
+      else
+        partes.push(parte)
+  if partes.is_empty()
+    if absoluta then "/" else "."
+  else
+    mut salida = partes.join("/")
+    if absoluta
+      salida = "/" + salida
+    salida
+
+components = (ruta: string) -> vector<string>
+  mut partes: vector<string> = []
+  for parte in ruta.split("/")
+    if not parte.is_empty()
+      partes.push(parte)
+  partes

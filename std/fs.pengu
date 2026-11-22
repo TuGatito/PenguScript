@@ -1,0 +1,55 @@
+realm fs
+
+invoke "std/string"
+invoke "std/vector"
+
+-- Intrínsecos: todo lo que toca el sistema de archivos de verdad.
+declare
+  read_to_string = (ruta: string) -> string?
+  read_bytes = (ruta: string) -> vector<uint8_t>?
+  write_string = (ruta: string, contenido: string) -> bool
+  write_bytes = (ruta: string, bytes: ref<vector<uint8_t>>) -> bool
+  append_string = (ruta: string, contenido: string) -> bool
+  exists = (ruta: string) -> bool
+  is_file = (ruta: string) -> bool
+  is_dir = (ruta: string) -> bool
+  remove = (ruta: string) -> bool
+  create_dir = (ruta: string) -> bool
+  list_dir = (ruta: string) -> vector<string>
+  file_size = (ruta: string) -> int?
+  rename = (desde: string, hasta: string) -> bool
+  copy = (desde: string, hasta: string) -> bool
+  canonicalize = (ruta: string) -> string?
+
+  -- Lee líneas sin el salto final: «a\nb\n» → ["a", "b"].
+read_lines = (ruta: string) -> vector<string>?
+  texto = read_to_string(ruta)
+  if texto.is_none()
+    return none
+  mut lineas = texto.value().split_lines()
+  if not lineas.is_empty() and lineas.last() == ""
+    lineas.pop()
+  lineas
+
+write_lines = (ruta: string, lineas: ref<vector<string>>) -> bool
+  mut texto = ""
+  for linea in lineas
+    texto += "#{linea}\n"
+  write_string(ruta, texto)
+
+append_line = (ruta: string, linea: string) -> bool
+  append_string(ruta, "#{linea}\n")
+
+read_or = (ruta: string, respaldo: string) -> string
+  texto = read_to_string(ruta)
+  if texto.is_some() then texto.value() else respaldo
+
+  -- Escribe solo si el archivo no existe todavía.
+write_new = (ruta: string, contenido: string) -> bool
+  if exists(ruta) then false else write_string(ruta, contenido)
+
+remove_if_exists = (ruta: string) -> bool
+  if exists(ruta) then remove(ruta) else true
+
+ensure_dir = (ruta: string) -> bool
+  if exists(ruta) then is_dir(ruta) else create_dir(ruta)
