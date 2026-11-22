@@ -280,12 +280,38 @@ técnica conocida en el compilador.
 - El sondeo de tamaños cambiaba de hash al editar cualquier cuerpo, lo que
   invalidaba la caché y forzaba una compilación de ~1,9 s.
 
+### Biblioteca estándar: F0 (cimientos)
+
+- `emit_member_call` emite el C++ real de `pop` (devuelve `T`),
+  `remove_at`, `insert(indice, valor)`, `remove`, `insert_or_assign`,
+  `keys`/`values` y `first`/`last`, además de `find` de `string` como
+  `optional<size_t>`. Antes generaba métodos que no existen en C++
+  (`.remove`, `.keys`, `.first`) o `insert` con un solo argumento.
+- Nuevos helpers del runtime `::pengu::pop_back_checked`, `erase_at`,
+  `insert_at`, `remove_value`, `remove_from_set`, `map_assign`, `map_keys`,
+  `map_values` y `find_opt`, más `to_fixed`, `to_scientific` y `to_radix`.
+- `array<T, N>` y `span<T>` rechazan los cambios estructurales (el cheatsheet
+  ya lo prometía).
+- `std/log` compila: `log` pasa a los reinos reservados y se emite como
+  `namespace log_rt` para no chocar con `log()` de `<math.h>`.
+- Los métodos `mut` sobre `unique`/`shared` reciben el puntero por `const&`:
+  la escritura va por `(*self)`, así que un `shared_ptr` const ya compila.
+- Los métodos de un rune admiten argumentos por defecto (`MethodInfo.required`)
+  y dos métodos con el mismo nombre son un error E0707 en vez de
+  sobrescribirse en silencio.
+- `format::fixed(valor, decimales)`, `format::scientific` y
+  `format::radix(valor, base)` con precisión y base explícitas.
+- Pruebas nuevas: `tests/std/bugs.test.ts` (7 regresiones de la auditoría) y
+  `tests/std/modules.test.ts` (los 21 módulos compilan juntos con g++);
+  `tests/std/std.test.ts` revisa los `declare` de cualquier archivo de `std/`
+  y que todos los módulos se analicen sin diagnósticos.
+
 ### Verificado
 
-- `bun test`: 361 pruebas en 45 archivos (lexer, parser, checker, formateador,
+- `bun test`: 370 pruebas en 47 archivos (lexer, parser, checker, formateador,
   LSP de integración, de consultas, de sincronización y de rendimiento,
   medición de tamaños, bindgen, biblioteca estándar, conformidad y e2e de los
-  ejemplos, de las fases F1–F9, G1–G6, H1–H7, I1–I8 y L1–L6, y de la extensión
-  de VS Code).
+  ejemplos, de las fases F1–F9, G1–G6, H1–H7, I1–I8, L1–L6 y de la fundación
+  de la biblioteca estándar (F0), y de la extensión de VS Code).
 - `tsc --noEmit` sin errores y `pengu fmt --check` sin cambios pendientes.
 - Los 13 ejemplos de `examples/` compilan y ejecutan con el compilador final.

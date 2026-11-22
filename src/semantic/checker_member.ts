@@ -173,7 +173,7 @@ export function infer_path(
           method.params,
           method.result,
           method.variadic,
-          method.params.length - (method.variadic ? 1 : 0),
+          method.required,
         );
       }
       return any_type(`método asociado ${first}::${second}`);
@@ -245,7 +245,7 @@ export function infer_member(
           method.params,
           method.result,
           method.variadic,
-          method.params.length - (method.variadic ? 1 : 0),
+          method.required,
         );
       }
       report_error(ctx, CODES.unknown_field, `el rune «${object.name}» no tiene «${name}»`, span);
@@ -259,7 +259,7 @@ export function infer_member(
           method.params,
           method.result,
           method.variadic,
-          method.params.length - (method.variadic ? 1 : 0),
+          method.required,
         );
       }
     }
@@ -271,7 +271,7 @@ export function infer_member(
           method.params,
           method.result,
           method.variadic,
-          method.params.length - (method.variadic ? 1 : 0),
+          method.required,
         );
       }
       if (omen.is_flags && name === "has") {

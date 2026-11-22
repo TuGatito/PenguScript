@@ -39,6 +39,8 @@ export interface MethodInfo {
   /** `mut` de cada parámetro: contrato en la llamada. */
   readonly param_mutables: readonly boolean[];
   readonly variadic: boolean;
+  /** Parámetros sin valor por defecto: mínimo exigido en la llamada. */
+  readonly required: number;
   readonly result: PenguType;
   readonly mutable: boolean;
   readonly operator: string | undefined;

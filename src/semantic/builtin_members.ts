@@ -22,6 +22,8 @@ export const ANY_UNUSED = any_type("método incorporado");
 
 const FLOATING_METHODS: ReadonlySet<string> = new Set(["float", "double", "long double"]);
 
+const FIXED_SEQUENCES = new Set(["array", "span"]);
+
 const container_names = new Set([
   "vector",
   "deque",
@@ -189,6 +191,22 @@ export function member_of_builtin(type: PenguType, name: string): PenguType | un
 
   if (is_sequence_container(type)) {
     const element = sequence_element(type) ?? ANY_UNUSED;
+    // `array<T, N>` y `span<T>` tienen longitud fija: no admiten cambios
+    // estructurales (el cheatsheet lo promete y el C++ lo impone).
+    const fixed =
+      type.kind === "array" || (type.kind === "named" && FIXED_SEQUENCES.has(type.name));
+    const structural = new Set([
+      "push",
+      "push_back",
+      "pop",
+      "pop_opt",
+      "pop_back",
+      "insert",
+      "remove",
+      "remove_at",
+      "clear",
+    ]);
+    if (fixed && structural.has(name)) return undefined;
     switch (name) {
       case "size":
       case "len":
@@ -197,12 +215,16 @@ export function member_of_builtin(type: PenguType, name: string): PenguType | un
         return function_type([], BOOL);
       case "push":
       case "push_back":
-      case "insert":
         return function_type([element], VOID);
+      case "insert":
+        return function_type([SIZE_T, element], VOID);
       case "pop":
+        return function_type([], element);
       case "pop_opt":
       case "pop_back":
         return function_type([], optional(element));
+      case "remove":
+        return function_type([element], BOOL);
       case "get":
         return function_type([SIZE_T], optional(element));
       case "get_unchecked":
@@ -218,7 +240,7 @@ export function member_of_builtin(type: PenguType, name: string): PenguType | un
       case "clear":
         return function_type([], VOID);
       case "remove_at":
-        return function_type([SIZE_T], VOID);
+        return function_type([SIZE_T], element);
       default:
         return undefined;
     }

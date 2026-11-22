@@ -2,6 +2,9 @@ realm format
 
 declare
   format_values = (partes: vector<any>) -> string
+  fixed = (valor: double, decimales: int) -> string
+  scientific = (valor: double, decimales: int) -> string
+  radix = (valor: int, base: int) -> string
 
 format = (...partes: any) -> string
   format_values(partes)

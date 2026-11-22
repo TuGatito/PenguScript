@@ -23,7 +23,13 @@ import {
   type_of,
 } from "./cpp_context.ts";
 import { cpp_identifier, cpp_type, cpp_type_node, cpp_value_type, sanitize_namespace } from "./cpp_types.ts";
-import { is_adapter_type, is_map_type, is_sequence_container, is_set_type } from "../semantic/builtin_members.ts";
+import {
+  is_adapter_type,
+  is_map_type,
+  is_sequence_container,
+  is_set_type,
+  is_string_type,
+} from "../semantic/builtin_members.ts";
 import { omen_methods_of } from "../semantic/module_info.ts";
 import { find_echo_method } from "../semantic/type_env.ts";
 import type { PenguType } from "../semantic/types.ts";
@@ -145,6 +151,9 @@ export const BUILTIN_FUNCTIONS: Readonly<Record<string, string>> = {
   "io::write_values": "::pengu::write_values",
   "io::eprint_values": "::pengu::eprint_values",
   "format::format_values": "::pengu::format_values",
+  "format::fixed": "::pengu::to_fixed",
+  "format::scientific": "::pengu::to_scientific",
+  "format::radix": "::pengu::to_radix",
   "log::log_values": "::pengu::log_values",
   "string::find_raw": "::pengu::find_raw",
   "string::trim_raw": "::pengu::trim_raw",
@@ -408,8 +417,10 @@ export function emit_member_call(
         ? `${rendered}.push(${args})`
         : `${rendered}.push_back(${args})`;
     case "pop":
+      // `pop()` devuelve el elemento; en stack/queue/priority_queue el
+      // `pop()` de C++ devuelve void, así que se lee `top()` antes.
       return is_sequence_container(object_type)
-        ? `${rendered}.pop_back()`
+        ? `::pengu::pop_back_checked(${rendered})`
         : `${rendered}.pop()`;
     case "is_empty":
       return `${rendered}.empty()`;
@@ -442,10 +453,30 @@ export function emit_member_call(
       return `::pengu::map_extract(${rendered}, ${args})`;
     case "insert":
       if (is_map_type(object_type)) return `::pengu::map_insert(${rendered}, ${args})`;
-      if (object_type.kind === "named" && object_type.name === "set") {
-        return `::pengu::set_insert(${rendered}, ${args})`;
+      if (is_set_type(object_type)) return `::pengu::set_insert(${rendered}, ${args})`;
+      if (is_sequence_container(object_type)) {
+        return `::pengu::insert_at(${rendered}, ${args})`;
       }
       return `${rendered}.insert(${args})`;
+    case "insert_or_assign":
+      return `::pengu::map_assign(${rendered}, ${args})`;
+    case "remove":
+      if (is_map_type(object_type)) return `::pengu::map_extract(${rendered}, ${args})`;
+      if (is_set_type(object_type)) return `::pengu::remove_from_set(${rendered}, ${args})`;
+      return `::pengu::remove_value(${rendered}, ${args})`;
+    case "remove_at":
+      return `::pengu::erase_at(${rendered}, ${args})`;
+    case "keys":
+      return `::pengu::map_keys(${rendered})`;
+    case "values":
+      return `::pengu::map_values(${rendered})`;
+    case "first":
+      return `${rendered}.front()`;
+    case "last":
+      return `${rendered}.back()`;
+    case "find":
+      if (is_string_type(object_type)) return `::pengu::find_opt(${rendered}, ${args})`;
+      return `${rendered}.find(${args})`;
     case "value":
       return `${rendered}.value()`;
     case "value_or":

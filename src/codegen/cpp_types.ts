@@ -88,9 +88,11 @@ const CONTAINERS: Readonly<Record<string, string>> = {
 // funcionan cualificados desde dentro de su namespace.
 export type TypeRealms = ReadonlyMap<string, string>;
 
-// Reinos que chocan con nombres de la biblioteca C (`time`, `random`) o
-// con macros (`assert`): se emiten con sufijo `_rt`.
-const RESERVED_REALMS: ReadonlySet<string> = new Set(["time", "random", "assert"]);
+// Reinos que chocan con nombres de la biblioteca C (`time`, `random`,
+// `log`) o con macros (`assert`): se emiten con sufijo `_rt`. En C++ no
+// se puede declarar `namespace log` junto a `double log(double)` de
+// <math.h>; `std/log` fue el primer módulo que tropezó con esto.
+const RESERVED_REALMS: ReadonlySet<string> = new Set(["time", "random", "assert", "log"]);
 
 // Palabras clave de C++ que también son nombres válidos de realm en
 // PenguScript: un `namespace int` no compila.

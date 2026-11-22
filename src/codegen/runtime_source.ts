@@ -18,6 +18,8 @@ export const RUNTIME_HEADER = `// Runtime generado por pengu 0.1.0. No editar a 
 #include <deque>
 #include <forward_list>
 #include <initializer_list>
+#include <iomanip>
+#include <iterator>
 #include <list>
 #include <mutex>
 #include <queue>
@@ -555,6 +557,110 @@ auto pop_opt(C& container) -> std::optional<typename C::value_type> {
   auto value = container.back();
   container.pop_back();
   return value;
+}
+
+// pop() promete devolver el elemento y panica si el contenedor está vacío.
+template <class C>
+auto pop_back_checked(C& container) -> typename C::value_type {
+  if (container.empty()) throw std::runtime_error("pop() sobre un contenedor vacío");
+  auto value = container.back();
+  container.pop_back();
+  return value;
+}
+
+// remove_at(i) devuelve el elemento borrado; el índice se comprueba.
+template <class C>
+auto erase_at(C& container, std::size_t index) -> typename C::value_type {
+  if (index >= container.size()) {
+    throw std::runtime_error("índice " + std::to_string(index) + " fuera de rango (tamaño " +
+                             std::to_string(container.size()) + ")");
+  }
+  auto value = container[index];
+  container.erase(std::next(container.begin(), static_cast<std::ptrdiff_t>(index)));
+  return value;
+}
+
+template <class C, class V>
+void insert_at(C& container, std::size_t index, const V& value) {
+  if (index > container.size()) {
+    throw std::runtime_error("no se puede insertar en la posición " + std::to_string(index) +
+                             " (tamaño " + std::to_string(container.size()) + ")");
+  }
+  container.insert(std::next(container.begin(), static_cast<std::ptrdiff_t>(index)), value);
+}
+
+template <class C, class V>
+bool remove_value(C& container, const V& value) {
+  auto found = std::find(container.begin(), container.end(), value);
+  if (found == container.end()) return false;
+  container.erase(found);
+  return true;
+}
+
+template <class S, class V>
+bool remove_from_set(S& set, const V& value) {
+  return set.erase(value) > 0;
+}
+
+template <class M>
+bool map_assign(M& map, const typename M::key_type& key, const typename M::mapped_type& value) {
+  return map.insert_or_assign(key, value).second;
+}
+
+template <class M>
+std::vector<typename M::key_type> map_keys(const M& map) {
+  std::vector<typename M::key_type> keys;
+  keys.reserve(map.size());
+  for (const auto& entry : map) keys.push_back(entry.first);
+  return keys;
+}
+
+template <class M>
+std::vector<typename M::mapped_type> map_values(const M& map) {
+  std::vector<typename M::mapped_type> values;
+  values.reserve(map.size());
+  for (const auto& entry : map) values.push_back(entry.second);
+  return values;
+}
+
+// find de string devuelve optional<size_t>: npos es un detalle de C++.
+inline std::optional<std::size_t> find_opt(const std::string& text, const std::string& needle,
+                                           std::size_t from = 0) {
+  if (from > text.size()) return std::nullopt;
+  const auto found = text.find(needle, from);
+  if (found == std::string::npos) return std::nullopt;
+  return found;
+}
+
+// --- Formato numérico ------------------------------------------------------
+
+inline std::string to_fixed(double value, int decimals) {
+  std::ostringstream out;
+  out << std::fixed << std::setprecision(decimals < 0 ? 0 : decimals) << value;
+  return out.str();
+}
+
+inline std::string to_scientific(double value, int decimals) {
+  std::ostringstream out;
+  out << std::scientific << std::setprecision(decimals < 0 ? 0 : decimals) << value;
+  return out.str();
+}
+
+inline std::string to_radix(std::int64_t value, int base) {
+  if (base < 2 || base > 36) throw std::runtime_error("base fuera de rango (2..36)");
+  if (value == 0) return "0";
+  static const char* digits = "0123456789abcdefghijklmnopqrstuvwxyz";
+  const bool negative = value < 0;
+  const std::uint64_t magnitude = negative
+      ? static_cast<std::uint64_t>(-(value + 1)) + 1u
+      : static_cast<std::uint64_t>(value);
+  std::string out;
+  for (std::uint64_t rest = magnitude; rest > 0; rest /= static_cast<std::uint64_t>(base)) {
+    out.push_back(digits[rest % static_cast<std::uint64_t>(base)]);
+  }
+  if (negative) out.push_back('-');
+  std::reverse(out.begin(), out.end());
+  return out;
 }
 
 // --- Punteros débiles ------------------------------------------------------

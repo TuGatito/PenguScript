@@ -298,6 +298,19 @@ function register_enchanting(
 
   for (const method of decl.methods) {
     const info = resolve_method(method, env, sink);
+    const previous_method = rune?.methods.get(info.name) ?? alias?.methods.get(info.name);
+    if (previous_method !== undefined) {
+      // Los métodos de un rune o de un sello viven en un `Map` por nombre:
+      // no hay sobrecargas por aridad. Antes se sobrescribían en silencio.
+      sink.add(
+        make_error(
+          CODES.enchant_duplicate,
+          `«${decl.target}.${info.name}» ya está definido: un método no se puede sobrecargar (usa nombres distintos o una función libre)`,
+          method.name_span,
+        ),
+      );
+      continue;
+    }
     if (rune) {
       rune.methods.set(info.name, info);
     } else if (alias) {
@@ -422,6 +435,7 @@ export function resolve_method(method: MethodDecl, env: TypeEnv, sink: Diagnosti
     params: params.map((param) => param.type),
     param_mutables: params.map((param) => param.mutable),
     variadic: params.some((param) => param.variadic),
+    required: params.filter((param) => !param.has_default && !param.variadic).length,
     result,
     mutable: method.mutable,
     operator: method.operator,

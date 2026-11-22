@@ -14,25 +14,57 @@ import { BUILTIN_FUNCTIONS } from "../../src/codegen/cpp_expr.ts";
 
 const STD_DIR = join(import.meta.dir, "..", "..", "std");
 
-function std_files(): string[] {
+function std_files(extension = ".pengu"): string[] {
   return readdirSync(STD_DIR)
-    .filter((name) => name.endsWith(".d.pengu"))
+    .filter((name) => name.endsWith(extension))
     .map((name) => join(STD_DIR, name));
+}
+
+// Los `declare` pueden vivir en un `.d.pengu` o dentro de un `.pengu`
+// (como `std/format`): ambos son contrato con el runtime.
+function intrinsic_names(file: string): string[] {
+  const text = readFileSync(file, "utf8");
+  const parsed = parse_text(file, text);
+  expect(parsed.diagnostics).toEqual([]);
+  const names: string[] = [];
+  for (const decl of parsed.program.decls) {
+    if (decl.kind !== "intrinsic_decl") continue;
+    for (const item of decl.declares) names.push(item.name);
+  }
+  return names;
 }
 
 describe("biblioteca estándar", () => {
   test("cada declaración tiene implementación en el runtime", () => {
     const missing: string[] = [];
     for (const file of std_files()) {
+      const names = intrinsic_names(file);
+      if (names.length === 0) continue;
       const parsed = parse_text(file, readFileSync(file, "utf8"));
-      expect(parsed.diagnostics).toEqual([]);
       const info = collect_module(file, parsed.program, make_sink({}));
-      for (const name of info.functions.keys()) {
+      for (const name of names) {
         const key = `${info.realm}::${name}`;
         if (BUILTIN_FUNCTIONS[key] === undefined) missing.push(key);
       }
     }
     expect(missing).toEqual([]);
+  });
+
+  test("todos los módulos se analizan sin diagnósticos", () => {
+    const problems: string[] = [];
+    for (const file of std_files()) {
+      const parsed = parse_text(file, readFileSync(file, "utf8"));
+      if (parsed.diagnostics.length > 0) {
+        problems.push(`${file}: ${parsed.diagnostics.map((item) => item.message).join("; ")}`);
+        continue;
+      }
+      const sink = make_sink({});
+      collect_module(file, parsed.program, sink);
+      if (sink.has_errors()) {
+        problems.push(`${file}: ${sink.diagnostics.map((item) => item.message).join("; ")}`);
+      }
+    }
+    expect(problems).toEqual([]);
   });
 
   test("el cargador resuelve `std/...` al directorio incluido", () => {

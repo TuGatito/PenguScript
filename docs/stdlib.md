@@ -23,7 +23,7 @@ Ya implementado y cubierto por pruebas:
 | `std/os.d.pengu` | `args`, `get_env`, `exit`. |
 | `std/assert.d.pengu` | `that`, `fail`. |
 | `std/io.pengu` | `println`, `print`, `eprintln`, `eprint` (variádicas `...partes: any`) sobre `write_values` / `eprint_values` / `read_line`. |
-| `std/format.pengu` | `format(...partes: any) -> string` sobre `format_values`. |
+| `std/format.pengu` | `format(...partes: any) -> string` sobre `format_values`; `fixed(valor, decimales)`, `scientific(valor, decimales)` y `radix(valor, base)`. |
 | `std/log.pengu` | `debug`, `info`, `warn`, `error` sobre `log_values`. |
 
 El bloque `declare` marca las funciones que implementa el runtime del compilador; el generador C++ no emite cuerpo para ellas, solo la llamada al helper correspondiente.

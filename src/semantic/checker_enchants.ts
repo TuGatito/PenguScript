@@ -112,7 +112,8 @@ function instantiate(method: EnchantedMethod, object: PenguType): Candidate {
   const params = method.info.params.map((param) => substitute_generics(param, mapping));
   const result = substitute_generics(method.info.result, mapping);
   const variadic = method.info.variadic;
-  const required = params.length - (variadic ? 1 : 0);
+  // Los parámetros con valor por defecto no cuentan como obligatorios.
+  const required = Math.min(method.info.required, params.length);
   return { method, params, result, required, variadic };
 }
 

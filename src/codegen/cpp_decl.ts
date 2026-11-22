@@ -411,7 +411,12 @@ function emit_builtin_enchanting(g: GenContext, decl: EnchantingDecl): void {
       const result = method.result ? cpp_type_node(method.result, g.module.env, g.type_realms) : "void";
       const params = (overrides?.rendered ?? method.params.map((param) => emit_param(g, param))).join(", ");
       const separator = params.length > 0 ? ", " : "";
-      const receiver = method.mutable ? `${self}& self` : `const ${self}& self`;
+      // En unique/shared la escritura va por `(*self)`: el puntero en sí
+      // no cambia, así que el receptor puede ser const aunque el método
+      // sea `mut` (si no, pasar un shared_ptr const no compila).
+      const through_pointer = pointer !== undefined && pointer !== "std::weak_ptr";
+      const receiver =
+        method.mutable && !through_pointer ? `${self}& self` : `const ${self}& self`;
       const name = method.operator ? operator_name(method.operator) : cpp_identifier(method.name);
       line(g, `${result} ${name}(${receiver}${separator}${params}) {`);
       g.indent += 1;
