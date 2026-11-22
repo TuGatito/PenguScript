@@ -1,0 +1,131 @@
+realm iter
+
+-- Herramientas para recorrer y transformar secuencias.
+--
+-- Los genéricos que solo aparecen en el retorno (por ejemplo el `U` de
+-- `map`) exigen argumentos de tipo explícitos: `iter::map<int, string>`.
+-- Es la decisión D2 del plan de la biblioteca estándar.
+
+invoke "std/vector"
+invoke "std/optional"
+invoke "std/pair"
+
+-- Aplica `f` a cada elemento.
+map = <T, U>(items: ref<vector<T>>, f: function<(T) -> U>) -> vector<U>
+  mut salida: vector<U> = []
+  for item in items
+    salida.push(f(item))
+  salida
+
+  -- Se queda con los elementos que cumplen `f`.
+filter = <T>(items: ref<vector<T>>, f: function<(T) -> bool>) -> vector<T>
+  mut salida: vector<T> = []
+  for item in items
+    if f(item)
+      salida.push(item)
+  salida
+
+  -- Reduce la secuencia a un único valor.
+fold = <T, A>(items: ref<vector<T>>, inicial: A, f: function<(A, T) -> A>) -> A
+  mut acumulado = inicial
+  for item in items
+    acumulado = f(acumulado, item)
+  acumulado
+
+  -- Cuenta los elementos que cumplen `f`.
+count_if = <T>(items: ref<vector<T>>, f: function<(T) -> bool>) -> size_t
+  mut total: int = 0
+  for item in items
+    if f(item)
+      total += 1
+  size_t:: from (total)
+
+  -- ¿Hay algún elemento que cumpla `f`?
+any = <T>(items: ref<vector<T>>, f: function<(T) -> bool>) -> bool
+  for item in items
+    if f(item)
+      return true
+  false
+
+  -- ¿Todos los elementos cumplen `f`?
+all = <T>(items: ref<vector<T>>, f: function<(T) -> bool>) -> bool
+  for item in items
+    if not f(item)
+      return false
+  true
+
+  -- ¿Ningún elemento cumple `f`?
+none_of = <T>(items: ref<vector<T>>, f: function<(T) -> bool>) -> bool
+  not any(items, f)
+
+  -- Primer elemento que cumple `f`.
+find = <T>(items: ref<vector<T>>, f: function<(T) -> bool>) -> T?
+  for item in items
+    if f(item)
+      return item
+  none
+
+  -- Posición del primer elemento que cumple `f`.
+position = <T>(items: ref<vector<T>>, f: function<(T) -> bool>) -> size_t?
+  mut indice: int = 0
+  for item in items
+    if f(item)
+      return size_t:: from (indice)
+    indice += 1
+  none
+
+  -- Empareja dos secuencias hasta la más corta.
+zip = <A, B>(a: ref<vector<A>>, b: ref<vector<B>>) -> vector<pair<A, B>>
+  mut salida: vector<pair<A, B>> = []
+  mut indice: int = 0
+  while indice < #a and indice < #b
+    mut par: pair<A, B> = (a[indice], b[indice])
+    salida.push(par)
+    indice += 1
+  salida
+
+  -- Añade la posición a cada elemento.
+enumerate = <T>(items: ref<vector<T>>) -> vector<pair<size_t, T>>
+  mut salida: vector<pair<size_t, T>> = []
+  mut indice: int = 0
+  for item in items
+    mut par: pair<size_t, T> = (size_t:: from (indice), item)
+    salida.push(par)
+    indice += 1
+  salida
+
+  -- Los primeros `cantidad` elementos.
+take = <T>(items: ref<vector<T>>, cantidad: size_t) -> vector<T>
+  mut salida: vector<T> = []
+  mut indice = 0
+  while indice < #items and size_t:: from (indice) < cantidad
+    salida.push(items[indice])
+    indice += 1
+  salida
+
+  -- Todo menos los primeros `cantidad` elementos.
+skip = <T>(items: ref<vector<T>>, cantidad: size_t) -> vector<T>
+  mut salida: vector<T> = []
+  mut indice = 0
+  while indice < #items
+    if size_t:: from (indice) >= cantidad
+      salida.push(items[indice])
+    indice += 1
+  salida
+
+  -- Concatena dos secuencias.
+chain = <T>(a: ref<vector<T>>, b: ref<vector<T>>) -> vector<T>
+  mut salida: vector<T> = []
+  for item in a
+    salida.push(item)
+  for item in b
+    salida.push(item)
+  salida
+
+  -- Aplana una secuencia de secuencias.
+flatten = <T>(items: ref<vector<vector<T>>>) -> vector<T>
+  mut salida: vector<T> = []
+  for grupo in items
+    for item in grupo
+      salida.push(item)
+  salida

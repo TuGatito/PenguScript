@@ -511,6 +511,11 @@ export function looks_like_return_type(c: Cursor): boolean {
   }
 
   let offset = 1;
+  // `result::Result<int, string>`: se saltan los segmentos de módulo para
+  // mirar el nombre base, que es el que puede llevar argumentos de tipo.
+  while (peek(c, offset).kind === "::" && peek(c, offset + 1).kind === "ident") {
+    offset += 2;
+  }
   // `range<int>`, `vector<T>`…: un nombre con argumentos de tipo seguido de
   // fin de línea es un tipo de retorno, no una expresión.
   if (peek(c, offset).kind === "<") {

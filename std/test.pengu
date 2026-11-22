@@ -1,0 +1,38 @@
+realm test
+
+-- Aserciones para pruebas escritas en PenguScript.
+--
+-- Todas panican con un mensaje cuando la comprobación falla, así que un
+-- programa de pruebas termina con código distinto de cero.
+
+invoke "std/assert"
+
+-- La condición es verdadera.
+is_true = (valor: bool, mensaje: string = "se esperaba true") -> void
+  if not valor
+    assert::fail(mensaje)
+
+    -- La condición es falsa.
+is_false = (valor: bool, mensaje: string = "se esperaba false") -> void
+  if valor
+    assert::fail(mensaje)
+
+    -- Dos valores son iguales.
+equal = <T>(actual: T, esperado: T, mensaje: string = "los valores no coinciden") -> void
+  if not (actual == esperado)
+    assert::fail(mensaje)
+
+    -- Dos valores son distintos.
+not_equal = <T>(actual: T, esperado: T, mensaje: string = "los valores coinciden") -> void
+  if actual == esperado
+    assert::fail(mensaje)
+
+    -- El opcional tiene valor.
+is_some = <T>(valor: T?, mensaje: string = "se esperaba un valor") -> void
+  if not valor.is_some()
+    assert::fail(mensaje)
+
+    -- El opcional está vacío.
+is_none = <T>(valor: T?, mensaje: string = "se esperaba none") -> void
+  if valor.is_some()
+    assert::fail(mensaje)

@@ -387,6 +387,9 @@ export function member_of_builtin(type: PenguType, name: string): PenguType | un
 }
 
 export function builtin_index_result(type: PenguType): PenguType | undefined {
+  // Un `ref<secuencia>` se puede indexar: en C++ es una referencia al
+  // contenedor y el elemento se lee igual que sin el préstamo.
+  if (type.kind === "ref") return builtin_index_result(type.inner);
   if (type.kind === "array") return type.element;
   if (type.kind === "named" && container_names.has(type.name)) return type.args[0];
   if (type.kind === "named" && map_names.has(type.name)) return type.args[1];

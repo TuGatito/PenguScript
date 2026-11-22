@@ -131,6 +131,9 @@ export interface TypeEnv {
   // Tipos que aún no existen: pueden llegar de otro archivo del mismo
   // realm (realm reabierto) y se validan al terminar de cargar el grafo.
   readonly pending_types: PendingType[];
+  // Nombres cualificados de tipos importados (`result::Result`): el
+  // alias del módulo no forma parte del tipo, solo ayuda a encontrarlo.
+  readonly qualified: Map<string, string>;
 }
 
 export function make_type_env(): TypeEnv {
@@ -141,6 +144,7 @@ export function make_type_env(): TypeEnv {
     sigils: new Map(),
     enchants: new Map(),
     pending_types: [],
+    qualified: new Map(),
   };
 }
 
@@ -253,6 +257,14 @@ export function resolve_named_type(
   // `Ordering` es el resultado de `<=>` y lo aporta el runtime.
   if (name === "Ordering" && args.length === 0) return named("Ordering");
 
+  // Un tipo cualificado (`result::Result`) es el mismo tipo que su
+  // nombre base: el alias solo sirve para encontrarlo en otro módulo.
+  if (name.includes("::")) {
+    const bare = name.slice(name.lastIndexOf("::") + 2);
+    env.pending_types.push({ name, span });
+    return named(bare, args);
+  }
+
   // Puede venir de otro archivo del mismo realm: se resuelve al final.
   env.pending_types.push({ name, span });
   return named(name, args);
@@ -262,10 +274,41 @@ export function resolve_named_type(
 export function report_pending_types(env: TypeEnv, sink: DiagnosticSink): void {
   for (const pending of env.pending_types) {
     const bare = pending.name.includes("::") ? pending.name.slice(pending.name.lastIndexOf("::") + 2) : pending.name;
+    if (env.qualified.has(pending.name)) continue;
     if (env.runes.has(bare) || env.omens.has(bare) || env.aliases.has(bare)) continue;
-    sink.add(make_error(CODES.unknown_type, `no existe el tipo «${pending.name}»`, pending.span));
+    sink.add(
+      make_error(
+        CODES.unknown_type,
+        `no existe el tipo «${pending.name}»${qualified_hint(env, bare)}`,
+        pending.span,
+      ),
+    );
   }
   env.pending_types.length = 0;
+}
+
+// Si el tipo existe en un módulo importado, sugiere el nombre cualificado.
+function qualified_hint(env: TypeEnv, bare: string): string {
+  const matches: string[] = [];
+  for (const full of env.qualified.keys()) {
+    if (full.endsWith(`::${bare}`)) matches.push(full);
+  }
+  if (matches.length === 0) return "";
+  const list = matches.map((name) => `«${name}»`).join(" o ");
+  return ` (¿querías ${list}?)`;
+}
+
+// Registra los tipos públicos de los módulos importados para que se
+// puedan nombrar cualificados: `result::Result`, `time::Duration`.
+export function register_qualified_types(
+  env: TypeEnv,
+  modules: ReadonlyMap<string, { readonly env: Pick<TypeEnv, "runes" | "omens" | "aliases"> }>,
+): void {
+  for (const [alias, module] of modules) {
+    for (const name of module.env.runes.keys()) env.qualified.set(`${alias}::${name}`, name);
+    for (const name of module.env.omens.keys()) env.qualified.set(`${alias}::${name}`, name);
+    for (const name of module.env.aliases.keys()) env.qualified.set(`${alias}::${name}`, name);
+  }
 }
 
 export const BUILTIN_CONTAINERS: ReadonlySet<string> = new Set([

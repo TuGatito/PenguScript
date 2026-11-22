@@ -1,0 +1,93 @@
+realm result
+
+-- Resultados explícitos: un valor o un error, sin excepciones.
+--
+-- `B` es el tipo del error. Los genéricos que solo aparecen en el retorno
+-- (`ok<U, E>(...)`) se pasan con argumentos de tipo explícitos (D2).
+
+invoke "std/optional"
+invoke "std/assert"
+
+rune Result<T, E>
+  dato: T?
+  fallo: E?
+
+  constructor(dato: T?, fallo: E?)
+    @dato = dato
+    @fallo = fallo
+
+    -- Un resultado correcto.
+ok = <T, E>(dato: T) -> Result<T, E>
+  mut resultado: Result<T, E> = Result<T, E>(dato, none)
+  resultado
+
+  -- Un resultado con error.
+err = <T, E>(fallo: E) -> Result<T, E>
+  mut resultado: Result<T, E> = Result<T, E>( none, fallo)
+  resultado
+
+enchanting Result
+  is_ok = -> bool
+    @.dato.is_some()
+
+  is_err = -> bool
+    @.fallo.is_some()
+
+    -- El valor o un respaldo.
+  value_or = (respaldo: T) -> T
+    if @.dato.is_some()
+      return @.dato.value()
+    respaldo
+
+    -- El valor; panica si es un error.
+  value = -> T
+    if @.fallo.is_some()
+      assert::fail("result::value sobre un Err")
+    @.dato.value()
+
+    -- El error o un respaldo.
+  error_or = (respaldo: E) -> E
+    if @.fallo.is_some()
+      return @.fallo.value()
+    respaldo
+
+    -- El error; panica si es un valor.
+  error = -> E
+    if @.dato.is_some()
+      assert::fail("result::error sobre un Ok")
+    @.fallo.value()
+
+    -- El valor; panica con `mensaje` si es un error.
+  expect = (mensaje: string) -> T
+    if @.fallo.is_some()
+      assert::fail(mensaje)
+    @.dato.value()
+
+  to_string = -> string
+    if @.dato.is_some()
+      return "Ok(#{@.dato.value()})"
+    "Err(#{@.fallo.value()})"
+
+    -- Transforma el valor de un `Ok` y propaga el error.
+map = <T, U, E>(resultado: Result<T, E>, f: function<(T) -> U>) -> Result<U, E>
+  if resultado.is_err()
+    return err<U, E>(resultado.error())
+  ok<U, E>(f(resultado.value()))
+
+  -- Transforma el error de un `Err` y conserva el valor.
+map_err = <T, E, U>(resultado: Result<T, E>, f: function<(E) -> U>) -> Result<T, U>
+  if resultado.is_ok()
+    return ok<T, U>(resultado.value())
+  err<T, U>(f(resultado.error()))
+
+  -- Encadena dos operaciones que pueden fallar.
+and_then = <T, U, E>(resultado: Result<T, E>, f: function<(T) -> Result<U, E>>) -> Result<U, E>
+  if resultado.is_err()
+    return err<U, E>(resultado.error())
+  f(resultado.value())
+
+  -- Convierte un `optional` en un resultado, con el error indicado.
+from_optional = <T, E>(valor: T?, fallo: E) -> Result<T, E>
+  if valor.is_some()
+    return ok<T, E>(valor.value())
+  err<T, E>(fallo)

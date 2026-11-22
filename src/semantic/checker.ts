@@ -25,7 +25,13 @@ import type { ModuleInfo } from "./module_info.ts";
 import { declare } from "./scopes.ts";
 import { infer_block, param_binding_type } from "./checker_expr.ts";
 import type { MethodTarget, RuneInfo } from "./type_env.ts";
-import { find_rune_field, find_rune_method, report_pending_types, resolve_type_node } from "./type_env.ts";
+import {
+  find_rune_field,
+  find_rune_method,
+  register_qualified_types,
+  report_pending_types,
+  resolve_type_node,
+} from "./type_env.ts";
 import {
   VOID,
   any_type,
@@ -78,6 +84,9 @@ export function check_loaded_module(
   ctx.member_targets = options.member_targets;
   ctx.external = options.external;
   if (options.locals !== undefined) ctx.locals = options.locals;
+  if (options.external !== undefined) {
+    register_qualified_types(module.env, options.external.modules);
+  }
 
   for (const decl of program.decls) {
     check_decl(ctx, decl);

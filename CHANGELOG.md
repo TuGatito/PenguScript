@@ -4,6 +4,34 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+### Biblioteca estándar: F5 (algoritmos)
+
+- **`std/iter.pengu`** (nuevo): `map`, `filter`, `fold`, `count_if`, `any`,
+  `all`, `none_of`, `find`, `position`, `zip`, `enumerate`, `take`, `skip`,
+  `chain` y `flatten`, genéricos y con los sigilos explícitos.
+- **`std/sort.pengu`** (nuevo): `insertion_sort`, `is_sorted`,
+  `binary_search_sorted` y `sorted_copy`; funcionan con `vector<T>` y con
+  runes que declaren `operator <=>`.
+- **`std/result.pengu`** (nuevo): rune `Result<T, E>` con `is_ok`, `is_err`,
+  `value`, `value_or`, `error`, `error_or`, `expect` y `to_string`; libres
+  `ok`, `err`, `map`, `map_err`, `and_then` y `from_optional`.
+- **`std/test.pengu`** (nuevo): `is_true`, `is_false`, `equal`, `not_equal`,
+  `is_some` e `is_none`.
+- Los tipos de módulos importados se pueden nombrar cualificados
+  (`result::Result<int, string>`, `time::Duration`) y el checker sugiere el
+  nombre completo cuando falta el alias.
+
+#### Corregido en F5
+
+- Los constructores de runes genéricos conservan sus argumentos de tipo
+  (`Caja<int>(valor)`), y las llamadas a genéricos importados sustituyen sus
+  sigilos (`iter::map<int, string>`).
+- `mut items: ref<vector<T>>` se emite como `T&` (antes `const T&`), se puede
+  indexar un `ref<secuencia>` y `f(mut ref(xs))` valida la variable prestada.
+- Una función puede devolver un tipo cualificado con argumentos
+  (`-> result::Result<int, string>`), que antes se confundía con una
+  expresión.
+
 ### Biblioteca estándar: F4 (sistema)
 
 - **`std/fs.pengu`**: `read_to_string`, `read_bytes`, `write_string`,
@@ -443,10 +471,10 @@ técnica conocida en el compilador.
 
 ### Verificado
 
-- `bun test`: 406 pruebas en 52 archivos (lexer, parser, checker, formateador,
+- `bun test`: 415 pruebas en 53 archivos (lexer, parser, checker, formateador,
   LSP de integración, de consultas, de sincronización y de rendimiento,
   medición de tamaños, bindgen, biblioteca estándar, conformidad y e2e de los
   ejemplos, de las fases F1–F9, G1–G6, H1–H7, I1–I8, L1–L6 y de la biblioteca
-  estándar (F0, F1, F2, F3 y F4), y de la extensión de VS Code).
+  estándar (F0, F1, F2, F3, F4 y F5), y de la extensión de VS Code).
 - `tsc --noEmit` sin errores y `pengu fmt --check` sin cambios pendientes.
 - Los 13 ejemplos de `examples/` compilan y ejecutan con el compilador final.

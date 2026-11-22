@@ -168,7 +168,7 @@ export function infer_call(ctx: CheckContext, node: CallNode): PenguType {
       check_generic_instantiation(ctx, generic_fn, node, name);
     }
     if (ctx.module.env.runes.has(name) || ctx.module.env.aliases.has(name)) {
-      return infer_construction(ctx, name, node.args, node.span);
+      return infer_construction(ctx, name, node.args, node.span, node.type_args);
     }
   }
 
@@ -250,24 +250,22 @@ export function infer_call(ctx: CheckContext, node: CallNode): PenguType {
   if (callee_type.kind === "function") {
     let params = callee_type.params;
     let result = callee_type.result;
-    if (node.callee.kind === "ident") {
-      const fn = ctx.module.functions.get(node.callee.name);
-      if (fn !== undefined && fn.sigils.length > 0) {
-        const mapping = new Map<string, PenguType>();
-        fn.sigils.forEach((sigil, index) => {
-          const explicit = node.type_args[index];
-          if (explicit !== undefined) {
-            mapping.set(sigil, resolve_type_node(explicit, ctx.module.env, ctx.sink));
-          }
-        });
-        fn.params.forEach((param, index) => {
-          const arg = node.args[index];
-          if (arg === undefined) return;
-          unify_sigils(param.type, infer_expr(ctx, arg.expr), mapping);
-        });
-        params = params.map((param) => substitute_generics(param, mapping));
-        result = substitute_generics(result, mapping);
-      }
+    const fn = generic_function_of(ctx, node.callee);
+    if (fn !== undefined) {
+      const mapping = new Map<string, PenguType>();
+      fn.sigils.forEach((sigil, index) => {
+        const explicit = node.type_args[index];
+        if (explicit !== undefined) {
+          mapping.set(sigil, resolve_type_node(explicit, ctx.module.env, ctx.sink));
+        }
+      });
+      fn.params.forEach((param, index) => {
+        const arg = node.args[index];
+        if (arg === undefined) return;
+        unify_sigils(param.type, infer_expr(ctx, arg.expr), mapping);
+      });
+      params = params.map((param) => substitute_generics(param, mapping));
+      result = substitute_generics(result, mapping);
     }
     check_arguments(
       ctx,
@@ -283,7 +281,7 @@ export function infer_call(ctx: CheckContext, node: CallNode): PenguType {
   }
 
   if (callee_type.kind === "named") {
-    return infer_construction(ctx, callee_type.name, node.args, node.span);
+    return infer_construction(ctx, callee_type.name, node.args, node.span, node.type_args);
   }
 
   if (is_any(callee_type)) {
@@ -465,11 +463,35 @@ export function find_omen_variant(
   return undefined;
 }
 
+// Función genérica que hay detrás de una llamada: local o importada.
+// Sirve para sustituir los sigilos con los argumentos de tipo explícitos
+// (`iter::map<int, string>(...)`) y con los argumentos reales.
+function generic_function_of(
+  ctx: CheckContext,
+  callee: CallNode["callee"],
+): FunctionInfo | undefined {
+  if (callee.kind === "ident") {
+    const fn = ctx.module.functions.get(callee.name);
+    return fn !== undefined && fn.sigils.length > 0 ? fn : undefined;
+  }
+  if (callee.kind === "path" && callee.segments.length === 2) {
+    const alias = callee.segments[0];
+    const name = callee.segments[1];
+    if (alias === undefined || name === undefined) return undefined;
+    const selective = ctx.external?.selective.get(alias);
+    const module = selective !== undefined ? selective.module : ctx.external?.modules.get(alias);
+    const fn = module?.functions.get(name);
+    return fn !== undefined && fn.sigils.length > 0 ? fn : undefined;
+  }
+  return undefined;
+}
+
 export function infer_construction(
   ctx: CheckContext,
   name: string,
   args: readonly ArgNode[],
   span: Span,
+  type_args: readonly TypeNode[] = [],
 ): PenguType {
   const alias = ctx.module.env.aliases.get(name);
   if (alias !== undefined) {
@@ -479,6 +501,36 @@ export function infer_construction(
 
   const rune = rune_lookup(ctx, name)?.rune;
   if (rune === undefined) return any_type(name);
+
+  // Un rune genérico instanciado en la construcción: `Caja<int>(5)`.
+  if (type_args.length > 0) {
+    if (type_args.length !== rune.sigils.length) {
+      report_error(
+        ctx,
+        CODES.wrong_arity,
+        `«${name}» espera ${rune.sigils.length} argumento(s) de tipo, recibió ${type_args.length}`,
+        span,
+      );
+      return named(name);
+    }
+    const resolved = type_args.map((arg) => resolve_type_node(arg, ctx.module.env, ctx.sink));
+    const instantiated = named(name, resolved);
+    if (rune.constructor !== undefined) {
+      check_arguments(ctx, rune.constructor.params, args, span, name);
+    } else {
+      const fields = [...rune.fields.values()];
+      check_arguments(
+        ctx,
+        fields.map((field) => field.type),
+        args,
+        span,
+        name,
+        false,
+        fields.filter((field) => !field.has_default).length,
+      );
+    }
+    return instantiated;
+  }
 
   if (rune.constructor !== undefined) {
     check_arguments(
@@ -614,7 +666,11 @@ export function check_mut_argument(
     return;
   }
   if (!arg.mutable) return;
-  const root = root_ident(arg.expr);
+  // `mut ref(x)`: el préstamo mutable del lugar `x`. El `ref(...)` es
+  // explícito cuando el parámetro es `ref<T>`, así que hay que mirar
+  // dentro para encontrar la variable y comprobar que sea `mut`.
+  const place = borrowed_place(arg.expr);
+  const root = root_ident(place);
   const variable = root === undefined ? undefined : lookup(ctx.scope, root.name);
   if (variable === undefined || !variable.mutable) {
     report_error(
@@ -679,6 +735,16 @@ export function mark_moved(ctx: CheckContext, expr: ExprNode, target: PenguType)
 }
 
 // Identificador raíz de una expresión de acceso (`p.x`, `xs[0]`, `p`).
+// Expresión que hay detrás de un `ref(x)` explícito: el lugar que se
+// presta. Cualquier otra expresión se devuelve tal cual.
+export function borrowed_place(expr: ExprNode): ExprNode {
+  if (expr.kind === "call" && expr.callee.kind === "ident" && expr.callee.name === "ref") {
+    const first = expr.args[0];
+    if (first !== undefined) return first.expr;
+  }
+  return expr;
+}
+
 export function root_ident(expr: ExprNode): Extract<ExprNode, { kind: "ident" }> | undefined {
   if (expr.kind === "ident") return expr;
   if (expr.kind === "member") return root_ident(expr.object);

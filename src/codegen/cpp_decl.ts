@@ -465,9 +465,19 @@ function emit_free_methods(
 }
 
 function emit_param(g: GenContext, param: ParamNode, wrap = false): string {
+  const name = cpp_identifier(param.name);
+  // Un parámetro `ref<T>` ya es una referencia en C++: el `mut` del
+  // contrato decide si es `T&` o `const T&`, y no hay que envolverlo en
+  // otro `&` ni perder el `const` de dentro.
+  if (param.type?.kind === "ref_type") {
+    const inner = cpp_type_node(param.type.inner, g.module.env, g.type_realms);
+    const rendered = param.mutable ? `${inner}&` : `const ${inner}&`;
+    return wrap
+      ? `std::type_identity_t<${rendered}> ${name}`
+      : `${rendered} ${name}`;
+  }
   const raw = param.type ? cpp_type_node(param.type, g.module.env, g.type_realms) : "auto";
   const base = wrap && raw !== "auto" ? `std::type_identity_t<${raw}>` : raw;
-  const name = cpp_identifier(param.name);
   if (param.variadic) {
     const element = base === "auto" ? "::pengu::Value" : base;
     return param.mutable
@@ -475,8 +485,16 @@ function emit_param(g: GenContext, param: ParamNode, wrap = false): string {
       : `const std::vector<${element}>& ${name}`;
   }
   if (base === "auto") return `auto ${name}`;
+  // Un `ref<T>` ya se renderiza como referencia: solo hay que quitarle el
+  // `const` cuando el parámetro es `mut` (el préstamo mutable del
+  // llamador) y no volver a añadir otro `&`.
+  if (base.endsWith("&")) {
+    const body = param.mutable ? base.replace(/^const /, "") : base;
+    const bare = body.slice(0, -1);
+    const rendered = `${bare}&`;
+    return wrap ? `std::type_identity_t<${bare}>& ${name}` : `${rendered} ${name}`;
+  }
   if (param.mutable) return `${base}& ${name}`;
-  if (base.endsWith("&")) return `${base} ${name}`;
   const is_primitive = param.type?.kind === "primitive_type";
   // Los punteros se reciben por valor: `unique` porque pasarlo lo mueve
   // y `raw` porque es una dirección copiable.

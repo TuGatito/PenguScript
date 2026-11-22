@@ -55,11 +55,17 @@ explícita para que los métodos existan en el archivo:
 | `std/long_double.pengu` | `long double`: la misma superficie que `double`. |
 | `std/ordering.pengu` | `Ordering`: `then`, `to_int`, `then_with`. |
 | `std/deque.pengu` | `deque<T>`: doble extremo: `is_empty`, `first`, `last`, `get_or`, `index_of`, `contains`, `to_vector`, `join`; builtins: `push`, `push_front`, `pop`, `pop_front`, `insert_at`, `remove_at`, `clear`. |
+| `std/iter.pengu` | `iter::map`, `filter`, `fold`, `count_if`, `any`, `all`, `none_of`, `find`, `position`, `zip`, `enumerate`, `take`, `skip`, `chain`, `flatten` (genéricos: se llaman con argumentos de tipo explícitos, `iter::map<int, string>(ref(xs), f)`). |
+| `std/sort.pengu` | `sort::insertion_sort`, `is_sorted`, `binary_search_sorted`, `sorted_copy` (genéricos; sirven para runes con `operator <=>`). |
+| `std/result.pengu` | `Result<T, E>` con `is_ok`, `is_err`, `value`, `value_or`, `error`, `error_or`, `expect`, `to_string`; libres `ok`, `err`, `map`, `map_err`, `and_then`, `from_optional`. |
+| `std/test.pengu` | `test::is_true`, `is_false`, `equal`, `not_equal`, `is_some`, `is_none`; panican con un mensaje si fallan. |
 | `std/memory.pengu` | `unique<T>`/`shared<T>`: `get`, `mut set`; `weak<T>`: `is_alive`. |
 
-### Módulos previstos (fases F5–F9)
+Los tipos de un módulo importado se pueden nombrar cualificados: `result::Result<int, string>`, `time::Duration`. Si escribes solo el nombre base, el checker sugiere el nombre completo cuando es único.
 
-El plan `scratch/plan_stdlib.md` define el resto de la biblioteca. `std/sys` y `std/ffi` de las secciones siguientes son el diseño objetivo: todavía **no existen** como archivos y se implementarán en fases posteriores (algoritmos, juegos, datos/CLI y avanzados).
+### Módulos previstos (fases F6–F9)
+
+El plan `scratch/plan_stdlib.md` define el resto de la biblioteca. `std/sys` y `std/ffi` de las secciones siguientes son el diseño objetivo: todavía **no existen** como archivos y se implementarán en fases posteriores (juegos, datos/CLI y avanzados).
 
 ### Layer 0 — FFI
 
