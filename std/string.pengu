@@ -33,7 +33,7 @@ enchanting string
 
   find = (buscado: string) -> size_t?
     pos = find_raw(ref(@), ref(buscado))
-    if pos == #@then none else pos
+    if pos == #@ then none else pos
 
   trim = -> string
     trim_raw(ref(@))
@@ -46,6 +46,17 @@ enchanting string
 
   split = (separador: string) -> vector<string>
     split_raw(ref(@), ref(separador))
+
+  get = (i: size_t) -> char?
+    if i < #@ then @[i] else none
+
+  mut pop = -> char?
+    if #@ == 0
+      none
+    else
+      ultimo = @[#@ -1]
+      @ = @.substr(0, #@ -1)
+      ultimo
 
   repeat = (veces: int) -> string
     mut salida = ""

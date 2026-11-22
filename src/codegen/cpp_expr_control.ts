@@ -130,7 +130,24 @@ export function emit_as_statement(
     pop_scope(g);
     return true;
   }
-  return false;
+  // Los bucles también se emiten como sentencias: así `return` dentro del
+  // cuerpo sale de la función y no de una lambda.
+  switch (node.kind) {
+    case "while":
+      emit_while(g, node, false);
+      return true;
+    case "repeat":
+      emit_repeat(g, node, false);
+      return true;
+    case "for_numeric":
+      emit_for_numeric(g, node, false);
+      return true;
+    case "for_iter":
+      emit_for_iter(g, node, false);
+      return true;
+    default:
+      return false;
+  }
 }
 
 export function emit_if(g: GenContext, node: import("../frontend/ast_expr.ts").IfNode): string {
@@ -291,9 +308,28 @@ export function end_loop_result(g: GenContext, result_var: string | undefined): 
   line(g, `return ${result_var};`);
 }
 
-export function emit_while(g: GenContext, node: import("../frontend/ast_expr.ts").WhileNode): string {
-  const result_type = loop_result_expr_type(g, node);
-  return build_lambda(g, "", result_type, () => {
+function emit_loop(
+  g: GenContext,
+  node: ExprNode,
+  as_value: boolean,
+  build: (result_type: string) => void,
+): string {
+  const result_type = as_value ? loop_result_expr_type(g, node) : "void";
+  if (!as_value) {
+    // Como sentencia el bucle se emite directo: dentro de una lambda un
+    // `return` saldría de la lambda y no de la función.
+    build("void");
+    return "";
+  }
+  return build_lambda(g, "", result_type, () => build(result_type)) + "()";
+}
+
+export function emit_while(
+  g: GenContext,
+  node: import("../frontend/ast_expr.ts").WhileNode,
+  as_value = true,
+): string {
+  return emit_loop(g, node, as_value, (result_type) => {
     const result_var = begin_loop_result(g, result_type);
     const condition = emit_expr(g, node.condition);
     line(g, `while (${node.until ? `!(${condition})` : condition}) {`);
@@ -302,12 +338,15 @@ export function emit_while(g: GenContext, node: import("../frontend/ast_expr.ts"
     g.indent -= 1;
     line(g, "}");
     end_loop_result(g, result_var);
-  }) + "()";
+  });
 }
 
-export function emit_repeat(g: GenContext, node: import("../frontend/ast_expr.ts").RepeatNode): string {
-  const result_type = loop_result_expr_type(g, node);
-  return build_lambda(g, "", result_type, () => {
+export function emit_repeat(
+  g: GenContext,
+  node: import("../frontend/ast_expr.ts").RepeatNode,
+  as_value = true,
+): string {
+  return emit_loop(g, node, as_value, (result_type) => {
     const result_var = begin_loop_result(g, result_type);
     line(g, "do {");
     g.indent += 1;
@@ -315,12 +354,15 @@ export function emit_repeat(g: GenContext, node: import("../frontend/ast_expr.ts
     g.indent -= 1;
     line(g, `} while (!(${emit_expr(g, node.condition)}));`);
     end_loop_result(g, result_var);
-  }) + "()";
+  });
 }
 
-export function emit_for_numeric(g: GenContext, node: import("../frontend/ast_expr.ts").ForNumericNode): string {
-  const result_type = loop_result_expr_type(g, node);
-  return build_lambda(g, "", result_type, () => {
+export function emit_for_numeric(
+  g: GenContext,
+  node: import("../frontend/ast_expr.ts").ForNumericNode,
+  as_value = true,
+): string {
+  return emit_loop(g, node, as_value, (result_type) => {
     const result_var = begin_loop_result(g, result_type);
     const name = cpp_identifier(node.variable);
     const start = emit_expr(g, node.start);
@@ -345,12 +387,15 @@ export function emit_for_numeric(g: GenContext, node: import("../frontend/ast_ex
       line(g, "}");
     }
     end_loop_result(g, result_var);
-  }) + "()";
+  });
 }
 
-export function emit_for_iter(g: GenContext, node: import("../frontend/ast_expr.ts").ForIterNode): string {
-  const result_type = loop_result_expr_type(g, node);
-  return build_lambda(g, "", result_type, () => {
+export function emit_for_iter(
+  g: GenContext,
+  node: import("../frontend/ast_expr.ts").ForIterNode,
+  as_value = true,
+): string {
+  return emit_loop(g, node, as_value, (result_type) => {
     const result_var = begin_loop_result(g, result_type);
     const iterable_type = type_of(g, node.iterable);
     const iterable = emit_expr(g, node.iterable);
@@ -398,7 +443,7 @@ export function emit_for_iter(g: GenContext, node: import("../frontend/ast_expr.
       line(g, "}");
     }
     end_loop_result(g, result_var);
-  }) + "()";
+  });
 }
 
 export function emit_lambda(g: GenContext, node: import("../frontend/ast_expr.ts").LambdaNode): string {

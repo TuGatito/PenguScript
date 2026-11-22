@@ -153,9 +153,27 @@ function exact_matches(candidate: Candidate, args: readonly ActualArg[]): number
 }
 
 // Un método `mut` exige un receptor modificable.
-function check_mut_self(ctx: CheckContext, callee: MemberNode): void {
+function check_mut_self(ctx: CheckContext, callee: MemberNode, object: PenguType): void {
+  // Un `ref`, `shared`, `unique` o `raw` permite modificar lo apuntado,
+  // aunque el receptor sea un valor temporal.
+  if (
+    object.kind === "ref" ||
+    object.kind === "shared" ||
+    object.kind === "unique" ||
+    object.kind === "raw"
+  ) {
+    return;
+  }
   const root = root_ident(callee.object);
-  if (root === undefined) return;
+  if (root === undefined) {
+    report_error(
+      ctx,
+      CODES.mutable_required,
+      `«${callee.name}» es «mut»: necesita una variable declarada con «mut»`,
+      callee.name_span,
+    );
+    return;
+  }
   const variable = lookup(ctx.scope, root.name);
   if (variable === undefined || variable.mutable) return;
   const type: PenguType = variable.type;
@@ -253,7 +271,7 @@ export function resolve_enchanted_call(
     chosen = best.candidate;
   }
 
-  if (chosen.method.info.mutable) check_mut_self(ctx, node.callee);
+  if (chosen.method.info.mutable) check_mut_self(ctx, node.callee, object);
   validate_arguments(ctx, chosen, node, name, args);
   annotate(ctx, node.callee, chosen.method);
   return chosen.result;

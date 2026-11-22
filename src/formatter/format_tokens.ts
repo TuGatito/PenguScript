@@ -69,11 +69,20 @@ function is_prefix_operator(token: Token, previous: Token | undefined): boolean 
   return false;
 }
 
-function space_between(previous: Token | undefined, token: Token, tight: boolean): boolean {
+function space_between(
+  previous: Token | undefined,
+  token: Token,
+  tight: boolean,
+  next: Token | undefined,
+): boolean {
   if (previous === undefined) return false;
   // La cercanía del prefijo (`#xs`, `@campo`) no debe pegar el operador
   // binario que venga después: `@ < otro`, no `@< otro`.
-  if (tight) return is_operator_token(token) && BINARY_OPERATORS.has(token.text);
+  if (tight) {
+    // Una palabra clave nunca se pega al operador de prefijo: `#@ then`.
+    if (is_keyword(token.text)) return true;
+    return is_operator_token(token) && BINARY_OPERATORS.has(token.text);
+  }
 
   const text = token.text;
 
@@ -81,11 +90,16 @@ function space_between(previous: Token | undefined, token: Token, tight: boolean
 
   // Los ángulos de los genéricos se escriben pegados (`vector<T>`); las
   // comparaciones llevan espacios. La cercanía original decide.
-  const near_angle = text === "<" || text === ">" || previous.text === "<" || previous.text === ">";
+  const near_angle =
+    text === "<" || text === ">" || text === ">>" || previous.text === "<" || previous.text === ">";
   if (near_angle && token.span.start.offset === previous.span.end.offset) return false;
+  // `>>` que cierra argumentos de tipo: `ref<set<T>>`; el desplazamiento
+  // binario (`a >> b`) conserva espacios porque le siguen operandos.
+  if (text === ">>" && closes_type_arguments(next)) return false;
   if (previous.text === "operator") return true;
   if (is_operator_token(token) && NO_SPACE_BEFORE.has(text)) return false;
-  if (is_operator_token(previous) && NO_SPACE_AFTER.has(previous.text)) return false;
+  // `#@then` no: una palabra clave nunca se pega a `#`, `@`, `.` ni `::`.
+  if (is_operator_token(previous) && NO_SPACE_AFTER.has(previous.text) && !is_keyword(text)) return false;
 
   // Llamadas: `f(x)`, `xs[0]`, `f<int>(x)`.
   if (text === "(" || text === "[") {
@@ -95,7 +109,7 @@ function space_between(previous: Token | undefined, token: Token, tight: boolean
 
   // En `a < b` hay espacio; en `vector<int>` no. La cercanía original
   // es la pista más fiable y se conserva entre pasadas.
-  if (text === "<" || text === ">") {
+  if (text === "<" || text === ">" || text === ">>" || text === "<<") {
     return token.span.start.offset > previous.span.end.offset;
   }
 
@@ -104,6 +118,22 @@ function space_between(previous: Token | undefined, token: Token, tight: boolean
   if (is_keyword(previous.text)) return true;
   if (is_operator_token(previous) && BINARY_OPERATORS.has(previous.text)) return true;
   return false;
+}
+
+function next_content(tokens: readonly Token[], index: number): Token | undefined {
+  for (let cursor = index + 1; cursor < tokens.length; cursor += 1) {
+    const token = tokens[cursor];
+    if (token === undefined) return undefined;
+    if (token.kind === "comment") continue;
+    return token;
+  }
+  return undefined;
+}
+
+function closes_type_arguments(next: Token | undefined): boolean {
+  if (next === undefined) return true;
+  if (next.kind === "newline" || next.kind === "dedent" || next.kind === "eof") return true;
+  return [")", "]", "}", ",", ">", ">>", "=", "->", ":", "?"].includes(next.text);
 }
 
 interface Builder {
@@ -135,7 +165,8 @@ export function format_tokens(tokens: readonly Token[], options: FormatOptions =
   let previous: Token | undefined;
   let prefix_pending = false;
 
-  for (const token of tokens) {
+  for (let token_index = 0; token_index < tokens.length; token_index += 1) {
+    const token = tokens[token_index] as Token;
     switch (token.kind) {
       case "eof":
         flush(builder, max_blank_lines);
@@ -168,7 +199,8 @@ export function format_tokens(tokens: readonly Token[], options: FormatOptions =
           builder.lines.push("");
         }
         const tight = prefix_pending;
-        const space = builder.buffer.length > 0 && space_between(previous, token, tight);
+        const space =
+          builder.buffer.length > 0 && space_between(previous, token, tight, next_content(tokens, token_index));
         const appended = `${space ? " " : ""}${token.text}`;
 
         const pieces = appended.split("\n");

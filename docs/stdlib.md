@@ -42,7 +42,7 @@ explícita para que los métodos existan en el archivo:
 | `std/vector.pengu` | `vector<T>`: `is_empty`, `first`, `last`, `index_of`, `contains`, `join`, `mut reverse`, `mut sort`. |
 | `std/array.pengu` | `array<T, N>`: `is_empty`, `first`, `last`, `index_of`, `contains`. |
 | `std/map.pengu` | `map<K, V>`: `is_empty`, `contains_key`, `keys_list`, `values_list`. |
-| `std/set.pengu` | `set<T>`: `is_empty`, `contains`, `to_vector`, `union`. |
+| `std/set.pengu` | `set<T>`: `is_empty`, `contains`, `to_vector`, `union`, `intersection`, `difference`, `symmetric_difference`, `is_subset`. |
 | `std/optional.pengu` | `T?`: `is_empty`, `or_else`, `filter`, `to_vector`. |
 | `std/pair.pengu` | `pair<A, B>`: `swap`, `to_tuple`. |
 | `std/tuple.pengu` | `tuple<A, B>` y `tuple<A, B, C>`: `len`, `swap`, `to_pair`, `third`. |

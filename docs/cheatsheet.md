@@ -578,7 +578,7 @@ for ch in s
   io::println(ch)
 ```
 
-`s[i]` is bounds-checked and panics on an out-of-range index, like `vector<T>[i]`. `string_view` uses the same rules. There is no `s.get(i)`/`s.pop()` API in v0.2.0.
+`s[i]` is bounds-checked and panics on an out-of-range index, like `vector<T>[i]`. `string_view` uses the same rules. The core language has no `s.get(i)`/`s.pop()`; importing `std/string` enchants `string` with `get(i) -> char?` and `mut pop() -> char?` (see Enchanting built-in types).
 
 `sub in s` tests whether `s` contains the substring `sub`; both sides are `string` (or `string_view`). `s + t` concatenates strings and returns `string`; `s += t` appends.
 
@@ -3190,11 +3190,11 @@ Rules:
 
 | Module | Adds to |
 |--------|---------|
-| `std/string` | `compare`, `is_empty`, `starts_with`, `ends_with`, `contains`, `find`, `trim`, `to_upper`, `to_lower`, `split`, `repeat`. |
+| `std/string` | `compare`, `is_empty`, `starts_with`, `ends_with`, `contains`, `find`, `trim`, `to_upper`, `to_lower`, `split`, `repeat`, `get`, `mut pop`. |
 | `std/vector` | `is_empty`, `first`, `last`, `index_of`, `contains`, `join`, `mut reverse`, `mut sort`. |
 | `std/array` | `is_empty`, `first`, `last`, `index_of`, `contains`. |
 | `std/map` | `is_empty`, `contains_key`, `keys_list`, `values_list`. |
-| `std/set` | `is_empty`, `contains`, `to_vector`, `union`. |
+| `std/set` | `is_empty`, `contains`, `to_vector`, `union`, `intersection`, `difference`, `symmetric_difference`, `is_subset`. |
 | `std/optional` | `is_empty`, `or_else`, `filter`, `to_vector`. |
 | `std/pair` | `swap`, `to_tuple`. |
 | `std/tuple` | `len`, `swap`, `to_pair`, `third` (for 3-tuples). |

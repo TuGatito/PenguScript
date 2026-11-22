@@ -269,6 +269,24 @@ function assign_target(
       check_initialization(ctx, expected, value, node.value.span, "al asignar al índice", node.value);
       return;
     }
+    case "self": {
+      // `@ = valor` reasigna el receptor (seal: el valor subyacente).
+      if (ctx.self_type === undefined) {
+        report_error(ctx, CODES.invalid_assignment, "«@» solo se puede asignar dentro de un método", target.span);
+        return;
+      }
+      if (!ctx.self_mutable) {
+        report_error(
+          ctx,
+          CODES.mutable_required,
+          "«@» es inmutable; declara el método como «mut» para reasignarlo",
+          target.span,
+        );
+        return;
+      }
+      check_initialization(ctx, ctx.self_type, value, node.value.span, "al asignar a «@»", node.value);
+      return;
+    }
     default:
       report_error(ctx, CODES.invalid_assignment, "el destino de la asignación no es asignable", target.span);
   }

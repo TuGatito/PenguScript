@@ -66,6 +66,12 @@ namespace pengu {
 // combinando los campos. Estas sobrecargas cubren los tipos compuestos que
 // std::hash no trae de serie.
 
+inline std::string join_parts(std::initializer_list<std::string> parts) {
+  std::string text;
+  for (const auto& part : parts) text += part;
+  return text;
+}
+
 inline void hash_combine(std::size_t& seed, std::size_t value) {
   seed ^= value + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
 }

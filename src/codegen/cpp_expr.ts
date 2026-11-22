@@ -259,7 +259,10 @@ function emit_string(g: GenContext, parts: readonly import("../frontend/ast_expr
       pieces.push(`::pengu::to_string(${emit_expr(g, part.expr)})`);
     }
   }
-  return pieces.length === 0 ? "std::string()" : `(${pieces.join(" + ")})`;
+  // Las partes se concatenan con una lista inicializada: el orden de
+  // evaluación de `+` no está especificado y rompería los efectos
+  // secundarios de `"#{xs.pop()} #{xs.pop()}"`.
+  return pieces.length === 0 ? "std::string()" : `::pengu::join_parts({${pieces.join(", ")}})`;
 }
 
 

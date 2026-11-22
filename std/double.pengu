@@ -2,13 +2,13 @@ realm double
 
 enchanting double
   abs = -> double
-    if @ < 0.0 then -@else @
+    if @ < 0.0 then -@ else @
 
   min = (otro: double) -> double
-    if @ < otro then @else otro
+    if @ < otro then @ else otro
 
   max = (otro: double) -> double
-    if @ > otro then @else otro
+    if @ > otro then @ else otro
 
   clamp = (minimo: double, maximo: double) -> double
     if @ < minimo then minimo else if @ > maximo then maximo else @
