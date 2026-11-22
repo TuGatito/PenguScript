@@ -368,6 +368,16 @@ function register_builtin_enchanting(
   }
 
   for (const method of decl.methods) {
+    if (method.mutable && decl.target === "weak") {
+      sink.add(
+        make_error(
+          CODES.invalid_mut_receiver,
+          "«weak<T>» no permite métodos «mut»: el valor puede haber expirado; usa «is_alive» y «lock»",
+          method.name_span,
+        ),
+      );
+      continue;
+    }
     if (method.mutable && !target.reference) {
       sink.add(
         make_error(

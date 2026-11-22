@@ -77,15 +77,25 @@ export function emit_variadic_args(g: GenContext, node: CallNode, element: Pengu
   return `([&]() { ${vector} ${builder}; ${parts.join(" ")} return ${builder}; })()`;
 }
 
+// ¿La función llamada es un `extern "C"`? Los varargs de C se emiten sin la
+// caja de `any`, con los valores tal cual.
+function is_extern_callee(g: GenContext, callee: ExprNode): boolean {
+  if (callee.kind === "ident") return g.module.functions.get(callee.name)?.is_extern === true;
+  if (callee.kind === "path" && callee.segments.length === 2) {
+    const [head, tail] = callee.segments;
+    if (head === undefined || tail === undefined) return false;
+    const imported = g.external_modules.get(head);
+    return imported?.functions.get(tail)?.is_extern === true;
+  }
+  return false;
+}
+
 export function emit_call(g: GenContext, node: CallNode): string {
   const callee_type = type_of(g, node.callee);
   const variadic = callee_type.kind === "function" && callee_type.variadic;
   const params = callee_type.kind === "function" ? callee_type.params : [];
   const element = variadic ? params[params.length - 1] : undefined;
-  const extern_variadic =
-    variadic &&
-    node.callee.kind === "ident" &&
-    g.module.functions.get(node.callee.name)?.is_extern === true;
+  const extern_variadic = variadic && is_extern_callee(g, node.callee);
   const args = extern_variadic
     ? node.args
         .map((arg) => {

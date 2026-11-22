@@ -25,6 +25,8 @@ export interface ProgramUnit {
   readonly external_realms: ReadonlyMap<string, string>;
   // Símbolo importado de forma selectiva → realm de origen.
   readonly selective_realms: ReadonlyMap<string, string>;
+  // Alias de `invoke` → módulo importado.
+  readonly external_modules: ReadonlyMap<string, ModuleInfo>;
 }
 
 export interface GeneratedModule {
@@ -62,6 +64,7 @@ export function generate_program(
       unit.external_realms,
       unit.selective_realms,
       unit.member_targets,
+      unit.external_modules,
     );
     const realm = sanitize_namespace(unit.module.realm);
     body.push(`namespace ${realm} {`);

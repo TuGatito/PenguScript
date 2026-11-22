@@ -45,6 +45,8 @@ export interface GenContext {
   selective_realms: ReadonlyMap<string, string>;
   // Nodo del miembro → `realm::nombre` para métodos enhechizados.
   member_targets: ReadonlyMap<ExprNode, MethodTarget>;
+  // Alias de `invoke` → módulo importado (para saber si una función es extern).
+  external_modules: ReadonlyMap<string, ModuleInfo>;
 }
 
 export function make_gen_context(
@@ -55,6 +57,7 @@ export function make_gen_context(
   external_realms: ReadonlyMap<string, string> = new Map(),
   selective_realms: ReadonlyMap<string, string> = new Map(),
   member_targets: ReadonlyMap<ExprNode, MethodTarget> = new Map(),
+  external_modules: ReadonlyMap<string, ModuleInfo> = new Map(),
 ): GenContext {
   return {
     module,
@@ -72,6 +75,7 @@ export function make_gen_context(
     external_realms,
     selective_realms,
     member_targets,
+    external_modules,
     std_extra: [],
   };
 }

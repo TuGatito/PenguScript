@@ -375,7 +375,20 @@ function emit_builtin_enchanting(g: GenContext, decl: EnchantingDecl): void {
   // `enchanting array<T>` omite el tamaño: el receptor real es
   // `std::array<T, N>` y el tamaño entra como parámetro de plantilla.
   const is_array = decl.target === "array";
-  const self = is_array ? `std::array<${decl.sigils[0] ?? "T"}, N>` : cpp_type(self_type, g.type_realms);
+  const pointer =
+    decl.target === "unique"
+      ? "std::unique_ptr"
+      : decl.target === "shared"
+        ? "std::shared_ptr"
+        : decl.target === "weak"
+          ? "std::weak_ptr"
+          : undefined;
+  const self =
+    pointer !== undefined
+      ? `${pointer}<${decl.sigils[0] ?? "T"}>`
+      : is_array
+        ? `std::array<${decl.sigils[0] ?? "T"}, N>`
+        : cpp_type(self_type, g.type_realms);
   const previous = g.self_expression;
   with_sigils(g, decl.sigils, () => {
     for (const method of decl.methods) {
@@ -405,7 +418,8 @@ function emit_builtin_enchanting(g: GenContext, decl: EnchantingDecl): void {
       push_scope(g);
       declare_local(g, "self");
       for (const param of method.params) declare_local(g, param.name);
-      g.self_expression = "self";
+      g.self_expression =
+        pointer === undefined || pointer === "std::weak_ptr" ? "self" : "(*self)";
       emit_value_block(g, method.body, result);
       g.self_expression = previous;
       pop_scope(g);

@@ -40,6 +40,7 @@ main = ->
   io::println("suma: #{demo::suma(1.5, 2.5)}")
   io::println("contar: #{demo::contar("hola")}")
   io::println("maximo: #{demo::maximo(4, 9)}")
+  io::println("varios: #{demo::sumar_varios(3, 10, 20, 30)}")
 `,
     );
 
@@ -52,5 +53,6 @@ main = ->
     expect(run.stdout).toContain("suma: 4");
     expect(run.stdout).toContain("contar: 4");
     expect(run.stdout).toContain("maximo: 9");
+    expect(run.stdout).toContain("varios: 60");
   });
 });

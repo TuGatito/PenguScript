@@ -63,7 +63,15 @@ export function analyze_graph(source_path: string, sink: DiagnosticSink): Analys
     });
     const selective_realms = new Map<string, string>();
     for (const [name, symbol] of loaded.selective) selective_realms.set(name, symbol.module.info.realm);
-    units.push({ program: loaded.program, module, types, member_targets, external_realms, selective_realms });
+    units.push({
+      program: loaded.program,
+      module,
+      types,
+      member_targets,
+      external_realms,
+      selective_realms,
+      external_modules,
+    });
   }
 
   const entry_module = graph.entry?.info ?? units[units.length - 1]?.module;

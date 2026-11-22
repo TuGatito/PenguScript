@@ -3201,10 +3201,13 @@ Rules:
 | `std/int` | `abs`, `min`, `max`, `clamp`, `is_even`, `is_odd`, `sign`, `to_double`. |
 | `std/double` | `abs`, `min`, `max`, `clamp`, `to_int`. |
 | `std/ordering` | `then`. |
+| `std/memory` | `unique<T>`/`shared<T>`: `get`, `mut set`; `weak<T>`: `is_alive`. `raw<T>` no se puede enhechizar. |
 
 ### Limitations (v0.2.0)
 
-- Smart pointers (`unique<T>`, `shared<T>`, `weak<T>`) cannot be enchanted yet.
+- `raw<T>` cannot be enchanted: its uses belong to `unsafe` code. `unique<T>` and
+  `shared<T>` can be enchanted and `@` is the pointee; `weak<T>` exposes the
+  pointer itself (`@.lock()`), so `mut` methods are rejected (E0710).
 - An enchanted method cannot be used as a value (`x.compare` without a call)
   unless it has a single overload.
 - Methods added by `enchanting` are visible only to code that imports the

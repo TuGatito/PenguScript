@@ -49,6 +49,7 @@ explícita para que los métodos existan en el archivo:
 | `std/int.pengu` | `int`: `abs`, `min`, `max`, `clamp`, `is_even`, `is_odd`, `sign`, `to_double`. |
 | `std/double.pengu` | `double`: `abs`, `min`, `max`, `clamp`, `to_int`. |
 | `std/ordering.pengu` | `Ordering`: `then`. |
+| `std/memory.pengu` | `unique<T>`/`shared<T>`: `get`, `mut set`; `weak<T>`: `is_alive`. |
 
 ### Layer 0 — FFI
 

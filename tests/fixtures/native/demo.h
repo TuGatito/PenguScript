@@ -3,3 +3,4 @@
 double suma(double a, double b);
 int contar(const char *texto);
 int maximo(int a, int b);
+int sumar_varios(int cuantos, ...);

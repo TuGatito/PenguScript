@@ -30,10 +30,6 @@ export function render_bindings(header_name: string, realm: string, functions: r
   const skipped: string[] = [];
 
   for (const fn of functions) {
-    if (fn.variadic) {
-      skipped.push(`${fn.name}: funciones variádicas`);
-      continue;
-    }
     const params: string[] = [];
     let supported = true;
     for (const param of fn.params) {
@@ -49,6 +45,9 @@ export function render_bindings(header_name: string, realm: string, functions: r
       continue;
     }
 
+    // Las funciones C variádicas se enlazan con un parámetro variádico
+    // final: `printf = (...resto: any) -> int`.
+    if (fn.variadic) params.push("...resto: any");
     lines.push(`  ${fn.name} = (${params.join(", ")}) -> ${result.pengu}`);
     emitted += 1;
   }

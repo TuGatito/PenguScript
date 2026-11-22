@@ -51,6 +51,10 @@ function receiver_shape(type: PenguType): { base: string; arity: number } | unde
   if (type.kind === "array") return { base: "array", arity: 1 };
   if (type.kind === "optional") return { base: "optional", arity: 1 };
   if (type.kind === "ref") return { base: "ref", arity: 1 };
+  if (type.kind === "unique") return { base: "unique", arity: 1 };
+  if (type.kind === "shared") return { base: "shared", arity: 1 };
+  if (type.kind === "weak") return { base: "weak", arity: 1 };
+  if (type.kind === "raw") return { base: "raw", arity: 1 };
   return undefined;
 }
 
@@ -88,6 +92,10 @@ function receiver_arguments(type: PenguType): readonly PenguType[] {
       return [type.element];
     case "optional":
     case "ref":
+    case "unique":
+    case "shared":
+    case "weak":
+    case "raw":
       return [type.inner];
     default:
       return [];

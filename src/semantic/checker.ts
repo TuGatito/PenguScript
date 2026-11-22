@@ -26,7 +26,18 @@ import { declare } from "./scopes.ts";
 import { infer_block, param_binding_type } from "./checker_expr.ts";
 import type { MethodTarget, RuneInfo } from "./type_env.ts";
 import { find_rune_field, find_rune_method, report_pending_types, resolve_type_node } from "./type_env.ts";
-import { VOID, any_type, generic_type, is_any, named, primitive, type_equals } from "./types.ts";
+import {
+  VOID,
+  any_type,
+  generic_type,
+  is_any,
+  named,
+  primitive,
+  shared_type,
+  type_equals,
+  unique_type,
+  weak_type,
+} from "./types.ts";
 import { STRING_TYPES, is_primitive_type } from "../frontend/ast_type.ts";
 import { enchant_target_of, type_pattern_type } from "./enchant_targets.ts";
 import type { PenguType } from "./types.ts";
@@ -346,6 +357,16 @@ function check_field_shadowing(ctx: CheckContext, decl: RuneDecl, rune: RuneInfo
 // Tipo del receptor cuando el `enchanting` apunta a un tipo incorporado.
 function enchant_self_type(ctx: CheckContext, decl: EnchantingDecl): PenguType | undefined {
   if (enchant_target_of(decl.target) === undefined) return undefined;
+  // En `enchanting unique<T>`, `@` es el valor apuntado, no el puntero.
+  if (decl.target === "unique" || decl.target === "shared" || decl.target === "weak") {
+    const pattern = type_pattern_type(decl.target_type);
+    if (pattern.kind === "named" && pattern.args.length === 1) {
+      const inner = substitute_sigils(pattern.args[0] ?? pattern, new Set(decl.sigils));
+      if (decl.target === "weak") return weak_type(inner);
+      // En uniques y shared el método trabaja sobre el valor apuntado.
+      return inner;
+    }
+  }
   // Los sigilos del patrón (`vector<T>`) llegan como tipos con nombre; el
   // cuerpo del método debe verlos como sigilos genéricos.
   return substitute_sigils(type_pattern_type(decl.target_type), new Set(decl.sigils));

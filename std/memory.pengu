@@ -1,0 +1,19 @@
+realm memory
+
+enchanting unique<T>
+  get = -> ref<T>
+    ref(@)
+
+  mut set = (valor: T) -> void
+    @ = valor
+
+enchanting shared<T>
+  get = -> ref<T>
+    ref(@)
+
+  mut set = (valor: T) -> void
+    @ = valor
+
+enchanting weak<T>
+  is_alive = -> bool
+    @.lock().is_some()

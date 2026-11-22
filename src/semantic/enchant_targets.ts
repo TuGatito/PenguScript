@@ -27,6 +27,10 @@ const CONTAINERS: ReadonlyMap<string, EnchantTarget> = new Map([
   ["array", { arities: [1], reference: true }],
   // `bitset<N>`: `N` es una constante, no un tipo; el bloque no declara sigilos.
   ["bitset", { arities: [0], reference: true }],
+  // Punteros inteligentes: el cuerpo del método ve el valor apuntado.
+  ...["unique", "shared", "weak"].map(
+    (name): [string, EnchantTarget] => [name, { arities: [1], reference: true }],
+  ),
   // Mapas y pares de dos argumentos de tipo.
   ...["map", "multimap", "unordered_map", "unordered_multimap", "pair"].map(
     (name): [string, EnchantTarget] => [name, { arities: [2], reference: true }],
