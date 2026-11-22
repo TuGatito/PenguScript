@@ -20,7 +20,7 @@ import type { TypeNode } from "../frontend/ast_type.ts";
 import type { Block } from "../frontend/ast_stmt.ts";
 import type { GenContext } from "./cpp_context.ts";
 import { declare_local, line, pop_scope, push_scope } from "./cpp_context.ts";
-import { cpp_identifier, cpp_type, cpp_type_node } from "./cpp_types.ts";
+import { cpp_identifier, cpp_type, cpp_type_node, sanitize_namespace } from "./cpp_types.ts";
 import { emit_value_block } from "./cpp_stmt.ts";
 import { emit_expr } from "./cpp_expr.ts";
 import { generic_type, named } from "../semantic/types.ts";
@@ -43,6 +43,14 @@ function with_sigils(g: GenContext, sigils: readonly string[], body: () => void)
 }
 
 export function emit_declarations(g: GenContext, decls: readonly DeclNode[]): void {
+  emit_type_declarations(g, decls);
+  emit_rest_declarations(g, decls);
+}
+
+// Solo tipos: se emiten antes de las especializaciones de `std::hash`, que
+// a su vez deben estar declaradas antes de cualquier función que use
+// contenedores `unordered_*`.
+export function emit_type_declarations(g: GenContext, decls: readonly DeclNode[]): void {
   const methods_by_rune = collect_methods(decls);
   const type_decls: TypeDecl[] = [];
   for (const decl of decls) {
@@ -75,6 +83,14 @@ export function emit_declarations(g: GenContext, decls: readonly DeclNode[]): vo
     }
   }
 
+  // `std::hash` sintetizado para runes y sellos: los contenedores
+  // `unordered_*` necesitan poder hashear sus claves. Se acumula en
+  // `g.std_extra` para emitirlo en el ámbito global.
+  emit_hash_specializations(g, types);
+}
+
+// Constantes, funciones, externos y bloques `enchanting`.
+export function emit_rest_declarations(g: GenContext, decls: readonly DeclNode[]): void {
   // Las constantes van antes que las funciones (que pueden usarlas) y
   // en orden de dependencia entre ellas.
   for (const decl of order_consts(decls)) emit_const(g, decl);
@@ -505,8 +521,90 @@ function emit_rune(
     emit_method(g, method);
   }
 
+  // Las comparaciones se derivan de `<=>`: C++ solo reescribe `<` cuando
+  // el operador espacial devuelve un orden estándar, y `Ordering` es
+  // nuestro tipo. Emitimos las cuatro explícitamente.
+  if (methods.some((method) => method.operator === "<=>")) {
+    line(g, `bool operator<(const ${name}& otro) const { return (*this <=> otro).is_lt(); }`);
+    line(g, `bool operator>(const ${name}& otro) const { return (*this <=> otro).is_gt(); }`);
+    line(g, `bool operator<=(const ${name}& otro) const { auto orden = *this <=> otro; return orden.is_lt() || orden.is_eq(); }`);
+    line(g, `bool operator>=(const ${name}& otro) const { auto orden = *this <=> otro; return orden.is_gt() || orden.is_eq(); }`);
+  }
+
   g.indent -= 1;
   line(g, "};");
+}
+
+// Hash sintetizado campo a campo, en orden de declaración. Los sellos
+// hashean su valor subyacente y las runes genéricas usan una
+// especialización parcial.
+function emit_hash_specializations(g: GenContext, decls: readonly TypeDecl[]): void {
+  const realm = sanitize_namespace(g.module.realm);
+  // Las especializaciones de `std::hash` viven en el ámbito global, no
+  // dentro del namespace del realm: se acumulan para emitirlas después.
+  const saved_lines = g.lines;
+  const saved_indent = g.indent;
+  const buffer: string[] = [];
+  g.lines = buffer;
+  g.indent = 0;
+  let emitted = false;
+  for (const decl of decls) {
+    if (decl.kind === "rune_decl") {
+      if (decl.fields.length === 0) continue;
+      if (!emitted) line(g, "namespace std {");
+      emitted = true;
+      const name = cpp_identifier(decl.name);
+      if (decl.sigils.length > 0) {
+        line(g, `template <${decl.sigils.map((sigil) => `typename ${sigil}`).join(", ")}>`);
+        line(g, `struct hash<::${realm}::${name}<${decl.sigils.join(", ")}>> {`);
+      } else {
+        line(g, "template <>");
+        line(g, `struct hash<::${realm}::${name}> {`);
+      }
+      g.indent += 1;
+      line(g, `std::size_t operator()(const ::${realm}::${name}${generic_args(decl.sigils)}& value) const noexcept {`);
+      g.indent += 1;
+      line(g, "std::size_t seed = 0;");
+      for (const field of decl.fields) {
+        line(g, `::pengu::hash_combine(seed, value.${cpp_identifier(field.name)});`);
+      }
+      line(g, "return seed;");
+      g.indent -= 1;
+      line(g, "}");
+      g.indent -= 1;
+      line(g, "};");
+      continue;
+    }
+    if (decl.kind === "seal_decl") {
+      if (!emitted) line(g, "namespace std {");
+      emitted = true;
+      const name = cpp_identifier(decl.name);
+      if (decl.sigils.length > 0) {
+        line(g, `template <${decl.sigils.map((sigil) => `typename ${sigil}`).join(", ")}>`);
+        line(g, `struct hash<::${realm}::${name}<${decl.sigils.join(", ")}>> {`);
+      } else {
+        line(g, "template <>");
+        line(g, `struct hash<::${realm}::${name}> {`);
+      }
+      const target = cpp_type_node(decl.target, g.module.env, g.type_realms);
+      g.indent += 1;
+      line(g, `std::size_t operator()(const ::${realm}::${name}${generic_args(decl.sigils)}& value) const noexcept {`);
+      g.indent += 1;
+      line(g, `return std::hash<${target}>{}(value.value);`);
+      g.indent -= 1;
+      line(g, "}");
+      g.indent -= 1;
+      line(g, "};");
+    }
+  }
+  if (emitted) line(g, "}  // namespace std");
+  g.lines = saved_lines;
+  g.indent = saved_indent;
+  if (emitted) g.std_extra.push(...buffer);
+}
+
+function generic_args(sigils: readonly string[]): string {
+  return sigils.length === 0 ? "" : `<${sigils.join(", ")}>`;
 }
 
 // `parent(...)` no es una llamada normal: se convierte en el

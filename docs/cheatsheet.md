@@ -1590,6 +1590,8 @@ Key requirements:
 
 Primitives, `string`, and `pair<A,B>` satisfy both. A rune used as a key must declare `operator ==` for the unordered forms; its hash is synthesized field-by-field in declaration order. A seal hashes its underlying value. There is no user-defined hash function in v0.2.0 — if the synthesized hash is unsuitable, use an ordered container.
 
+The compiler checks these requirements when the container type appears: a rune key for `map` needs `operator <=>` (the compiler derives `<`, `>`, `<=` and `>=` from it, since `<=>` returns `Ordering`) or a plain `operator <`; a key for `unordered_*` needs `operator ==` and every field hashable (primitives, text, omens, `pair`/`tuple` of hashable items, `optional` of a hashable item). Unmet requirements are reported as `E0501`.
+
 ### Sets (brief)
 
 Sets share the map literal syntax with one difference: **no values**. Prefix with `set` to disambiguate:

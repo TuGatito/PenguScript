@@ -381,9 +381,12 @@ export function infer_for_iter(
     const root = root_ident(node.iterable);
     if (root !== undefined) ctx.iterating.push({ name: root.name, span: node.span });
     if (second !== undefined) {
-      const indexed = is_map_type(iterable) ? INT : INT;
-      declare(ctx.scope, first, indexed, { mutable: false, kind: "local", span: node.span });
-      declare(ctx.scope, second, element, { mutable: node.mutable, kind: "local", span: node.span });
+      // `for i, x in seq` recorre índices; `for k, v in m` recorre pares.
+      const pair = is_map_type(iterable) ? map_key_value(iterable) : undefined;
+      const first_type = pair === undefined ? INT : pair.key;
+      const second_type = pair === undefined ? element : pair.value;
+      declare(ctx.scope, first, first_type, { mutable: false, kind: "local", span: node.span });
+      declare(ctx.scope, second, second_type, { mutable: node.mutable, kind: "local", span: node.span });
     } else {
       declare(ctx.scope, first, element, { mutable: node.mutable, kind: "local", span: node.span });
     }

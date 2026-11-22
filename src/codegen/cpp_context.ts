@@ -18,6 +18,8 @@ import { cpp_identifier } from "./cpp_types.ts";
 import type { TypeRealms } from "./cpp_types.ts";
 
 export interface GenContext {
+  // Líneas que deben emitirse en el ámbito global (p. ej. `std::hash`).
+  std_extra: string[];
   readonly module: ModuleInfo;
   readonly types: ReadonlyMap<ExprNode, PenguType>;
   readonly sink: DiagnosticSink;
@@ -70,6 +72,7 @@ export function make_gen_context(
     external_realms,
     selective_realms,
     member_targets,
+    std_extra: [],
   };
 }
 

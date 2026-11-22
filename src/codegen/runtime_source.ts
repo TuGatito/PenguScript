@@ -60,6 +60,38 @@ export const RUNTIME_HEADER = `// Runtime generado por pengu 0.1.0. No editar a 
 
 namespace pengu {
 
+// ---- hash combinado -------------------------------------------------------
+//
+// Las runes no declaran un hash: el compilador sintetiza std::hash<Rune>
+// combinando los campos. Estas sobrecargas cubren los tipos compuestos que
+// std::hash no trae de serie.
+
+inline void hash_combine(std::size_t& seed, std::size_t value) {
+  seed ^= value + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
+}
+
+template <class T>
+inline void hash_combine(std::size_t& seed, const T& value) {
+  hash_combine(seed, std::hash<T>{}(value));
+}
+
+template <class A, class B>
+inline void hash_combine(std::size_t& seed, const std::pair<A, B>& value) {
+  hash_combine(seed, value.first);
+  hash_combine(seed, value.second);
+}
+
+template <class... Ts>
+inline void hash_combine(std::size_t& seed, const std::tuple<Ts...>& value) {
+  std::apply([&seed](const auto&... item) { (hash_combine(seed, item), ...); }, value);
+}
+
+template <class T>
+inline void hash_combine(std::size_t& seed, const std::optional<T>& value) {
+  hash_combine(seed, value.has_value());
+  if (value.has_value()) hash_combine(seed, *value);
+}
+
 struct Range {
   long long first;
   long long last;

@@ -5,6 +5,7 @@
 
 import type { DiagnosticSink } from "../diagnostics/sink.ts";
 import { CODES } from "../diagnostics/codes.ts";
+import { check_key_requirements } from "./key_types.ts";
 import { error as make_error } from "../diagnostics/diagnostic.ts";
 import type { Span } from "../util/span.ts";
 import type { TypeNode } from "../frontend/ast_type.ts";
@@ -239,6 +240,7 @@ export function resolve_named_type(
   }
 
   if (BUILTIN_CONTAINERS.has(name)) {
+    check_key_requirements(env, name, args, span, sink);
     return named(name, args);
   }
 

@@ -13,7 +13,7 @@ import type { MethodTarget } from "../semantic/type_env.ts";
 import { cpp_type, sanitize_namespace } from "./cpp_types.ts";
 import type { TypeRealms } from "./cpp_types.ts";
 import { make_gen_context, line } from "./cpp_context.ts";
-import { emit_declarations } from "./cpp_decl.ts";
+import { emit_rest_declarations, emit_type_declarations } from "./cpp_decl.ts";
 
 export interface ProgramUnit {
   readonly program: Program;
@@ -67,7 +67,18 @@ export function generate_program(
     body.push(`namespace ${realm} {`);
     g.lines = body;
     g.indent = 1;
-    emit_declarations(g, unit.program.decls);
+    emit_type_declarations(g, unit.program.decls);
+    g.indent = 0;
+    body.push(`}  // namespace ${realm}`);
+    body.push("");
+    // `std::hash` sintetizado: en el ámbito global y antes de las
+    // funciones que usan contenedores `unordered_*`.
+    for (const extra of g.std_extra) body.push(extra);
+    if (g.std_extra.length > 0) body.push("");
+    body.push(`namespace ${realm} {`);
+    g.lines = body;
+    g.indent = 1;
+    emit_rest_declarations(g, unit.program.decls);
     g.indent = 0;
     body.push(`}  // namespace ${realm}`);
     body.push("");
