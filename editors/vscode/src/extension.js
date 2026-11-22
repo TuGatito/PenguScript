@@ -34,29 +34,38 @@ function show_status(status, state) {
 }
 
 async function activate(context) {
-  const output = window.createOutputChannel("PenguScript");
+  const output = window.createOutputChannel("PenguScript", { log: true });
   const status = window.createStatusBarItem(StatusBarAlignment.Left, 10);
   const size_item = create_size_item();
-  const state = { client: undefined, output, available: false, version: undefined };
+  const state = { client: undefined, output, available: false, version: undefined, last_error: undefined };
   let warned = false;
 
   const on_missing = () => {
     state.available = false;
     show_status(status, state);
     const resolved = resolve_executable(executable_setting());
-    output.appendLine(
-      resolved === undefined
-        ? `No se encontró «${executable_setting()}». Directorios buscados:\n  ${search_directories().join("\n  ")}`
-        : `Se encontró «${resolved}» pero no respondió a «--version».`,
-    );
+    const probed = state.version !== undefined;
+    if (probed) {
+      output.appendLine(`[LSP] el servidor no arrancó: ${state.last_error ?? state.last_message ?? "motivo desconocido"}`);
+    } else if (resolved === undefined) {
+      output.appendLine(
+        `No se encontró «${executable_setting()}». Directorios buscados:\n  ${search_directories().join("\n  ")}`,
+      );
+    } else {
+      output.appendLine(`Se encontró «${resolved}» pero no respondió a «--version».`);
+    }
     if (warned) return;
     warned = true;
-    const detail =
-      resolved === undefined
+    const detail = probed
+      ? "Mira «Mostrar salida» en el botón de estado para el detalle del error."
+      : resolved === undefined
         ? "VS Code no siempre hereda el PATH del shell. Instálalo con scripts/install.sh o indica la ruta en «pengu.executable»."
         : "El archivo no respondió a «--version»: revisa la ruta configurada.";
+    const title = probed
+      ? "PenguScript: el servidor LSP no arrancó."
+      : `No se encontró el ejecutable de PenguScript («${executable_setting()}»).`;
     void window
-      .showWarningMessage(`No se encontró el ejecutable de PenguScript («${executable_setting()}»). ${detail}`, "Configurar ruta", "Mostrar salida")
+      .showWarningMessage(`${title} ${detail}`, "Configurar ruta", "Mostrar salida")
       .then((choice) => {
         warned = false;
         if (choice === "Configurar ruta") {

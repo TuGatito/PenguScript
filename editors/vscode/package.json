@@ -6,7 +6,7 @@
   "publisher": "penguscript",
   "license": "MIT",
   "engines": {
-    "vscode": "^1.80.0"
+    "vscode": "^1.91.0"
   },
   "categories": [
     "Programming Languages",
@@ -308,7 +308,7 @@
     }
   },
   "dependencies": {
-    "vscode-languageclient": "^9.0.1"
+    "vscode-languageclient": "^11.0.1"
   },
   "devDependencies": {
     "@types/vscode": "^1.80.0"

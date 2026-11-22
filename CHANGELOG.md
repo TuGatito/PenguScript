@@ -234,6 +234,14 @@ técnica conocida en el compilador.
   ayuda de firma y el hover con firma.
 - Los tokens semánticos usan el formato de cinco enteros por token exigido por
   el protocolo.
+- La biblioteca estándar viaja **dentro** del ejecutable (`src/project/std_bundle.ts`,
+  generado por `scripts/embed_std.ts`): antes, un binario instalado fuera del
+  repositorio calculaba mal `std/` y, con ello, el LSP no veía `trim`, `join`,
+  `sort`… aunque `bun run` sí. `bun run build` regenera el paquete y una prueba
+  verifica que no quede desactualizado.
+- El cliente LSP 11 de la extensión usa `LogOutputChannel` y toma `Trace` de
+  `vscode-jsonrpc`; sin eso, el arranque del servidor fallaba con un mensaje
+  engañoso («no respondió a `--version`»).
 - La medición de tamaños cualifica los tipos de cada realm y omite `void`.
 
 ### Verificado

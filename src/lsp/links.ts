@@ -6,7 +6,7 @@ import type { FileAnalysis } from "./project.ts";
 import type { LspRange } from "./features.ts";
 import { file_uri } from "./navigation.ts";
 import { to_lsp_range } from "./features.ts";
-import { find_project_root, resolve_module_file } from "../project/paths.ts";
+import { find_project_root, read_source, resolve_module_file } from "../project/paths.ts";
 
 export interface DocumentLink {
   readonly range: LspRange;
@@ -21,7 +21,8 @@ export function document_links(file: FileAnalysis): DocumentLink[] {
   for (const decl of file.program.decls) {
     if (decl.kind !== "invoke_decl") continue;
     const resolved = resolve_module_file(file.file, decl.path, root);
-    if (resolved === undefined) continue;
+    // Los módulos empotrados no tienen archivo que abrir.
+    if (resolved === undefined || read_source(resolved) !== undefined) continue;
     links.push({
       range: to_lsp_range(file.source, decl.span),
       target: file_uri(resolve(resolved)),

@@ -13,10 +13,11 @@
     "check": "bun run src/main.ts check",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "build": "bun build src/main.ts --compile --outfile dist/pengu",
+    "build": "bun run scripts/embed_std.ts && bun build --compile --outfile dist/pengu src/main.ts",
     "doctor": "bun run src/main.ts doctor",
     "install:local": "bash scripts/install.sh",
-    "vsix": "bash scripts/vsix.sh"
+    "vsix": "bash scripts/vsix.sh",
+    "embed:std": "bun run scripts/embed_std.ts"
   },
   "devDependencies": {
     "@types/bun": "^1.4.5",

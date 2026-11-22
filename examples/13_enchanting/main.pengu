@@ -12,7 +12,7 @@ main = ->
   io::println("texto: [#{limpio}]")
   io::println("mayúsculas: #{limpio.to_upper()}")
   io::println("empieza por Pengu: #{limpio.starts_with("Pengu")}")
-  io::println("palabras: #{#limpio.split(", ")}")
+  io::println("palabas: #{#limpio.split(", ")}")
 
   mut notas = vector<int>[9, 4, 7]
   io::println("notas: #{notas.join(" / ")}")

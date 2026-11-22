@@ -1,8 +1,11 @@
 // Ciclo de vida del cliente LSP: arranque, reinicio y parada.
 
-const { workspace, window, Trace } = require("vscode");
+const { workspace } = require("vscode");
 const { inlay_sizes, inlay_types, completion_docs, status_size } = require("./settings");
 const { LanguageClient, TransportKind } = require("vscode-languageclient/node");
+
+// El cliente 11 ya no exporta el enum de traza: vive en vscode-jsonrpc.
+const Trace = require("vscode-jsonrpc").Trace ?? { Off: 0, Messages: 1, Verbose: 2 };
 
 function trace_setting() {
   const value = workspace.getConfiguration("pengu").get("lsp.trace.server", "off");
@@ -41,8 +44,10 @@ async function start_client(state, executable, cwd, on_missing) {
   try {
     await client.start();
     await client.setTrace(trace_setting());
-  } catch (_error) {
+  } catch (error) {
     state.client = undefined;
+    state.last_error = error instanceof Error ? `${error.message}\n${error.stack ?? ""}` : String(error);
+    state.output.appendLine(`[LSP] no se pudo arrancar: ${state.last_error}`);
     on_missing();
   }
 }

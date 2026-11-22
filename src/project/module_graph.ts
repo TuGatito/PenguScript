@@ -18,7 +18,7 @@ import type { Span } from "../util/span.ts";
 import { collect_module, same_method_signature } from "../semantic/module_info.ts";
 import type { ModuleInfo } from "../semantic/module_info.ts";
 import { symbol_type_of } from "../semantic/external.ts";
-import { find_project_root, resolve_module_file } from "./paths.ts";
+import { find_project_root, read_source, resolve_module_file } from "./paths.ts";
 
 export interface SelectiveImport {
   readonly module: LoadedModule;
@@ -180,7 +180,7 @@ function load_one(state: LoadState, file: string): LoadedModule | undefined {
   let text: string;
   const overlaid = state.read_file?.(file);
   try {
-    text = overlaid ?? readFileSync(file, "utf8");
+    text = overlaid ?? read_source(file) ?? readFileSync(file, "utf8");
   } catch {
     report(
       state,
