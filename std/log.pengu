@@ -2,6 +2,36 @@ realm log
 
 declare
   log_values = (nivel: string, partes: vector<any>) -> void
+  set_level_raw = (nivel: string) -> void
+  level_raw = -> string
+  enabled_raw = (nivel: string) -> bool
+  timestamped_raw = (activo: bool) -> void
+
+  -- Niveles de registro, de menos a más grave.
+omen Level
+  Debug
+  Info
+  Warn
+  Error
+
+enchanting Level
+  name = -> string
+    if @ == Level::Debug
+      return "debug"
+    if @ == Level::Info
+      return "info"
+    if @ == Level::Warn
+      return "warn"
+    "error"
+
+  to_int = -> int
+    if @ == Level::Debug
+      return 0
+    if @ == Level::Info
+      return 1
+    if @ == Level::Warn
+      return 2
+    3
 
 debug = (...partes: any) -> void
   log_values("debug", partes)
@@ -14,3 +44,22 @@ warn = (...partes: any) -> void
 
 error = (...partes: any) -> void
   log_values("error", partes)
+
+set_level = (nivel: Level) -> void
+  set_level_raw(nivel.name())
+
+level = -> Level
+  nombre = level_raw()
+  if nombre == "debug"
+    return Level::Debug
+  if nombre == "info"
+    return Level::Info
+  if nombre == "warn"
+    return Level::Warn
+  Level::Error
+
+enabled = (nivel: Level) -> bool
+  enabled_raw(nivel.name())
+
+timestamped = (activo: bool) -> void
+  timestamped_raw(activo)

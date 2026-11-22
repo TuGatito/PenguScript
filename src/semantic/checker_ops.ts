@@ -435,6 +435,10 @@ export function is_display(ctx: CheckContext, type: PenguType): boolean {
         // algebraicos no sabrían qué variante mostrar.
         return [...omen.variants.values()].every((variant) => variant.payload.length === 0);
       }
+      const imported = external_omen(ctx, type.name);
+      if (imported !== undefined) {
+        return [...imported.variants.values()].every((variant) => variant.payload.length === 0);
+      }
       if (type.name === "Ordering") return true;
       const alias = ctx.module.env.aliases.get(type.name);
       if (alias !== undefined) return is_display(ctx, alias.target);
@@ -500,3 +504,14 @@ export function infer_primitive_conversion(
   return result;
 }
 
+// Omen declarado en un módulo importado (para `Display` y miembros).
+function external_omen(
+  ctx: CheckContext,
+  name: string,
+): { variants: ReadonlyMap<string, { payload: readonly PenguType[] }> } | undefined {
+  for (const module of ctx.external?.modules.values() ?? []) {
+    const omen = module.env.omens.get(name);
+    if (omen !== undefined) return omen;
+  }
+  return undefined;
+}

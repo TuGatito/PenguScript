@@ -1,10 +1,77 @@
 realm format
 
+invoke "std/string"
+invoke "std/vector"
+
 declare
   format_values = (partes: vector<any>) -> string
   fixed = (valor: double, decimales: int) -> string
   scientific = (valor: double, decimales: int) -> string
   radix = (valor: int, base: int) -> string
+  template_values = (texto: ref<string>, partes: vector<any>) -> string
 
 format = (...partes: any) -> string
   format_values(partes)
+
+  -- Números en otras bases (sin signo de prefijo, como `format::radix`).
+hex = (valor: int) -> string
+  radix(valor, 16)
+
+bin = (valor: int) -> string
+  radix(valor, 2)
+
+oct = (valor: int) -> string
+  radix(valor, 8)
+
+pad_left = (texto: string, ancho: size_t) -> string
+  texto.pad_start(ancho)
+
+pad_left_with = (texto: string, ancho: size_t, relleno: char) -> string
+  texto.pad_start_with(ancho, relleno)
+
+pad_right = (texto: string, ancho: size_t) -> string
+  texto.pad_end(ancho)
+
+pad_right_with = (texto: string, ancho: size_t, relleno: char) -> string
+  texto.pad_end_with(ancho, relleno)
+
+center = (texto: string, ancho: size_t) -> string
+  texto.pad_center(ancho)
+
+center_with = (texto: string, ancho: size_t, relleno: char) -> string
+  texto.pad_center_with(ancho, relleno)
+
+join = (partes: ref<vector<string>>, separador: string) -> string
+  mut salida = ""
+  mut primero = true
+  for parte in partes
+    if primero
+      primero = false
+    else
+      salida += separador
+    salida += parte
+  salida
+
+  -- Agrupa los miles: 1234567 -> "1.234.567" (el separador lo elige quien llama).
+separated = (valor: int, separador: string) -> string
+  mut negativo = valor < 0
+  mut digitos = "#{valor}"
+  if negativo
+    digitos = digitos.substr(1, #digitos - 1)
+  mut salida = ""
+  mut cuenta: int = 0
+  mut i: size_t = #digitos
+  while i > 0
+    i -= 1
+    salida = "#{digitos[i]}#{salida}"
+    cuenta += 1
+    if cuenta % 3 == 0 and i > 0
+      salida = "#{separador}#{salida}"
+  if negativo
+    "-" + salida
+  else
+    salida
+
+    -- Plantilla con «{}»: sustituye cada hueco por el siguiente valor.
+template = (texto: string, ...partes: any) -> string
+  template_values(ref(texto), partes)

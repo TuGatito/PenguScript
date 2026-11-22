@@ -278,6 +278,29 @@ export function infer_member(
         return function_type([named(object.name)], BOOL);
       }
     }
+    // Omen importado de otro módulo: sus enhechizamientos se emiten como
+    // funciones libres en el realm que lo declara, así que el checker deja
+    // anotado el destino para el codegen.
+    if (omen === undefined) {
+      const external = external_omen_of(ctx, object.name);
+      const method = external === undefined ? undefined : omen_methods_of(external.omen)?.get(name);
+      if (external !== undefined && method !== undefined) {
+        if (node !== undefined) {
+          ctx.member_targets?.set(node, {
+            realm: external.realm,
+            name,
+            params: method.params,
+            variadic: method.variadic,
+          });
+        }
+        return function_type(
+          method.params,
+          method.result,
+          method.variadic,
+          method.required,
+        );
+      }
+    }
   }
 
   const echo_method = find_echo_method(ctx.module.env, object, name);
@@ -312,3 +335,16 @@ export function infer_member(
 // Capacidades estructurales de los sigilos (`needs Ord, Copy`).
 // Solo se comprueban sobre tipos primitivos y contenedores conocidos;
 // para runes y omens se confía en el compilador de C++.
+
+// Busca un omen declarado en un módulo importado. Devuelve también su
+// realm, donde viven sus métodos libres.
+function external_omen_of(
+  ctx: CheckContext,
+  name: string,
+): { omen: OmenInfo; realm: string } | undefined {
+  for (const module of ctx.external?.modules.values() ?? []) {
+    const omen = module.env.omens.get(name);
+    if (omen !== undefined) return { omen, realm: module.realm };
+  }
+  return undefined;
+}

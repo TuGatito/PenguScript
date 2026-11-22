@@ -380,12 +380,42 @@ técnica conocida en el compilador.
   array, map, set, optional, deque, adaptadores y bitset, ordering/tuplas y la
   comprobación de que mutar durante `for` sigue siendo `E0602`).
 
+### Biblioteca estándar: F3 (texto)
+
+- `std/string` crece hasta la API completa: búsqueda (`rfind`, `find_from`,
+  `count`, `compare_ignore_case`), recorte (`trim_start`, `trim_end`,
+  `trim_matches` y sus variantes), caja (`capitalize`, `decapitalize`,
+  `title_case`), reemplazo (`replace`, `replace_first`), prefijos y sufijos,
+  partes (`split_whitespace`, `split_lines`, `chars`, `bytes`, `char_count`),
+  relleno (`pad_start`, `pad_end`, `pad_center` y `_with`), cortes
+  (`insert_at`, `remove_range`, `truncate`, `substring`), predicados `is_*`,
+  conversiones (`to_int`, `to_double`, `to_bool`) y `escape`/`unescape`.
+- Intrínsecos nuevos del runtime: `rfind_raw`, `find_from_raw`,
+  `replace_first_raw`, `split_whitespace_raw`, `char_count_raw` (cuenta
+  puntos de código UTF-8), `reverse_raw` (invierte sin romper secuencias),
+  `parse_int_raw`/`parse_double_raw` (`std::from_chars` con consumo completo)
+  y `template_values`.
+- `std/format` añade `hex`, `bin`, `oct`, `pad_left`, `pad_right`, `center`
+  (y sus variantes `_with`), `join`, `separated` y `template`, que sustituye
+  cada `{}` por el siguiente valor.
+- `std/log` gana el omen `Level` (`Debug`, `Info`, `Warn`, `Error`) con
+  `name()` y `to_int()`, y las funciones `set_level`, `level`, `enabled` y
+  `timestamped`; el runtime filtra por nivel (`info` por defecto) y antepone
+  `[nivel] [HH:MM:SS]` cuando la marca de tiempo está activa.
+- Correcciones de la fase: una llamada variádica con parámetros fijos delante
+  (`f(a, ...resto)`) empaquetaba también `a` en el vector; los métodos de un
+  omen declarado en un módulo importado ya se resuelven (`log::level().name()`)
+  y el codegen los emite cualificados por su realm; un omen importado con
+  variantes unitarias implementa `Display`.
+- Pruebas nuevas: `tests/std/text.test.ts` (8 casos, incluidos UTF-8, escape
+  y niveles de log comprobando `stdout` y `stderr`).
+
 ### Verificado
 
-- `bun test`: 392 pruebas en 50 archivos (lexer, parser, checker, formateador,
+- `bun test`: 400 pruebas en 51 archivos (lexer, parser, checker, formateador,
   LSP de integración, de consultas, de sincronización y de rendimiento,
   medición de tamaños, bindgen, biblioteca estándar, conformidad y e2e de los
-  ejemplos, de las fases F1–F9, G1–G6, H1–H7, I1–I8, L1–L6 y de la fundación
-  de la biblioteca estándar (F0, F1 y F2), y de la extensión de VS Code).
+  ejemplos, de las fases F1–F9, G1–G6, H1–H7, I1–I8, L1–L6 y de la biblioteca
+  estándar (F0, F1, F2 y F3), y de la extensión de VS Code).
 - `tsc --noEmit` sin errores y `pengu fmt --check` sin cambios pendientes.
 - Los 13 ejemplos de `examples/` compilan y ejecutan con el compilador final.

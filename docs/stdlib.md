@@ -25,12 +25,12 @@ Ya implementado y cubierto por pruebas:
 | `std/os.d.pengu` | `args`, `get_env`, `exit`. |
 | `std/assert.d.pengu` | `that`, `fail`. |
 | `std/io.pengu` | `println`, `print`, `eprintln`, `eprint` (variádicas `...partes: any`) sobre `write_values` / `eprint_values` / `read_line`. |
-| `std/format.pengu` | `format(...partes: any) -> string` sobre `format_values`; `fixed(valor, decimales)`, `scientific(valor, decimales)` y `radix(valor, base)`. |
-| `std/log.pengu` | `debug`, `info`, `warn`, `error` sobre `log_values`. |
+| `std/format.pengu` | `format(...partes: any) -> string` sobre `format_values`; `fixed(valor, decimales)`, `scientific(valor, decimales)`, `radix(valor, base)`, `hex`/`bin`/`oct`, `pad_left`/`pad_right`/`center` (y sus variantes `_with`), `join(partes, separador)`, `separated(valor, separador)` y `template(texto, ...partes)`. |
+| `std/log.pengu` | Omen `Level` (`Debug`, `Info`, `Warn`, `Error`) con `name()` y `to_int()`; `debug`, `info`, `warn`, `error`; `set_level(nivel)`, `level()`, `enabled(nivel)` y `timestamped(activo)`. Filtra por nivel (`info` por defecto) y antepone `[nivel] [HH:MM:SS]` si la marca de tiempo está activa. |
 
 El bloque `declare` marca las funciones que implementa el runtime del compilador; el generador C++ no emite cuerpo para ellas, solo la llamada al helper correspondiente.
 
-`std/io`, `std/format` y `std/log` ya son módulos PenguScript: declaran sus primitivas con `declare` (que reciben `vector<any>`) y ofrecen la API variádica en el propio lenguaje. Cada argumento `any` se empaqueta como `::pengu::Value`, que guarda su renderizador de `Display`.
+`std/io`, `std/format` y `std/log` ya son módulos PenguScript: declaran sus primitivas con `declare` (que reciben `vector<any>`) y ofrecen la API variádica en el propio lenguaje. `std/log` mantiene su estado (nivel mínimo y marca de tiempo) en el runtime. Cada argumento `any` se empaqueta como `::pengu::Value`, que guarda su renderizador de `Display`.
 
 ### Enchanting de tipos incorporados
 
@@ -40,7 +40,7 @@ explícita para que los métodos existan en el archivo:
 
 | Archivo | Métodos que añade |
 |---------|-------------------|
-| `std/string.pengu` | `string`: `compare`, `is_empty`, `starts_with`, `ends_with`, `contains`, `find`, `trim`, `to_upper`, `to_lower`, `split`, `repeat`. |
+| `std/string.pengu` | `string`: `compare`, `compare_ignore_case`, `is_empty`, `starts_with`, `ends_with`, `contains`, `find`, `rfind`, `find_from`, `count`, `trim`, `trim_start`, `trim_end`, `trim_matches`, `trim_start_matches`, `trim_end_matches`, `to_upper`, `to_lower`, `capitalize`, `decapitalize`, `title_case`, `replace`, `replace_first`, `remove_prefix`, `remove_suffix`, `split`, `split_whitespace`, `split_lines`, `chars`, `bytes`, `char_count`, `get`, `mut pop`, `repeat`, `pad_start`/`pad_end`/`pad_center` (y `_with`), `reverse`, `insert_at`, `remove_range`, `truncate`, `substring`, `is_ascii`/`is_alphabetic`/`is_numeric`/`is_alphanumeric`/`is_whitespace`/`is_upper`/`is_lower`, `to_int`, `to_double`, `to_bool`, `escape`, `unescape`. |
 | `std/vector.pengu` | `vector<T>`: `is_empty`, `first`, `last`, `index_of`, `contains`, `join`, `get_or`, `first_or`, `last_or`, `mut remove`, `mut remove_all`, `mut extend`, `mut retain`, `mut fill`, `mut swap`, `mut rotate_left`, `mut rotate_right`, `any`, `all`, `none`, `count_if`, `find_if`, `position_if`, `fold`, `map`, `filter`, `mut transform`, `min`, `max`, `is_sorted`, `mut sort_by`, `sorted`, `sorted_by`, `mut dedup`, `binary_search`, `take`, `skip`, `slice`, `chunks`, `windows`, `enumerate`, `sum`, `product`. |
 | `std/array.pengu` | `array<T, N>`: `is_empty`, `first`, `last`, `index_of`, `contains`, `to_vector`, `reversed`, `slice`, `join`, `min`, `max`, `find_if`, `any`, `all`, `none`, `sum`, `product`. |
 | `std/map.pengu` | `map<K, V>`: `is_empty`, `contains_key`, `keys_list`, `values_list`, `mut get_or_insert`, `mut update`, `entries`, `first_key`, `last_key`, `mut merge`, `mut retain`; builtins: `get`, `get_or`, `insert`, `insert_or_assign`, `remove`, `contains`, `keys`, `values`, `clear`. |

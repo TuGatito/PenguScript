@@ -63,24 +63,33 @@ export function has_user_index(g: GenContext, type: PenguType): boolean {
 
 // Argumentos de una llamada variádica: se empaquetan en un vector.
 // Con `...` el vector se concatena en tiempo de ejecución.
-export function emit_variadic_args(g: GenContext, node: CallNode, element: PenguType | undefined): string {
+export function emit_variadic_args(
+  g: GenContext,
+  node: CallNode,
+  element: PenguType | undefined,
+  fixed_count = 0,
+): string {
   const vector = `std::vector<${element === undefined ? "::pengu::Value" : cpp_type(element, g.type_realms)}>`;
   const boxed = element === undefined || element.kind === "any";
-  const pieces = node.args.map((arg) => {
+  // Los parámetros fijos van delante del paquete: `f(a, ...resto)`.
+  const fixed = node.args.slice(0, fixed_count).map((arg) => emit_expr(g, arg.expr));
+  const pieces = node.args.slice(fixed_count).map((arg) => {
     const rendered = emit_expr(g, arg.expr);
     if (arg.spread) return { rendered, spread: true };
     return { rendered: boxed ? `::pengu::value(${rendered})` : rendered, spread: false };
   });
-  if (pieces.every((piece) => !piece.spread)) {
-    return `${vector}{${pieces.map((piece) => piece.rendered).join(", ")}}`;
-  }
-  const builder = fresh_name(g, "varargs");
-  const parts = pieces.map((piece) =>
-    piece.spread
-      ? `::pengu::append(${builder}, ${piece.rendered});`
-      : `${builder}.push_back(${piece.rendered});`,
-  );
-  return `([&]() { ${vector} ${builder}; ${parts.join(" ")} return ${builder}; })()`;
+  const packed = pieces.every((piece) => !piece.spread)
+    ? `${vector}{${pieces.map((piece) => piece.rendered).join(", ")}}`
+    : (() => {
+        const builder = fresh_name(g, "varargs");
+        const parts = pieces.map((piece) =>
+          piece.spread
+            ? `::pengu::append(${builder}, ${piece.rendered});`
+            : `${builder}.push_back(${piece.rendered});`,
+        );
+        return `([&]() { ${vector} ${builder}; ${parts.join(" ")} return ${builder}; })()`;
+      })();
+  return [...fixed, packed].join(", ");
 }
 
 // ¿La función llamada es un `extern "C"`? Los varargs de C se emiten sin la
@@ -132,7 +141,7 @@ export function emit_call(g: GenContext, node: CallNode): string {
         })
         .join(", ")
     : variadic
-    ? emit_variadic_args(g, node, element)
+    ? emit_variadic_args(g, node, element, Math.max(0, params.length - 1))
     : node.args
         .map((arg, index) => {
           const rendered = emit_expr(g, arg.expr);
@@ -248,6 +257,20 @@ export const BUILTIN_FUNCTIONS: Readonly<Record<string, string>> = {
   "string::to_upper_raw": "::pengu::to_upper_raw",
   "string::to_lower_raw": "::pengu::to_lower_raw",
   "string::split_raw": "::pengu::split_raw",
+  "string::rfind_raw": "::pengu::rfind_raw",
+  "string::find_from_raw": "::pengu::find_from_raw",
+  "string::replace_first_raw": "::pengu::replace_first_raw",
+  "string::split_whitespace_raw": "::pengu::split_whitespace_raw",
+  "string::char_count_raw": "::pengu::char_count_raw",
+  "string::reverse_raw": "::pengu::reverse_raw",
+  "string::parse_int_raw": "::pengu::parse_int_raw",
+  "string::parse_double_raw": "::pengu::parse_double_raw",
+  "string::bytes_raw": "::pengu::bytes_raw",
+  "format::template_values": "::pengu::template_values",
+  "log::set_level_raw": "::pengu::set_log_level_raw",
+  "log::level_raw": "::pengu::log_level_raw",
+  "log::enabled_raw": "::pengu::log_enabled_raw",
+  "log::timestamped_raw": "::pengu::log_timestamped_raw",
   "os::args": "::pengu::os_args",
   "debug::println": "::pengu::println",
   "console::println": "::pengu::println",

@@ -10,6 +10,8 @@ export const RUNTIME_HEADER = `// Runtime generado por pengu 0.1.0. No editar a 
 #include <algorithm>
 #include <array>
 #include <cstdio>
+#include <charconv>
+#include <ctime>
 #include <exception>
 #include <atomic>
 #include <bitset>
@@ -462,6 +464,143 @@ inline std::string to_lower_raw(const std::string& text) {
   std::string out = text;
   for (char& letter : out) letter = static_cast<char>(std::tolower(static_cast<unsigned char>(letter)));
   return out;
+}
+
+inline std::size_t rfind_raw(const std::string& text, const std::string& needle) {
+  const auto position = text.rfind(needle);
+  return position == std::string::npos ? text.size() : position;
+}
+
+inline std::size_t find_from_raw(const std::string& text, const std::string& needle, std::size_t from) {
+  if (from >= text.size()) return text.size();
+  const auto position = text.find(needle, from);
+  return position == std::string::npos ? text.size() : position;
+}
+
+inline std::string replace_first_raw(const std::string& text, const std::string& from, const std::string& to) {
+  if (from.empty()) return text;
+  const auto position = text.find(from);
+  if (position == std::string::npos) return text;
+  return text.substr(0, position) + to + text.substr(position + from.size());
+}
+
+inline std::vector<std::string> split_whitespace_raw(const std::string& text) {
+  std::vector<std::string> parts;
+  std::size_t index = 0;
+  while (index < text.size()) {
+    while (index < text.size() && std::isspace(static_cast<unsigned char>(text[index])) != 0) ++index;
+    const std::size_t start = index;
+    while (index < text.size() && std::isspace(static_cast<unsigned char>(text[index])) == 0) ++index;
+    if (index > start) parts.push_back(text.substr(start, index - start));
+  }
+  return parts;
+}
+
+// Cuenta puntos de codigo UTF-8: los bytes de continuacion empiezan por 10xxxxxx.
+inline std::size_t char_count_raw(const std::string& text) {
+  std::size_t total = 0;
+  for (const char letter : text) {
+    if ((static_cast<unsigned char>(letter) & 0xC0) != 0x80) ++total;
+  }
+  return total;
+}
+
+// Invierte por puntos de codigo, para no romper secuencias UTF-8.
+inline std::string reverse_raw(const std::string& text) {
+  std::vector<std::string> letters;
+  std::size_t index = 0;
+  while (index < text.size()) {
+    std::size_t length = 1;
+    const unsigned char lead = static_cast<unsigned char>(text[index]);
+    if ((lead & 0xF8) == 0xF0) length = 4;
+    else if ((lead & 0xF0) == 0xE0) length = 3;
+    else if ((lead & 0xE0) == 0xC0) length = 2;
+    if (index + length > text.size()) length = 1;
+    letters.push_back(text.substr(index, length));
+    index += length;
+  }
+  std::string out;
+  for (auto it = letters.rbegin(); it != letters.rend(); ++it) out += *it;
+  return out;
+}
+
+inline std::optional<std::int64_t> parse_int_raw(const std::string& text) {
+  if (text.empty()) return std::nullopt;
+  std::int64_t value = 0;
+  const auto result = std::from_chars(text.data(), text.data() + text.size(), value);
+  if (result.ec != std::errc{} || result.ptr != text.data() + text.size()) return std::nullopt;
+  return value;
+}
+
+inline std::optional<double> parse_double_raw(const std::string& text) {
+  if (text.empty()) return std::nullopt;
+  double value = 0.0;
+  const auto result = std::from_chars(text.data(), text.data() + text.size(), value);
+  if (result.ec != std::errc{} || result.ptr != text.data() + text.size()) return std::nullopt;
+  return value;
+}
+
+inline std::vector<std::uint8_t> bytes_raw(const std::string& text) {
+  std::vector<std::uint8_t> out;
+  out.reserve(text.size());
+  for (const char letter : text) out.push_back(static_cast<std::uint8_t>(letter));
+  return out;
+}
+
+// format::template: sustituye cada «{}» por el siguiente valor.
+inline std::string template_values(const std::string& text, const std::vector<Value>& values) {
+  std::string out;
+  std::size_t index = 0;
+  std::size_t next = 0;
+  while (index < text.size()) {
+    if (index + 1 < text.size() && text[index] == '{' && text[index + 1] == '}') {
+      if (next < values.size()) out += values[next++].render();
+      index += 2;
+      continue;
+    }
+    out += text[index];
+    ++index;
+  }
+  return out;
+}
+
+inline int log_severity(const std::string& name) {
+  if (name == "debug") return 0;
+  if (name == "info") return 1;
+  if (name == "warn") return 2;
+  if (name == "error") return 3;
+  return 1;
+}
+
+inline int& log_threshold() {
+  static int level = 1;
+  return level;
+}
+
+inline bool& log_timestamped() {
+  static bool enabled = false;
+  return enabled;
+}
+
+inline void set_log_level_raw(const std::string& name) { log_threshold() = log_severity(name); }
+
+inline std::string log_level_raw() {
+  static const char* names[] = {"debug", "info", "warn", "error"};
+  const int level = log_threshold();
+  return names[level < 0 ? 0 : (level > 3 ? 3 : level)];
+}
+
+inline bool log_enabled_raw(const std::string& name) { return log_severity(name) >= log_threshold(); }
+
+inline void log_timestamped_raw(bool enabled) { log_timestamped() = enabled; }
+
+inline std::string log_stamp() {
+  const std::time_t now = std::time(nullptr);
+  std::tm local{};
+  localtime_r(&now, &local);
+  char buffer[16] = {0};
+  std::strftime(buffer, sizeof(buffer), "%H:%M:%S", &local);
+  return buffer;
 }
 
 inline std::vector<std::string> split_raw(const std::string& text, const std::string& separator) {
@@ -922,7 +1061,10 @@ inline std::string format_values(const std::vector<Value>& values) {
 }
 
 inline void log_values(const std::string& level, const std::vector<Value>& values) {
-  std::cerr << "[" << level << "] " << format_values(values) << '\\n';
+  if (!log_enabled_raw(level)) return;
+  std::cerr << "[" << level << "] ";
+  if (log_timestamped()) std::cerr << "[" << log_stamp() << "] ";
+  std::cerr << format_values(values) << '\\n';
 }
 
 template <class T>

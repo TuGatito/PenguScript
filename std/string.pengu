@@ -1,12 +1,24 @@
 realm string
 
+invoke "std/char"
+invoke "std/vector"
+
 -- Intrínsecos: lo que solo C++ puede hacer de forma eficiente.
 declare
   find_raw = (texto: ref<string>, buscado: ref<string>) -> size_t
+  rfind_raw = (texto: ref<string>, buscado: ref<string>) -> size_t
+  find_from_raw = (texto: ref<string>, buscado: ref<string>, desde: size_t) -> size_t
   trim_raw = (texto: ref<string>) -> string
   to_upper_raw = (texto: ref<string>) -> string
   to_lower_raw = (texto: ref<string>) -> string
   split_raw = (texto: ref<string>, separador: ref<string>) -> vector<string>
+  split_whitespace_raw = (texto: ref<string>) -> vector<string>
+  replace_first_raw = (texto: ref<string>, viejo: ref<string>, nuevo: ref<string>) -> string
+  reverse_raw = (texto: ref<string>) -> string
+  char_count_raw = (texto: ref<string>) -> size_t
+  parse_int_raw = (texto: ref<string>) -> int?
+  parse_double_raw = (texto: ref<string>) -> double?
+  bytes_raw = (texto: ref<string>) -> vector<uint8_t>
 
 enchanting string
   compare = (otro: string) -> int
@@ -16,6 +28,17 @@ enchanting string
       1
     else
       0
+
+  to_upper = -> string
+    to_upper_raw(ref(@))
+
+  to_lower = -> string
+    to_lower_raw(ref(@))
+
+  compare_ignore_case = (otro: string) -> int
+    izquierda = @.to_lower()
+    derecha = otro.to_lower()
+    izquierda.compare(derecha)
 
   is_empty = -> bool
     #@ == 0
@@ -35,17 +58,124 @@ enchanting string
     pos = find_raw(ref(@), ref(buscado))
     if pos == #@ then none else pos
 
+  rfind = (buscado: string) -> size_t?
+    pos = rfind_raw(ref(@), ref(buscado))
+    if pos == #@ then none else pos
+
+  find_from = (buscado: string, desde: size_t) -> size_t?
+    pos = find_from_raw(ref(@), ref(buscado), desde)
+    if pos == #@ then none else pos
+
+  count = (buscado: string) -> size_t
+    if #buscado == 0
+      return 0
+    mut total: size_t = 0
+    mut desde: size_t = 0
+    mut pos = find_from_raw(ref(@), ref(buscado), desde)
+    while pos < #@
+      total += 1
+      desde = pos + #buscado
+      pos = find_from_raw(ref(@), ref(buscado), desde)
+    total
+
   trim = -> string
     trim_raw(ref(@))
 
-  to_upper = -> string
-    to_upper_raw(ref(@))
+  trim_start = -> string
+    mut i: size_t = 0
+    while i < #@ and @[i].is_space()
+      i += 1
+    @.substr(i, #@ - i)
 
-  to_lower = -> string
-    to_lower_raw(ref(@))
+  trim_end = -> string
+    mut fin: size_t = #@
+    while fin > 0 and @[fin - 1].is_space()
+      fin -= 1
+    @.substr(0, fin)
+
+  trim_start_matches = (c: char) -> string
+    mut i: size_t = 0
+    while i < #@ and @[i] == c
+      i += 1
+    @.substr(i, #@ - i)
+
+  trim_end_matches = (c: char) -> string
+    mut fin: size_t = #@
+    while fin > 0 and @[fin - 1] == c
+      fin -= 1
+    @.substr(0, fin)
+
+  trim_matches = (c: char) -> string
+    @.trim_start_matches(c).trim_end_matches(c)
+
+  capitalize = -> string
+    if #@ == 0
+      return @
+    @.substr(0, 1).to_upper() + @.substr(1, #@ - 1).to_lower()
+
+  decapitalize = -> string
+    if #@ == 0
+      return @
+    @.substr(0, 1).to_lower() + @.substr(1, #@ - 1)
+
+  title_case = -> string
+    mut salida = ""
+    mut al_inicio = true
+    for i in 0..<#@
+      c = @[i]
+      if c.is_space()
+        salida += "#{c}"
+        al_inicio = true
+      else if al_inicio
+        salida += "#{c.to_upper()}"
+        al_inicio = false
+      else
+        salida += "#{c.to_lower()}"
+    salida
+
+  replace = (viejo: string, nuevo: string) -> string
+    if #viejo == 0
+      return @
+    mut salida = ""
+    mut desde: size_t = 0
+    mut pos = find_from_raw(ref(@), ref(viejo), desde)
+    while pos < #@
+      salida += @.substr(desde, pos - desde)
+      salida += nuevo
+      desde = pos + #viejo
+      pos = find_from_raw(ref(@), ref(viejo), desde)
+    salida += @.substr(desde, #@ - desde)
+    salida
+
+  replace_first = (viejo: string, nuevo: string) -> string
+    replace_first_raw(ref(@), ref(viejo), ref(nuevo))
+
+  remove_prefix = (prefijo: string) -> string
+    if @.starts_with(prefijo) then @.substr(#prefijo, #@ - #prefijo) else @
+
+  remove_suffix = (sufijo: string) -> string
+    if @.ends_with(sufijo) then @.substr(0, #@ - #sufijo) else @
 
   split = (separador: string) -> vector<string>
     split_raw(ref(@), ref(separador))
+
+  split_whitespace = -> vector<string>
+    split_whitespace_raw(ref(@))
+
+  split_lines = -> vector<string>
+    @.replace("\r\n", "\n").split("\n")
+
+  chars = -> vector<char>
+    mut salida: vector<char> = []
+    for i in 0..<#@
+      salida.push(@[i])
+    salida
+
+  bytes = -> vector<uint8_t>
+    bytes_raw(ref(@))
+
+  char_count = -> size_t
+    char_count_raw(ref(@))
 
   get = (i: size_t) -> char?
     if i < #@ then @[i] else none
@@ -62,4 +192,186 @@ enchanting string
     mut salida = ""
     for _ in 0..<veces
       salida += @
+    salida
+
+  pad_start_with = (ancho: size_t, relleno: char) -> string
+    if #@ >= ancho
+      return @
+    mut salida = ""
+    for _ in 0..<(ancho - #@)
+      salida += "#{relleno}"
+    salida + @
+
+  pad_start = (ancho: size_t) -> string
+    @.pad_start_with(ancho, ' ')
+
+  pad_end_with = (ancho: size_t, relleno: char) -> string
+    if #@ >= ancho
+      return @
+    mut salida = @
+    for _ in 0..<(ancho - #@)
+      salida += "#{relleno}"
+    salida
+
+  pad_end = (ancho: size_t) -> string
+    @.pad_end_with(ancho, ' ')
+
+  pad_center_with = (ancho: size_t, relleno: char) -> string
+    if #@ >= ancho
+      return @
+    total = ancho - #@
+    izquierda = total / 2
+    derecha = total - izquierda
+    mut salida = ""
+    for _ in 0..<izquierda
+      salida += "#{relleno}"
+    salida += @
+    for _ in 0..<derecha
+      salida += "#{relleno}"
+    salida
+
+  pad_center = (ancho: size_t) -> string
+    @.pad_center_with(ancho, ' ')
+
+  reverse = -> string
+    reverse_raw(ref(@))
+
+  insert_at = (i: size_t, texto: string) -> string
+    if i >= #@
+      return @ + texto
+    @.substr(0, i) + texto + @.substr(i, #@ - i)
+
+  remove_range = (inicio: size_t, largo: size_t) -> string
+    if inicio >= #@
+      return @
+    mut fin = inicio + largo
+    if fin > #@
+      fin = #@
+    @.substr(0, inicio) + @.substr(fin, #@ - fin)
+
+  truncate = (largo: size_t) -> string
+    if #@ <= largo then @ else @.substr(0, largo)
+
+  substring = (inicio: size_t, fin: size_t) -> string
+    if inicio >= #@
+      return ""
+    mut limite = fin
+    if limite > #@
+      limite = #@
+    if limite <= inicio
+      return ""
+    @.substr(inicio, limite - inicio)
+
+  is_ascii = -> bool
+    for i in 0..<#@
+      if not @[i].is_ascii()
+        return false
+    true
+
+  is_alphabetic = -> bool
+    if #@ == 0
+      return false
+    for i in 0..<#@
+      if not @[i].is_alpha()
+        return false
+    true
+
+  is_numeric = -> bool
+    if #@ == 0
+      return false
+    for i in 0..<#@
+      if not @[i].is_digit()
+        return false
+    true
+
+  is_alphanumeric = -> bool
+    if #@ == 0
+      return false
+    for i in 0..<#@
+      if not @[i].is_alphanumeric()
+        return false
+    true
+
+  is_whitespace = -> bool
+    if #@ == 0
+      return false
+    for i in 0..<#@
+      if not @[i].is_space()
+        return false
+    true
+
+  is_upper = -> bool
+    if #@ == 0
+      return false
+    mut tiene_letra = false
+    for i in 0..<#@
+      c = @[i]
+      if c.is_lower()
+        return false
+      if c.is_upper()
+        tiene_letra = true
+    tiene_letra
+
+  is_lower = -> bool
+    if #@ == 0
+      return false
+    mut tiene_letra = false
+    for i in 0..<#@
+      c = @[i]
+      if c.is_upper()
+        return false
+      if c.is_lower()
+        tiene_letra = true
+    tiene_letra
+
+  to_int = -> int?
+    parse_int_raw(ref(@))
+
+  to_double = -> double?
+    parse_double_raw(ref(@))
+
+  to_bool = -> bool?
+    if @ == "true"
+      return true
+    if @ == "false"
+      return false
+    none
+
+  escape = -> string
+    barra = '\\'
+    mut salida = ""
+    for i in 0..<#@
+      c = @[i]
+      if c == '\n'
+        salida += "#{barra}n"
+      else if c == '\t'
+        salida += "#{barra}t"
+      else if c == '\r'
+        salida += "#{barra}r"
+      else if c == barra
+        salida += "#{barra}#{barra}"
+      else
+        salida += "#{c}"
+    salida
+
+  unescape = -> string
+    barra = '\\'
+    mut salida = ""
+    mut i: size_t = 0
+    while i < #@
+      c = @[i]
+      if c == barra and i + 1 < #@
+        siguiente = @[i + 1]
+        if siguiente == 'n'
+          salida += "\n"
+        else if siguiente == 't'
+          salida += "\t"
+        else if siguiente == 'r'
+          salida += "\r"
+        else
+          salida += "#{siguiente}"
+        i += 2
+      else
+        salida += "#{c}"
+        i += 1
     salida
