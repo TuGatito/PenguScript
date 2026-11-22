@@ -9,15 +9,12 @@ import type { Transport } from "./transport.ts";
 import type {
   JsonRpcMessage,
   LspCompletionItem,
-  LspDiagnostic,
   LspDocumentIdentifier,
   LspDocumentSymbol,
   LspLocation,
-  LspPositionParams,
   LspTextDocumentItem,
   LspTextEdit,
 } from "./protocol.ts";
-import { DIAGNOSTIC_SEVERITY } from "./protocol.ts";
 import { analysis_file_name } from "./analysis.ts";
 import { find_node_at } from "./query.ts";
 import { format_text } from "../formatter/format_tokens.ts";
@@ -42,6 +39,14 @@ import { existing_symbol, to_lsp_range } from "./features.ts";
 import { type_display } from "../semantic/types.ts";
 import { project_sizes } from "./sizes.ts";
 import type { FieldLookup, SizeLookup } from "./hover.ts";
+import { apply_changes } from "./sync.ts";
+import type { ContentChange } from "./sync.ts";
+import type { HotSpot } from "./publish.ts";
+import { clear_file, publish_project } from "./publish.ts";
+import { empty_sizes_state, has_sizes, invalidate_sizes, refresh_sizes, schedule_sizes } from "./sizes_state.ts";
+import type { SizesState } from "./sizes_state.ts";
+import { make_parse_cache } from "../project/module_graph.ts";
+import type { ParseCache } from "../project/module_graph.ts";
 
 interface Document {
   readonly uri: string;
@@ -49,14 +54,30 @@ interface Document {
   text: string;
 }
 
+interface Perf {
+  analysis_ms: number;
+  publish_ms: number;
+  sizes_ms: number;
+}
+
 interface ServerState {
   readonly transport: Transport;
   readonly documents: Map<string, Document>;
   project: ProjectState | undefined;
-  sizes: SizeLookup | undefined;
-  fields: FieldLookup | undefined;
+  sizes: SizesState;
   sizes_in_hints: boolean;
+  // `pengu.hover.sizes`: si está apagado, el hover no muestra tamaños y no
+  // necesita la tabla (que solo se mide para la barra de estado o los inlay).
+  hover_sizes: boolean;
   shutdown: boolean;
+  timer: NodeJS.Timeout | undefined;
+  settle: NodeJS.Timeout | undefined;
+  hot: HotSpot | undefined;
+  published: Map<string, string>;
+  perf: Perf;
+  parse_cache: ParseCache;
+  // Ids de las peticiones que el servidor inicia (refresco de inlay hints).
+  next_id: number;
 }
 
 const SERVER_NAME = "pengu-lsp";
@@ -74,6 +95,12 @@ function respond_error(state: ServerState, id: number | string | undefined, code
 
 function notify(state: ServerState, method: string, params: unknown): void {
   state.transport.send({ jsonrpc: "2.0", method, params });
+}
+
+function request(state: ServerState, method: string, params: unknown): void {
+  const id = state.next_id;
+  state.next_id += 1;
+  state.transport.send({ jsonrpc: "2.0", id, method, params });
 }
 
 function request_id(message: JsonRpcMessage): number | string | undefined {
@@ -95,38 +122,54 @@ function overlays(state: ServerState): Map<string, string> {
   return map;
 }
 
+const ANALYSIS_DEBOUNCE_MS = 120;
+const SETTLE_MS = 800;
+const SIZES_IDLE_MS = 400;
+
+/** Reanaliza el proyecto (síncrono; el debounce lo llama cuando toca). */
 function rebuild(state: ServerState, entry: string): void {
+  const started = performance.now();
   try {
-    state.project = build_project(entry, overlays(state));
-    state.sizes = undefined;
-    state.fields = undefined;
+    state.project = build_project(entry, overlays(state), { parse_cache: state.parse_cache });
+    invalidate_sizes(state.sizes);
   } catch {
     state.project = undefined;
-    state.sizes = undefined;
     return;
   }
-  publish_all(state);
+  state.perf.analysis_ms = Math.round(performance.now() - started);
+  const published_started = performance.now();
+  publish_state(state);
+  state.perf.publish_ms = Math.round(performance.now() - published_started);
 }
 
-function publish_all(state: ServerState): void {
+function publish_state(state: ServerState): void {
   const project = state.project;
   if (project === undefined) return;
-  for (const file of project.files.values()) {
-    notify(state, "textDocument/publishDiagnostics", {
-      uri: file_uri(file.file),
-      diagnostics: to_lsp_diagnostics(file),
-    });
-  }
+  publish_project((method, params) => notify(state, method, params), project, state.published, state.hot);
+  if (state.settle !== undefined) clearTimeout(state.settle);
+  state.settle = undefined;
+  if (state.hot === undefined) return;
+  state.settle = setTimeout(() => {
+    state.settle = undefined;
+    const current = state.project;
+    if (current === undefined) return;
+    state.hot = undefined;
+    publish_project((method, params) => notify(state, method, params), current, state.published, undefined);
+  }, SETTLE_MS);
 }
 
-function to_lsp_diagnostics(file: FileAnalysis): LspDiagnostic[] {
-  return file.diagnostics.map((diagnostic) => ({
-    range: to_lsp_range(file.source, diagnostic.span),
-    severity: DIAGNOSTIC_SEVERITY[diagnostic.severity],
-    code: diagnostic.code,
-    source: "pengu",
-    message: diagnostic.message,
-  }));
+/** Espera a que el usuario deje de teclear antes de analizar. */
+function schedule_analysis(state: ServerState, entry: string): void {
+  if (state.timer !== undefined) clearTimeout(state.timer);
+  state.timer = setTimeout(() => {
+    state.timer = undefined;
+    rebuild(state, entry);
+  }, ANALYSIS_DEBOUNCE_MS);
+}
+
+function cancel_analysis(state: ServerState): void {
+  if (state.timer !== undefined) clearTimeout(state.timer);
+  state.timer = undefined;
 }
 
 // Archivo analizado del documento (o el del proyecto si el documento no
@@ -155,6 +198,7 @@ function handle_request(state: ServerState, message: JsonRpcMessage): void {
   switch (message.method) {
     case "initialize": {
       state.sizes_in_hints = initialization_wants_sizes(params);
+      state.hover_sizes = initialization_wants_hover_sizes(params);
       respond(state, id, {
         capabilities: {
           textDocumentSync: { openClose: true, change: 1, save: true },
@@ -186,7 +230,9 @@ function handle_request(state: ServerState, message: JsonRpcMessage): void {
     case "textDocument/hover": {
       const file = uri === undefined ? undefined : file_of(state, uri);
       if (file === undefined || position === undefined) return respond(state, id, null);
-      const hovered = hover_at(state.project as ProjectState, file, offset_of(file, position), size_lookup(state), field_lookup(state));
+      const sizes = state.hover_sizes ? size_lookup(state) : undefined;
+      const fields = state.hover_sizes ? field_lookup(state) : undefined;
+      const hovered = hover_at(state.project as ProjectState, file, offset_of(file, position), sizes, fields);
       respond(state, id, hovered === undefined ? null : { contents: { kind: "markdown", value: hovered.markdown } });
       return;
     }
@@ -323,6 +369,22 @@ function handle_request(state: ServerState, message: JsonRpcMessage): void {
       respond(state, id, size_at(state, file, offset_of(file, position)));
       return;
     }
+    case "pengu/refreshSizes": {
+      const project = state.project;
+      if (project === undefined) return respond(state, id, { available: false, stale: true });
+      refresh_sizes(state.sizes, () => measure_sizes(state, project), () => refresh_hints(state));
+      respond(state, id, { available: has_sizes(state.sizes), stale: state.sizes.stale, sizes_ms: state.perf.sizes_ms });
+      return;
+    }
+    case "pengu/perf": {
+      respond(state, id, {
+        ...state.perf,
+        stale: state.sizes.stale,
+        sizes_available: has_sizes(state.sizes),
+        files: state.project?.files.size ?? 0,
+      });
+      return;
+    }
     case "textDocument/semanticTokens/full": {
       const file = uri === undefined ? undefined : file_of(state, uri);
       if (file === undefined) return respond(state, id, { data: [] });
@@ -356,6 +418,11 @@ function initialization_wants_sizes(params: Record<string, unknown> | undefined)
   return options?.inlayHints?.sizes === true;
 }
 
+function initialization_wants_hover_sizes(params: Record<string, unknown> | undefined): boolean {
+  const options = params?.initializationOptions as { hover?: { sizes?: unknown } } | undefined;
+  return options?.hover?.sizes !== false;
+}
+
 function inlay_hints_with_sizes(state: ServerState, file: FileAnalysis): unknown[] {
   const hints = inlay_hints(file);
   if (!state.sizes_in_hints) return [...hints];
@@ -381,20 +448,36 @@ function size_at(state: ServerState, file: FileAnalysis, offset: number): unknow
   return { name, type: type === undefined ? undefined : type_display(type), size: measured.size, align: measured.align };
 }
 
+// Lecturas puras: nunca compilan; si la tabla está vieja, agendan la medición.
 function size_lookup(state: ServerState): SizeLookup | undefined {
-  const project = state.project;
-  if (project === undefined) return undefined;
-  if (state.sizes === undefined) {
-    const sizes = project_sizes(project);
-    state.sizes = sizes.lookup;
-    state.fields = sizes.fields;
-  }
-  return state.sizes;
+  ensure_sizes(state);
+  return state.sizes.lookup;
 }
 
 function field_lookup(state: ServerState): FieldLookup | undefined {
-  size_lookup(state);
-  return state.fields;
+  ensure_sizes(state);
+  return state.sizes.fields;
+}
+
+// Con la tabla nueva, los inlay hints que ya se pintaron sin tamaño quedan
+// viejos: se le pide al editor que los vuelva a pedir.
+function refresh_hints(state: ServerState): void {
+  if (!state.sizes_in_hints) return;
+  request(state, "workspace/inlayHint/refresh", null);
+}
+
+function measure_sizes(state: ServerState, project: ProjectState): ReturnType<typeof project_sizes> {
+  const started = performance.now();
+  const sizes = project_sizes(project);
+  state.perf.sizes_ms = Math.round(performance.now() - started);
+  return sizes;
+}
+
+function ensure_sizes(state: ServerState): void {
+  const project = state.project;
+  if (project === undefined) return;
+  if (!state.sizes.stale) return;
+  schedule_sizes(state.sizes, SIZES_IDLE_MS, () => measure_sizes(state, project), () => refresh_hints(state));
 }
 
 function handle_notification(state: ServerState, message: JsonRpcMessage): void {
@@ -407,19 +490,22 @@ function handle_notification(state: ServerState, message: JsonRpcMessage): void 
       const item = (params as { textDocument?: LspTextDocumentItem } | undefined)?.textDocument;
       if (item === undefined) return;
       state.documents.set(item.uri, { uri: item.uri, version: item.version ?? 0, text: item.text });
+      state.hot = undefined;
+      cancel_analysis(state);
       rebuild(state, analysis_file_name(item.uri));
       return;
     }
     case "textDocument/didChange": {
       const identifier = (params as { textDocument?: { uri: string; version?: number } } | undefined)?.textDocument;
-      const changes = (params as { contentChanges?: readonly { text: string }[] } | undefined)?.contentChanges;
+      const changes = (params as { contentChanges?: readonly ContentChange[] } | undefined)?.contentChanges;
       if (identifier === undefined || changes === undefined || changes.length === 0) return;
       const document = state.documents.get(identifier.uri);
       if (document === undefined) return;
-      const last = changes[changes.length - 1];
-      if (last !== undefined) document.text = last.text;
+      const applied = apply_changes(document.text, changes);
+      document.text = applied.text;
       document.version = identifier.version ?? document.version;
-      rebuild(state, analysis_file_name(identifier.uri));
+      state.hot = applied.hot === undefined ? undefined : { uri: analysis_file_name(identifier.uri), start: applied.hot.start, end: applied.hot.end };
+      schedule_analysis(state, analysis_file_name(identifier.uri));
       return;
     }
     case "textDocument/didSave": {
@@ -427,6 +513,8 @@ function handle_notification(state: ServerState, message: JsonRpcMessage): void 
       if (identifier === undefined) return;
       const document = state.documents.get(identifier);
       if (document === undefined) return;
+      cancel_analysis(state);
+      state.hot = undefined;
       rebuild(state, analysis_file_name(identifier));
       return;
     }
@@ -434,7 +522,9 @@ function handle_notification(state: ServerState, message: JsonRpcMessage): void 
       const identifier = document_uri_of(params);
       if (identifier === undefined) return;
       state.documents.delete(identifier);
-      notify(state, "textDocument/publishDiagnostics", { uri: identifier, diagnostics: [] });
+      if (state.hot?.uri === analysis_file_name(identifier)) state.hot = undefined;
+      clear_file((method, payload) => notify(state, method, payload), state.published, identifier);
+      cancel_analysis(state);
       return;
     }
     case "exit":
@@ -444,9 +534,26 @@ function handle_notification(state: ServerState, message: JsonRpcMessage): void 
 
 export function start_lsp_server(): void {
   const transport = make_transport(process.stdin, { write: (text) => process.stdout.write(text) });
-  const state: ServerState = { transport, documents: new Map(), project: undefined, sizes: undefined, fields: undefined, sizes_in_hints: false, shutdown: false };
+  const state: ServerState = {
+    transport,
+    documents: new Map(),
+    project: undefined,
+    sizes: empty_sizes_state(),
+    sizes_in_hints: false,
+    hover_sizes: true,
+    shutdown: false,
+    timer: undefined,
+    settle: undefined,
+    hot: undefined,
+    published: new Map(),
+    perf: { analysis_ms: 0, publish_ms: 0, sizes_ms: 0 },
+    parse_cache: make_parse_cache(),
+    next_id: 1,
+  };
 
   transport.on_message((message) => {
+    // Respuesta a una petición nuestra (no lleva `method`): no hay nada que hacer.
+    if (message.method === undefined) return;
     const is_request = request_id(message) !== undefined;
     try {
       if (is_request) handle_request(state, message);

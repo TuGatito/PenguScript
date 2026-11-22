@@ -1,75 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { spawn } from "node:child_process";
-import type { ChildProcess } from "node:child_process";
+import { start_server, stop_all, wait_for } from "./harness.ts";
 
-interface RpcMessage {
-  readonly id?: number | string;
-  readonly method?: string;
-  readonly result?: unknown;
-  readonly params?: unknown;
-}
-
-const root = new URL("../..", import.meta.url).pathname;
-const children: ChildProcess[] = [];
-
-afterAll(() => {
-  for (const child of children) child.kill();
-});
-
-function start_server(): {
-  child: ChildProcess;
-  send: (message: unknown) => void;
-  messages: RpcMessage[];
-} {
-  const child = spawn("bun", ["run", "src/main.ts", "lsp"], { cwd: root });
-  children.push(child);
-  const messages: RpcMessage[] = [];
-  let buffer = Buffer.alloc(0);
-
-  child.stdout!.on("data", (chunk: Buffer) => {
-    buffer = Buffer.concat([buffer, chunk]);
-    while (true) {
-      const header_end = buffer.indexOf("\r\n\r\n");
-      if (header_end < 0) break;
-      const header = buffer.subarray(0, header_end).toString("ascii");
-      const match = /content-length:\s*(\d+)/i.exec(header);
-      if (match === null) {
-        buffer = buffer.subarray(header_end + 4);
-        continue;
-      }
-      const length = Number.parseInt(match[1] as string, 10);
-      const start = header_end + 4;
-      if (buffer.length < start + length) break;
-      messages.push(JSON.parse(buffer.subarray(start, start + length).toString("utf8")) as RpcMessage);
-      buffer = buffer.subarray(start + length);
-    }
-  });
-
-  return {
-    child,
-    messages,
-    send(message: unknown): void {
-      const body = JSON.stringify(message);
-      child.stdin!.write(`Content-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`);
-    },
-  };
-}
-
-function wait_for(messages: RpcMessage[], predicate: (message: RpcMessage) => boolean): Promise<RpcMessage> {
-  return new Promise((resolve, reject) => {
-    const deadline = Date.now() + 8000;
-    const timer = setInterval(() => {
-      const found = messages.find(predicate);
-      if (found !== undefined) {
-        clearInterval(timer);
-        resolve(found);
-      } else if (Date.now() > deadline) {
-        clearInterval(timer);
-        reject(new Error("tiempo de espera agotado"));
-      }
-    }, 20);
-  });
-}
+afterAll(stop_all);
 
 const uri = "file:///tmp/pengu_lsp_test.pengu";
 const good_text = "sumar = (a: int, b: int) -> int\n  a + b\n\nmain = ->\n  x:int=sumar(1,2)\n  io::println(\"#{x}\")\n";

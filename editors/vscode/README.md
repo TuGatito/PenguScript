@@ -95,6 +95,11 @@ El cliente LSP analiza el **proyecto completo** (el archivo, sus `invoke` y
 | `pengu.inlayHints.sizes` | `false` | Añade `· N B` a los inlay hints. |
 | `pengu.completion.docs` | `true` | Muestra la documentación en el autocompletado. |
 | `pengu.statusBar.size` | `true` | Barra de estado con el tamaño del símbolo. |
+| `pengu.hover.sizes` | `true` | Muestra el tamaño medido en el hover. |
+
+Los tamaños se miden compilando un sondeo C++ con el mismo compilador que usa
+`pengu build`. La primera medición tarda ~1,8 s y ocurre en segundo plano: el
+hover y la barra de estado responden al instante con el último valor válido.
 
 Además, los archivos `.pengu` usan por defecto 2 espacios, sin detección
 automática de sangría (el lenguaje es sensible a la indentación).

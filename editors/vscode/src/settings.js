@@ -32,6 +32,10 @@ function status_size() {
   return configuration().get("statusBar.size", true);
 }
 
+function hover_sizes() {
+  return configuration().get("hover.sizes", true);
+}
+
 module.exports = {
   configuration,
   extra_args,
@@ -40,4 +44,5 @@ module.exports = {
   inlay_types,
   completion_docs,
   status_size,
+  hover_sizes,
 };

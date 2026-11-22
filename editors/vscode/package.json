@@ -294,6 +294,11 @@
           "type": "boolean",
           "default": true,
           "description": "Muestra el tamaño del símbolo bajo el cursor en la barra de estado."
+        },
+        "pengu.hover.sizes": {
+          "type": "boolean",
+          "default": true,
+          "description": "Muestra el tamaño medido en el hover (requiere compilar el sondeo una vez)."
         }
       }
     },

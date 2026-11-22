@@ -244,11 +244,48 @@ técnica conocida en el compilador.
   engañoso («no respondió a `--version`»).
 - La medición de tamaños cualifica los tipos de cada realm y omite `void`.
 
+### Rendimiento del LSP (fases L1–L6)
+
+- **Sincronización incremental de verdad**: `src/lsp/sync.ts` aplica cada
+  `contentChanges[].range` sobre el texto actual. Antes el servidor anunciaba
+  cambios incrementales pero reemplazaba el documento por el último fragmento.
+- **Análisis agrupado**: una ráfaga de teclas espera 120 ms y produce un solo
+  análisis y una sola publicación; `didSave` analiza de inmediato.
+- **Diagnósticos por diferencia**: cada archivo tiene una huella; si su lista
+  no cambió, no se reenvía (`src/lsp/publish.ts`). Los módulos empotrados
+  (`std:…`) no se publican.
+- **Sin errores fantasma al escribir**: `E0403`/`E0506` que tocan el tramo
+  recién editado se filtran hasta 800 ms después del reposo, cuando se publica
+  la lista definitiva.
+- **Tamaños que no bloquean**: `src/lsp/sizes_state.ts` mantiene la última
+  tabla válida y agenda la medición 400 ms después del último cambio. Hover,
+  inlay hints y `pengu/sizeAt` responden al instante; al terminar se pide
+  `workspace/inlayHint/refresh`. Nueva petición `pengu/refreshSizes` y
+  `pengu/perf` con los tiempos del último análisis/publicación/medición.
+- **Sondeo estable**: `generate_program` admite `declarations_only`; el sondeo
+  de tamaños ya no incluye cuerpos, así que editar una función no recompila.
+- **Caché de parseo** por contenido (hash FNV-1a) en `ParseCache`, compartida
+  por el servidor entre pulsaciones.
+- **Extensión**: debounce de 250 ms para `pengu/sizeAt` desde la barra de
+  estado (`editors/vscode/src/debounce.js`) y ajuste `pengu.hover.sizes`.
+- Cifras medidas en `examples/13_enchanting`: hover tras editar 1975 → 10 ms;
+  reanálisis 6 ms; la medición de tamaños (1,8 s) pasa a segundo plano.
+
+### Corregido en las fases L1–L6
+
+- El servidor LSP corrompía el documento al recibir cambios incrementales
+  (reemplazaba todo el texto por el fragmento insertado).
+- El hover compilaba el sondeo C++ dentro de la propia petición (hasta 1975 ms).
+- Cada pulsación publicaba los diagnósticos de todos los archivos del proyecto.
+- El sondeo de tamaños cambiaba de hash al editar cualquier cuerpo, lo que
+  invalidaba la caché y forzaba una compilación de ~1,9 s.
+
 ### Verificado
 
-- `bun test`: 344 pruebas en 41 archivos (lexer, parser, checker, formateador,
-  LSP de integración y de consultas, medición de tamaños, bindgen, biblioteca
-  estándar, conformidad y e2e de los ejemplos, de las fases F1–F9, H1–H7 e
-  I1–I8, y de la extensión de VS Code).
+- `bun test`: 361 pruebas en 45 archivos (lexer, parser, checker, formateador,
+  LSP de integración, de consultas, de sincronización y de rendimiento,
+  medición de tamaños, bindgen, biblioteca estándar, conformidad y e2e de los
+  ejemplos, de las fases F1–F9, G1–G6, H1–H7, I1–I8 y L1–L6, y de la extensión
+  de VS Code).
 - `tsc --noEmit` sin errores y `pengu fmt --check` sin cambios pendientes.
 - Los 13 ejemplos de `examples/` compilan y ejecutan con el compilador final.

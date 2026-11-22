@@ -10,6 +10,7 @@ const { check_document, clear } = require("./diagnostics");
 const { project_cwd } = require("./terminal");
 const { size_at, format_size, create_size_item } = require("./sizes");
 const { status_size } = require("./settings");
+const { make_debounced } = require("./debounce");
 
 let active_state;
 
@@ -92,7 +93,7 @@ async function activate(context) {
     await start();
   };
 
-  const refresh_size = () => {
+  const refresh_size = make_debounced(250, () => {
     if (!status_size()) {
       size_item.hide();
       return;
@@ -112,18 +113,19 @@ async function activate(context) {
       size_item.tooltip = "Tamaño medido del símbolo bajo el cursor";
       size_item.show();
     });
-  };
+  });
 
   active_state = state;
   register_commands(context, state);
   context.subscriptions.push(status, output, size_item, register_tasks());
   context.subscriptions.push(
-    window.onDidChangeTextEditorSelection(() => refresh_size()),
-    window.onDidChangeActiveTextEditor(() => refresh_size()),
+    window.onDidChangeTextEditorSelection(() => refresh_size.schedule()),
+    window.onDidChangeActiveTextEditor(() => refresh_size.schedule()),
+    { dispose: () => refresh_size.cancel() },
   );
   context.subscriptions.push(
     workspace.onDidChangeConfiguration((event) => {
-      const restarts = ["pengu.executable", "pengu.lsp.trace.server", "pengu.inlayHints.sizes", "pengu.completion.docs"];
+      const restarts = ["pengu.executable", "pengu.lsp.trace.server", "pengu.inlayHints.sizes", "pengu.completion.docs", "pengu.hover.sizes"];
       if (restarts.some((key) => event.affectsConfiguration(key))) void state.restart();
     }),
     workspace.onDidSaveTextDocument((document) => {

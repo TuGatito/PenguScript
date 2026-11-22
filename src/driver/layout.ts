@@ -117,7 +117,9 @@ export function layout_targets(units: readonly ProgramUnit[]): LayoutTarget[] {
 
 export function probe_source(units: readonly ProgramUnit[], entry: ModuleInfo): string {
   const sink = make_sink({ max: 10 });
-  const generated = generate_program(units, entry, sink, { emit_main: false });
+  // Solo declaraciones: editar un cuerpo no cambia el sondeo, así que el hash
+  // de la caché se mantiene y no se recompila por escribir dentro de `main`.
+  const generated = generate_program(units, entry, sink, { emit_main: false, declarations_only: true });
   const targets = layout_targets(units);
   const realms = collect_type_realms(units);
   const cpp_type_of = (type: Parameters<typeof cpp_type>[0]): string => cpp_type(type, realms);

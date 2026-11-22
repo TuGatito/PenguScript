@@ -47,6 +47,8 @@ export function collect_type_realms(units: readonly ProgramUnit[]): TypeRealms {
 }
 
 export interface GenerateOptions {
+  /** Emite solo las declaraciones de tipo (sin cuerpos ni constantes). */
+  readonly declarations_only?: boolean;
   // `false` genera solo declaraciones (medición de tamaños).
   readonly emit_main?: boolean;
 }
@@ -84,13 +86,15 @@ export function generate_program(
     // funciones que usan contenedores `unordered_*`.
     for (const extra of g.std_extra) body.push(extra);
     if (g.std_extra.length > 0) body.push("");
-    body.push(`namespace ${realm} {`);
-    g.lines = body;
-    g.indent = 1;
-    emit_rest_declarations(g, unit.program.decls);
-    g.indent = 0;
-    body.push(`}  // namespace ${realm}`);
-    body.push("");
+    if (options.declarations_only !== true) {
+      body.push(`namespace ${realm} {`);
+      g.lines = body;
+      g.indent = 1;
+      emit_rest_declarations(g, unit.program.decls);
+      g.indent = 0;
+      body.push(`}  // namespace ${realm}`);
+      body.push("");
+    }
   }
 
   const main = entry.functions.get("main");

@@ -52,6 +52,11 @@ para **ejecutar**, **compilar**, **verificar**, **formatear** y **ver el tamaño
 del símbolo** bajo el cursor, además de tareas con el *problem matcher*
 `$pengu`.
 
+El servidor está pensado para escribir rápido: agrupa los cambios (120 ms),
+publica solo los archivos cuyos diagnósticos cambiaron y mide los tamaños en
+segundo plano, así que el hover responde en milisegundos aunque el proyecto
+cambie.
+
 ```bash
 ./scripts/vsix.sh           # empaqueta e instala la extensión
 ```

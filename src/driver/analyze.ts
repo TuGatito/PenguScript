@@ -5,6 +5,7 @@ import type { DiagnosticSink } from "../diagnostics/sink.ts";
 import { make_sink } from "../diagnostics/sink.ts";
 import type { Diagnostic } from "../diagnostics/diagnostic.ts";
 import { load_graph } from "../project/module_graph.ts";
+import type { ParseCache } from "../project/module_graph.ts";
 import { same_method_signature } from "../semantic/module_info.ts";
 import type { EnchantedType } from "../semantic/type_env.ts";
 import { check_loaded_module } from "../semantic/checker.ts";
@@ -46,10 +47,12 @@ export interface Analysis {
 export interface AnalyzeOptions {
   // Sustituye la lectura de disco (buffers sin guardar del editor).
   readonly read_file?: (path: string) => string | undefined;
+  // Reutiliza el AST de los archivos cuyo contenido no cambió.
+  readonly parse_cache?: ParseCache;
 }
 
 export function analyze_project(source_path: string, options: AnalyzeOptions = {}): ProjectAnalysis {
-  const graph = load_graph(source_path, { read_file: options.read_file });
+  const graph = load_graph(source_path, { read_file: options.read_file, parse_cache: options.parse_cache });
 
   const modules: LoadedAnalysis[] = [];
   for (const loaded of graph.order) {

@@ -6,7 +6,6 @@
 
 import { readFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { make_source } from "../util/span.ts";
 import type { Diagnostic } from "../diagnostics/diagnostic.ts";
 import { error as make_error } from "../diagnostics/diagnostic.ts";
 import { CODES } from "../diagnostics/codes.ts";
@@ -41,9 +40,37 @@ export interface ModuleGraph {
   readonly by_file: ReadonlyMap<string, readonly Diagnostic[]>;
 }
 
+// Caché de parseo por contenido: si el texto no cambió, el AST se reutiliza.
+// Vive en el proceso (el LSP la conserva entre pulsaciones).
+export interface ParsedFile {
+  readonly hash: string;
+  readonly program: Program;
+  readonly diagnostics: readonly Diagnostic[];
+}
+
+export interface ParseCache {
+  readonly entries: Map<string, ParsedFile>;
+}
+
+export function make_parse_cache(): ParseCache {
+  return { entries: new Map() };
+}
+
+// FNV-1a de 32 bits: barato y suficiente para detectar texto distinto.
+function content_hash(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16);
+}
+
 export interface LoadOptions {
   // El LSP lee primero los buffers abiertos, después el disco.
   readonly read_file?: (path: string) => string | undefined;
+  // Reutiliza el AST de los archivos cuyo contenido no cambió.
+  readonly parse_cache?: ParseCache;
 }
 
 interface LoadState {
@@ -54,6 +81,7 @@ interface LoadState {
   readonly by_file: Map<string, Diagnostic[]>;
   readonly root: string;
   readonly read_file: ((path: string) => string | undefined) | undefined;
+  readonly parse_cache: ParseCache | undefined;
 }
 
 // Un diagnóstico se guarda en la lista global y en la de su archivo.
@@ -193,8 +221,15 @@ function load_one(state: LoadState, file: string): LoadedModule | undefined {
     return undefined;
   }
 
-  const source = make_source(file, text);
-  const parse = parse_text(file, text);
+  const hash = content_hash(text);
+  const cached_parse = state.parse_cache?.entries.get(file);
+  const parse =
+    cached_parse !== undefined && cached_parse.hash === hash
+      ? { program: cached_parse.program, diagnostics: cached_parse.diagnostics }
+      : parse_text(file, text);
+  if (cached_parse === undefined || cached_parse.hash !== hash) {
+    state.parse_cache?.entries.set(file, { hash, program: parse.program, diagnostics: parse.diagnostics });
+  }
   for (const diagnostic of parse.diagnostics) report(state, diagnostic);
 
   const sink = make_sink({ max: 200 });
@@ -252,7 +287,6 @@ function load_one(state: LoadState, file: string): LoadedModule | undefined {
   const module: LoadedModule = { file, program: parse.program, info, imports, selective };
   state.loaded.set(file, module);
   state.order.push(module);
-  void source;
   return module;
 }
 
@@ -266,6 +300,7 @@ export function load_graph(entry_file: string, options: LoadOptions = {}): Modul
     by_file: new Map(),
     root,
     read_file: options.read_file,
+    parse_cache: options.parse_cache,
   };
   const entry = load_one(state, entry_file);
   check_realm_collisions(state);

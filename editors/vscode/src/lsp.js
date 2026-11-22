@@ -1,7 +1,7 @@
 // Ciclo de vida del cliente LSP: arranque, reinicio y parada.
 
 const { workspace } = require("vscode");
-const { inlay_sizes, inlay_types, completion_docs, status_size } = require("./settings");
+const { inlay_sizes, inlay_types, completion_docs, status_size, hover_sizes } = require("./settings");
 const { LanguageClient, TransportKind } = require("vscode-languageclient/node");
 
 // El cliente 11 ya no exporta el enum de traza: vive en vscode-jsonrpc.
@@ -29,6 +29,7 @@ function client_options(output) {
       inlayHints: { types: inlay_types(), sizes: inlay_sizes() },
       completion: { docs: completion_docs() },
       statusBar: { size: status_size() },
+      hover: { sizes: hover_sizes() },
     },
   };
 }

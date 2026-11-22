@@ -13,6 +13,7 @@ import type { SymbolIndex } from "../semantic/symbols.ts";
 import type { ProgramUnit } from "../codegen/cpp_module.ts";
 import { collect_type_realms } from "../codegen/cpp_module.ts";
 import type { ModuleInfo } from "../semantic/module_info.ts";
+import type { ParseCache } from "../project/module_graph.ts";
 import { build_index } from "./index.ts";
 
 export interface FileAnalysis {
@@ -36,8 +37,17 @@ export interface ProjectState {
 
 // `overlays` son los buffers sin guardar, indexados por ruta absoluta:
 // el editor manda lo que se ve, no lo que hay en disco.
-export function build_project(entry: string, overlays: ReadonlyMap<string, string> = new Map()): ProjectState {
-  const project = analyze_project(entry, { read_file: (path) => overlays.get(path) });
+export interface ProjectOptions {
+  // Caché de parseo que el servidor conserva entre pulsaciones.
+  readonly parse_cache?: ParseCache;
+}
+
+export function build_project(
+  entry: string,
+  overlays: ReadonlyMap<string, string> = new Map(),
+  options: ProjectOptions = {},
+): ProjectState {
+  const project = analyze_project(entry, { read_file: (path) => overlays.get(path), parse_cache: options.parse_cache });
 
   const files = new Map<string, FileAnalysis>();
   for (const analyzed of project.modules) {
