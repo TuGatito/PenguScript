@@ -6,7 +6,7 @@ export interface ParsedArgs {
 }
 
 // Flags que esperan un valor en el argumento siguiente (`--out ruta`).
-const VALUE_FLAGS = new Set(["out", "realm", "link", "clang", "lib", "entry", "target"]);
+const VALUE_FLAGS = new Set(["out", "realm", "link", "clang", "lib", "entry", "target", "type", "compiler"]);
 
 export function parse_args(argv: readonly string[]): ParsedArgs {
   const positionals: string[] = [];
