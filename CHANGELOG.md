@@ -238,7 +238,7 @@ técnica conocida en el compilador.
 
 ### Verificado
 
-- `bun test`: 339 pruebas en 40 archivos (lexer, parser, checker, formateador,
+- `bun test`: 344 pruebas en 41 archivos (lexer, parser, checker, formateador,
   LSP de integración y de consultas, medición de tamaños, bindgen, biblioteca
   estándar, conformidad y e2e de los ejemplos, de las fases F1–F9, H1–H7 e
   I1–I8, y de la extensión de VS Code).
