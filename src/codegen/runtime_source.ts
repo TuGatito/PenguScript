@@ -602,6 +602,51 @@ void insert_at(C& container, std::size_t index, const V& value) {
   container.insert(std::next(container.begin(), static_cast<std::ptrdiff_t>(index)), value);
 }
 
+// pop_front() para deque/list: devuelve el elemento y comprueba que haya.
+template <class C>
+auto pop_front_checked(C& container) -> typename C::value_type {
+  if (container.empty()) throw std::runtime_error("pop_front() sobre un contenedor vacío");
+  auto value = container.front();
+  container.pop_front();
+  return value;
+}
+
+// pop() de stack/queue/priority_queue: C++ lo devuelve void, así que se lee
+// el elemento antes de quitarlo.
+template <class A>
+auto adapter_pop(A& container) -> typename A::value_type {
+  if (container.empty()) throw std::runtime_error("pop() sobre un contenedor vacío");
+  auto value = [&container]() -> typename A::value_type {
+    if constexpr (requires { container.top(); }) {
+      return container.top();
+    } else {
+      return container.front();
+    }
+  }();
+  container.pop();
+  return value;
+}
+
+template <class A>
+void adapter_clear(A& container) {
+  while (!container.empty()) container.pop();
+}
+
+// sum() y product() de una secuencia: el elemento decide la aritmética.
+template <class C>
+auto sum_of(const C& container) -> typename C::value_type {
+  typename C::value_type total{};
+  for (const auto& value : container) total += value;
+  return total;
+}
+
+template <class C>
+auto product_of(const C& container) -> typename C::value_type {
+  typename C::value_type total{1};
+  for (const auto& value : container) total *= value;
+  return total;
+}
+
 template <class C, class V>
 bool remove_value(C& container, const V& value) {
   auto found = std::find(container.begin(), container.end(), value);

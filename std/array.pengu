@@ -29,3 +29,83 @@ enchanting array<T>
         break
       i += 1
     esta
+
+  to_vector = -> vector<T>
+    mut salida: vector<T> = []
+    mut i: size_t = 0
+    while i < #@
+      salida.push(@[i])
+      i += 1
+    salida
+
+  reversed = -> vector<T>
+    mut salida: vector<T> = []
+    mut i = #@
+    while i > 0
+      i -= 1
+      salida.push(@[i])
+    salida
+
+  slice = (inicio: size_t, largo: size_t) -> vector<T>
+    mut salida: vector<T> = []
+    mut i = inicio
+    while i < #@ and i < inicio + largo
+      salida.push(@[i])
+      i += 1
+    salida
+
+  join = (separador: string) -> string
+    mut salida = ""
+    mut i: size_t = 0
+    while i < #@
+      if i > 0
+        salida += separador
+      salida += "#{@[i]}"
+      i += 1
+    salida
+
+  min = -> T?
+    if #@ == 0
+      return none
+    mut candidato = @[0]
+    mut i: size_t = 1
+    while i < #@
+      if candidato > @[i]
+        candidato = @[i]
+      i += 1
+    candidato
+
+  max = -> T?
+    if #@ == 0
+      return none
+    mut candidato = @[0]
+    mut i: size_t = 1
+    while i < #@
+      if candidato < @[i]
+        candidato = @[i]
+      i += 1
+    candidato
+
+  find_if = (predicado: function<(T) -> bool>) -> T?
+    for valor in @
+      if predicado(valor)
+        return valor
+    none
+
+  any = (predicado: function<(T) -> bool>) -> bool
+    for valor in @
+      if predicado(valor)
+        return true
+    false
+
+  all = (predicado: function<(T) -> bool>) -> bool
+    for valor in @
+      if not predicado(valor)
+        return false
+    true
+
+  none = (predicado: function<(T) -> bool>) -> bool
+    for valor in @
+      if predicado(valor)
+        return false
+    true

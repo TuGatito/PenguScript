@@ -348,12 +348,44 @@ técnica conocida en el compilador.
   utilidades y la aceptación de caída libre con rebote), más casos del
   formateador para nombres compuestos y operadores tras `@`.
 
+### Biblioteca estándar: F2 (contenedores)
+
+- `std/vector` crece hasta la API completa: consulta (`get_or`, `first_or`,
+  `last_or`, `min`, `max`, `is_sorted`), mutación (`remove`, `remove_all`,
+  `extend`, `retain`, `fill`, `swap`, `rotate_left`, `rotate_right`,
+  `transform`, `sort_by`, `dedup`), orden superior (`any`, `all`, `none`,
+  `count_if`, `find_if`, `position_if`, `fold`, `map`, `filter`), orden y
+  búsqueda (`sorted`, `sorted_by`, `binary_search`) y partes (`take`, `skip`,
+  `slice`, `chunks`, `windows`, `enumerate`), además de `sum`/`product`.
+- `std/array` añade `to_vector`, `reversed`, `slice`, `join`, `min`, `max`,
+  `find_if`, `any`, `all`, `none` (y hereda `sum`/`product`); sigue sin
+  permitir cambios de tamaño.
+- `std/map` añade `get_or_insert`, `update`, `entries`, `first_key`,
+  `last_key`, `merge` y `retain`.
+- `std/set` añade `is_superset`, `is_disjoint`, `insert_all`, `remove_all`,
+  `extend`, `retain`, `first`, `last`, `map`, `filter` y `to_sorted_vector`.
+- `std/optional` añade `map`, `and_then`, `or_else_get`, `zip` y `any`.
+- Nuevo `std/deque` con doble extremo (`push_front`, `pop_front`, `insert_at`,
+  `remove_at`) más `first`, `last`, `get_or`, `index_of`, `contains`,
+  `to_vector` y `join`.
+- `std/ordering` añade `to_int` y `then_with`; `std/tuple<A, B, C>` añade
+  `first` y `second`.
+- Adaptadores: `pop` de `stack`/`queue`/`priority_queue` devuelve el elemento
+  (antes era `void`) y `clear` existe en los tres; `sum`/`product` funcionan
+  con cualquier secuencia.
+- Correcciones de la fase: `for clave, valor in ref(mapa)` itera el mapa y no
+  por índice; el receptor de `mut` sobre `shared<T>` es constante; los
+  métodos `ref<T>` de un método `mut` se pasan con `ref(x)`.
+- Pruebas nuevas: `tests/std/containers.test.ts` (vector en tres bloques,
+  array, map, set, optional, deque, adaptadores y bitset, ordering/tuplas y la
+  comprobación de que mutar durante `for` sigue siendo `E0602`).
+
 ### Verificado
 
-- `bun test`: 381 pruebas en 49 archivos (lexer, parser, checker, formateador,
+- `bun test`: 392 pruebas en 50 archivos (lexer, parser, checker, formateador,
   LSP de integración, de consultas, de sincronización y de rendimiento,
   medición de tamaños, bindgen, biblioteca estándar, conformidad y e2e de los
   ejemplos, de las fases F1–F9, G1–G6, H1–H7, I1–I8, L1–L6 y de la fundación
-  de la biblioteca estándar (F0 y F1), y de la extensión de VS Code).
+  de la biblioteca estándar (F0, F1 y F2), y de la extensión de VS Code).
 - `tsc --noEmit` sin errores y `pengu fmt --check` sin cambios pendientes.
 - Los 13 ejemplos de `examples/` compilan y ejecutan con el compilador final.

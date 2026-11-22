@@ -41,23 +41,24 @@ explícita para que los métodos existan en el archivo:
 | Archivo | Métodos que añade |
 |---------|-------------------|
 | `std/string.pengu` | `string`: `compare`, `is_empty`, `starts_with`, `ends_with`, `contains`, `find`, `trim`, `to_upper`, `to_lower`, `split`, `repeat`. |
-| `std/vector.pengu` | `vector<T>`: `is_empty`, `first`, `last`, `index_of`, `contains`, `join`, `mut reverse`, `mut sort`. |
-| `std/array.pengu` | `array<T, N>`: `is_empty`, `first`, `last`, `index_of`, `contains`. |
-| `std/map.pengu` | `map<K, V>`: `is_empty`, `contains_key`, `keys_list`, `values_list`. |
-| `std/set.pengu` | `set<T>`: `is_empty`, `contains`, `to_vector`, `union`, `intersection`, `difference`, `symmetric_difference`, `is_subset`. |
-| `std/optional.pengu` | `T?`: `is_empty`, `or_else`, `filter`, `to_vector`. |
+| `std/vector.pengu` | `vector<T>`: `is_empty`, `first`, `last`, `index_of`, `contains`, `join`, `get_or`, `first_or`, `last_or`, `mut remove`, `mut remove_all`, `mut extend`, `mut retain`, `mut fill`, `mut swap`, `mut rotate_left`, `mut rotate_right`, `any`, `all`, `none`, `count_if`, `find_if`, `position_if`, `fold`, `map`, `filter`, `mut transform`, `min`, `max`, `is_sorted`, `mut sort_by`, `sorted`, `sorted_by`, `mut dedup`, `binary_search`, `take`, `skip`, `slice`, `chunks`, `windows`, `enumerate`, `sum`, `product`. |
+| `std/array.pengu` | `array<T, N>`: `is_empty`, `first`, `last`, `index_of`, `contains`, `to_vector`, `reversed`, `slice`, `join`, `min`, `max`, `find_if`, `any`, `all`, `none`, `sum`, `product`. |
+| `std/map.pengu` | `map<K, V>`: `is_empty`, `contains_key`, `keys_list`, `values_list`, `mut get_or_insert`, `mut update`, `entries`, `first_key`, `last_key`, `mut merge`, `mut retain`; builtins: `get`, `get_or`, `insert`, `insert_or_assign`, `remove`, `contains`, `keys`, `values`, `clear`. |
+| `std/set.pengu` | `set<T>`: `is_empty`, `contains`, `to_vector`, `union`, `intersection`, `difference`, `symmetric_difference`, `is_subset`, `is_superset`, `is_disjoint`, `mut insert_all`, `mut remove_all`, `mut extend`, `mut retain`, `first`, `last`, `map`, `filter`, `to_sorted_vector`. |
+| `std/optional.pengu` | `T?`: `is_empty`, `or_else`, `filter`, `to_vector`, `map`, `and_then`, `or_else_get`, `zip`, `any`. |
 | `std/pair.pengu` | `pair<A, B>`: `swap`, `to_tuple`. |
-| `std/tuple.pengu` | `tuple<A, B>` y `tuple<A, B, C>`: `len`, `swap`, `to_pair`, `third`. |
+| `std/tuple.pengu` | `tuple<A, B>` y `tuple<A, B, C>`: `len`, `swap`, `to_pair`, `first`, `second`, `third`. |
 | `std/int.pengu` | `int`: `abs`, `min`, `max`, `clamp`, `is_even`, `is_odd`, `is_positive`, `is_negative`, `is_zero`, `sign`, `between`, `div_floor`, `div_ceil`, `mod_floor`, `mod_euclid`, `pow`, `wrap`, `next_multiple_of`, `abs_diff`, `digits`, `is_power_of_two`, `to_double`, `to_float`, `to_int64`, `to_size`, `to_radix`. |
 | `std/double.pengu` | `double`: `abs`, `min`, `max`, `clamp`, `between`, `sqrt`, `cbrt`, `pow`, `exp`, `ln`, `log2`, `log10`, `floor`, `ceil`, `round`, `trunc`, `fract`, `round_to`, `hypot`, `is_finite`, `is_infinite`, `is_nan`, `is_sign_negative`, `signum`, `lerp`, `approx_eq`, `to_radians`, `to_degrees`, `to_fixed`, `to_scientific`, `to_int`, `to_float`, `to_long_double`. |
 | `std/float.pengu` | `float`: la misma superficie que `double` (con `to_fixed`/`to_scientific` y conversiones propias). |
 | `std/long_double.pengu` | `long double`: la misma superficie que `double`. |
-| `std/ordering.pengu` | `Ordering`: `then`. |
+| `std/ordering.pengu` | `Ordering`: `then`, `to_int`, `then_with`. |
+| `std/deque.pengu` | `deque<T>`: doble extremo: `is_empty`, `first`, `last`, `get_or`, `index_of`, `contains`, `to_vector`, `join`; builtins: `push`, `push_front`, `pop`, `pop_front`, `insert_at`, `remove_at`, `clear`. |
 | `std/memory.pengu` | `unique<T>`/`shared<T>`: `get`, `mut set`; `weak<T>`: `is_alive`. |
 
-### Módulos previstos (fases F2–F9)
+### Módulos previstos (fases F3–F9)
 
-El plan `scratch/plan_stdlib.md` define el resto de la biblioteca. `std/sys` y `std/ffi` de las secciones siguientes son el diseño objetivo: todavía **no existen** como archivos y se implementarán en fases posteriores (contenedores, texto, sistema, algoritmos, juegos, datos/CLI).
+El plan `scratch/plan_stdlib.md` define el resto de la biblioteca. `std/sys` y `std/ffi` de las secciones siguientes son el diseño objetivo: todavía **no existen** como archivos y se implementarán en fases posteriores (texto, sistema, algoritmos, juegos, datos/CLI).
 
 ### Layer 0 — FFI
 

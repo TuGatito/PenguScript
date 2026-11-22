@@ -1,5 +1,7 @@
 realm vector
 
+invoke "std/pair"
+
 enchanting vector<T>
   is_empty = -> bool
     #@ == 0
@@ -62,3 +64,276 @@ enchanting vector<T>
         @[j - 1] = temporal
         j -= 1
       i += 1
+
+  get_or = (indice: size_t, alternativa: T) -> T
+    if indice < #@ then @[indice] else alternativa
+
+  first_or = (alternativa: T) -> T
+    if #@ == 0 then alternativa else @[0]
+
+  last_or = (alternativa: T) -> T
+    if #@ == 0 then alternativa else @[#@ - 1]
+
+  mut remove = (valor: T) -> bool
+    indice = @.index_of(valor)
+    if indice.is_some()
+      @.remove_at(indice.value())
+      true
+    else
+      false
+
+  mut remove_all = (valor: T) -> size_t
+    mut borrados: size_t = 0
+    mut indice = @.index_of(valor)
+    while indice.is_some()
+      @.remove_at(indice.value())
+      borrados += 1
+      indice = @.index_of(valor)
+    borrados
+
+  mut extend = (otro: ref<vector<T>>) -> void
+    for valor in otro
+      @.push(valor)
+
+  mut retain = (predicado: function<(T) -> bool>) -> void
+    mut conservados: vector<T> = []
+    for valor in @
+      if predicado(valor)
+        conservados.push(valor)
+    @ = conservados
+
+  mut fill = (valor: T) -> void
+    mut i: size_t = 0
+    while i < #@
+      @[i] = valor
+      i += 1
+
+  mut swap = (i: size_t, j: size_t) -> void
+    temporal = @[i]
+    @[i] = @[j]
+    @[j] = temporal
+
+  mut rotate_left = (n: size_t) -> void
+    if #@ == 0
+      return
+    mut pasos = n % #@
+    while pasos > 0
+      primero = @[0]
+      mut i: size_t = 0
+      while i + 1 < #@
+        @[i] = @[i + 1]
+        i += 1
+      @[#@ - 1] = primero
+      pasos -= 1
+
+  mut rotate_right = (n: size_t) -> void
+    if #@ == 0
+      return
+    mut pasos = n % #@
+    while pasos > 0
+      ultimo = @[#@ - 1]
+      mut i = #@ - 1
+      while i > 0
+        @[i] = @[i - 1]
+        i -= 1
+      @[0] = ultimo
+      pasos -= 1
+
+  any = (predicado: function<(T) -> bool>) -> bool
+    for valor in @
+      if predicado(valor)
+        return true
+    false
+
+  all = (predicado: function<(T) -> bool>) -> bool
+    for valor in @
+      if not predicado(valor)
+        return false
+    true
+
+  none = (predicado: function<(T) -> bool>) -> bool
+    for valor in @
+      if predicado(valor)
+        return false
+    true
+
+  count_if = (predicado: function<(T) -> bool>) -> size_t
+    mut total: size_t = 0
+    for valor in @
+      if predicado(valor)
+        total += 1
+    total
+
+  find_if = (predicado: function<(T) -> bool>) -> T?
+    for valor in @
+      if predicado(valor)
+        return valor
+    none
+
+  position_if = (predicado: function<(T) -> bool>) -> size_t?
+    mut i: size_t = 0
+    while i < #@
+      if predicado(@[i])
+        return i
+      i += 1
+    none
+
+  fold = (combinar: function<(T, T) -> T>, inicial: T) -> T
+    mut acumulado = inicial
+    for valor in @
+      acumulado = combinar(acumulado, valor)
+    acumulado
+
+  map = (transformar: function<(T) -> T>) -> vector<T>
+    mut salida: vector<T> = []
+    for valor in @
+      salida.push(transformar(valor))
+    salida
+
+  filter = (predicado: function<(T) -> bool>) -> vector<T>
+    mut salida: vector<T> = []
+    for valor in @
+      if predicado(valor)
+        salida.push(valor)
+    salida
+
+  mut transform = (transformar: function<(T) -> T>) -> void
+    mut i: size_t = 0
+    while i < #@
+      @[i] = transformar(@[i])
+      i += 1
+
+  min = -> T?
+    if #@ == 0
+      return none
+    mut candidato = @[0]
+    for valor in @
+      if candidato > valor
+        candidato = valor
+    candidato
+
+  max = -> T?
+    if #@ == 0
+      return none
+    mut candidato = @[0]
+    for valor in @
+      if candidato < valor
+        candidato = valor
+    candidato
+
+  is_sorted = -> bool
+    mut i: size_t = 1
+    while i < #@
+      if @[i - 1] > @[i]
+        return false
+      i += 1
+    true
+
+  mut sort_by = (comparar: function<(T, T) -> int>) -> void
+    mut i: size_t = 1
+    while i < #@
+      mut j = i
+      while j > 0 and comparar(@[j - 1], @[j]) > 0
+        temporal = @[j]
+        @[j] = @[j - 1]
+        @[j - 1] = temporal
+        j -= 1
+      i += 1
+
+  sorted = -> vector<T>
+    mut copia: vector<T> = []
+    for valor in @
+      copia.push(valor)
+    copia.sort()
+    copia
+
+  sorted_by = (comparar: function<(T, T) -> int>) -> vector<T>
+    mut copia: vector<T> = []
+    for valor in @
+      copia.push(valor)
+    copia.sort_by(comparar)
+    copia
+
+  mut dedup = -> void
+    mut sin_repetidos: vector<T> = []
+    for valor in @
+      if #sin_repetidos == 0
+        sin_repetidos.push(valor)
+      else if not (sin_repetidos[#sin_repetidos - 1] == valor)
+        sin_repetidos.push(valor)
+    @ = sin_repetidos
+
+  binary_search = (valor: T) -> size_t?
+    mut inicio: size_t = 0
+    mut fin: size_t = #@
+    while inicio < fin
+      medio = inicio + (fin - inicio) / 2
+      if @[medio] < valor
+        inicio = medio + 1
+      else
+        fin = medio
+    if inicio < #@ and @[inicio] == valor
+      return inicio
+    none
+
+  take = (n: size_t) -> vector<T>
+    mut salida: vector<T> = []
+    mut i: size_t = 0
+    while i < n and i < #@
+      salida.push(@[i])
+      i += 1
+    salida
+
+  skip = (n: size_t) -> vector<T>
+    mut salida: vector<T> = []
+    mut i = n
+    while i < #@
+      salida.push(@[i])
+      i += 1
+    salida
+
+  slice = (inicio: size_t, largo: size_t) -> vector<T>
+    mut salida: vector<T> = []
+    mut i = inicio
+    while i < #@ and i < inicio + largo
+      salida.push(@[i])
+      i += 1
+    salida
+
+  chunks = (tamano: size_t) -> vector<vector<T>>
+    mut salida: vector<vector<T>> = []
+    if tamano == 0
+      return salida
+    mut actual: vector<T> = []
+    for valor in @
+      actual.push(valor)
+      if #actual == tamano
+        salida.push(actual)
+        actual = []
+    if #actual > 0
+      salida.push(actual)
+    salida
+
+  windows = (tamano: size_t) -> vector<vector<T>>
+    mut salida: vector<vector<T>> = []
+    if tamano == 0 or tamano > #@
+      return salida
+    mut i: size_t = 0
+    while i + tamano <= #@
+      mut ventana: vector<T> = []
+      mut j: size_t = 0
+      while j < tamano
+        ventana.push(@[i + j])
+        j += 1
+      salida.push(ventana)
+      i += 1
+    salida
+
+  enumerate = -> vector<pair<size_t, T>>
+    mut salida: vector<pair<size_t, T>> = []
+    mut i: size_t = 0
+    while i < #@
+      mut par: pair<size_t, T> = (i, @[i])
+      salida.push(par)
+      i += 1
+    salida

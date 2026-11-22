@@ -1,5 +1,7 @@
 realm map
 
+invoke "std/pair"
+
 enchanting map<K, V>
   is_empty = -> bool
     #@ == 0
@@ -18,3 +20,45 @@ enchanting map<K, V>
     for _, valor in @
       salida.push(valor)
     salida
+
+  mut get_or_insert = (clave: K, alternativa: V) -> V
+    if clave in @
+      return @[clave]
+    @.insert(clave, alternativa)
+    alternativa
+
+  mut update = (clave: K, cambiar: function<(V) -> V>) -> bool
+    if not (clave in @)
+      return false
+    @[clave] = cambiar(@[clave])
+    true
+
+  entries = -> vector<pair<K, V>>
+    mut salida: vector<pair<K, V>> = []
+    for clave, valor in @
+      mut par: pair<K, V> = (clave, valor)
+      salida.push(par)
+    salida
+
+  first_key = -> K?
+    for clave, _ in @
+      return clave
+    none
+
+  last_key = -> K?
+    mut ultima: K? = none
+    for clave, _ in @
+      ultima = clave
+    ultima
+
+  mut merge = (otro: ref<map<K, V>>) -> void
+    for clave, valor in otro
+      if not (clave in @)
+        @.insert(clave, valor)
+
+  mut retain = (predicado: function<(K, V) -> bool>) -> void
+    mut conservados: map<K, V> = map{}
+    for clave, valor in @
+      if predicado(clave, valor)
+        conservados.insert(clave, valor)
+    @ = conservados

@@ -50,3 +50,64 @@ enchanting set<T>
       if not (valor in otro)
         return false
     true
+
+  is_superset = (otro: ref<set<T>>) -> bool
+    for valor in otro
+      if not (valor in @)
+        return false
+    true
+
+  is_disjoint = (otro: ref<set<T>>) -> bool
+    for valor in @
+      if valor in otro
+        return false
+    true
+
+  mut insert_all = (otro: ref<set<T>>) -> void
+    for valor in otro
+      @.insert(valor)
+
+  mut remove_all = (otro: ref<set<T>>) -> void
+    for valor in otro
+      @.remove(valor)
+
+  mut extend = (valores: ref<vector<T>>) -> void
+    for valor in valores
+      @.insert(valor)
+
+  mut retain = (predicado: function<(T) -> bool>) -> void
+    mut conservados: set<T> = set{}
+    for valor in @
+      if predicado(valor)
+        conservados.insert(valor)
+    @ = conservados
+
+  first = -> T?
+    for valor in @
+      return valor
+    none
+
+  last = -> T?
+    mut ultimo: T? = none
+    for valor in @
+      ultimo = valor
+    ultimo
+
+  map = (transformar: function<(T) -> T>) -> set<T>
+    mut salida: set<T> = set{}
+    for valor in @
+      salida.insert(transformar(valor))
+    salida
+
+  filter = (predicado: function<(T) -> bool>) -> set<T>
+    mut salida: set<T> = set{}
+    for valor in @
+      if predicado(valor)
+        salida.insert(valor)
+    salida
+
+  to_sorted_vector = -> vector<T>
+    mut salida: vector<T> = []
+    for valor in @
+      salida.push(valor)
+    salida

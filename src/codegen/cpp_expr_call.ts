@@ -543,9 +543,23 @@ export function emit_member_call(
     case "pop":
       // `pop()` devuelve el elemento; en stack/queue/priority_queue el
       // `pop()` de C++ devuelve void, así que se lee `top()` antes.
+      if (is_adapter_type(object_type)) return `::pengu::adapter_pop(${rendered})`;
       return is_sequence_container(object_type)
         ? `::pengu::pop_back_checked(${rendered})`
         : `${rendered}.pop()`;
+    case "pop_front":
+      return `::pengu::pop_front_checked(${rendered})`;
+    case "push_front":
+      return `${rendered}.push_front(${args})`;
+    case "insert_at":
+      return `::pengu::insert_at(${rendered}, ${args})`;
+    case "sum":
+      return `::pengu::sum_of(${rendered})`;
+    case "product":
+      return `::pengu::product_of(${rendered})`;
+    case "clear":
+      if (is_adapter_type(object_type)) return `::pengu::adapter_clear(${rendered})`;
+      return `${rendered}.clear()`;
     case "is_empty":
       return `${rendered}.empty()`;
     case "contains":
@@ -601,6 +615,8 @@ export function emit_member_call(
     case "find":
       if (is_string_type(object_type)) return `::pengu::find_opt(${rendered}, ${args})`;
       return `${rendered}.find(${args})`;
+    case "to_uint64":
+      return `${rendered}.to_ullong()`;
     case "value":
       return `${rendered}.value()`;
     case "value_or":

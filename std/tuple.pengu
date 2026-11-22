@@ -15,6 +15,14 @@ enchanting tuple<A, B, C>
   len = -> size_t
     3
 
+  first = -> A
+    a, b, c = @
+    a
+
+  second = -> B
+    a, b, c = @
+    b
+
   third = -> C
     a, b, c = @
     c

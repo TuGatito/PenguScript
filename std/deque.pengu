@@ -1,0 +1,45 @@
+realm deque
+
+enchanting deque<T>
+  is_empty = -> bool
+    #@ == 0
+
+  first = -> T?
+    if #@ == 0 then none else @[0]
+
+  last = -> T?
+    if #@ == 0 then none else @[#@ - 1]
+
+  get_or = (indice: size_t, alternativa: T) -> T
+    if indice < #@ then @[indice] else alternativa
+
+  index_of = (buscado: T) -> size_t?
+    mut i: size_t = 0
+    mut encontrado: size_t? = none
+    while i < #@
+      if @[i] == buscado
+        encontrado = i
+        break
+      i += 1
+    encontrado
+
+  contains = (buscado: T) -> bool
+    @.index_of(buscado).is_some()
+
+  to_vector = -> vector<T>
+    mut salida: vector<T> = []
+    mut i: size_t = 0
+    while i < #@
+      salida.push(@[i])
+      i += 1
+    salida
+
+  join = (separador: string) -> string
+    mut salida = ""
+    mut i: size_t = 0
+    while i < #@
+      if i > 0
+        salida += separador
+      salida += "#{@[i]}"
+      i += 1
+    salida

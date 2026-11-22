@@ -15,3 +15,23 @@ enchanting optional<T>
     if @.is_some()
       salida.push(@.value())
     salida
+
+  map = (transformar: function<(T) -> T>) -> T?
+    if @.is_some() then transformar(@.value()) else none
+
+  and_then = (siguiente: function<(T) -> T?>) -> T?
+    if @.is_some()
+      return siguiente(@.value())
+    none
+
+  or_else_get = (alternativa: function<() -> T>) -> T
+    if @.is_some() then @.value() else alternativa()
+
+  zip = (otro: T?) -> pair<T, T>?
+    if @.is_some() and otro.is_some()
+      mut par: pair<T, T> = (@.value(), otro.value())
+      return par
+    none
+
+  any = (predicado: function<(T) -> bool>) -> bool
+    if @.is_some() then predicado(@.value()) else false

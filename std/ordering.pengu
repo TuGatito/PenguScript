@@ -3,3 +3,13 @@ realm ordering
 enchanting Ordering
   then = (otro: Ordering) -> Ordering
     if @ == Ordering::Equal then otro else @
+
+  to_int = -> int
+    if @ == Ordering::Less
+      return -1
+    if @ == Ordering::Equal
+      return 0
+    1
+
+  then_with = (siguiente: function<() -> Ordering>) -> Ordering
+    if @ == Ordering::Equal then siguiente() else @

@@ -140,11 +140,13 @@ export function member_of_builtin(type: PenguType, name: string): PenguType | un
       case "push_back":
         return function_type([element], VOID);
       case "pop":
-        return function_type([], VOID);
+        return function_type([], element);
       case "top":
       case "front":
       case "back":
         return function_type([], ref_to(element, false));
+      case "clear":
+        return function_type([], VOID);
       default:
         return undefined;
     }
@@ -158,6 +160,10 @@ export function member_of_builtin(type: PenguType, name: string): PenguType | un
         return function_type([], SIZE_T);
       case "test":
         return function_type([SIZE_T], BOOL);
+      case "to_uint64":
+        return function_type([], { kind: "primitive", name: "uint64_t" });
+      case "to_string":
+        return function_type([], STRING);
       case "set":
       case "reset":
       case "flip":
@@ -202,9 +208,16 @@ export function member_of_builtin(type: PenguType, name: string): PenguType | un
       "pop_opt",
       "pop_back",
       "insert",
+      "insert_at",
       "remove",
       "remove_at",
       "clear",
+      "pop_front",
+      "push_front",
+      "reserve",
+      "capacity",
+      "shrink_to_fit",
+      "resize",
     ]);
     if (fixed && structural.has(name)) return undefined;
     switch (name) {
@@ -241,6 +254,27 @@ export function member_of_builtin(type: PenguType, name: string): PenguType | un
         return function_type([], VOID);
       case "remove_at":
         return function_type([SIZE_T], element);
+      case "insert_at":
+        return function_type([SIZE_T, element], VOID);
+      case "pop_front":
+        return type.kind === "named" && (type.name === "deque" || type.name === "list" || type.name === "forward_list")
+          ? function_type([], element)
+          : undefined;
+      case "push_front":
+        return type.kind === "named" && (type.name === "deque" || type.name === "list" || type.name === "forward_list")
+          ? function_type([element], VOID)
+          : undefined;
+      case "reserve":
+        return function_type([SIZE_T], VOID);
+      case "capacity":
+        return function_type([], SIZE_T);
+      case "shrink_to_fit":
+        return function_type([], VOID);
+      case "resize":
+        return function_type([SIZE_T], VOID);
+      case "sum":
+      case "product":
+        return function_type([], element);
       default:
         return undefined;
     }

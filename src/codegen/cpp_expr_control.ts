@@ -402,11 +402,13 @@ export function emit_for_iter(
   return emit_loop(g, node, as_value, (result_type) => {
     const result_var = begin_loop_result(g, result_type);
     const iterable_type = type_of(g, node.iterable);
+    // `for k, v in ref(m)` recorre un mapa aunque el valor sea una referencia.
+    const iterable_inner = iterable_type.kind === "ref" ? iterable_type.inner : iterable_type;
     const iterable = emit_expr(g, node.iterable);
     const flag = node.else_block ? fresh_name(g, "broke") : undefined;
     if (flag !== undefined) line(g, `bool ${flag} = false;`);
     if (flag !== undefined) g.break_flags.push(flag);
-    if (is_map_type(iterable_type) && node.variables.length === 2) {
+    if (is_map_type(iterable_inner) && node.variables.length === 2) {
       const [first, second] = node.variables;
       const prefix = node.mutable ? "auto&" : "const auto&";
       line(g, `for (${prefix} [${cpp_identifier(first ?? "k")}, ${cpp_identifier(second ?? "v")}] : ${iterable}) {`);
