@@ -219,6 +219,13 @@ técnica conocida en el compilador.
 
 ### Corregido en las fases I1–I8
 
+- La extensión encuentra `pengu` aunque VS Code no herede el `PATH` del shell:
+  busca en el `PATH` del proceso y en `~/.local/bin`, `~/.bun/bin`, `~/bin`,
+  `/usr/local/bin`, `/opt/homebrew/bin` y `/usr/bin`, y usa la ruta absoluta
+  para la terminal, las tareas, los diagnósticos y el LSP. El aviso de
+  ejecutable ausente explica el problema, abre los ajustes y muestra los
+  directorios consultados en la salida.
+
 - El autocompletado de miembros ya no pierde los métodos enhechizados del
   módulo propio y calcula bien el receptor con un prefijo a medio escribir.
 - La finalización de `string` incluye `compare`, `trim`, `split`… y los

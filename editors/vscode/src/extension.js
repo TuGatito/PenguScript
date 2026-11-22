@@ -2,7 +2,7 @@
 // el servidor LSP, registra comandos/tareas y mantiene la barra de estado.
 
 const { StatusBarAlignment, commands, window, workspace } = require("vscode");
-const { executable_setting, probe } = require("./executable");
+const { executable_command, executable_setting, probe, resolve_executable, search_directories } = require("./executable");
 const { start_client, stop_client } = require("./lsp");
 const { register_commands } = require("./commands");
 const { register: register_tasks } = require("./tasks");
@@ -43,28 +43,39 @@ async function activate(context) {
   const on_missing = () => {
     state.available = false;
     show_status(status, state);
+    const resolved = resolve_executable(executable_setting());
+    output.appendLine(
+      resolved === undefined
+        ? `No se encontró «${executable_setting()}». Directorios buscados:\n  ${search_directories().join("\n  ")}`
+        : `Se encontró «${resolved}» pero no respondió a «--version».`,
+    );
     if (warned) return;
     warned = true;
+    const detail =
+      resolved === undefined
+        ? "VS Code no siempre hereda el PATH del shell. Instálalo con scripts/install.sh o indica la ruta en «pengu.executable»."
+        : "El archivo no respondió a «--version»: revisa la ruta configurada.";
     void window
-      .showWarningMessage("No se encontró el ejecutable de PenguScript («pengu»).", "Configurar ruta")
+      .showWarningMessage(`No se encontró el ejecutable de PenguScript («${executable_setting()}»). ${detail}`, "Configurar ruta", "Mostrar salida")
       .then((choice) => {
         warned = false;
         if (choice === "Configurar ruta") {
           void commands.executeCommand("workbench.action.openSettings", "pengu.executable");
         }
+        if (choice === "Mostrar salida") output.show(true);
       });
   };
 
   const start = async () => {
-    state.version = await probe(executable_setting());
+    state.version = await probe(executable_command());
     state.available = state.version !== undefined && state.version.startsWith("pengu");
     show_status(status, state);
     if (!state.available) {
       on_missing();
       return;
     }
-    output.appendLine(`Ejecutable: ${executable_setting()} (${state.version})`);
-    await start_client(state, executable_setting(), workspace_root(), on_missing);
+    output.appendLine(`Ejecutable: ${executable_command()} (${state.version})`);
+    await start_client(state, executable_command(), workspace_root(), on_missing);
   };
 
   state.restart = async () => {
@@ -107,7 +118,7 @@ async function activate(context) {
       if (restarts.some((key) => event.affectsConfiguration(key))) void state.restart();
     }),
     workspace.onDidSaveTextDocument((document) => {
-      if (state.available) check_document(document, executable_setting());
+      if (state.available) check_document(document, executable_command());
     }),
     workspace.onDidCloseTextDocument((document) => clear(document.uri)),
   );

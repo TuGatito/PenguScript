@@ -3,7 +3,7 @@
 
 const path = require("node:path");
 const { commands, Uri, window, workspace } = require("vscode");
-const { executable_setting } = require("./executable");
+const { executable_command } = require("./executable");
 const { run_in_terminal, project_cwd, quote } = require("./terminal");
 const { extra_args } = require("./settings");
 
@@ -28,7 +28,7 @@ function require_file(argument) {
 }
 
 function command_line(kind, file, key) {
-  const parts = [quote(executable_setting()), kind, ...extra_args(key).map(quote)];
+  const parts = [quote(executable_command()), kind, ...extra_args(key).map(quote)];
   if (file !== undefined) parts.push(quote(file));
   return parts.join(" ");
 }
@@ -56,7 +56,7 @@ async function bindgen_prompt() {
   if (realm === undefined || realm.trim().length === 0) return;
   const full_header = cwd === undefined ? header : path.resolve(cwd, header);
   const out = cwd === undefined ? `${base}.d.pengu` : path.resolve(cwd, path.dirname(header), `${base}.d.pengu`);
-  const line = `${quote(executable_setting())} bindgen ${quote(full_header)} --realm ${realm.trim()} --out ${quote(out)}`;
+  const line = `${quote(executable_command())} bindgen ${quote(full_header)} --realm ${realm.trim()} --out ${quote(out)}`;
   run_in_terminal(line, full_header);
 }
 
@@ -79,8 +79,8 @@ function register_commands(context, state) {
     run_in_terminal(command_line("fmt", undefined, "build.args"), project_cwd(undefined));
   });
   register("pengu.bindgen", () => bindgen_prompt());
-  register("pengu.init", () => run_in_terminal(`${quote(executable_setting())} init`, workspace_cwd()));
-  register("pengu.doctor", () => run_in_terminal(`${quote(executable_setting())} doctor`, workspace_cwd()));
+  register("pengu.init", () => run_in_terminal(`${quote(executable_command())} init`, workspace_cwd()));
+  register("pengu.doctor", () => run_in_terminal(`${quote(executable_command())} doctor`, workspace_cwd()));
   register("pengu.restartServer", () => state.restart());
   register("pengu.showOutput", () => state.output.show(true));
   register("pengu.showSize", () => show_size(state));

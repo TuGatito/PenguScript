@@ -99,6 +99,16 @@ El cliente LSP analiza el **proyecto completo** (el archivo, sus `invoke` y
 Además, los archivos `.pengu` usan por defecto 2 espacios, sin detección
 automática de sangría (el lenguaje es sensible a la indentación).
 
+## Si no encuentra `pengu`
+
+VS Code lanzado desde el escritorio no siempre hereda el `PATH` del shell. La
+extensión busca el ejecutable en el `PATH` del proceso **y** en
+`~/.local/bin`, `~/.bun/bin`, `~/bin`, `/usr/local/bin`, `/opt/homebrew/bin` y
+`/usr/bin`. Si aun así no aparece, el aviso permite abrir `pengu.executable`
+para escribir la ruta absoluta y muestra en la salida los directorios
+consultados. Con `scripts/install.sh` el binario queda en `~/.local/bin/pengu`,
+que ya se busca automáticamente.
+
 ## Desarrollo
 
 ```bash

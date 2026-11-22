@@ -3,14 +3,14 @@
 
 const path = require("node:path");
 const { ShellExecution, Task, TaskGroup, TaskScope, tasks } = require("vscode");
-const { executable_setting } = require("./executable");
+const { executable_command } = require("./executable");
 const { project_cwd, quote } = require("./terminal");
 const { extra_args } = require("./settings");
 
 const TASK_TYPE = "pengu";
 
 function shell_command(kind, file) {
-  const executable = executable_setting();
+  const executable = executable_command();
   const args = extra_args(kind === "build" ? "build.args" : "run.args");
   const parts = [quote(executable), kind, ...args.map(quote)];
   if (file !== undefined) parts.push(quote(file));

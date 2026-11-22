@@ -4,6 +4,7 @@
 const { execFile } = require("node:child_process");
 const { Diagnostic, DiagnosticSeverity, Range, Position, languages } = require("vscode");
 const { check_on_save } = require("./settings");
+const { executable_command } = require("./executable");
 
 const collection = languages.createDiagnosticCollection("pengu-cli");
 
@@ -25,7 +26,7 @@ function to_diagnostic(item) {
 function check_document(document, executable) {
   if (document.languageId !== "pengu") return;
   if (!check_on_save()) return;
-  execFile(executable, ["check", "--json", document.uri.fsPath], { timeout: 30000 }, (_error, stdout) => {
+  execFile(executable_command(executable), ["check", "--json", document.uri.fsPath], { timeout: 30000 }, (_error, stdout) => {
     let payload;
     try {
       payload = JSON.parse(stdout);
