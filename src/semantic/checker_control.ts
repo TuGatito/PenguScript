@@ -196,6 +196,12 @@ export function infer_match(ctx: CheckContext, node: Extract<ExprNode, { kind: "
     result = result === undefined ? body : join_types(result, body) ?? any_type("ramas");
   }
 
+  if (node.else_block !== undefined) {
+    catch_all = true;
+    const body = infer_block(ctx, node.else_block);
+    result = result === undefined ? body : join_types(result, body) ?? any_type("ramas");
+  }
+
   if (omen !== undefined && !catch_all) {
     const missing = [...omen.variants.keys()].filter((name) => !covered.has(name));
     if (missing.length > 0) {

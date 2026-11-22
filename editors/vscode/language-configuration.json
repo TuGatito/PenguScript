@@ -1,16 +1,91 @@
 {
-  "comments": { "lineComment": "--" },
-  "brackets": [["{", "}"], ["[", "]"], ["(", ")"]],
-  "autoClosingPairs": [
-    { "open": "{", "close": "}" },
-    { "open": "[", "close": "]" },
-    { "open": "(", "close": ")" },
-    { "open": "\"", "close": "\"" },
-    { "open": "'", "close": "'" }
+  "comments": {
+    "lineComment": "--"
+  },
+  "brackets": [
+    [
+      "{",
+      "}"
+    ],
+    [
+      "[",
+      "]"
+    ],
+    [
+      "(",
+      ")"
+    ]
   ],
-  "surroundingPairs": [["{", "}"], ["[", "]"], ["(", ")"], ["\"", "\""], ["'", "'"]],
+  "wordPattern": "(-?\\d*\\.?\\d+)|([A-Za-z_][A-Za-z0-9_]*)",
+  "autoCloseBefore": ";:.,=}])> \n\t",
+  "autoClosingPairs": [
+    {
+      "open": "{",
+      "close": "}"
+    },
+    {
+      "open": "[",
+      "close": "]"
+    },
+    {
+      "open": "(",
+      "close": ")"
+    },
+    {
+      "open": "\"",
+      "close": "\"",
+      "notIn": [
+        "string",
+        "comment"
+      ]
+    },
+    {
+      "open": "'",
+      "close": "'",
+      "notIn": [
+        "string",
+        "comment"
+      ]
+    }
+  ],
+  "surroundingPairs": [
+    [
+      "{",
+      "}"
+    ],
+    [
+      "[",
+      "]"
+    ],
+    [
+      "(",
+      ")"
+    ],
+    [
+      "\"",
+      "\""
+    ],
+    [
+      "'",
+      "'"
+    ]
+  ],
   "indentationRules": {
-    "increaseIndentPattern": "(->|then|else|do|constructor|destructor|match|switch|enchanting|rune|omen|seal|echo|extern)\\s*$|^\\s*(if|unless|while|until|for|repeat)\\b.*$",
+    "increaseIndentPattern": "(->|then|else|do|match|switch|enchanting|rune|omen|seal|echo|extern|declare|flags)\\s*$|^\\s*(if|unless|while|until|for|repeat)\\b|^\\s*(rune|omen|echo|seal|enchanting|flags|declare|extern|switch|match)\\b.*$|^\\s*when\\b.*\\bthen\\s*$",
     "decreaseIndentPattern": "^\\s*(else|when|until)\\b"
-  }
+  },
+  "onEnterRules": [
+    {
+      "beforeText": "#\\{[^}]*$",
+      "action": {
+        "indent": "none"
+      }
+    },
+    {
+      "beforeText": "^\\s*--\\s",
+      "action": {
+        "indent": "indent"
+      }
+    }
+  ]
 }

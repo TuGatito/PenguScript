@@ -134,6 +134,25 @@ técnica conocida en el compilador.
   `function<Sig>`, `if ... then` con bloque y la aridad con argumentos por
   defecto.
 
+### Añadido en la fase E (extensión de VS Code)
+
+- Extensión completa en `editors/vscode/`: gramática para todo el lenguaje
+  (palabras clave, tipos primitivos, contenedores, cadenas, ancho fijo,
+  `declare`, `Ordering`, operadores y `...`), configuración de lenguaje con
+  `wordPattern` y reglas de sangría, y 49 snippets validados por el parser.
+- Comandos para ejecutar, compilar, verificar y formatear el archivo actual,
+  ejecutar el proyecto, `bindgen`, `init`, `doctor`, reiniciar el servidor y
+  configurar el ejecutable; menús del editor y del explorador, atajos
+  `Ctrl+Alt+R/B/K`, terminal dedicada, barra de estado y canal de salida.
+- Tareas `"type": "pengu"` con el *problem matcher* `$pengu`, verificación
+  opcional al guardar (`pengu.check.onSave`) y reinicio automático del LSP al
+  cambiar `pengu.executable` o la traza.
+- Pruebas de la extensión en `tests/extension/` (36 pruebas) que comparan la
+  gramática con las tablas del compilador, parsean los snippets y validan el
+  manifiesto, las tareas y los módulos, y una prueba de humo que activa la
+  extensión con un `vscode` simulado.
+- `match` admite `else` al final, como documenta el *cheatsheet*.
+
 ### Añadido en las fases H1–H7
 
 - **Rangos como valores**: `range<T>` se anota, se pasa, se devuelve, se mide
@@ -172,8 +191,9 @@ técnica conocida en el compilador.
 
 ### Verificado
 
-- `bun test`: 278 pruebas en 31 archivos (lexer, parser, checker, formateador,
+- `bun test`: 314 pruebas en 38 archivos (lexer, parser, checker, formateador,
   LSP de integración, bindgen, biblioteca estándar, conformidad y e2e de los
-  ejemplos y de las fases F1–F9 y H1–H6).
+  ejemplos, de las fases F1–F9 y H1–H7, y de la extensión de VS Code
+  (`tests/extension`, 36 pruebas).
 - `tsc --noEmit` sin errores y `pengu fmt --check` sin cambios pendientes.
 - Los 13 ejemplos de `examples/` compilan y ejecutan con el compilador final.

@@ -273,6 +273,7 @@ export interface MatchNode {
   readonly kind: "match";
   readonly subject: ExprNode;
   readonly arms: readonly MatchArm[];
+  readonly else_block?: Block;
   readonly span: Span;
 }
 

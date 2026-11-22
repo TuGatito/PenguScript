@@ -1,3 +1,5 @@
 .vscode/**
 node_modules/.bin/**
 **/*.map
+**/*.test.ts
+tests/**

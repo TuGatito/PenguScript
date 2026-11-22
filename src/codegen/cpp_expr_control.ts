@@ -263,7 +263,11 @@ export function emit_match(g: GenContext, node: MatchNode): string {
       }
       gc_error(g, "patrón no soportado en «match»", arm.span);
     }
-    if (result !== "void") line(g, `::pengu::panic("match sin variante");`);
+    if (node.else_block !== undefined) {
+      emit_value_block(g, node.else_block, result);
+    } else if (result !== "void") {
+      line(g, `::pengu::panic("match sin variante");`);
+    }
   }) + "()";
 }
 

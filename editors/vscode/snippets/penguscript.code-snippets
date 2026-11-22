@@ -1,0 +1,398 @@
+{
+  "main": {
+    "prefix": "main",
+    "body": [
+      "invoke \"${1:std/io}\"",
+      "",
+      "main = ->",
+      "  ${2:io::println(\"¡Hola, PenguScript!\")}"
+    ],
+    "description": "Punto de entrada de un programa PenguScript"
+  },
+  "invoke": {
+    "prefix": "invoke",
+    "body": [
+      "invoke \"${1:std/io}\""
+    ],
+    "description": "Importa un módulo completo"
+  },
+  "invoke-selectivo": {
+    "prefix": "invoke-selectivo",
+    "body": [
+      "invoke {${1:println}, ${2:print}} from \"${3:std/io}\""
+    ],
+    "description": "Importa símbolos concretos de un módulo"
+  },
+  "realm": {
+    "prefix": "realm",
+    "body": [
+      "realm ${1:mi_realm}"
+    ],
+    "description": "Declara el realm (espacio de nombres) del módulo"
+  },
+  "rune": {
+    "prefix": "rune",
+    "body": [
+      "rune ${1:Punto}",
+      "  ${2:x}: ${3:double}",
+      "  ${4:y}: ${5:double}",
+      "",
+      "  constructor(${2:x}: ${3:double}, ${4:y}: ${5:double})",
+      "    @${2:x} = ${2:x}",
+      "    @${4:y} = ${4:y}"
+    ],
+    "description": "Tipo de dato con campos y constructor"
+  },
+  "rune-heir": {
+    "prefix": "rune-heir",
+    "body": [
+      "rune ${1:Perro} heir ${2:Animal}",
+      "  ${3:raza}: ${4:string}",
+      "",
+      "  constructor(${5:nombre}: ${6:string}, ${3:raza}: ${4:string})",
+      "    parent(${5:nombre})",
+      "    @${3:raza} = ${3:raza}"
+    ],
+    "description": "Tipo que hereda de otro (parent inicializa la base)"
+  },
+  "rune-generica": {
+    "prefix": "rune-generica",
+    "body": [
+      "rune ${1:Caja}<${2:T}>",
+      "  ${3:valor}: ${2:T}"
+    ],
+    "description": "Tipo genérico"
+  },
+  "constructor": {
+    "prefix": "constructor",
+    "body": [
+      "constructor(${1:valor}: ${2:int})",
+      "  @${3:valor} = ${1:valor}"
+    ],
+    "description": "Constructor de un rune"
+  },
+  "destructor": {
+    "prefix": "destructor",
+    "body": [
+      "destructor",
+      "  ${1:io::println(\"adiós\")}"
+    ],
+    "description": "Destructor de un rune"
+  },
+  "enchanting-rune": {
+    "prefix": "enchanting-rune",
+    "body": [
+      "enchanting ${1:Punto}",
+      "  ${2:longitud} = -> ${3:double}",
+      "    ${4:(@x * @x + @y * @y).sqrt()}"
+    ],
+    "description": "Añade métodos a un rune existente"
+  },
+  "enchanting-incorporado": {
+    "prefix": "enchanting-incorporado",
+    "body": [
+      "enchanting ${1:string}",
+      "  ${2:es_vacia} = -> ${3:bool}",
+      "    ${4:#@ == 0}"
+    ],
+    "description": "Añade métodos a un tipo incorporado (requiere invoke del módulo std)"
+  },
+  "omen-unitario": {
+    "prefix": "omen-unitario",
+    "body": [
+      "omen ${1:Color}",
+      "  ${2:Rojo}, ${3:Verde}, ${4:Azul}"
+    ],
+    "description": "Enumeración de variantes sin datos"
+  },
+  "omen-algebraico": {
+    "prefix": "omen-algebraico",
+    "body": [
+      "omen ${1:Forma}",
+      "  ${2:Circulo}(${3:double})",
+      "  ${4:Rectangulo}(${5:double}, ${6:double})"
+    ],
+    "description": "Enumeración con datos por variante"
+  },
+  "flags": {
+    "prefix": "flags",
+    "body": [
+      "flags omen ${1:Permiso}",
+      "  ${2:Leer}, ${3:Escribir}, ${4:Ejecutar}"
+    ],
+    "description": "Enumeración de bits con operadores | & ^ ~"
+  },
+  "echo": {
+    "prefix": "echo",
+    "body": [
+      "echo ${1:Entidad} = ${2:int}"
+    ],
+    "description": "Alias transparente de un tipo"
+  },
+  "seal": {
+    "prefix": "seal",
+    "body": [
+      "seal ${1:Id} = ${2:int}"
+    ],
+    "description": "Tipo opaco sobre un tipo subyacente"
+  },
+  "declare": {
+    "prefix": "declare",
+    "body": [
+      "declare",
+      "  ${1:leer} = (${2:ruta}: ${3:string}) -> ${4:string}"
+    ],
+    "description": "Declara funciones intrínsecas que aporta el runtime"
+  },
+  "extern": {
+    "prefix": "extern",
+    "body": [
+      "extern \"C\"",
+      "  ${1:printf} = (${2:formato}: ${3:string}) -> ${4:int}"
+    ],
+    "description": "Declara una función de C (solo dentro de unsafe)"
+  },
+  "funcion": {
+    "prefix": "funcion",
+    "body": [
+      "${1:nombre} = (${2:x}: ${3:int}) -> ${4:int}",
+      "  ${5:x + 1}"
+    ],
+    "description": "Función con parámetros y tipo de retorno"
+  },
+  "funcion-generica": {
+    "prefix": "funcion-generica",
+    "body": [
+      "${1:identidad} = <${2:T}>(${3:valor}: ${2:T}) -> ${2:T}",
+      "  ${3:valor}"
+    ],
+    "description": "Función genérica"
+  },
+  "funcion-variadica": {
+    "prefix": "funcion-variadica",
+    "body": [
+      "${1:sumar} = (...${2:numeros}: ${3:int}) -> ${4:int}",
+      "  ${5:mut total = 0}"
+    ],
+    "description": "Función variádica (el parámetro es un vector)"
+  },
+  "constante": {
+    "prefix": "constante",
+    "body": [
+      "const ${1:NOMBRE} = ${2:100}"
+    ],
+    "description": "Constante evaluable en compilación"
+  },
+  "static-mut": {
+    "prefix": "static-mut",
+    "body": [
+      "static mut ${1:contador} = ${2:0}"
+    ],
+    "description": "Estado mutable del módulo (solo unsafe)"
+  },
+  "if": {
+    "prefix": "if",
+    "body": [
+      "if ${1:condicion}",
+      "  ${2:pasar()}"
+    ],
+    "description": "Condicional con bloque"
+  },
+  "if-else": {
+    "prefix": "if-else",
+    "body": [
+      "if ${1:condicion}",
+      "  ${2:pasar()}",
+      "else",
+      "  ${3:pasar()}"
+    ],
+    "description": "Condicional con alternativa"
+  },
+  "if-expresion": {
+    "prefix": "if-expresion",
+    "body": [
+      "const ${1:signo} = if ${2:x > 0} then ${3:\"positivo\"} else ${4:\"negativo\"}"
+    ],
+    "description": "Condicional como expresión"
+  },
+  "unless": {
+    "prefix": "unless",
+    "body": [
+      "unless ${1:condicion}",
+      "  ${2:pasar()}"
+    ],
+    "description": "Condicional invertido"
+  },
+  "switch": {
+    "prefix": "switch",
+    "body": [
+      "switch ${1:valor}",
+      "  when ${2:200} then ${3:\"ok\"}",
+      "  else ${4:\"otro\"}"
+    ],
+    "description": "Selección por valores constantes"
+  },
+  "match": {
+    "prefix": "match",
+    "body": [
+      "match ${1:forma}",
+      "  when ${2:Circulo(radio)} then ${3:radio * 2}",
+      "  else",
+      "    ${4:0}"
+    ],
+    "description": "Selección por variantes de un omen"
+  },
+  "for-numerico": {
+    "prefix": "for-numerico",
+    "body": [
+      "for ${1:i} = ${2:0}, ${3:10}",
+      "  ${4:pasar(i)}"
+    ],
+    "description": "Bucle numérico inclusivo"
+  },
+  "for-iterable": {
+    "prefix": "for-iterable",
+    "body": [
+      "for ${1:x} in ${2:valores}",
+      "  ${3:pasar(x)}"
+    ],
+    "description": "Bucle sobre una secuencia"
+  },
+  "for-mapa": {
+    "prefix": "for-mapa",
+    "body": [
+      "for ${1:clave}, ${2:valor} in ${3:mapa}",
+      "  ${4:pasar(clave, valor)}"
+    ],
+    "description": "Bucle sobre las entradas de un mapa"
+  },
+  "while": {
+    "prefix": "while",
+    "body": [
+      "while ${1:condicion}",
+      "  ${2:pasar()}"
+    ],
+    "description": "Bucle con condición previa"
+  },
+  "repeat": {
+    "prefix": "repeat",
+    "body": [
+      "repeat",
+      "  ${1:pasar()}",
+      "until ${2:condicion}"
+    ],
+    "description": "Bucle con condición posterior"
+  },
+  "do": {
+    "prefix": "do",
+    "body": [
+      "do",
+      "  ${1:pasar()}"
+    ],
+    "description": "Bloque con su propio ámbito"
+  },
+  "comprehension": {
+    "prefix": "comprehension",
+    "body": [
+      "[${1:x * 2} for ${2:x} in ${3:valores} if ${4:x > 0}]"
+    ],
+    "description": "Lista por comprensión"
+  },
+  "literal-tipado": {
+    "prefix": "literal-tipado",
+    "body": [
+      "${1:vector<int>}[${2:1, 2, 3}]"
+    ],
+    "description": "Literal con tipo explícito"
+  },
+  "map-literal": {
+    "prefix": "map-literal",
+    "body": [
+      "${1:map<string, int>}{${2:\"uno\": 1}}"
+    ],
+    "description": "Literal de mapa"
+  },
+  "set-literal": {
+    "prefix": "set-literal",
+    "body": [
+      "${1:set<int>}{${2:1, 2, 3}}"
+    ],
+    "description": "Literal de conjunto"
+  },
+  "interpolacion": {
+    "prefix": "interpolacion",
+    "body": [
+      "\"${1:nombre} = #{${2:valor}}\""
+    ],
+    "description": "Cadena con interpolación"
+  },
+  "unsafe": {
+    "prefix": "unsafe",
+    "body": [
+      "unsafe",
+      "  ${1:pasar()}"
+    ],
+    "description": "Bloque que permite operaciones no seguras"
+  },
+  "unsafe-funcion": {
+    "prefix": "unsafe-funcion",
+    "body": [
+      "unsafe ${1:leer} = (${2:p}: ${3:raw<int>}) -> ${4:int}",
+      "  ${5:*p}"
+    ],
+    "description": "Función unsafe"
+  },
+  "operator": {
+    "prefix": "operator",
+    "body": [
+      "enchanting ${1:Punto}",
+      "  mut operator ${2:+=} = (${3:otro}: ${4:Punto}) -> ${5:void}",
+      "    ${6:@x += otro.x}"
+    ],
+    "description": "Operador definido por el usuario"
+  },
+  "operator-libre": {
+    "prefix": "operator-libre",
+    "body": [
+      "operator ${1:*} = (${2:escala}: ${3:int}, ${4:p}: ${5:Punto}) -> ${6:Punto}",
+      "  ${7:Punto(p.x * escala, p.y * escala)}"
+    ],
+    "description": "Operador libre (fuera de enchanting)"
+  },
+  "try-from": {
+    "prefix": "try-from",
+    "body": [
+      "${1:int}::try_from(${2:\"42\"})"
+    ],
+    "description": "Conversión que puede fallar (devuelve T?)"
+  },
+  "opcional": {
+    "prefix": "opcional",
+    "body": [
+      "${1:valor}: ${2:int}? = ${3:none}"
+    ],
+    "description": "Declara un opcional"
+  },
+  "opcional-uso": {
+    "prefix": "opcional-uso",
+    "body": [
+      "if ${1:valor}.is_some()",
+      "  ${2:pasar(valor.value())}"
+    ],
+    "description": "Comprueba y extrae un opcional"
+  },
+  "desestructuracion": {
+    "prefix": "desestructuracion",
+    "body": [
+      "mut ${1:a}, ${2:b} = ${3:1}, ${4:2}"
+    ],
+    "description": "Enlace múltiple / desestructuración de tupla"
+  },
+  "lote-invariante": {
+    "prefix": "lote-invariante",
+    "body": [
+      "const ${1:caja} = ${2:shared<Punto>}(Punto(0, 0))"
+    ],
+    "description": "Memoria compartida (shared/unique/weak)"
+  }
+}

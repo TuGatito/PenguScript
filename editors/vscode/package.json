@@ -1,20 +1,29 @@
 {
   "name": "penguscript",
   "displayName": "PenguScript",
-  "description": "Soporte de PenguScript: resaltado, diagnósticos, autocompletado y formato.",
+  "description": "Soporte completo de PenguScript: resaltado, diagnósticos, autocompletado, snippets, formato, ejecución y tareas.",
   "version": "0.1.0",
   "publisher": "penguscript",
   "license": "MIT",
   "engines": { "vscode": "^1.80.0" },
-  "categories": ["Programming Languages", "Linters", "Formatters"],
+  "categories": ["Programming Languages", "Linters", "Formatters", "Snippets", "Other"],
+  "keywords": ["pengu", "penguscript", "language", "lsp", "compiler", "c++"],
+  "extensionKind": ["workspace"],
   "main": "./src/extension.js",
   "activationEvents": ["onLanguage:pengu"],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Ejecuta el compilador `pengu` del espacio de trabajo (LSP, verificación y compilación)."
+    }
+  },
   "contributes": {
     "languages": [
       {
         "id": "pengu",
         "aliases": ["PenguScript", "pengu"],
-        "extensions": [".pengu", ".d.pengu"],
+        "extensions": [".pengu"],
+        "filenamePatterns": ["*.d.pengu"],
         "configuration": "./language-configuration.json"
       }
     ],
@@ -25,14 +34,117 @@
         "path": "./syntaxes/pengu.tmLanguage.json"
       }
     ],
+    "snippets": [
+      {
+        "language": "pengu",
+        "path": "./snippets/penguscript.code-snippets"
+      }
+    ],
+    "commands": [
+      { "command": "pengu.runFile", "title": "ejecutar archivo", "category": "PenguScript" },
+      { "command": "pengu.buildFile", "title": "compilar archivo", "category": "PenguScript" },
+      { "command": "pengu.checkFile", "title": "verificar archivo", "category": "PenguScript" },
+      { "command": "pengu.runProject", "title": "ejecutar proyecto", "category": "PenguScript" },
+      { "command": "pengu.fmtFile", "title": "formatear archivo", "category": "PenguScript" },
+      { "command": "pengu.bindgen", "title": "generar enlaces de C", "category": "PenguScript" },
+      { "command": "pengu.init", "title": "inicializar proyecto", "category": "PenguScript" },
+      { "command": "pengu.doctor", "title": "diagnóstico del entorno", "category": "PenguScript" },
+      { "command": "pengu.restartServer", "title": "reiniciar servidor", "category": "PenguScript" },
+      { "command": "pengu.showOutput", "title": "mostrar salida", "category": "PenguScript" },
+      { "command": "pengu.configureExecutable", "title": "configurar ejecutable", "category": "PenguScript" }
+    ],
+    "menus": {
+      "editor/context": [
+        { "command": "pengu.runFile", "when": "editorLangId == pengu", "group": "pengu@1" },
+        { "command": "pengu.buildFile", "when": "editorLangId == pengu", "group": "pengu@2" },
+        { "command": "pengu.checkFile", "when": "editorLangId == pengu", "group": "pengu@3" },
+        { "command": "pengu.fmtFile", "when": "editorLangId == pengu", "group": "pengu@4" }
+      ],
+      "explorer/context": [
+        { "command": "pengu.runFile", "when": "resourceExtname == .pengu", "group": "pengu@1" },
+        { "command": "pengu.buildFile", "when": "resourceExtname == .pengu", "group": "pengu@2" },
+        { "command": "pengu.checkFile", "when": "resourceExtname == .pengu", "group": "pengu@3" }
+      ]
+    },
+    "keybindings": [
+      { "command": "pengu.runFile", "key": "ctrl+alt+r", "mac": "cmd+alt+r", "when": "editorLangId == pengu" },
+      { "command": "pengu.buildFile", "key": "ctrl+alt+b", "mac": "cmd+alt+b", "when": "editorLangId == pengu" },
+      { "command": "pengu.checkFile", "key": "ctrl+alt+k", "mac": "cmd+alt+k", "when": "editorLangId == pengu" }
+    ],
+    "taskDefinitions": [
+      {
+        "type": "pengu",
+        "required": ["command"],
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": ["build", "run"],
+            "description": "Comando de PenguScript que ejecuta la tarea."
+          },
+          "file": {
+            "type": "string",
+            "description": "Archivo de entrada (por defecto, el de pengu.toml)."
+          }
+        }
+      }
+    ],
+    "problemMatchers": [
+      {
+        "name": "pengu",
+        "owner": "pengu",
+        "source": "pengu",
+        "fileLocation": ["autoDetect", "${workspaceFolder}"],
+        "pattern": {
+          "regexp": "^(.+?):(\\d+):(\\d+):\\s+(error|warning|info)\\[(E\\d+)\\]:\\s+(.+)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "code": 5,
+          "message": 6
+        }
+      }
+    ],
     "configuration": {
       "title": "PenguScript",
       "properties": {
         "pengu.executable": {
           "type": "string",
           "default": "pengu",
-          "description": "Ruta al ejecutable de PenguScript."
+          "description": "Ruta o nombre del ejecutable de PenguScript («pengu»)."
+        },
+        "pengu.build.args": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Argumentos adicionales para «pengu build»."
+        },
+        "pengu.run.args": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Argumentos adicionales para «pengu run» (antes del archivo)."
+        },
+        "pengu.check.onSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Ejecuta «pengu check --json» al guardar y publica los diagnósticos."
+        },
+        "pengu.lsp.trace.server": {
+          "type": "string",
+          "enum": ["off", "messages", "verbose"],
+          "default": "off",
+          "description": "Nivel de traza de la comunicación con el servidor LSP."
         }
+      }
+    },
+    "configurationDefaults": {
+      "[pengu]": {
+        "editor.insertSpaces": true,
+        "editor.tabSize": 2,
+        "editor.detectIndentation": false,
+        "editor.autoClosingBrackets": "languageDefined",
+        "editor.formatOnType": false
       }
     }
   },

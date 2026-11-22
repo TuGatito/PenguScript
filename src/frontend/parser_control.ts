@@ -118,6 +118,7 @@ export function parse_match(c: Cursor): MatchNode {
   const start = advance(c);
   const subject = parse_expression(c);
   const arms: MatchArm[] = [];
+  let else_block: Block | undefined;
 
   if (open_indented(c, "del match")) {
     while (!at(c, "dedent") && !at(c, "eof")) {
@@ -129,11 +130,16 @@ export function parse_match(c: Cursor): MatchNode {
           ? then_body(c, "del when")
           : parse_block(c, "del when");
         arms.push({ pattern, guard, body, span: merge_span(when_token.span, body.span) });
+      } else if (at(c, "else")) {
+        advance(c);
+        else_block = parse_block(c, "del else del match");
+        skip_newlines(c);
+        break;
       } else {
         push_error(
           c,
           CODES.unexpected_token,
-          `se esperaba «when» en el match, se encontró «${describe(c, peek(c))}»`,
+          `se esperaba «when» o «else» en el match, se encontró «${describe(c, peek(c))}»`,
           peek(c).span,
         );
         break;
@@ -143,8 +149,8 @@ export function parse_match(c: Cursor): MatchNode {
     if (at(c, "dedent")) advance(c);
   }
 
-  const end = arms[arms.length - 1]?.span ?? subject.span;
-  return { kind: "match", subject, arms, span: merge_span(start.span, end) };
+  const end = else_block?.span ?? arms[arms.length - 1]?.span ?? subject.span;
+  return { kind: "match", subject, arms, else_block, span: merge_span(start.span, end) };
 }
 
 export function parse_do(c: Cursor): DoNode {

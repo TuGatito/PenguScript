@@ -40,6 +40,22 @@ Los scripts no editan perfiles de shell: funcionan igual desde bash, zsh o fish.
 En Windows hay equivalentes `scripts\install.ps1` y `scripts\vsix.ps1`.
 Detalles en [scripts/README.md](scripts/README.md).
 
+## Extensión de VS Code
+
+`editors/vscode/` incluye la extensión completa: resaltado de todo el lenguaje,
+diagnósticos del LSP (y opcionalmente `pengu check` al guardar), snippets,
+autocompletado, formato y comandos para **ejecutar**, **compilar**, **verificar**
+y **formatear** el archivo actual, además de tareas con el *problem matcher*
+`$pengu`.
+
+```bash
+./scripts/vsix.sh           # empaqueta e instala la extensión
+```
+
+Atajos en archivos `.pengu`: `Ctrl+Alt+R` ejecutar, `Ctrl+Alt+B` compilar,
+`Ctrl+Alt+K` verificar. Los detalles (comandos, ajustes, tareas y snippets)
+están en [editors/vscode/README.md](editors/vscode/README.md).
+
 ## Comandos
 
 | Comando | Descripción |
@@ -70,9 +86,9 @@ src/
   diagnostics/ códigos, diagnósticos y render con caret
 std/           biblioteca estándar: firmas `*.d.pengu` que declara el bloque `declare`
 examples/      programas de ejemplo, de `01_hello` a `13_enchanting`
-editors/vscode extensión de VS Code (gramática + cliente LSP)
+editors/vscode extensión de VS Code (gramática, snippets, comandos y LSP)
 scripts/       instalación del ejecutable y empaquetado del .vsix (sh + ps1)
-tests/         lexer, parser, checker, formatter, lsp, bindgen y e2e
+tests/         lexer, parser, checker, formatter, lsp, bindgen, extensión y e2e
 docs/          especificación del lenguaje (cheatsheet y stdlib)
 ```
 
@@ -114,8 +130,8 @@ las valida y el generador emite los prototipos correspondientes.
 
 ## Documentación
 
-- `docs/errors.md`: catálogo de códigos de diagnóstico.
-
 - [`docs/cheatsheet.md`](docs/cheatsheet.md): referencia del lenguaje.
 - [`docs/stdlib.md`](docs/stdlib.md): biblioteca estándar.
+- `docs/errors.md`: catálogo de códigos de diagnóstico.
 - [`scratch/plan_typescript.md`](scratch/plan_typescript.md): plan por fases.
+- [`scratch/plan_extension_vscode.md`](scratch/plan_extension_vscode.md): auditoría y fases de la extensión.
