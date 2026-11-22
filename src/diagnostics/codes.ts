@@ -53,6 +53,8 @@ export const CODES = {
   missing_return: "E0510",
   unreachable_code: "E0511",
   not_display: "E0512",
+  invalid_any_cast: "E0514",
+  not_first_class: "E0515",
 
   use_after_move: "E0601",
   exclusive_borrow: "E0602",

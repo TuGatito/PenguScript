@@ -333,7 +333,18 @@ export function infer_cast(ctx: CheckContext, node: Extract<ExprNode, { kind: "c
   const source = infer_expr(ctx, node.value);
   const target = resolve_type_node(node.type, ctx.module.env, ctx.sink);
 
-  if (is_any(source) || is_any(target)) return target;
+  if (is_any(source) || is_any(target)) {
+    report_error(
+      ctx,
+      CODES.invalid_any_cast,
+      source.kind === "any"
+        ? "«any» no se puede convertir con «as»: asígnalo antes a un tipo concreto"
+        : "no se puede convertir a «any» con «as»: «any» solo se usa en variádicas",
+      node.span,
+      ["«any» es una caja heterogénea para «Display», no un tipo de datos"],
+    );
+    return target;
+  }
 
   if (source.kind === "named" && source.name === "variant" && source.args.length > 0) {
     if (!source.args.some((option) => type_equals(option, target))) {
@@ -365,7 +376,6 @@ export function infer_cast(ctx: CheckContext, node: Extract<ExprNode, { kind: "c
 // nunca pierde información. Todo lo demás exige `unsafe`.
 export function is_safe_cast(source: PenguType, target: PenguType, env?: TypeEnv): boolean {
   if (type_equals(source, target)) return true;
-  if (source.kind === "any" || target.kind === "any") return true;
 
   const source_int = integer_shape(source);
   const target_int = integer_shape(target);

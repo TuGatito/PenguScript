@@ -18,6 +18,7 @@ import {
   named,
   optional,
   primitive,
+  range_type,
   ref_to,
   tuple_type,
   function_type,
@@ -227,6 +228,14 @@ export function resolve_named_type(
 
   if (env.runes.has(name) || env.omens.has(name)) {
     return named(name, args);
+  }
+
+  if (name === "range") {
+    if (args.length !== 1) {
+      sink.add(make_error(CODES.wrong_arity, "«range» necesita exactamente un argumento de tipo", span));
+      return UNKNOWN;
+    }
+    return range_type(args[0] as PenguType);
   }
 
   if (BUILTIN_CONTAINERS.has(name)) {

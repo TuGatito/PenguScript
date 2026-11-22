@@ -204,6 +204,10 @@ export function function_type(
   return { kind: "function", params, result, variadic, required };
 }
 
+export function range_type(element: PenguType): RangeType {
+  return { kind: "range", element };
+}
+
 export function tuple_type(items: readonly PenguType[]): TupleType {
   return { kind: "tuple", items };
 }

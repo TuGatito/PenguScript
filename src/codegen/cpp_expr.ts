@@ -61,6 +61,22 @@ import {
   emit_while,
 } from "./cpp_expr_control.ts";
 
+// `x.metodo` sin llamada: el checker anotó la función libre y su firma.
+function emit_enchanted_member_value(
+  g: GenContext,
+  node: ExprNode,
+  target: { readonly realm: string; readonly name: string },
+  type: Extract<PenguType, { kind: "function" }>,
+): string {
+  const object = node.kind === "member" ? emit_expr(g, node.object) : "(*this)";
+  const params = type.params.map((param, index) => `const ${cpp_type(param, g.type_realms)}& _a${index}`);
+  const args = type.params.map((_param, index) => `_a${index}`);
+  const result = cpp_type(type.result, g.type_realms);
+  const callee = `${sanitize_namespace(target.realm)}::${cpp_identifier(target.name)}`;
+  const call_args = ["self", ...args].join(", ");
+  return `[self = ${object}](${params.join(", ")}) -> ${result} { return ${callee}(${call_args}); }`;
+}
+
 export function emit_expr(g: GenContext, node: ExprNode): string {
   switch (node.kind) {
     case "container_new": {
@@ -120,6 +136,12 @@ export function emit_expr(g: GenContext, node: ExprNode): string {
       // función libre, no un acceso a miembro.
       const enchanted = g.member_targets.get(node);
       if (enchanted !== undefined) {
+        const function_type = type_of(g, node);
+        if (function_type.kind === "function") {
+          // Uso como valor: se captura el receptor por valor y se envuelve la
+          // función libre en una lambda con la firma esperada.
+          return emit_enchanted_member_value(g, node, enchanted, function_type);
+        }
         return `${sanitize_namespace(enchanted.realm)}::${cpp_identifier(enchanted.name)}(${emit_expr(g, node.object)})`;
       }
       const object_code = emit_expr(g, node.object);

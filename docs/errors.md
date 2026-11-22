@@ -83,6 +83,8 @@ Formato: `archivo:línea:columna: severidad[código]: mensaje`.
 | E0511 | `unreachable_code` | Código inalcanzable. |
 | E0512 | `not_display` | Se interpola o se pasa a una variádica `any` un tipo sin `Display`. |
 | E0513 | `missing_capability` | Una instancia genérica no cumple las capacidades de `needs`. |
+| E0514 | `invalid_any_cast` | Se intenta convertir `any` con `as` (en cualquier dirección). |
+| E0515 | `not_first_class` | Se guarda como valor una función `unsafe`, una función con parámetros `mut` o un método `mut`. |
 
 ## Memoria (E06xx)
 

@@ -6,6 +6,7 @@
 
 import type { DiagnosticSink } from "../diagnostics/sink.ts";
 import { CODES } from "../diagnostics/codes.ts";
+import { check_first_class_value } from "./checker_first_class.ts";
 import { error as make_error } from "../diagnostics/diagnostic.ts";
 import type { Span } from "../util/span.ts";
 import type { ModuleInfo } from "./module_info.ts";
@@ -346,6 +347,7 @@ export function check_initialization(
     ctx.types?.set(value, expected);
     return;
   }
+  if (expected.kind === "function") check_first_class_value(ctx, value);
   if (compound_fits(ctx, expected, value, actual)) return;
   if (can_assign(expected, actual, ctx.module.env)) return;
   if (literal_fits(expected, actual, value)) return;

@@ -16,6 +16,7 @@ import type {
   SwitchArm,
 } from "../frontend/ast.ts";
 import { CODES } from "../diagnostics/codes.ts";
+import { check_first_class_value } from "./checker_first_class.ts";
 import { error as make_error, warning as make_warning } from "../diagnostics/diagnostic.ts";
 import type { Span } from "../util/span.ts";
 import type { ParamNode } from "../frontend/ast_param.ts";
@@ -540,6 +541,10 @@ export function check_arguments(
   for (const arg of args) {
     const actual = infer_expr(ctx, arg.expr);
     check_mut_argument(ctx, param_mutables, position, arg, name);
+    const expected = position < fixed_count ? params[position] : element;
+    if (!arg.spread && expected !== undefined && expected.kind === "function") {
+      check_first_class_value(ctx, arg.expr);
+    }
 
     if (arg.spread) {
       if (!variadic || element === undefined) {

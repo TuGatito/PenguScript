@@ -78,16 +78,21 @@ export function generate_program(
     const realm = sanitize_namespace(entry.realm);
     body.push("int main(int argc, char** argv) {");
     body.push("  ::pengu::set_args(argc, argv);");
+    body.push("  try {");
     const result = cpp_type(main.result, type_realms);
     if (result === "void") {
-      body.push(`  ${realm}::main();`);
-      body.push("  return 0;");
+      body.push(`    ${realm}::main();`);
+      body.push("    return 0;");
     } else if (result === "int") {
-      body.push(`  return ${realm}::main();`);
+      body.push(`    return ${realm}::main();`);
     } else {
-      body.push(`  ${realm}::main();`);
-      body.push("  return 0;");
+      body.push(`    ${realm}::main();`);
+      body.push("    return 0;");
     }
+    body.push("  } catch (const std::exception& error) {");
+    body.push('    std::fprintf(stderr, "panic: %s\\n", error.what());');
+    body.push("    return 1;");
+    body.push("  }");
     body.push("}");
     body.push("");
   }

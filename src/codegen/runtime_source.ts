@@ -9,6 +9,8 @@ export const RUNTIME_HEADER = `// Runtime generado por pengu 0.1.0. No editar a 
 
 #include <algorithm>
 #include <array>
+#include <cstdio>
+#include <exception>
 #include <atomic>
 #include <bitset>
 #include <complex>
@@ -416,25 +418,33 @@ bool contains(const C& container, const V& value) {
 
 template <class C>
 auto& vec_at(C& container, std::size_t index) {
-  return container.at(index);
+  if (index >= container.size()) {
+    throw std::runtime_error("índice " + std::to_string(index) + " fuera de rango (tamaño " +
+                             std::to_string(container.size()) + ")");
+  }
+  return container[index];
 }
 
 template <class C>
 const auto& vec_at(const C& container, std::size_t index) {
-  return container.at(index);
+  if (index >= container.size()) {
+    throw std::runtime_error("índice " + std::to_string(index) + " fuera de rango (tamaño " +
+                             std::to_string(container.size()) + ")");
+  }
+  return container[index];
 }
 
 template <class M>
 auto& map_at(M& map, const typename M::key_type& key) {
   auto it = map.find(key);
-  if (it == map.end()) throw std::runtime_error("clave inexistente");
+  if (it == map.end()) throw std::runtime_error("no existe la clave en el mapa");
   return it->second;
 }
 
 template <class M>
 const auto& map_at(const M& map, const typename M::key_type& key) {
   auto it = map.find(key);
-  if (it == map.end()) throw std::runtime_error("clave inexistente");
+  if (it == map.end()) throw std::runtime_error("no existe la clave en el mapa");
   return it->second;
 }
 

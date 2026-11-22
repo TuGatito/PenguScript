@@ -67,12 +67,13 @@ export function has_enchanted_method(ctx: CheckContext, name: string): boolean {
 
 // El módulo propio manda; los imports solo se consultan si el propio no
 // declara ese nombre.
-function entries_for(ctx: CheckContext, base: string, arity: number) {
+function entries_for(ctx: CheckContext, base: string, arity: number, name: string) {
   const key = `${base}/${arity}`;
   const own = ctx.module.env.enchants.get(key);
-  if (own !== undefined && own.methods.size > 0) return [own];
+  if (own !== undefined && own.methods.has(name)) return [own];
   const external = ctx.external?.enchants.get(key);
-  return external === undefined ? [] : [external];
+  if (external !== undefined && external.methods.has(name)) return [external];
+  return [];
 }
 
 // Los argumentos de tipo del receptor, en el orden de los sigilos del
@@ -111,7 +112,7 @@ function candidates_for(ctx: CheckContext, object: PenguType, name: string): rea
   const shape = receiver_shape(object);
   if (shape === undefined) return [];
   const candidates: Candidate[] = [];
-  for (const entry of entries_for(ctx, shape.base, shape.arity)) {
+  for (const entry of entries_for(ctx, shape.base, shape.arity, name)) {
     for (const method of entry.methods.get(name) ?? []) {
       candidates.push(instantiate(method, object));
     }
@@ -266,8 +267,27 @@ export function resolve_enchanted_member(
 ): PenguType | undefined {
   const candidates = candidates_for(ctx, object, node.name);
   if (candidates.length === 0) return undefined;
-  if (candidates.length > 1) return any_type(`método sobrecargado «${node.name}»`);
+  if (candidates.length > 1) {
+    report_error(
+      ctx,
+      CODES.ambiguous_method,
+      `«${node.name}» está sobrecargado y no se puede usar como valor; candidatos: ${signature_list(candidates, node.name)}`,
+      node.span,
+      ["llama al método con sus argumentos para elegir la sobrecarga"],
+    );
+    return UNKNOWN;
+  }
   const only = candidates[0] as Candidate;
+  if (only.method.info.mutable) {
+    report_error(
+      ctx,
+      CODES.not_first_class,
+      `«${node.name}» es «mut»: no es un valor de primera clase`,
+      node.span,
+      ["un método «mut» modifica el receptor; llámalo directamente"],
+    );
+    return UNKNOWN;
+  }
   annotate(ctx, node, only.method);
   return function_type(only.params, only.result, only.variadic, only.required);
 }
