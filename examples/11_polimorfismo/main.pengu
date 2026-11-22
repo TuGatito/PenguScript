@@ -1,4 +1,8 @@
--- Herencia, despacho virtual y operadores de usuario.
+-- Herencia con despacho estático y operadores de usuario.
+--
+-- PenguScript no tiene despacho virtual: una llamada se resuelve con el
+-- tipo estático del receptor. `Perro` ve sus propios métodos; `ref<Animal>`
+-- solo ve la interfaz de `Animal`.
 invoke "std/io"
 
 rune Animal
@@ -21,6 +25,9 @@ enchanting Perro
   hablar = -> string
     "guau"
 
+  describir = -> string
+    "#{@nombre}: #{@hablar()}"
+
 rune Gato heir Animal
   constructor(nombre: string)
     parent(nombre)
@@ -28,6 +35,9 @@ rune Gato heir Animal
 enchanting Gato
   hablar = -> string
     "miau"
+
+  describir = -> string
+    "#{@nombre}: #{@hablar()}"
 
 rune Punto
   x: int
@@ -72,8 +82,15 @@ presentar = (animal: ref<Animal>) -> void
   io::println(animal.describir())
 
 main = ->
-  presentar(ref<Animal>(ref(Perro("Toby"))))
-  presentar(ref<Animal>(ref(Gato("Misi"))))
+  perro = Perro("Toby")
+  gato = Gato("Misi")
+
+  -- Tipo estático `Perro`/`Gato`: cada uno usa su propio `describir`.
+  io::println(perro.describir())
+  io::println(gato.describir())
+
+  -- Tipo estático `Animal`: se ve `Animal.describir`.
+  presentar(ref<Animal>(ref(perro)))
 
   mut p = Punto(1, 2)
   p += Punto(3, 4)

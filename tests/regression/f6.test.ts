@@ -128,7 +128,7 @@ enchanting Perro
 `;
 
 describe("F6 herencia", () => {
-  test("parent(...) inicializa la base y el despacho es virtual", () => {
+  test("parent(...) inicializa la base y el despacho es estático", () => {
     const output = run_source(
       "dispatch",
       `invoke "std/io"
@@ -137,10 +137,12 @@ presentar = (a: ref<Animal>) -> void
   io::println("#{a.nombre}: #{a.hablar()}")
 
 main = ->
-  presentar(ref<Animal>(ref(Perro("Toby"))))
+  perro = Perro("Toby")
+  io::println("#{perro.nombre}: #{perro.hablar()}")
+  presentar(ref<Animal>(ref(perro)))
 `,
     );
-    expect(output.trim()).toBe("Toby: guau");
+    expect(output.trim()).toBe("Toby: guau\nToby: ...");
   });
 
   test("un ref<Animal> no se toma implícitamente de un ref<Perro>", () => {

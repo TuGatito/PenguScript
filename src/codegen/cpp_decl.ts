@@ -25,7 +25,7 @@ import { emit_value_block } from "./cpp_stmt.ts";
 import { emit_expr } from "./cpp_expr.ts";
 import { generic_type, named } from "../semantic/types.ts";
 import type { TypeDecl } from "./cpp_type_order.ts";
-import { heir_names, is_type_decl, order_type_decls } from "./cpp_type_order.ts";
+import { is_type_decl, order_type_decls } from "./cpp_type_order.ts";
 import { enchant_target_of, type_pattern_type } from "../semantic/enchant_targets.ts";
 
 
@@ -49,14 +49,13 @@ export function emit_declarations(g: GenContext, decls: readonly DeclNode[]): vo
     if (is_type_decl(decl)) type_decls.push(decl);
   }
   const types = order_type_decls(type_decls);
-  const heirs = heir_names(decls);
 
   // Primero los tipos, en orden de dependencia: C++ necesita el padre
   // completo antes que la hija.
   for (const decl of types) {
     switch (decl.kind) {
       case "rune_decl":
-        with_sigils(g, decl.sigils, () => emit_rune(g, decl, methods_by_rune.get(decl.name) ?? [], heirs));
+        with_sigils(g, decl.sigils, () => emit_rune(g, decl, methods_by_rune.get(decl.name) ?? []));
         break;
       case "omen_decl":
         with_sigils(g, decl.sigils, () => {
@@ -458,7 +457,6 @@ function emit_rune(
   g: GenContext,
   decl: RuneDecl,
   methods: readonly MethodDecl[],
-  heirs: ReadonlySet<string>,
 ): void {
   if (decl.sigils.length > 0) {
     line(g, `template <${decl.sigils.map((sigil) => `typename ${sigil}`).join(", ")}>`);
@@ -473,7 +471,6 @@ function emit_rune(
     line(g, `${type} ${cpp_identifier(field.name)}${default_value};`);
   }
 
-  const polymorphic = heirs.has(decl.name);
 
   if (decl.constructor) {
     const params = decl.constructor.params.map((param) => emit_param(g, param)).join(", ");
@@ -497,19 +494,15 @@ function emit_rune(
   }
 
   if (decl.destructor) {
-    line(g, `${polymorphic ? "virtual " : ""}~${name}() {`);
+    line(g, `~${name}() {`);
     g.indent += 1;
     emit_value_block(g, decl.destructor, "void");
     g.indent -= 1;
     line(g, "}");
-  } else if (polymorphic) {
-    // Sin destructor propio, pero con herederos: C++ necesita que el
-    // borrado a través de la base sea correcto.
-    line(g, `virtual ~${name}() = default;`);
   }
 
   for (const method of methods) {
-    emit_method(g, method, polymorphic);
+    emit_method(g, method);
   }
 
   g.indent -= 1;
@@ -531,13 +524,13 @@ function parent_call_body(g: GenContext, decl: RuneDecl, initializers: string[])
   return { kind: "block", statements: body.statements.slice(1), span: body.span };
 }
 
-function emit_method(g: GenContext, method: MethodDecl, virtual_method = false): void {
+function emit_method(g: GenContext, method: MethodDecl): void {
   const result = method.result ? cpp_type_node(method.result, g.module.env, g.type_realms) : "void";
   const params = method.params.map((param) => emit_param(g, param)).join(", ");
   const name = method.operator ? operator_name(method.operator) : cpp_identifier(method.name);
   const constness = method.mutable ? "" : " const";
-  const prefix = virtual_method && method.operator === undefined ? "virtual " : "";
-  line(g, `${prefix}${result} ${name}(${params})${constness} {`);
+  // Sin despacho virtual: cada llamada se resuelve con el tipo estático.
+  line(g, `${result} ${name}(${params})${constness} {`);
   g.indent += 1;
   push_scope(g);
   for (const param of method.params) declare_local(g, param.name);

@@ -4030,7 +4030,7 @@ Meters operator*(double a, Meters b) {
 
 Lo que el compilador ya comprueba y traduce:
 
-- **Herencia**: `heir` + `parent(...)` como primera sentencia del constructor. Si una rune tiene herederos, sus métodos se emiten `virtual` y el destructor también, de modo que `ref<Animal>` despacha a `Perro::hablar`.
+- **Herencia**: `heir` + `parent(...)` como primera sentencia del constructor. El despacho es **estático** (no se emite `virtual`): `perro.describir()` usa `Perro::describir`, mientras que `animal: ref<Animal>` solo ve la interfaz de `Animal`. Para comportamiento por subtipo, declara el método en cada rune o usa un `omen` con `match`.
 - **Upcast explícito**: `ref<Animal>(ref(d))` es seguro; `ref<Animal>(x)` sobre algo que no desciende de `Animal` da `E0501`. La asignación implícita `ref<Animal> = ref(d)` es un error: hay que escribir el `ref<T>` del destino.
 - **Sin sombreado de campos**: una hija que repite un campo del padre da `E0704`. Los métodos sí se pueden redefinir.
 - **Operadores**: binarios (1 parámetro), unarios (0), `[]` (`mut` para escribir), `()` (retorno libre), `<=>` y compuestos (`mut operator +=`). El operador libre `operator * = (a: int, b: Punto) -> Punto` funciona por ADL; si el primer parámetro es del mismo tipo que un método `enchanting` con el mismo símbolo, da `E0706`.

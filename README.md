@@ -96,7 +96,7 @@ funciones puras y módulos pequeños de una sola responsabilidad.
 - `examples/08_modules` — varios archivos, `realm`, `invoke` selectivo.
 - `examples/09_stdlib` — vectores, mapas, conjuntos, opcionales, `math` y `format`.
 - `examples/10_ownership` — `unique<T>`, movimiento y `use after move`.
-- `examples/11_polimorfismo` — herencia, `parent`, operadores y despacho virtual.
+- `examples/11_polimorfismo` — herencia, `parent`, operadores y despacho estático.
 - `examples/12_colecciones` — `std/string`, `vector`, `map`, `set`, `optional` e `int` enhechizados.
 
 ## Enlaces con C
