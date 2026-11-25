@@ -94,6 +94,9 @@ export const CODES = {
   lsp_protocol: "E0901",
   bindgen_failed: "E0902",
   bindgen_unsupported: "E0903",
+  ts_bindgen_failed: "E0904",
+  ts_bindgen_missing: "E0905",
+  ts_bindgen_stale: "E0906",
 } as const;
 
 export type CodeName = keyof typeof CODES;

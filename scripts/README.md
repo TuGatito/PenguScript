@@ -8,6 +8,7 @@ Utilidades para compilar e instalar PenguScript sin depender del shell que uses.
 | `vsix.sh` / `vsix.ps1` | Empaquetan la extensión de VS Code como `.vsix` y la instalan con el CLI `code`. |
 | `bench_backends.sh` | Compara el mismo bucle aritmético compilado a C++20 y a JavaScript (`--target js`). |
 | `embed_std.ts` | Regenera `std_bundle.ts` con las fuentes de `std/` (lo exige un test). |
+| `fetch_dts.ts` | Copia los `.d.ts` de `typescript5` a `third_party/dts/` y firma `MANIFEST.json` (`--check` verifica). |
 
 ## Instalar el ejecutable
 

@@ -138,6 +138,9 @@ Formato: `archivo:línea:columna: severidad[código]: mensaje`.
 | E0901 | `lsp_protocol` | Mensaje JSON-RPC inválido. |
 | E0902 | `bindgen_failed` | `clang` no pudo analizar el encabezado. |
 | E0903 | `bindgen_unsupported` | Firma nativa que no se puede mapear (variádicas, tipos desconocidos). |
+| E0904 | `ts_bindgen_failed` | El lector de `.d.ts` o el emisor de `.d.pengu` falló. |
+| E0905 | `ts_bindgen_missing` | No se encontró la Compiler API de TypeScript o los `.d.ts` de `third_party/dts/`. |
+| E0906 | `ts_bindgen_stale` | Un `.d.pengu` generado está desactualizado (`--check`). |
 
 ## Cuando el LSP marca errores que el CLI no ve
 

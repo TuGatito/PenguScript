@@ -4,6 +4,27 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+## ts-bindgen T0: lector de `.d.ts` y `.d.ts` comprometidos
+
+- **Lector de `.d.ts` propio** (`src/tsbindgen/`): `dts_type.ts` (IR de tipos con
+  `unsupported` para lo que no se puede traducir), `dts_ast.ts` (interfaces,
+  clases, alias, variables, funciones, namespaces, enums y bloques `declare
+  global`) y `dts_reader.ts` (Compiler API de TypeScript → IR, con JSDoc, índices
+  de línea y contadores de cobertura).
+- **`third_party/dts/`**: 65 `.d.ts` de `typescript@5.7.3` (ES5–ES2022 y DOM,
+  2 MB) con `MANIFEST.json` firmado con sha256 y `LICENSE.txt`, para que
+  `pengu ts-bindgen --check` sea reproducible sin red ni `bun install`.
+- **`scripts/fetch_dts.ts`** (`bun run dts:prepare`, `bun run dts:check`): copia
+  las librerías desde el paquete `typescript5` y verifica el manifiesto.
+- `typescript5` (`npm:typescript@5.7.3`) entra como dependencia de desarrollo: la
+  `typescript` instalada es la 7 nativa, que no expone la Compiler API. El
+  compilador nunca importa `typescript5`.
+- Códigos nuevos `E0904 ts_bindgen_failed`, `E0905 ts_bindgen_missing` y
+  `E0906 ts_bindgen_stale`, documentados en `docs/errors.md`.
+- Tests: `tests/tsbindgen/reader.test.ts` (19 casos, contra un fixture de todas
+  las construcciones y contra `lib.dom.d.ts` real) y
+  `tests/tsbindgen/manifest.test.ts` (integridad de los `.d.ts`).
+
 ## Backend JavaScript: destructores deterministas
 
 - **Los destructores ya se ejecutan en JavaScript.** Era una deuda del plan:
