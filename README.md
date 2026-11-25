@@ -111,7 +111,8 @@ src/
   cli/         comandos de la línea de órdenes
   diagnostics/ códigos, diagnósticos y render con caret
 std/           biblioteca estándar: firmas `*.d.pengu` que declara el bloque `declare`
-examples/      programas de ejemplo, de `01_hello` a `16_herramienta`
+examples/      programas de ejemplo, de `01_hello` a `18_raygui`
+bindings/      enlaces generados de raylib y raygui (`.d.pengu`)
 editors/vscode extensión de VS Code (gramática, snippets, comandos y LSP)
 scripts/       instalación del ejecutable y empaquetado del .vsix (sh + ps1)
 tests/         lexer, parser, checker, formatter, lsp, bindgen, extensión y e2e
@@ -152,6 +153,8 @@ funciones puras y módulos pequeños de una sola responsabilidad.
 - `examples/14_geometria` — `std/geometry`: vectores, rectángulos, intersecciones y transformaciones.
 - `examples/15_juego` — física, easing y color en un bucle de juego.
 - `examples/16_herramienta` — `std/cli`, `std/hash` y `std/json` en una herramienta de línea de comandos.
+- `examples/17_raylib` — una ventana con raylib usando `bindings/raylib`.
+- `examples/18_raygui` — botones y etiquetas con raygui (`bindings/raygui`).
 
 ## Recetas
 
@@ -245,6 +248,22 @@ de función y las de plataforma se omiten con motivo en el informe.
 Con `raylib` instalada, `pengu bindgen /usr/include/raylib.h --realm raylib
 --out raylib.d.pengu --link raylib` genera 619 funciones y 40 constantes
 (colores, versión, `PI`, `DEG2RAD`…), listas para compilar y enlazar.
+
+Los enlaces de raylib y raygui viven en `bindings/`:
+
+```bash
+pengu bindgen /usr/include/raylib.h --realm raylib --link raylib \
+  --out bindings/raylib/raylib.d.pengu --check
+pengu bindgen ../raylib-pengu/include/raygui.h -I ../raylib-pengu/include \
+  --base /usr/include/raylib.h --base-realm raylib --base-module ../raylib/raylib.d \
+  --realm raygui --link raylib --out bindings/raygui/raygui.d.pengu --check
+```
+
+`--check` falla si el archivo comprometido está desactualizado. `--base`
+reutiliza otra cabecera: sus tipos se cualifican (`raylib::Rectangle`) y no se
+repiten, así que `raygui.d.pengu` solo declara las 61 funciones `Gui*` y sus 6
+constantes. Los ejemplos `17_raylib` y `18_raygui` los usan; el segundo
+necesita el objeto de raygui con `-DRAYGUI_IMPLEMENTATION`.
 
 ## Documentación
 

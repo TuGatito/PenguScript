@@ -2,14 +2,17 @@
 // compilar a C++20 y ejecutarse sin errores.
 
 import { describe, expect, test } from "bun:test";
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { compile_file } from "../../src/driver/compile.ts";
 
 const examples_root = join(import.meta.dir, "..", "..", "examples");
+// Los ejemplos con `native.txt` necesitan bibliotecas nativas (raylib) y se
+// validan en `tests/bindgen/native_examples.test.ts`: aquí no se ejecutan.
 const directories = readdirSync(examples_root)
   .filter((name) => !name.startsWith("."))
+  .filter((name) => !existsSync(join(examples_root, name, "native.txt")))
   .sort();
 
 describe("ejemplos de extremo a extremo", () => {

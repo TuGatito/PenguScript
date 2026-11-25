@@ -1,0 +1,1303 @@
+-- Enlaces generados por «pengu bindgen» desde raylib.h.
+-- No edites este archivo a mano: vuelve a ejecutar bindgen.
+
+realm raylib
+
+link "raylib"
+
+omen ConfigFlags
+  FLAG_VSYNC_HINT = 64
+  FLAG_FULLSCREEN_MODE = 2
+  FLAG_WINDOW_RESIZABLE = 4
+  FLAG_WINDOW_UNDECORATED = 8
+  FLAG_WINDOW_HIDDEN = 128
+  FLAG_WINDOW_MINIMIZED = 512
+  FLAG_WINDOW_MAXIMIZED = 1024
+  FLAG_WINDOW_UNFOCUSED = 2048
+  FLAG_WINDOW_TOPMOST = 4096
+  FLAG_WINDOW_ALWAYS_RUN = 256
+  FLAG_WINDOW_TRANSPARENT = 16
+  FLAG_WINDOW_HIGHDPI = 8192
+  FLAG_WINDOW_MOUSE_PASSTHROUGH = 16384
+  FLAG_BORDERLESS_WINDOWED_MODE = 32768
+  FLAG_MSAA_4X_HINT = 32
+  FLAG_INTERLACED_HINT = 65536
+
+omen TraceLogLevel
+  LOG_ALL = 0
+  LOG_TRACE = 1
+  LOG_DEBUG = 2
+  LOG_INFO = 3
+  LOG_WARNING = 4
+  LOG_ERROR = 5
+  LOG_FATAL = 6
+  LOG_NONE = 7
+
+omen KeyboardKey
+  KEY_NULL = 0
+  KEY_APOSTROPHE = 39
+  KEY_COMMA = 44
+  KEY_MINUS = 45
+  KEY_PERIOD = 46
+  KEY_SLASH = 47
+  KEY_ZERO = 48
+  KEY_ONE = 49
+  KEY_TWO = 50
+  KEY_THREE = 51
+  KEY_FOUR = 52
+  KEY_FIVE = 53
+  KEY_SIX = 54
+  KEY_SEVEN = 55
+  KEY_EIGHT = 56
+  KEY_NINE = 57
+  KEY_SEMICOLON = 59
+  KEY_EQUAL = 61
+  KEY_A = 65
+  KEY_B = 66
+  KEY_C = 67
+  KEY_D = 68
+  KEY_E = 69
+  KEY_F = 70
+  KEY_G = 71
+  KEY_H = 72
+  KEY_I = 73
+  KEY_J = 74
+  KEY_K = 75
+  KEY_L = 76
+  KEY_M = 77
+  KEY_N = 78
+  KEY_O = 79
+  KEY_P = 80
+  KEY_Q = 81
+  KEY_R = 82
+  KEY_S = 83
+  KEY_T = 84
+  KEY_U = 85
+  KEY_V = 86
+  KEY_W = 87
+  KEY_X = 88
+  KEY_Y = 89
+  KEY_Z = 90
+  KEY_LEFT_BRACKET = 91
+  KEY_BACKSLASH = 92
+  KEY_RIGHT_BRACKET = 93
+  KEY_GRAVE = 96
+  KEY_SPACE = 32
+  KEY_ESCAPE = 256
+  KEY_ENTER = 257
+  KEY_TAB = 258
+  KEY_BACKSPACE = 259
+  KEY_INSERT = 260
+  KEY_DELETE = 261
+  KEY_RIGHT = 262
+  KEY_LEFT = 263
+  KEY_DOWN = 264
+  KEY_UP = 265
+  KEY_PAGE_UP = 266
+  KEY_PAGE_DOWN = 267
+  KEY_HOME = 268
+  KEY_END = 269
+  KEY_CAPS_LOCK = 280
+  KEY_SCROLL_LOCK = 281
+  KEY_NUM_LOCK = 282
+  KEY_PRINT_SCREEN = 283
+  KEY_PAUSE = 284
+  KEY_F1 = 290
+  KEY_F2 = 291
+  KEY_F3 = 292
+  KEY_F4 = 293
+  KEY_F5 = 294
+  KEY_F6 = 295
+  KEY_F7 = 296
+  KEY_F8 = 297
+  KEY_F9 = 298
+  KEY_F10 = 299
+  KEY_F11 = 300
+  KEY_F12 = 301
+  KEY_LEFT_SHIFT = 340
+  KEY_LEFT_CONTROL = 341
+  KEY_LEFT_ALT = 342
+  KEY_LEFT_SUPER = 343
+  KEY_RIGHT_SHIFT = 344
+  KEY_RIGHT_CONTROL = 345
+  KEY_RIGHT_ALT = 346
+  KEY_RIGHT_SUPER = 347
+  KEY_KB_MENU = 348
+  KEY_KP_0 = 320
+  KEY_KP_1 = 321
+  KEY_KP_2 = 322
+  KEY_KP_3 = 323
+  KEY_KP_4 = 324
+  KEY_KP_5 = 325
+  KEY_KP_6 = 326
+  KEY_KP_7 = 327
+  KEY_KP_8 = 328
+  KEY_KP_9 = 329
+  KEY_KP_DECIMAL = 330
+  KEY_KP_DIVIDE = 331
+  KEY_KP_MULTIPLY = 332
+  KEY_KP_SUBTRACT = 333
+  KEY_KP_ADD = 334
+  KEY_KP_ENTER = 335
+  KEY_KP_EQUAL = 336
+  KEY_BACK = 4
+  KEY_MENU = 5
+  KEY_VOLUME_UP = 24
+  KEY_VOLUME_DOWN = 25
+
+omen MouseButton
+  MOUSE_BUTTON_LEFT = 0
+  MOUSE_BUTTON_RIGHT = 1
+  MOUSE_BUTTON_MIDDLE = 2
+  MOUSE_BUTTON_SIDE = 3
+  MOUSE_BUTTON_EXTRA = 4
+  MOUSE_BUTTON_FORWARD = 5
+  MOUSE_BUTTON_BACK = 6
+
+omen MouseCursor
+  MOUSE_CURSOR_DEFAULT = 0
+  MOUSE_CURSOR_ARROW = 1
+  MOUSE_CURSOR_IBEAM = 2
+  MOUSE_CURSOR_CROSSHAIR = 3
+  MOUSE_CURSOR_POINTING_HAND = 4
+  MOUSE_CURSOR_RESIZE_EW = 5
+  MOUSE_CURSOR_RESIZE_NS = 6
+  MOUSE_CURSOR_RESIZE_NWSE = 7
+  MOUSE_CURSOR_RESIZE_NESW = 8
+  MOUSE_CURSOR_RESIZE_ALL = 9
+  MOUSE_CURSOR_NOT_ALLOWED = 10
+
+omen GamepadButton
+  GAMEPAD_BUTTON_UNKNOWN = 0
+  GAMEPAD_BUTTON_LEFT_FACE_UP = 1
+  GAMEPAD_BUTTON_LEFT_FACE_RIGHT = 2
+  GAMEPAD_BUTTON_LEFT_FACE_DOWN = 3
+  GAMEPAD_BUTTON_LEFT_FACE_LEFT = 4
+  GAMEPAD_BUTTON_RIGHT_FACE_UP = 5
+  GAMEPAD_BUTTON_RIGHT_FACE_RIGHT = 6
+  GAMEPAD_BUTTON_RIGHT_FACE_DOWN = 7
+  GAMEPAD_BUTTON_RIGHT_FACE_LEFT = 8
+  GAMEPAD_BUTTON_LEFT_TRIGGER_1 = 9
+  GAMEPAD_BUTTON_LEFT_TRIGGER_2 = 10
+  GAMEPAD_BUTTON_RIGHT_TRIGGER_1 = 11
+  GAMEPAD_BUTTON_RIGHT_TRIGGER_2 = 12
+  GAMEPAD_BUTTON_MIDDLE_LEFT = 13
+  GAMEPAD_BUTTON_MIDDLE = 14
+  GAMEPAD_BUTTON_MIDDLE_RIGHT = 15
+  GAMEPAD_BUTTON_LEFT_THUMB = 16
+  GAMEPAD_BUTTON_RIGHT_THUMB = 17
+
+omen GamepadAxis
+  GAMEPAD_AXIS_LEFT_X = 0
+  GAMEPAD_AXIS_LEFT_Y = 1
+  GAMEPAD_AXIS_RIGHT_X = 2
+  GAMEPAD_AXIS_RIGHT_Y = 3
+  GAMEPAD_AXIS_LEFT_TRIGGER = 4
+  GAMEPAD_AXIS_RIGHT_TRIGGER = 5
+
+omen MaterialMapIndex
+  MATERIAL_MAP_ALBEDO = 0
+  MATERIAL_MAP_METALNESS = 1
+  MATERIAL_MAP_NORMAL = 2
+  MATERIAL_MAP_ROUGHNESS = 3
+  MATERIAL_MAP_OCCLUSION = 4
+  MATERIAL_MAP_EMISSION = 5
+  MATERIAL_MAP_HEIGHT = 6
+  MATERIAL_MAP_CUBEMAP = 7
+  MATERIAL_MAP_IRRADIANCE = 8
+  MATERIAL_MAP_PREFILTER = 9
+  MATERIAL_MAP_BRDF = 10
+
+omen ShaderLocationIndex
+  SHADER_LOC_VERTEX_POSITION = 0
+  SHADER_LOC_VERTEX_TEXCOORD01 = 1
+  SHADER_LOC_VERTEX_TEXCOORD02 = 2
+  SHADER_LOC_VERTEX_NORMAL = 3
+  SHADER_LOC_VERTEX_TANGENT = 4
+  SHADER_LOC_VERTEX_COLOR = 5
+  SHADER_LOC_MATRIX_MVP = 6
+  SHADER_LOC_MATRIX_VIEW = 7
+  SHADER_LOC_MATRIX_PROJECTION = 8
+  SHADER_LOC_MATRIX_MODEL = 9
+  SHADER_LOC_MATRIX_NORMAL = 10
+  SHADER_LOC_VECTOR_VIEW = 11
+  SHADER_LOC_COLOR_DIFFUSE = 12
+  SHADER_LOC_COLOR_SPECULAR = 13
+  SHADER_LOC_COLOR_AMBIENT = 14
+  SHADER_LOC_MAP_ALBEDO = 15
+  SHADER_LOC_MAP_METALNESS = 16
+  SHADER_LOC_MAP_NORMAL = 17
+  SHADER_LOC_MAP_ROUGHNESS = 18
+  SHADER_LOC_MAP_OCCLUSION = 19
+  SHADER_LOC_MAP_EMISSION = 20
+  SHADER_LOC_MAP_HEIGHT = 21
+  SHADER_LOC_MAP_CUBEMAP = 22
+  SHADER_LOC_MAP_IRRADIANCE = 23
+  SHADER_LOC_MAP_PREFILTER = 24
+  SHADER_LOC_MAP_BRDF = 25
+  SHADER_LOC_VERTEX_BONEIDS = 26
+  SHADER_LOC_VERTEX_BONEWEIGHTS = 27
+  SHADER_LOC_MATRIX_BONETRANSFORMS = 28
+  SHADER_LOC_VERTEX_INSTANCETRANSFORM = 29
+
+omen ShaderUniformDataType
+  SHADER_UNIFORM_FLOAT = 0
+  SHADER_UNIFORM_VEC2 = 1
+  SHADER_UNIFORM_VEC3 = 2
+  SHADER_UNIFORM_VEC4 = 3
+  SHADER_UNIFORM_INT = 4
+  SHADER_UNIFORM_IVEC2 = 5
+  SHADER_UNIFORM_IVEC3 = 6
+  SHADER_UNIFORM_IVEC4 = 7
+  SHADER_UNIFORM_UINT = 8
+  SHADER_UNIFORM_UIVEC2 = 9
+  SHADER_UNIFORM_UIVEC3 = 10
+  SHADER_UNIFORM_UIVEC4 = 11
+  SHADER_UNIFORM_SAMPLER2D = 12
+
+omen ShaderAttributeDataType
+  SHADER_ATTRIB_FLOAT = 0
+  SHADER_ATTRIB_VEC2 = 1
+  SHADER_ATTRIB_VEC3 = 2
+  SHADER_ATTRIB_VEC4 = 3
+
+omen PixelFormat
+  PIXELFORMAT_UNCOMPRESSED_GRAYSCALE = 1
+  PIXELFORMAT_UNCOMPRESSED_GRAY_ALPHA = 2
+  PIXELFORMAT_UNCOMPRESSED_R5G6B5 = 3
+  PIXELFORMAT_UNCOMPRESSED_R8G8B8 = 4
+  PIXELFORMAT_UNCOMPRESSED_R5G5B5A1 = 5
+  PIXELFORMAT_UNCOMPRESSED_R4G4B4A4 = 6
+  PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 = 7
+  PIXELFORMAT_UNCOMPRESSED_R32 = 8
+  PIXELFORMAT_UNCOMPRESSED_R32G32B32 = 9
+  PIXELFORMAT_UNCOMPRESSED_R32G32B32A32 = 10
+  PIXELFORMAT_UNCOMPRESSED_R16 = 11
+  PIXELFORMAT_UNCOMPRESSED_R16G16B16 = 12
+  PIXELFORMAT_UNCOMPRESSED_R16G16B16A16 = 13
+  PIXELFORMAT_COMPRESSED_DXT1_RGB = 14
+  PIXELFORMAT_COMPRESSED_DXT1_RGBA = 15
+  PIXELFORMAT_COMPRESSED_DXT3_RGBA = 16
+  PIXELFORMAT_COMPRESSED_DXT5_RGBA = 17
+  PIXELFORMAT_COMPRESSED_ETC1_RGB = 18
+  PIXELFORMAT_COMPRESSED_ETC2_RGB = 19
+  PIXELFORMAT_COMPRESSED_ETC2_EAC_RGBA = 20
+  PIXELFORMAT_COMPRESSED_PVRT_RGB = 21
+  PIXELFORMAT_COMPRESSED_PVRT_RGBA = 22
+  PIXELFORMAT_COMPRESSED_ASTC_4x4_RGBA = 23
+  PIXELFORMAT_COMPRESSED_ASTC_8x8_RGBA = 24
+
+omen TextureFilter
+  TEXTURE_FILTER_POINT = 0
+  TEXTURE_FILTER_BILINEAR = 1
+  TEXTURE_FILTER_TRILINEAR = 2
+  TEXTURE_FILTER_ANISOTROPIC_4X = 3
+  TEXTURE_FILTER_ANISOTROPIC_8X = 4
+  TEXTURE_FILTER_ANISOTROPIC_16X = 5
+
+omen TextureWrap
+  TEXTURE_WRAP_REPEAT = 0
+  TEXTURE_WRAP_CLAMP = 1
+  TEXTURE_WRAP_MIRROR_REPEAT = 2
+  TEXTURE_WRAP_MIRROR_CLAMP = 3
+
+omen CubemapLayout
+  CUBEMAP_LAYOUT_AUTO_DETECT = 0
+  CUBEMAP_LAYOUT_LINE_VERTICAL = 1
+  CUBEMAP_LAYOUT_LINE_HORIZONTAL = 2
+  CUBEMAP_LAYOUT_CROSS_THREE_BY_FOUR = 3
+  CUBEMAP_LAYOUT_CROSS_FOUR_BY_THREE = 4
+
+omen FontType
+  FONT_DEFAULT = 0
+  FONT_BITMAP = 1
+  FONT_SDF = 2
+
+omen BlendMode
+  BLEND_ALPHA = 0
+  BLEND_ADDITIVE = 1
+  BLEND_MULTIPLIED = 2
+  BLEND_ADD_COLORS = 3
+  BLEND_SUBTRACT_COLORS = 4
+  BLEND_ALPHA_PREMULTIPLY = 5
+  BLEND_CUSTOM = 6
+  BLEND_CUSTOM_SEPARATE = 7
+
+omen Gesture
+  GESTURE_NONE = 0
+  GESTURE_TAP = 1
+  GESTURE_DOUBLETAP = 2
+  GESTURE_HOLD = 4
+  GESTURE_DRAG = 8
+  GESTURE_SWIPE_RIGHT = 16
+  GESTURE_SWIPE_LEFT = 32
+  GESTURE_SWIPE_UP = 64
+  GESTURE_SWIPE_DOWN = 128
+  GESTURE_PINCH_IN = 256
+  GESTURE_PINCH_OUT = 512
+
+omen CameraMode
+  CAMERA_CUSTOM = 0
+  CAMERA_FREE = 1
+  CAMERA_ORBITAL = 2
+  CAMERA_FIRST_PERSON = 3
+  CAMERA_THIRD_PERSON = 4
+
+omen CameraProjection
+  CAMERA_PERSPECTIVE = 0
+  CAMERA_ORTHOGRAPHIC = 1
+
+omen NPatchLayout
+  NPATCH_NINE_PATCH = 0
+  NPATCH_THREE_PATCH_VERTICAL = 1
+  NPATCH_THREE_PATCH_HORIZONTAL = 2
+
+rune Vector2
+  x: float
+  y: float
+
+rune Vector3
+  x: float
+  y: float
+  z: float
+
+rune Vector4
+  x: float
+  y: float
+  z: float
+  w: float
+
+rune Matrix
+  m0: float
+  m4: float
+  m8: float
+  m12: float
+  m1: float
+  m5: float
+  m9: float
+  m13: float
+  m2: float
+  m6: float
+  m10: float
+  m14: float
+  m3: float
+  m7: float
+  m11: float
+  m15: float
+
+rune Color
+  r: uint8_t
+  g: uint8_t
+  b: uint8_t
+  a: uint8_t
+
+rune Rectangle
+  x: float
+  y: float
+  width: float
+  height: float
+
+rune Image
+  data: raw<void>
+  width: int
+  height: int
+  mipmaps: int
+  format: int
+
+rune Texture
+  id: uint32_t
+  width: int
+  height: int
+  mipmaps: int
+  format: int
+
+rune RenderTexture
+  id: uint32_t
+  texture: Texture
+  depth: Texture
+
+rune NPatchInfo
+  source: Rectangle
+  left: int
+  top: int
+  right: int
+  bottom: int
+  layout: int
+
+rune GlyphInfo
+  value: int
+  offsetX: int
+  offsetY: int
+  advanceX: int
+  image: Image
+
+rune Font
+  baseSize: int
+  glyphCount: int
+  glyphPadding: int
+  texture: Texture
+  recs: raw<Rectangle>
+  glyphs: raw<GlyphInfo>
+
+rune Camera3D
+  position: Vector3
+  target: Vector3
+  up: Vector3
+  fovy: float
+  projection: int
+
+rune Camera2D
+  offset: Vector2
+  target: Vector2
+  rotation: float
+  zoom: float
+
+rune Mesh
+  vertexCount: int
+  triangleCount: int
+  vertices: raw<float>
+  texcoords: raw<float>
+  texcoords2: raw<float>
+  normals: raw<float>
+  tangents: raw<float>
+  colors: raw<uint8_t>
+  indices: raw<uint16_t>
+  boneCount: int
+  boneIndices: raw<uint8_t>
+  boneWeights: raw<float>
+  animVertices: raw<float>
+  animNormals: raw<float>
+  vaoId: uint32_t
+  vboId: raw<uint32_t>
+
+rune Shader
+  id: uint32_t
+  locs: raw<int>
+
+rune MaterialMap
+  texture: Texture
+  color: Color
+  value: float
+
+rune Material
+  shader: Shader
+  maps: raw<MaterialMap>
+  params: array<float, 4>
+
+rune Transform
+  translation: Vector3
+  rotation: Vector4
+  scale: Vector3
+
+rune BoneInfo
+  name: array<char, 32>
+  parent_: int
+
+rune ModelSkeleton
+  boneCount: uint32_t
+  bones: raw<BoneInfo>
+  bindPose: raw<Transform>
+
+rune Model
+  transform: Matrix
+  meshCount: int
+  materialCount: int
+  meshes: raw<Mesh>
+  materials: raw<Material>
+  meshMaterial: raw<int>
+  skeleton: ModelSkeleton
+  currentPose: raw<Transform>
+  boneMatrices: raw<Matrix>
+
+rune ModelAnimation
+  name: array<char, 32>
+  boneCount: uint32_t
+  keyframeCount: int
+  keyframePoses: raw<raw<Transform>>
+
+rune Ray
+  position: Vector3
+  direction: Vector3
+
+rune RayCollision
+  hit: bool
+  distance: float
+  point: Vector3
+  normal: Vector3
+
+rune BoundingBox
+  min: Vector3
+  max: Vector3
+
+rune Wave
+  frameCount: uint32_t
+  sampleRate: uint32_t
+  sampleSize: uint32_t
+  channels: uint32_t
+  data: raw<void>
+
+rune AudioStream
+  buffer: raw<void>
+  processor: raw<void>
+  sampleRate: uint32_t
+  sampleSize: uint32_t
+  channels: uint32_t
+
+rune Sound
+  stream: AudioStream
+  frameCount: uint32_t
+
+rune Music
+  stream: AudioStream
+  frameCount: uint32_t
+  looping: bool
+  ctxType: int
+  ctxData: raw<void>
+
+rune VrDeviceInfo
+  hResolution: int
+  vResolution: int
+  hScreenSize: float
+  vScreenSize: float
+  eyeToScreenDistance: float
+  lensSeparationDistance: float
+  interpupillaryDistance: float
+  lensDistortionValues: array<float, 4>
+  chromaAbCorrection: array<float, 4>
+
+rune VrStereoConfig
+  projection: array<Matrix, 2>
+  viewOffset: array<Matrix, 2>
+  leftLensCenter: array<float, 2>
+  rightLensCenter: array<float, 2>
+  leftScreenCenter: array<float, 2>
+  rightScreenCenter: array<float, 2>
+  scale: array<float, 2>
+  scaleIn: array<float, 2>
+
+rune FilePathList
+  count: uint32_t
+  paths: raw<char>
+
+rune AutomationEvent
+  frame: uint32_t
+  type: uint32_t
+  params: array<int, 4>
+
+rune AutomationEventList
+  capacity: uint32_t
+  count: uint32_t
+  events: raw<AutomationEvent>
+
+echo Quaternion = Vector4
+
+echo Texture2D = Texture
+
+echo TextureCubemap = Texture
+
+echo RenderTexture2D = RenderTexture
+
+echo Camera = Camera3D
+
+echo ModelAnimPose = raw<Transform>
+
+const BEIGE: Color = Color(211, 176, 131, 255)
+
+const BLACK: Color = Color(0, 0, 0, 255)
+
+const BLANK: Color = Color(0, 0, 0, 0)
+
+const BLUE: Color = Color(0, 121, 241, 255)
+
+const BROWN: Color = Color(127, 106, 79, 255)
+
+const DARKBLUE: Color = Color(0, 82, 172, 255)
+
+const DARKBROWN: Color = Color(76, 63, 47, 255)
+
+const DARKGRAY: Color = Color(80, 80, 80, 255)
+
+const DARKGREEN: Color = Color(0, 117, 44, 255)
+
+const DARKPURPLE: Color = Color(112, 31, 126, 255)
+
+define DEG2RAD: double = 0.017453292519943295
+
+const GOLD: Color = Color(255, 203, 0, 255)
+
+const GRAY: Color = Color(130, 130, 130, 255)
+
+const GREEN: Color = Color(0, 228, 48, 255)
+
+const LIGHTGRAY: Color = Color(200, 200, 200, 255)
+
+const LIME: Color = Color(0, 158, 47, 255)
+
+const MAGENTA: Color = Color(255, 0, 255, 255)
+
+const MAROON: Color = Color(190, 33, 55, 255)
+
+define MATERIAL_MAP_DIFFUSE: int = 0
+
+define MATERIAL_MAP_SPECULAR: int = 1
+
+define MOUSE_LEFT_BUTTON: int = 0
+
+define MOUSE_MIDDLE_BUTTON: int = 2
+
+define MOUSE_RIGHT_BUTTON: int = 1
+
+const ORANGE: Color = Color(255, 161, 0, 255)
+
+define PI: double = 3.141592653589793
+
+const PINK: Color = Color(255, 109, 194, 255)
+
+const PURPLE: Color = Color(200, 122, 255, 255)
+
+define RAD2DEG: double = 57.29577951308232
+
+define RAYLIB_VERSION: string = "6.2"
+
+define RAYLIB_VERSION_MAJOR: int = 6
+
+define RAYLIB_VERSION_MINOR: int = 2
+
+define RAYLIB_VERSION_PATCH: int = 0
+
+const RAYWHITE: Color = Color(245, 245, 245, 255)
+
+const RED: Color = Color(230, 41, 55, 255)
+
+define SHADER_LOC_MAP_DIFFUSE: int = 15
+
+define SHADER_LOC_MAP_SPECULAR: int = 16
+
+const SKYBLUE: Color = Color(102, 191, 255, 255)
+
+const VIOLET: Color = Color(135, 60, 190, 255)
+
+const WHITE: Color = Color(255, 255, 255, 255)
+
+const YELLOW: Color = Color(253, 249, 0, 255)
+
+extern "C"
+  InitWindow = (width: int, height: int, title: string) -> void
+  CloseWindow = () -> void
+  WindowShouldClose = () -> bool
+  IsWindowReady = () -> bool
+  IsWindowFullscreen = () -> bool
+  IsWindowHidden = () -> bool
+  IsWindowMinimized = () -> bool
+  IsWindowMaximized = () -> bool
+  IsWindowFocused = () -> bool
+  IsWindowResized = () -> bool
+  IsWindowState = (flag: uint32_t) -> bool
+  SetWindowState = (flags_: uint32_t) -> void
+  ClearWindowState = (flags_: uint32_t) -> void
+  ToggleFullscreen = () -> void
+  ToggleBorderlessWindowed = () -> void
+  MaximizeWindow = () -> void
+  MinimizeWindow = () -> void
+  RestoreWindow = () -> void
+  SetWindowIcon = (image: Image) -> void
+  SetWindowIcons = (images: raw<Image>, count: int) -> void
+  SetWindowTitle = (title: string) -> void
+  SetWindowPosition = (x: int, y: int) -> void
+  SetWindowMonitor = (monitor: int) -> void
+  SetWindowMinSize = (width: int, height: int) -> void
+  SetWindowMaxSize = (width: int, height: int) -> void
+  SetWindowSize = (width: int, height: int) -> void
+  SetWindowOpacity = (opacity: float) -> void
+  SetWindowFocused = () -> void
+  GetWindowHandle = () -> raw<void>
+  GetScreenWidth = () -> int
+  GetScreenHeight = () -> int
+  GetRenderWidth = () -> int
+  GetRenderHeight = () -> int
+  GetMonitorCount = () -> int
+  GetCurrentMonitor = () -> int
+  GetMonitorPosition = (monitor: int) -> Vector2
+  GetMonitorWidth = (monitor: int) -> int
+  GetMonitorHeight = (monitor: int) -> int
+  GetMonitorPhysicalWidth = (monitor: int) -> int
+  GetMonitorPhysicalHeight = (monitor: int) -> int
+  GetMonitorRefreshRate = (monitor: int) -> int
+  GetWindowPosition = () -> Vector2
+  GetWindowScaleDPI = () -> Vector2
+  GetMonitorName = (monitor: int) -> string
+  SetClipboardText = (text: string) -> void
+  GetClipboardText = () -> string
+  GetClipboardImage = () -> Image
+  EnableEventWaiting = () -> void
+  DisableEventWaiting = () -> void
+  ShowCursor = () -> void
+  HideCursor = () -> void
+  IsCursorHidden = () -> bool
+  EnableCursor = () -> void
+  DisableCursor = () -> void
+  IsCursorOnScreen = () -> bool
+  ClearBackground = (color: Color) -> void
+  BeginDrawing = () -> void
+  EndDrawing = () -> void
+  BeginMode2D = (camera: Camera2D) -> void
+  EndMode2D = () -> void
+  BeginMode3D = (camera: Camera3D) -> void
+  EndMode3D = () -> void
+  BeginTextureMode = (target: RenderTexture2D) -> void
+  EndTextureMode = () -> void
+  BeginShaderMode = (shader: Shader) -> void
+  EndShaderMode = () -> void
+  BeginBlendMode = (mode: int) -> void
+  EndBlendMode = () -> void
+  BeginScissorMode = (x: int, y: int, width: int, height: int) -> void
+  EndScissorMode = () -> void
+  BeginVrStereoMode = (config: VrStereoConfig) -> void
+  EndVrStereoMode = () -> void
+  LoadVrStereoConfig = (device: VrDeviceInfo) -> VrStereoConfig
+  UnloadVrStereoConfig = (config: VrStereoConfig) -> void
+  LoadShader = (vsFileName: string, fsFileName: string) -> Shader
+  LoadShaderFromMemory = (vsCode: string, fsCode: string) -> Shader
+  IsShaderValid = (shader: Shader) -> bool
+  GetShaderLocation = (shader: Shader, uniformName: string) -> int
+  GetShaderLocationAttrib = (shader: Shader, attribName: string) -> int
+  SetShaderValue = (shader: Shader, locIndex: int, value: raw<void>, uniformType: int) -> void
+  SetShaderValueV = (shader: Shader, locIndex: int, value: raw<void>, uniformType: int, count: int) -> void
+  SetShaderValueMatrix = (shader: Shader, locIndex: int, mat: Matrix) -> void
+  SetShaderValueTexture = (shader: Shader, locIndex: int, texture: Texture2D) -> void
+  UnloadShader = (shader: Shader) -> void
+  GetScreenToWorldRay = (position: Vector2, camera: Camera) -> Ray
+  GetScreenToWorldRayEx = (position: Vector2, camera: Camera, width: int, height: int) -> Ray
+  GetWorldToScreen = (position: Vector3, camera: Camera) -> Vector2
+  GetWorldToScreenEx = (position: Vector3, camera: Camera, width: int, height: int) -> Vector2
+  GetWorldToScreen2D = (position: Vector2, camera: Camera2D) -> Vector2
+  GetScreenToWorld2D = (position: Vector2, camera: Camera2D) -> Vector2
+  GetCameraMatrix = (camera: Camera) -> Matrix
+  GetCameraMatrix2D = (camera: Camera2D) -> Matrix
+  SetTargetFPS = (fps: int) -> void
+  GetFrameTime = () -> float
+  GetTime = () -> double
+  GetFPS = () -> int
+  SwapScreenBuffer = () -> void
+  PollInputEvents = () -> void
+  WaitTime = (seconds: double) -> void
+  SetRandomSeed = (seed: uint32_t) -> void
+  GetRandomValue = (min: int, max: int) -> int
+  LoadRandomSequence = (count: uint32_t, min: int, max: int) -> raw<int>
+  UnloadRandomSequence = (sequence: raw<int>) -> void
+  TakeScreenshot = (fileName: string) -> void
+  SetConfigFlags = (flags_: uint32_t) -> void
+  OpenURL = (url: string) -> void
+  SetTraceLogLevel = (logLevel: int) -> void
+  TraceLog = (logLevel: int, text: string, ...resto: any) -> void
+  SetTraceLogCallback = (callback_: raw<void>) -> void
+  MemAlloc = (size: uint32_t) -> raw<void>
+  MemRealloc = (ptr: raw<void>, size: uint32_t) -> raw<void>
+  MemFree = (ptr: raw<void>) -> void
+  LoadFileData = (fileName: string, dataSize: raw<int>) -> raw<uint8_t>
+  UnloadFileData = (data: raw<uint8_t>) -> void
+  SaveFileData = (fileName: string, data: raw<void>, dataSize: int) -> bool
+  ExportDataAsCode = (data: raw<uint8_t>, dataSize: int, fileName: string) -> bool
+  LoadFileText = (fileName: string) -> raw<char>
+  UnloadFileText = (text: raw<char>) -> void
+  SaveFileText = (fileName: string, text: string) -> bool
+  SetLoadFileDataCallback = (callback_: raw<void>) -> void
+  SetSaveFileDataCallback = (callback_: raw<void>) -> void
+  SetLoadFileTextCallback = (callback_: raw<void>) -> void
+  SetSaveFileTextCallback = (callback_: raw<void>) -> void
+  FileRename = (fileName: string, fileRename: string) -> int
+  FileRemove = (fileName: string) -> int
+  FileCopy = (srcPath: string, dstPath: string) -> int
+  FileMove = (srcPath: string, dstPath: string) -> int
+  FileTextReplace = (fileName: string, search: string, replacement: string) -> int
+  FileTextFindIndex = (fileName: string, search: string) -> int
+  FileExists = (fileName: string) -> bool
+  DirectoryExists = (dirPath: string) -> bool
+  IsFileExtension = (fileName: string, ext: string) -> bool
+  IsFileHidden = (filePath: string) -> bool
+  GetFileLength = (fileName: string) -> int
+  GetFileModTime = (fileName: string) -> int64_t
+  GetFileExtension = (fileName: string) -> string
+  GetFileName = (filePath: string) -> string
+  GetFileNameWithoutExt = (filePath: string) -> string
+  GetDirectoryPath = (filePath: string) -> string
+  GetPrevDirectoryPath = (dirPath: string) -> string
+  GetWorkingDirectory = () -> string
+  GetApplicationDirectory = () -> string
+  MakeDirectory = (dirPath: string) -> int
+  ChangeDirectory = (dirPath: string) -> int
+  IsPathFile = (path: string) -> bool
+  IsPathDirectory = (path: string) -> bool
+  IsPathAbsolute = (path: string) -> bool
+  IsFileNameValid = (fileName: string) -> bool
+  LoadDirectoryFiles = (dirPath: string) -> FilePathList
+  LoadDirectoryFilesEx = (basePath: string, filter: string, scanSubdirs: bool) -> FilePathList
+  UnloadDirectoryFiles = (files: FilePathList) -> void
+  IsFileDropped = () -> bool
+  LoadDroppedFiles = () -> FilePathList
+  UnloadDroppedFiles = (files: FilePathList) -> void
+  GetDirectoryFileCount = (dirPath: string) -> uint32_t
+  GetDirectoryFileCountEx = (basePath: string, filter: string, scanSubdirs: bool) -> uint32_t
+  CompressData = (data: raw<uint8_t>, dataSize: int, compDataSize: raw<int>) -> raw<uint8_t>
+  DecompressData = (compData: raw<uint8_t>, compDataSize: int, dataSize: raw<int>) -> raw<uint8_t>
+  EncodeDataBase64 = (data: raw<uint8_t>, dataSize: int, outputSize: raw<int>) -> raw<char>
+  DecodeDataBase64 = (text: string, outputSize: raw<int>) -> raw<uint8_t>
+  ComputeCRC32 = (data: raw<uint8_t>, dataSize: int) -> uint32_t
+  ComputeMD5 = (data: raw<uint8_t>, dataSize: int) -> raw<uint32_t>
+  ComputeSHA1 = (data: raw<uint8_t>, dataSize: int) -> raw<uint32_t>
+  ComputeSHA256 = (data: raw<uint8_t>, dataSize: int) -> raw<uint32_t>
+  LoadAutomationEventList = (fileName: string) -> AutomationEventList
+  UnloadAutomationEventList = (list: AutomationEventList) -> void
+  ExportAutomationEventList = (list: AutomationEventList, fileName: string) -> bool
+  SetAutomationEventList = (list: raw<AutomationEventList>) -> void
+  SetAutomationEventBaseFrame = (frame: int) -> void
+  StartAutomationEventRecording = () -> void
+  StopAutomationEventRecording = () -> void
+  PlayAutomationEvent = (event: AutomationEvent) -> void
+  IsKeyPressed = (key: int) -> bool
+  IsKeyPressedRepeat = (key: int) -> bool
+  IsKeyDown = (key: int) -> bool
+  IsKeyReleased = (key: int) -> bool
+  IsKeyUp = (key: int) -> bool
+  GetKeyPressed = () -> int
+  GetCharPressed = () -> int
+  GetKeyName = (key: int) -> string
+  SetExitKey = (key: int) -> void
+  IsGamepadAvailable = (gamepad: int) -> bool
+  GetGamepadName = (gamepad: int) -> string
+  IsGamepadButtonPressed = (gamepad: int, button: int) -> bool
+  IsGamepadButtonDown = (gamepad: int, button: int) -> bool
+  IsGamepadButtonReleased = (gamepad: int, button: int) -> bool
+  IsGamepadButtonUp = (gamepad: int, button: int) -> bool
+  GetGamepadButtonPressed = () -> int
+  GetGamepadAxisCount = (gamepad: int) -> int
+  GetGamepadAxisMovement = (gamepad: int, axis: int) -> float
+  SetGamepadMappings = (mappings: string) -> int
+  SetGamepadVibration = (gamepad: int, leftMotor: float, rightMotor: float, duration: float) -> void
+  IsMouseButtonPressed = (button: int) -> bool
+  IsMouseButtonDown = (button: int) -> bool
+  IsMouseButtonReleased = (button: int) -> bool
+  IsMouseButtonUp = (button: int) -> bool
+  GetMouseX = () -> int
+  GetMouseY = () -> int
+  GetMousePosition = () -> Vector2
+  GetMouseDelta = () -> Vector2
+  SetMousePosition = (x: int, y: int) -> void
+  SetMouseOffset = (offsetX: int, offsetY: int) -> void
+  SetMouseScale = (scaleX: float, scaleY: float) -> void
+  GetMouseWheelMove = () -> float
+  GetMouseWheelMoveV = () -> Vector2
+  SetMouseCursor = (cursor: int) -> void
+  GetTouchX = () -> int
+  GetTouchY = () -> int
+  GetTouchPosition = (index: int) -> Vector2
+  GetTouchPointId = (index: int) -> int
+  GetTouchPointCount = () -> int
+  SetGesturesEnabled = (flags_: uint32_t) -> void
+  IsGestureDetected = (gesture: uint32_t) -> bool
+  GetGestureDetected = () -> int
+  GetGestureHoldDuration = () -> float
+  GetGestureDragVector = () -> Vector2
+  GetGestureDragAngle = () -> float
+  GetGesturePinchVector = () -> Vector2
+  GetGesturePinchAngle = () -> float
+  UpdateCamera = (camera: raw<Camera>, mode: int) -> void
+  UpdateCameraPro = (camera: raw<Camera>, movement: Vector3, rotation: Vector3, zoom: float) -> void
+  SetShapesTexture = (texture: Texture2D, rec: Rectangle) -> void
+  GetShapesTexture = () -> Texture2D
+  GetShapesTextureRectangle = () -> Rectangle
+  DrawPixel = (posX: int, posY: int, color: Color) -> void
+  DrawPixelV = (position: Vector2, color: Color) -> void
+  DrawLine = (startPosX: int, startPosY: int, endPosX: int, endPosY: int, color: Color) -> void
+  DrawLineV = (startPos: Vector2, endPos: Vector2, color: Color) -> void
+  DrawLineEx = (startPos: Vector2, endPos: Vector2, thick: float, color: Color) -> void
+  DrawLineStrip = (points: raw<Vector2>, pointCount: int, color: Color) -> void
+  DrawLineBezier = (startPos: Vector2, endPos: Vector2, thick: float, color: Color) -> void
+  DrawLineDashed = (startPos: Vector2, endPos: Vector2, dashSize: int, spaceSize: int, color: Color) -> void
+  DrawTriangle = (v1: Vector2, v2: Vector2, v3: Vector2, color: Color) -> void
+  DrawTriangleGradient = (v1: Vector2, v2: Vector2, v3: Vector2, c1: Color, c2: Color, c3: Color) -> void
+  DrawTriangleLines = (v1: Vector2, v2: Vector2, v3: Vector2, color: Color) -> void
+  DrawTriangleLinesEx = (v1: Vector2, v2: Vector2, v3: Vector2, thick: float, color: Color) -> void
+  DrawTriangleFan = (points: raw<Vector2>, pointCount: int, color: Color) -> void
+  DrawTriangleStrip = (points: raw<Vector2>, pointCount: int, color: Color) -> void
+  DrawRectangle = (posX: int, posY: int, width: int, height: int, color: Color) -> void
+  DrawRectangleV = (position: Vector2, size: Vector2, color: Color) -> void
+  DrawRectangleRec = (rec: Rectangle, color: Color) -> void
+  DrawRectanglePro = (rec: Rectangle, origin: Vector2, rotation: float, color: Color) -> void
+  DrawRectangleGradientV = (posX: int, posY: int, width: int, height: int, top: Color, bottom: Color) -> void
+  DrawRectangleGradientH = (posX: int, posY: int, width: int, height: int, left: Color, right: Color) -> void
+  DrawRectangleGradientEx = (rec: Rectangle, col1: Color, col2: Color, col3: Color, col4: Color) -> void
+  DrawRectangleLines = (posX: int, posY: int, width: int, height: int, color: Color) -> void
+  DrawRectangleLinesEx = (rec: Rectangle, thick: float, color: Color) -> void
+  DrawRectangleRounded = (rec: Rectangle, roundness: float, segments: int, color: Color) -> void
+  DrawRectangleRoundedLines = (rec: Rectangle, roundness: float, segments: int, color: Color) -> void
+  DrawRectangleRoundedLinesEx = (rec: Rectangle, roundness: float, segments: int, thick: float, color: Color) -> void
+  DrawPoly = (center: Vector2, sides: int, radius: float, rotation: float, color: Color) -> void
+  DrawPolyLines = (center: Vector2, sides: int, radius: float, rotation: float, color: Color) -> void
+  DrawPolyLinesEx = (center: Vector2, sides: int, radius: float, rotation: float, thick: float, color: Color) -> void
+  DrawCircle = (centerX: int, centerY: int, radius: float, color: Color) -> void
+  DrawCircleV = (center: Vector2, radius: float, color: Color) -> void
+  DrawCircleGradient = (center: Vector2, radius: float, inner: Color, outer: Color) -> void
+  DrawCircleSector = (center: Vector2, radius: float, startAngle: float, endAngle: float, segments: int, color: Color) -> void
+  DrawCircleSectorLines = (center: Vector2, radius: float, startAngle: float, endAngle: float, segments: int, color: Color) -> void
+  DrawCircleSectorLinesEx = (center: Vector2, radius: float, startAngle: float, endAngle: float, segments: int, thick: float, color: Color) -> void
+  DrawCircleLines = (centerX: int, centerY: int, radius: float, color: Color) -> void
+  DrawCircleLinesV = (center: Vector2, radius: float, color: Color) -> void
+  DrawCircleLinesEx = (center: Vector2, radius: float, thick: float, color: Color) -> void
+  DrawEllipse = (centerX: int, centerY: int, radiusH: float, radiusV: float, color: Color) -> void
+  DrawEllipseV = (center: Vector2, radiusH: float, radiusV: float, color: Color) -> void
+  DrawEllipseLines = (centerX: int, centerY: int, radiusH: float, radiusV: float, color: Color) -> void
+  DrawEllipseLinesV = (center: Vector2, radiusH: float, radiusV: float, color: Color) -> void
+  DrawEllipseLinesEx = (center: Vector2, radiusH: float, radiusV: float, thick: float, color: Color) -> void
+  DrawRing = (center: Vector2, innerRadius: float, outerRadius: float, startAngle: float, endAngle: float, segments: int, color: Color) -> void
+  DrawRingLines = (center: Vector2, innerRadius: float, outerRadius: float, startAngle: float, endAngle: float, segments: int, color: Color) -> void
+  DrawRingLinesEx = (center: Vector2, innerRadius: float, outerRadius: float, startAngle: float, endAngle: float, segments: int, thick: float, color: Color) -> void
+  DrawSplineLinear = (points: raw<Vector2>, pointCount: int, thick: float, color: Color) -> void
+  DrawSplineBasis = (points: raw<Vector2>, pointCount: int, thick: float, color: Color) -> void
+  DrawSplineCatmullRom = (points: raw<Vector2>, pointCount: int, thick: float, color: Color) -> void
+  DrawSplineBezierQuadratic = (points: raw<Vector2>, pointCount: int, thick: float, color: Color) -> void
+  DrawSplineBezierCubic = (points: raw<Vector2>, pointCount: int, thick: float, color: Color) -> void
+  DrawSplineSegmentLinear = (p1: Vector2, p2: Vector2, thick: float, color: Color) -> void
+  DrawSplineSegmentBasis = (p1: Vector2, p2: Vector2, p3: Vector2, p4: Vector2, thick: float, color: Color) -> void
+  DrawSplineSegmentCatmullRom = (p1: Vector2, p2: Vector2, p3: Vector2, p4: Vector2, thick: float, color: Color) -> void
+  DrawSplineSegmentBezierQuadratic = (p1: Vector2, c2: Vector2, p3: Vector2, thick: float, color: Color) -> void
+  DrawSplineSegmentBezierCubic = (p1: Vector2, c2: Vector2, c3: Vector2, p4: Vector2, thick: float, color: Color) -> void
+  GetSplinePointLinear = (startPos: Vector2, endPos: Vector2, t: float) -> Vector2
+  GetSplinePointBasis = (p1: Vector2, p2: Vector2, p3: Vector2, p4: Vector2, t: float) -> Vector2
+  GetSplinePointCatmullRom = (p1: Vector2, p2: Vector2, p3: Vector2, p4: Vector2, t: float) -> Vector2
+  GetSplinePointBezierQuadratic = (p1: Vector2, c2: Vector2, p3: Vector2, t: float) -> Vector2
+  GetSplinePointBezierCubic = (p1: Vector2, c2: Vector2, c3: Vector2, p4: Vector2, t: float) -> Vector2
+  CheckCollisionRecs = (rec1: Rectangle, rec2: Rectangle) -> bool
+  CheckCollisionCircles = (center1: Vector2, radius1: float, center2: Vector2, radius2: float) -> bool
+  CheckCollisionCircleRec = (center: Vector2, radius: float, rec: Rectangle) -> bool
+  CheckCollisionCircleLine = (center: Vector2, radius: float, p1: Vector2, p2: Vector2) -> bool
+  CheckCollisionPointRec = (point: Vector2, rec: Rectangle) -> bool
+  CheckCollisionPointCircle = (point: Vector2, center: Vector2, radius: float) -> bool
+  CheckCollisionPointTriangle = (point: Vector2, p1: Vector2, p2: Vector2, p3: Vector2) -> bool
+  CheckCollisionPointLine = (point: Vector2, p1: Vector2, p2: Vector2, threshold: int) -> bool
+  CheckCollisionPointPoly = (point: Vector2, points: raw<Vector2>, pointCount: int) -> bool
+  CheckCollisionLines = (startPos1: Vector2, endPos1: Vector2, startPos2: Vector2, endPos2: Vector2, collisionPoint: raw<Vector2>) -> bool
+  GetCollisionRec = (rec1: Rectangle, rec2: Rectangle) -> Rectangle
+  LoadImage = (fileName: string) -> Image
+  LoadImageRaw = (fileName: string, width: int, height: int, format: int, headerSize: int) -> Image
+  LoadImageAnim = (fileName: string, frames: raw<int>) -> Image
+  LoadImageAnimFromMemory = (fileType: string, fileData: raw<uint8_t>, dataSize: int, frames: raw<int>) -> Image
+  LoadImageFromMemory = (fileType: string, fileData: raw<uint8_t>, dataSize: int) -> Image
+  LoadImageFromTexture = (texture: Texture2D) -> Image
+  LoadImageFromScreen = () -> Image
+  IsImageValid = (image: Image) -> bool
+  UnloadImage = (image: Image) -> void
+  ExportImage = (image: Image, fileName: string) -> bool
+  ExportImageToMemory = (image: Image, fileType: string, fileSize: raw<int>) -> raw<uint8_t>
+  ExportImageAsCode = (image: Image, fileName: string) -> bool
+  GenImageColor = (width: int, height: int, color: Color) -> Image
+  GenImageGradientLinear = (width: int, height: int, direction: int, start: Color, end: Color) -> Image
+  GenImageGradientRadial = (width: int, height: int, density: float, inner: Color, outer: Color) -> Image
+  GenImageGradientSquare = (width: int, height: int, density: float, inner: Color, outer: Color) -> Image
+  GenImageChecked = (width: int, height: int, checksX: int, checksY: int, col1: Color, col2: Color) -> Image
+  GenImageWhiteNoise = (width: int, height: int, factor: float) -> Image
+  GenImagePerlinNoise = (width: int, height: int, offsetX: int, offsetY: int, scale: float) -> Image
+  GenImageCellular = (width: int, height: int, tileSize: int) -> Image
+  GenImageText = (width: int, height: int, text: string) -> Image
+  ImageCopy = (image: Image) -> Image
+  ImageFromImage = (image: Image, rec: Rectangle) -> Image
+  ImageFromChannel = (image: Image, selectedChannel: int) -> Image
+  ImageText = (text: string, fontSize: int, color: Color) -> Image
+  ImageTextEx = (font: Font, text: string, fontSize: float, spacing: float, tint: Color) -> Image
+  ImageFormat = (image: raw<Image>, newFormat: int) -> void
+  ImageToPOT = (image: raw<Image>, fill: Color) -> void
+  ImageCrop = (image: raw<Image>, crop: Rectangle) -> void
+  ImageAlphaCrop = (image: raw<Image>, threshold: float) -> void
+  ImageAlphaClear = (image: raw<Image>, color: Color, threshold: float) -> void
+  ImageAlphaMask = (image: raw<Image>, alphaMask: Image) -> void
+  ImageAlphaPremultiply = (image: raw<Image>) -> void
+  ImageBlurGaussian = (image: raw<Image>, blurSize: int) -> void
+  ImageKernelConvolution = (image: raw<Image>, kernel: raw<float>, kernelSize: int) -> void
+  ImageResize = (image: raw<Image>, newWidth: int, newHeight: int) -> void
+  ImageResizeNN = (image: raw<Image>, newWidth: int, newHeight: int) -> void
+  ImageResizeCanvas = (image: raw<Image>, newWidth: int, newHeight: int, offsetX: int, offsetY: int, fill: Color) -> void
+  ImageMipmaps = (image: raw<Image>) -> void
+  ImageDither = (image: raw<Image>, rBpp: int, gBpp: int, bBpp: int, aBpp: int) -> void
+  ImageFlipVertical = (image: raw<Image>) -> void
+  ImageFlipHorizontal = (image: raw<Image>) -> void
+  ImageRotate = (image: raw<Image>, degrees: int) -> void
+  ImageRotateCW = (image: raw<Image>) -> void
+  ImageRotateCCW = (image: raw<Image>) -> void
+  ImageColorTint = (image: raw<Image>, color: Color) -> void
+  ImageColorInvert = (image: raw<Image>) -> void
+  ImageColorGrayscale = (image: raw<Image>) -> void
+  ImageColorContrast = (image: raw<Image>, contrast: int) -> void
+  ImageColorBrightness = (image: raw<Image>, brightness: int) -> void
+  ImageColorReplace = (image: raw<Image>, color: Color, replace: Color) -> void
+  LoadImageColors = (image: Image) -> raw<Color>
+  LoadImagePalette = (image: Image, maxPaletteSize: int, colorCount: raw<int>) -> raw<Color>
+  UnloadImageColors = (colors: raw<Color>) -> void
+  UnloadImagePalette = (colors: raw<Color>) -> void
+  GetImageAlphaBorder = (image: Image, threshold: float) -> Rectangle
+  GetImageColor = (image: Image, x: int, y: int) -> Color
+  ImageClearBackground = (dst: raw<Image>, color: Color) -> void
+  ImageDrawPixel = (dst: raw<Image>, posX: int, posY: int, color: Color) -> void
+  ImageDrawPixelV = (dst: raw<Image>, position: Vector2, color: Color) -> void
+  ImageDrawLine = (dst: raw<Image>, startPosX: int, startPosY: int, endPosX: int, endPosY: int, color: Color) -> void
+  ImageDrawLineV = (dst: raw<Image>, start: Vector2, end: Vector2, color: Color) -> void
+  ImageDrawLineEx = (dst: raw<Image>, start: Vector2, end: Vector2, thick: int, color: Color) -> void
+  ImageDrawLineStrip = (dst: raw<Image>, points: raw<Vector2>, pointCount: int, color: Color) -> void
+  ImageDrawTriangle = (dst: raw<Image>, v1: Vector2, v2: Vector2, v3: Vector2, color: Color) -> void
+  ImageDrawTriangleGradient = (dst: raw<Image>, v1: Vector2, v2: Vector2, v3: Vector2, c1: Color, c2: Color, c3: Color) -> void
+  ImageDrawTriangleLines = (dst: raw<Image>, v1: Vector2, v2: Vector2, v3: Vector2, color: Color) -> void
+  ImageDrawTriangleFan = (dst: raw<Image>, points: raw<Vector2>, pointCount: int, color: Color) -> void
+  ImageDrawTriangleStrip = (dst: raw<Image>, points: raw<Vector2>, pointCount: int, color: Color) -> void
+  ImageDrawRectangle = (dst: raw<Image>, posX: int, posY: int, width: int, height: int, color: Color) -> void
+  ImageDrawRectangleV = (dst: raw<Image>, position: Vector2, size: Vector2, color: Color) -> void
+  ImageDrawRectangleRec = (dst: raw<Image>, rec: Rectangle, color: Color) -> void
+  ImageDrawRectanglePro = (dst: raw<Image>, rec: Rectangle, origin: Vector2, rotation: float, color: Color) -> void
+  ImageDrawRectangleLines = (dst: raw<Image>, posX: int, posY: int, width: int, height: int, color: Color) -> void
+  ImageDrawRectangleLinesEx = (dst: raw<Image>, rec: Rectangle, thick: int, color: Color) -> void
+  ImageDrawRectangleGradientEx = (dst: raw<Image>, rec: Rectangle, col1: Color, col2: Color, col3: Color, col4: Color) -> void
+  ImageDrawCircle = (dst: raw<Image>, centerX: int, centerY: int, radius: int, color: Color) -> void
+  ImageDrawCircleV = (dst: raw<Image>, center: Vector2, radius: int, color: Color) -> void
+  ImageDrawCircleLines = (dst: raw<Image>, centerX: int, centerY: int, radius: int, color: Color) -> void
+  ImageDrawCircleLinesV = (dst: raw<Image>, center: Vector2, radius: int, color: Color) -> void
+  ImageDrawCircleGradient = (dst: raw<Image>, center: Vector2, radius: float, inner: Color, outer: Color) -> void
+  ImageDrawImage = (dst: raw<Image>, src: Image, posX: int, posY: int, tint: Color) -> void
+  ImageDrawImageEx = (dst: raw<Image>, src: Image, position: Vector2, rotation: float, scale: float, tint: Color) -> void
+  ImageDrawImageRec = (dst: raw<Image>, src: Image, srcRec: Rectangle, position: Vector2, tint: Color) -> void
+  ImageDrawImagePro = (dst: raw<Image>, src: Image, srcRec: Rectangle, dstRec: Rectangle, origin: Vector2, rotation: float, tint: Color) -> void
+  ImageDrawText = (dst: raw<Image>, text: string, posX: int, posY: int, fontSize: int, color: Color) -> void
+  ImageDrawTextEx = (dst: raw<Image>, font: Font, text: string, position: Vector2, fontSize: float, spacing: float, tint: Color) -> void
+  ImageDrawTextPro = (dst: raw<Image>, font: Font, text: string, position: Vector2, origin: Vector2, rotation: float, fontSize: float, spacing: float, tint: Color) -> void
+  LoadTexture = (fileName: string) -> Texture2D
+  LoadTextureFromImage = (image: Image) -> Texture2D
+  LoadTextureCubemap = (image: Image, layout: int) -> TextureCubemap
+  LoadRenderTexture = (width: int, height: int) -> RenderTexture2D
+  LoadRenderTextureEx = (width: int, height: int, format: int) -> RenderTexture2D
+  IsTextureValid = (texture: Texture2D) -> bool
+  UnloadTexture = (texture: Texture2D) -> void
+  IsRenderTextureValid = (target: RenderTexture2D) -> bool
+  UnloadRenderTexture = (target: RenderTexture2D) -> void
+  UpdateTexture = (texture: Texture2D, pixels: raw<void>) -> void
+  UpdateTextureRec = (texture: Texture2D, rec: Rectangle, pixels: raw<void>) -> void
+  GenTextureMipmaps = (texture: raw<Texture2D>) -> void
+  SetTextureFilter = (texture: Texture2D, filter: int) -> void
+  SetTextureWrap = (texture: Texture2D, wrap: int) -> void
+  DrawTexture = (texture: Texture2D, posX: int, posY: int, tint: Color) -> void
+  DrawTextureV = (texture: Texture2D, position: Vector2, tint: Color) -> void
+  DrawTextureEx = (texture: Texture2D, position: Vector2, rotation: float, scale: float, tint: Color) -> void
+  DrawTextureRec = (texture: Texture2D, rec: Rectangle, position: Vector2, tint: Color) -> void
+  DrawTexturePro = (texture: Texture2D, srcrec: Rectangle, dstrec: Rectangle, origin: Vector2, rotation: float, tint: Color) -> void
+  DrawTextureNPatch = (texture: Texture2D, nPatchInfo: NPatchInfo, dstrec: Rectangle, origin: Vector2, rotation: float, tint: Color) -> void
+  ColorIsEqual = (col1: Color, col2: Color) -> bool
+  Fade = (color: Color, alpha: float) -> Color
+  ColorToInt = (color: Color) -> int
+  ColorNormalize = (color: Color) -> Vector4
+  ColorFromNormalized = (normalized: Vector4) -> Color
+  ColorToHSV = (color: Color) -> Vector3
+  ColorFromHSV = (hue: float, saturation: float, value: float) -> Color
+  ColorTint = (color: Color, tint: Color) -> Color
+  ColorBrightness = (color: Color, factor: float) -> Color
+  ColorContrast = (color: Color, contrast: float) -> Color
+  ColorAlpha = (color: Color, alpha: float) -> Color
+  ColorAlphaBlend = (dst: Color, src: Color, tint: Color) -> Color
+  ColorLerp = (color1: Color, color2: Color, factor: float) -> Color
+  GetColor = (hexValue: uint32_t) -> Color
+  GetPixelColor = (srcPtr: raw<void>, format: int) -> Color
+  SetPixelColor = (dstPtr: raw<void>, color: Color, format: int) -> void
+  GetPixelDataSize = (width: int, height: int, format: int) -> int
+  GetFontDefault = () -> Font
+  LoadFont = (fileName: string) -> Font
+  LoadFontEx = (fileName: string, fontSize: int, codepoints: raw<int>, codepointCount: int) -> Font
+  LoadFontFromImage = (image: Image, key: Color, firstChar: int) -> Font
+  LoadFontFromMemory = (fileType: string, fileData: raw<uint8_t>, dataSize: int, fontSize: int, codepoints: raw<int>, codepointCount: int) -> Font
+  IsFontValid = (font: Font) -> bool
+  LoadFontData = (fileData: raw<uint8_t>, dataSize: int, fontSize: int, codepoints: raw<int>, codepointCount: int, type: int, glyphCount: raw<int>) -> raw<GlyphInfo>
+  GenImageFontAtlas = (glyphs: raw<GlyphInfo>, glyphRecs: raw<Rectangle>, glyphCount: int, fontSize: int, padding: int, packMethod: int) -> Image
+  UnloadFontData = (glyphs: raw<GlyphInfo>, glyphCount: int) -> void
+  UnloadFont = (font: Font) -> void
+  ExportFontAsCode = (font: Font, fileName: string) -> bool
+  DrawFPS = (posX: int, posY: int) -> void
+  DrawText = (text: string, posX: int, posY: int, fontSize: int, color: Color) -> void
+  DrawTextEx = (font: Font, text: string, position: Vector2, fontSize: float, spacing: float, tint: Color) -> void
+  DrawTextPro = (font: Font, text: string, position: Vector2, origin: Vector2, rotation: float, fontSize: float, spacing: float, tint: Color) -> void
+  DrawTextCodepoint = (font: Font, codepoint: int, position: Vector2, fontSize: float, tint: Color) -> void
+  DrawTextCodepoints = (font: Font, codepoints: raw<int>, codepointCount: int, position: Vector2, fontSize: float, spacing: float, tint: Color) -> void
+  SetTextLineSpacing = (spacing: int) -> void
+  MeasureText = (text: string, fontSize: int) -> int
+  MeasureTextEx = (font: Font, text: string, fontSize: float, spacing: float) -> Vector2
+  MeasureTextCodepoints = (font: Font, codepoints: raw<int>, length: int, fontSize: float, spacing: float) -> Vector2
+  GetGlyphIndex = (font: Font, codepoint: int) -> int
+  GetGlyphInfo = (font: Font, codepoint: int) -> GlyphInfo
+  GetGlyphAtlasRec = (font: Font, codepoint: int) -> Rectangle
+  LoadUTF8 = (codepoints: raw<int>, length: int) -> raw<char>
+  UnloadUTF8 = (text: raw<char>) -> void
+  LoadCodepoints = (text: string, count: raw<int>) -> raw<int>
+  UnloadCodepoints = (codepoints: raw<int>) -> void
+  GetCodepointCount = (text: string) -> int
+  GetCodepoint = (text: string, codepointSize: raw<int>) -> int
+  GetCodepointNext = (text: string, codepointSize: raw<int>) -> int
+  GetCodepointPrevious = (text: string, codepointSize: raw<int>) -> int
+  CodepointToUTF8 = (codepoint: int, utf8Size: raw<int>) -> string
+  LoadTextLines = (text: string, count: raw<int>) -> raw<char>
+  UnloadTextLines = (text: raw<char>, lineCount: int) -> void
+  TextCopy = (dst: raw<char>, src: string) -> int
+  TextIsEqual = (text1: string, text2: string) -> bool
+  TextLength = (text: string) -> uint32_t
+  TextFormat = (text: string, ...resto: any) -> string
+  TextSubtext = (text: string, position: int, length: int) -> string
+  TextRemoveSpaces = (text: string) -> string
+  GetTextBetween = (text: string, begin: string, end: string) -> raw<char>
+  TextReplace = (text: string, search: string, replacement: string) -> raw<char>
+  TextReplaceAlloc = (text: string, search: string, replacement: string) -> raw<char>
+  TextReplaceBetween = (text: string, begin: string, end: string, replacement: string) -> raw<char>
+  TextReplaceBetweenAlloc = (text: string, begin: string, end: string, replacement: string) -> raw<char>
+  TextInsert = (text: string, insert: string, position: int) -> raw<char>
+  TextInsertAlloc = (text: string, insert: string, position: int) -> raw<char>
+  TextJoin = (textList: raw<char>, count: int, delimiter: string) -> raw<char>
+  TextSplit = (text: string, delimiter: char, count: raw<int>) -> raw<char>
+  TextAppend = (text: raw<char>, append: string, position: raw<int>) -> void
+  TextFindIndex = (text: string, search: string) -> int
+  TextToUpper = (text: string) -> raw<char>
+  TextToLower = (text: string) -> raw<char>
+  TextToPascal = (text: string) -> raw<char>
+  TextToSnake = (text: string) -> raw<char>
+  TextToCamel = (text: string) -> raw<char>
+  TextToInteger = (text: string) -> int
+  TextToFloat = (text: string) -> float
+  DrawLine3D = (startPos: Vector3, endPos: Vector3, color: Color) -> void
+  DrawPoint3D = (position: Vector3, color: Color) -> void
+  DrawCircle3D = (center: Vector3, radius: float, rotationAxis: Vector3, rotationAngle: float, color: Color) -> void
+  DrawTriangle3D = (v1: Vector3, v2: Vector3, v3: Vector3, color: Color) -> void
+  DrawTriangleStrip3D = (points: raw<Vector3>, pointCount: int, color: Color) -> void
+  DrawCube = (position: Vector3, width: float, height: float, length: float, color: Color) -> void
+  DrawCubeV = (position: Vector3, size: Vector3, color: Color) -> void
+  DrawCubeWires = (position: Vector3, width: float, height: float, length: float, color: Color) -> void
+  DrawCubeWiresV = (position: Vector3, size: Vector3, color: Color) -> void
+  DrawSphere = (centerPos: Vector3, radius: float, color: Color) -> void
+  DrawSphereEx = (centerPos: Vector3, radius: float, rings: int, slices: int, color: Color) -> void
+  DrawSphereWires = (centerPos: Vector3, radius: float, rings: int, slices: int, color: Color) -> void
+  DrawCylinder = (position: Vector3, radiusTop: float, radiusBottom: float, height: float, sides: int, color: Color) -> void
+  DrawCylinderEx = (startPos: Vector3, endPos: Vector3, startRadius: float, endRadius: float, sides: int, color: Color) -> void
+  DrawCylinderWires = (position: Vector3, radiusTop: float, radiusBottom: float, height: float, sides: int, color: Color) -> void
+  DrawCylinderWiresEx = (startPos: Vector3, endPos: Vector3, startRadius: float, endRadius: float, sides: int, color: Color) -> void
+  DrawCapsule = (startPos: Vector3, endPos: Vector3, radius: float, rings: int, slices: int, color: Color) -> void
+  DrawCapsuleWires = (startPos: Vector3, endPos: Vector3, radius: float, rings: int, slices: int, color: Color) -> void
+  DrawPlane = (centerPos: Vector3, size: Vector2, color: Color) -> void
+  DrawRay = (ray: Ray, color: Color) -> void
+  DrawGrid = (slices: int, spacing: float) -> void
+  LoadModel = (fileName: string) -> Model
+  LoadModelFromMesh = (mesh: Mesh) -> Model
+  IsModelValid = (model: Model) -> bool
+  UnloadModel = (model: Model) -> void
+  GetModelBoundingBox = (model: Model) -> BoundingBox
+  DrawModel = (model: Model, position: Vector3, scale: float, tint: Color) -> void
+  DrawModelEx = (model: Model, position: Vector3, rotationAxis: Vector3, rotationAngle: float, scale: Vector3, tint: Color) -> void
+  DrawModelWires = (model: Model, position: Vector3, scale: float, tint: Color) -> void
+  DrawModelWiresEx = (model: Model, position: Vector3, rotationAxis: Vector3, rotationAngle: float, scale: Vector3, tint: Color) -> void
+  DrawBoundingBox = (box: BoundingBox, color: Color) -> void
+  DrawBillboard = (camera: Camera, texture: Texture2D, position: Vector3, scale: float, tint: Color) -> void
+  DrawBillboardRec = (camera: Camera, texture: Texture2D, rec: Rectangle, position: Vector3, size: Vector2, tint: Color) -> void
+  DrawBillboardPro = (camera: Camera, texture: Texture2D, rec: Rectangle, position: Vector3, up: Vector3, size: Vector2, origin: Vector2, rotation: float, tint: Color) -> void
+  UploadMesh = (mesh: raw<Mesh>, dynamic: bool) -> void
+  UpdateMeshBuffer = (mesh: Mesh, index: int, data: raw<void>, dataSize: int, offset: int) -> void
+  UnloadMesh = (mesh: Mesh) -> void
+  DrawMesh = (mesh: Mesh, material: Material, transform: Matrix) -> void
+  DrawMeshInstanced = (mesh: Mesh, material: Material, transforms: raw<Matrix>, instances: int) -> void
+  GetMeshBoundingBox = (mesh: Mesh) -> BoundingBox
+  GenMeshTangents = (mesh: raw<Mesh>) -> void
+  ExportMesh = (mesh: Mesh, fileName: string) -> bool
+  ExportMeshAsCode = (mesh: Mesh, fileName: string) -> bool
+  GenMeshPoly = (sides: int, radius: float) -> Mesh
+  GenMeshPlane = (width: float, length: float, resX: int, resZ: int) -> Mesh
+  GenMeshCube = (width: float, height: float, length: float) -> Mesh
+  GenMeshSphere = (radius: float, rings: int, slices: int) -> Mesh
+  GenMeshHemiSphere = (radius: float, rings: int, slices: int) -> Mesh
+  GenMeshCylinder = (radius: float, height: float, slices: int) -> Mesh
+  GenMeshCone = (radius: float, height: float, slices: int) -> Mesh
+  GenMeshTorus = (radius: float, size: float, radSeg: int, sides: int) -> Mesh
+  GenMeshKnot = (radius: float, size: float, radSeg: int, sides: int) -> Mesh
+  GenMeshHeightmap = (heightmap: Image, size: Vector3) -> Mesh
+  GenMeshCubicmap = (cubicmap: Image, cubeSize: Vector3) -> Mesh
+  LoadMaterials = (fileName: string, materialCount: raw<int>) -> raw<Material>
+  LoadMaterialDefault = () -> Material
+  IsMaterialValid = (material: Material) -> bool
+  UnloadMaterial = (material: Material) -> void
+  SetMaterialTexture = (material: raw<Material>, mapType: int, texture: Texture2D) -> void
+  SetModelMeshMaterial = (model: raw<Model>, meshId: int, materialId: int) -> void
+  LoadModelAnimations = (fileName: string, animCount: raw<int>) -> raw<ModelAnimation>
+  UpdateModelAnimation = (model: Model, anim: ModelAnimation, frame: float) -> void
+  UpdateModelAnimationEx = (model: Model, animA: ModelAnimation, frameA: float, animB: ModelAnimation, frameB: float, blend: float) -> void
+  UnloadModelAnimations = (animations: raw<ModelAnimation>, animCount: int) -> void
+  IsModelAnimationValid = (model: Model, anim: ModelAnimation) -> bool
+  CheckCollisionSpheres = (center1: Vector3, radius1: float, center2: Vector3, radius2: float) -> bool
+  CheckCollisionBoxes = (box1: BoundingBox, box2: BoundingBox) -> bool
+  CheckCollisionBoxSphere = (box: BoundingBox, center: Vector3, radius: float) -> bool
+  GetRayCollisionSphere = (ray: Ray, center: Vector3, radius: float) -> RayCollision
+  GetRayCollisionBox = (ray: Ray, box: BoundingBox) -> RayCollision
+  GetRayCollisionMesh = (ray: Ray, mesh: Mesh, transform: Matrix) -> RayCollision
+  GetRayCollisionTriangle = (ray: Ray, p1: Vector3, p2: Vector3, p3: Vector3) -> RayCollision
+  GetRayCollisionQuad = (ray: Ray, p1: Vector3, p2: Vector3, p3: Vector3, p4: Vector3) -> RayCollision
+  InitAudioDevice = () -> void
+  CloseAudioDevice = () -> void
+  IsAudioDeviceReady = () -> bool
+  SetMasterVolume = (volume: float) -> void
+  GetMasterVolume = () -> float
+  LoadWave = (fileName: string) -> Wave
+  LoadWaveFromMemory = (fileType: string, fileData: raw<uint8_t>, dataSize: int) -> Wave
+  IsWaveValid = (wave: Wave) -> bool
+  LoadSound = (fileName: string) -> Sound
+  LoadSoundFromWave = (wave: Wave) -> Sound
+  LoadSoundAlias = (source: Sound) -> Sound
+  IsSoundValid = (sound: Sound) -> bool
+  UpdateSound = (sound: Sound, data: raw<void>, frameCount: int) -> void
+  UnloadWave = (wave: Wave) -> void
+  UnloadSound = (sound: Sound) -> void
+  UnloadSoundAlias = (alias: Sound) -> void
+  ExportWave = (wave: Wave, fileName: string) -> bool
+  ExportWaveAsCode = (wave: Wave, fileName: string) -> bool
+  PlaySound = (sound: Sound) -> void
+  StopSound = (sound: Sound) -> void
+  PauseSound = (sound: Sound) -> void
+  ResumeSound = (sound: Sound) -> void
+  IsSoundPlaying = (sound: Sound) -> bool
+  SetSoundVolume = (sound: Sound, volume: float) -> void
+  SetSoundPitch = (sound: Sound, pitch: float) -> void
+  SetSoundPan = (sound: Sound, pan: float) -> void
+  WaveCopy = (wave: Wave) -> Wave
+  WaveCrop = (wave: raw<Wave>, initFrame: int, finalFrame: int) -> void
+  WaveFormat = (wave: raw<Wave>, sampleRate: int, sampleSize: int, channels: int) -> void
+  LoadWaveSamples = (wave: Wave) -> raw<float>
+  UnloadWaveSamples = (samples: raw<float>) -> void
+  LoadMusicStream = (fileName: string) -> Music
+  LoadMusicStreamFromMemory = (fileType: string, data: raw<uint8_t>, dataSize: int) -> Music
+  IsMusicValid = (music: Music) -> bool
+  UnloadMusicStream = (music: Music) -> void
+  PlayMusicStream = (music: Music) -> void
+  IsMusicStreamPlaying = (music: Music) -> bool
+  UpdateMusicStream = (music: Music) -> void
+  StopMusicStream = (music: Music) -> void
+  PauseMusicStream = (music: Music) -> void
+  ResumeMusicStream = (music: Music) -> void
+  SeekMusicStream = (music: Music, position: float) -> void
+  SetMusicVolume = (music: Music, volume: float) -> void
+  SetMusicPitch = (music: Music, pitch: float) -> void
+  SetMusicPan = (music: Music, pan: float) -> void
+  GetMusicTimeLength = (music: Music) -> float
+  GetMusicTimePlayed = (music: Music) -> float
+  LoadAudioStream = (sampleRate: uint32_t, sampleSize: uint32_t, channels: uint32_t) -> AudioStream
+  IsAudioStreamValid = (stream: AudioStream) -> bool
+  UnloadAudioStream = (stream: AudioStream) -> void
+  UpdateAudioStream = (stream: AudioStream, data: raw<void>, frameCount: int) -> void
+  IsAudioStreamProcessed = (stream: AudioStream) -> bool
+  PlayAudioStream = (stream: AudioStream) -> void
+  PauseAudioStream = (stream: AudioStream) -> void
+  ResumeAudioStream = (stream: AudioStream) -> void
+  IsAudioStreamPlaying = (stream: AudioStream) -> bool
+  StopAudioStream = (stream: AudioStream) -> void
+  SetAudioStreamVolume = (stream: AudioStream, volume: float) -> void
+  SetAudioStreamPitch = (stream: AudioStream, pitch: float) -> void
+  SetAudioStreamPan = (stream: AudioStream, pan: float) -> void
+  SetAudioStreamBufferSizeDefault = (size: int) -> void
+  SetAudioStreamCallback = (stream: AudioStream, callback_: raw<void>) -> void
+  AttachAudioStreamProcessor = (stream: AudioStream, processor: raw<void>) -> void
+  DetachAudioStreamProcessor = (stream: AudioStream, processor: raw<void>) -> void
+  AttachAudioMixedProcessor = (processor: raw<void>) -> void
+  DetachAudioMixedProcessor = (processor: raw<void>) -> void

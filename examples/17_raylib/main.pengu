@@ -1,0 +1,23 @@
+-- Ejemplo 17: una ventana con raylib.
+--
+-- Usa los enlaces generados en `bindings/raylib/raylib.d.pengu`. Se compila
+-- con `pengu run examples/17_raylib/main.pengu` (enlaza `-lraylib` solo).
+-- Necesita una sesión gráfica, así que la suite no lo ejecuta.
+
+invoke "std/double"
+invoke "../../bindings/raylib/raylib.d"
+
+main = -> void
+  raylib::InitWindow(800, 450, "PenguScript + raylib")
+  raylib::SetTargetFPS(60)
+  mut x = 60.0
+  while not raylib::WindowShouldClose()
+    x = x + raylib::GetFrameTime() * 120.0
+    if x > 800.0
+      x = 60.0
+    raylib::BeginDrawing()
+    raylib::ClearBackground(raylib::Color(16, 24, 32, 255))
+    raylib::DrawText("Hola desde PenguScript", 40, 40, 20, raylib::LIGHTGRAY)
+    raylib::DrawCircle(x.to_int().value(), 220, 30.0, raylib::Fade(raylib::SKYBLUE, 0.8))
+    raylib::EndDrawing()
+  raylib::CloseWindow()

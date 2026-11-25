@@ -4,6 +4,29 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+## Bindings C: validación raylib y raygui (F6 de `plan_bindings.md`)
+
+- **Enlaces comprometidos**: `bindings/raylib/raylib.d.pengu` (619 funciones,
+  40 constantes) y `bindings/raygui/raygui.d.pengu` (61 funciones `Gui*`, 6
+  constantes) viven en el repositorio y se regeneran con `pengu bindgen`.
+- **`pengu bindgen --check`**: regenera en memoria y falla si el archivo no
+  existe o está desactualizado; no escribe nada.
+- **`--base cabecera.h`**: reutiliza otra cabecera al generar. Sus tipos se
+  cualifican con `--base-realm` (`raylib::Rectangle`) y el archivo generado
+  hace `invoke "<--base-module>"`; así `raygui.d.pengu` no duplica los tipos
+  ni las constantes de raylib y ambos módulos se pueden importar juntos.
+- **`link "biblioteca"` en el archivo generado** cuando se pasa `--link`, de
+  modo que `pengu run` enlaza sin banderas extra.
+- **Ejemplos**: `17_raylib` (ventana, `Fade`, `DrawText`, `DrawCircle`) y
+  `18_raygui` (botones y etiquetas con raygui) usan los enlaces; necesitan
+  sesión gráfica, así que la suite solo comprueba que compilan y enlazan.
+- Regresiones: `tests/bindgen/abi.test.ts` (unión con `void*`, bitfields y
+  arrays: `sizeof`/`alignof`/`offsetof` contra C++ y cruce por valor),
+  `tests/bindgen/committed.test.ts` (`--check` al día y desactualizado),
+  `tests/bindgen/raylib_e2e.test.ts` (enlaces comprometidos con `Fade`,
+  `CheckCollisionPointRec` y `GetRandomValue`) y
+  `tests/bindgen/native_examples.test.ts`.
+
 ## Bindings C: buffers y `std/ffi` (F5 de `plan_bindings.md`)
 
 - **`std/ffi.pengu` nuevo**: rune `CString { datos: vector<char> }` (cadena

@@ -6,6 +6,7 @@
 
 import type { NativeEnum, NativeHeader, NativeRecord } from "./clang_ast.ts";
 import type { MacroTable, NativeConstant } from "./macros.ts";
+import type { BaseTypes } from "./base.ts";
 import { build_registry, resolve_native_type } from "./native_types.ts";
 import type { TypeRegistry } from "./native_types.ts";
 import { order_records } from "./records.ts";
@@ -106,8 +107,10 @@ export function render_bindings(
   realm: string,
   header: NativeHeader,
   macros: MacroTable = { constants: [], skipped: [] },
+  links: readonly string[] = [],
+  base?: BaseTypes,
 ): BindingReport {
-  const registry = build_registry(header);
+  const registry = build_registry(header, base);
   const lines: string[] = [
     `-- Enlaces generados por «pengu bindgen» desde ${header_name}.`,
     "-- No edites este archivo a mano: vuelve a ejecutar bindgen.",
@@ -115,9 +118,12 @@ export function render_bindings(
     `realm ${realm}`,
     "",
   ];
+  for (const library of links) lines.push(`link "${library}"`, "");
+  if (base !== undefined) lines.push(`invoke "${base.module}"`, "");
   const skipped: string[] = [...header.skipped];
 
   for (const item of header.enums) {
+    if (base?.names.has(item.name) === true) continue;
     if (is_keyword(item.name)) {
       skipped.push(`${item.name}: el nombre del enum es palabra reservada de PenguScript`);
       continue;
@@ -130,6 +136,7 @@ export function render_bindings(
   const in_cycle = new Set(cycles.flatMap((cycle) => cycle.split(" → ").slice(0, -1)));
 
   for (const record of ordered) {
+    if (base?.names.has(record.name) === true) continue;
     if (in_cycle.has(record.name)) {
       skipped.push(`${record.name}: record en un ciclo de dependencias`);
       continue;
@@ -147,6 +154,7 @@ export function render_bindings(
   }
 
   for (const item of header.typedefs) {
+    if (base?.names.has(item.name) === true) continue;
     if (item.function_pointer) {
       skipped.push(`${item.name}: callback (se usa como raw<void>)`);
       continue;
@@ -165,6 +173,7 @@ export function render_bindings(
   let constants = 0;
   for (const item of macros.skipped) skipped.push(item);
   for (const item of macros.constants) {
+    if (base?.constants.has(item.name) === true) continue;
     if (is_keyword(item.name)) {
       skipped.push(`${item.name}: el nombre es palabra reservada de PenguScript`);
       continue;
@@ -176,6 +185,7 @@ export function render_bindings(
   lines.push('extern "C"');
   let emitted = 0;
   for (const fn of header.functions) {
+    if (base?.functions.has(fn.name) === true) continue;
     // El nombre de la función es el símbolo del enlazador: no se puede
     // renombrar. Si choca con una keyword, se omite y se reporta.
     if (is_keyword(fn.name)) {

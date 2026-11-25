@@ -5,6 +5,8 @@ import type { NativeEnum, NativeHeader, NativeRecord } from "./clang_ast.ts";
 import { map_c_type } from "./type_map.ts";
 
 export interface TypeRegistry {
+  /** Tipos que vienen del módulo base, cualificados con su reino. */
+  readonly qualified: ReadonlyMap<string, string>;
   readonly records: ReadonlyMap<string, NativeRecord>;
   readonly enums: ReadonlyMap<string, NativeEnum>;
   readonly aliases: ReadonlyMap<string, string>;
@@ -31,7 +33,9 @@ function clean(qual_type: string): string {
     .trim();
 }
 
-export function build_registry(header: NativeHeader): TypeRegistry {
+export function build_registry(header: NativeHeader, base?: { readonly realm: string; readonly names: ReadonlySet<string> }): TypeRegistry {
+  const qualified = new Map<string, string>();
+  for (const name of base?.names ?? []) qualified.set(name, `${base?.realm ?? ""}::${name}`);
   const records = new Map<string, NativeRecord>();
   for (const record of header.records) records.set(record.name, record);
   const enums = new Map<string, NativeEnum>();
@@ -42,7 +46,7 @@ export function build_registry(header: NativeHeader): TypeRegistry {
     if (item.function_pointer) callbacks.add(item.name);
     else aliases.set(item.name, item.type);
   }
-  return { records, enums, aliases, callbacks };
+  return { qualified, records, enums, aliases, callbacks };
 }
 
 export function resolve_native_type(
@@ -77,9 +81,9 @@ export function resolve_native_type(
         : { pengu: "raw<char>", ok: true, note: "buffer escribible: usa ffi::CString" };
     }
     if (inner === "void") return { pengu: "raw<void>", ok: true, note: undefined };
-    if (registry.aliases.has(inner)) return { pengu: `raw<${inner}>`, ok: true, note: undefined };
-    if (registry.records.has(inner) || registry.enums.has(inner)) {
-      return { pengu: `raw<${inner}>`, ok: true, note: undefined };
+    const inner_name = registry.qualified.get(inner) ?? inner;
+    if (registry.aliases.has(inner) || registry.records.has(inner) || registry.enums.has(inner) || registry.qualified.has(inner)) {
+      return { pengu: `raw<${inner_name}>`, ok: true, note: undefined };
     }
     const primitive = map_c_type(inner);
     if (primitive.ok) return { pengu: `raw<${primitive.pengu}>`, ok: true, note: undefined };
@@ -89,6 +93,8 @@ export function resolve_native_type(
   // Un typedef de función es un callback: se enlaza como `raw<void>`
   // (el puntero cruza la ABI igual y el usuario puede pasar `nullptr`).
   if (registry.callbacks.has(text)) return { pengu: "raw<void>", ok: true, note: "callback" };
+  const qualified = registry.qualified.get(text);
+  if (qualified !== undefined) return { pengu: qualified, ok: true, note: undefined };
   if (registry.aliases.has(text)) return { pengu: text, ok: true, note: undefined };
   if (registry.records.has(text) || registry.enums.has(text)) {
     return { pengu: text, ok: true, note: undefined };

@@ -1,0 +1,25 @@
+-- Ejemplo 18: una interfaz con raygui.
+--
+-- Combina los enlaces de raylib y raygui (`bindings/`). Para compilarlo hace
+-- falta el objeto de raygui con su implementación:
+--
+--   cc -c -DRAYGUI_IMPLEMENTATION -I../raylib-pengu/include raygui.h -o raygui.o
+--   pengu run examples/18_raygui/main.pengu --link raygui.o
+--
+-- Necesita una sesión gráfica, así que la suite no lo ejecuta.
+
+invoke "../../bindings/raylib/raylib.d"
+invoke "../../bindings/raygui/raygui.d"
+
+main = -> void
+  raylib::InitWindow(640, 360, "PenguScript + raygui")
+  raylib::SetTargetFPS(60)
+  mut pulsos = 0
+  while not raylib::WindowShouldClose()
+    raylib::BeginDrawing()
+    raylib::ClearBackground(raylib::RAYWHITE)
+    if raygui::GuiButton(raylib::Rectangle(40.0, 40.0, 160.0, 40.0), "Pulsar") != 0
+      pulsos += 1
+    raygui::GuiLabel(raylib::Rectangle(40.0, 100.0, 240.0, 24.0), "Pulsos: #{pulsos}")
+    raylib::EndDrawing()
+  raylib::CloseWindow()
