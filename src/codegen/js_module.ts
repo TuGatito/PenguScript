@@ -21,6 +21,7 @@ import {
   type JsFile,
 } from "./js_context.ts";
 import { emit_constants, emit_function } from "./js_decl.ts";
+import { collect_class_runes, emit_type_decls, is_class_rune } from "./js_type_decl.ts";
 
 export interface JsGeneratedFile {
   readonly name: string;
@@ -53,6 +54,7 @@ export function generate_js_program(
   const g = make_js_context(entry, sink, {
     mode: options.mode ?? DEFAULT_INT64_MODE,
     units: by_realm,
+    class_runes: collect_class_runes([...by_realm.values()]),
   });
 
   const main = entry.module.functions.get("main");
@@ -106,8 +108,26 @@ export function ensure_realm(g: JsContext, realm: string): void {
   const unit = g.units.get(realm);
   if (unit === undefined) return;
   const file = file_for(g, realm);
+  // Primero los tipos (clases y omens), después las constantes: una constante
+  // puede construir un valor con `Punto(1, 2)`.
+  const types = capture_into(g, file, () => emit_type_decls(g, unit));
+  file.lines.push(...types);
   const lines = capture_into(g, file, () => emit_constants(g, unit));
   file.lines.push(...lines);
+}
+
+// Un tipo de un realm se emite con el resto de su realm: las declaraciones de
+// tipo son pocas y siempre van antes de las constantes.
+export function ensure_type(g: JsContext, realm: string, name: string): boolean {
+  const unit = g.units.get(realm);
+  if (unit === undefined) return false;
+  ensure_realm(g, realm);
+  return unit.module.env.runes.has(name) || unit.module.env.omens.has(name) || unit.module.env.aliases.has(name);
+}
+
+// ¿El rune se emite como clase? Lo consulta la construcción de valores.
+export function rune_is_class(g: JsContext, realm: string, name: string): boolean {
+  return is_class_rune(g, realm, name);
 }
 
 // Las constantes de un realm se emiten todas a la vez con `ensure_realm`, así

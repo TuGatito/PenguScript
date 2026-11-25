@@ -197,4 +197,117 @@ export function flush() {
 export function is_terminal() {
   return process.stdout.isTTY === true;
 }
+
+// --- Semántica de valor ----------------------------------------------------
+// C++ copia en cada asignación, argumento y \`return\`; JS comparte objetos.
+// \`clone\` reproduce la copia en los puntos donde el checker marca un tipo con
+// semántica de valor (§3).
+
+export const CELL = Symbol("pengu.ref");
+
+export function is_cell(value) {
+  return typeof value === "object" && value !== null && value[CELL] === true;
+}
+
+export function clone(value) {
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map(clone);
+  if (value instanceof Map) {
+    const copia = new Map();
+    for (const [clave, dato] of value) copia.set(clone(clave), clone(dato));
+    return copia;
+  }
+  if (value instanceof Set) {
+    const copia = new Set();
+    for (const dato of value) copia.add(clone(dato));
+    return copia;
+  }
+  if (value instanceof WeakRef) return value;
+  if (is_cell(value)) return value;
+  if (Object.isFrozen(value)) return value;
+  if (typeof value._clone === "function") return value._clone();
+  const copia = Object.create(Object.getPrototypeOf(value));
+  for (const clave of Object.keys(value)) copia[clave] = clone(value[clave]);
+  return copia;
+}
+
+// --- Aritmética de <cmath> -------------------------------------------------
+// Las que \`Math\` no ofrece con la misma semántica que C++.
+
+export function round(value) {
+  if (Number.isNaN(value) || value === 0) return value;
+  return Math.sign(value) * Math.round(Math.abs(value));
+}
+
+// \`std::nearbyint\` redondea a par (bancario), no hacia arriba.
+export function nearbyint(value) {
+  if (!Number.isFinite(value)) return value;
+  const floor = Math.floor(value);
+  const diff = value - floor;
+  if (diff === 0.5 && floor % 2 !== 0) return floor + 1;
+  if (diff === 0.5) return floor;
+  return Math.round(value);
+}
+
+export function exp2(value) {
+  return 2 ** value;
+}
+
+export function fmod(left, right) {
+  return left % right;
+}
+
+export function remainder(left, right) {
+  return left - right * nearbyint(left / right);
+}
+
+export function fdim(left, right) {
+  const diff = left - right;
+  return diff > 0 ? diff : 0;
+}
+
+export function fma(a, b, c) {
+  return a * b + c;
+}
+
+export function copysign(magnitude, sign) {
+  const negative = sign < 0 || Object.is(sign, -0);
+  return negative ? -Math.abs(magnitude) : Math.abs(magnitude);
+}
+
+export function signbit(value) {
+  return value < 0 || Object.is(value, -0);
+}
+
+export function is_infinite(value) {
+  return value === Infinity || value === -Infinity;
+}
+
+export function clamp(value, low, high) {
+  return Math.min(Math.max(value, low), high);
+}
+
+export function gcd(left, right) {
+  let a = Math.abs(left);
+  let b = Math.abs(right);
+  while (b !== 0) {
+    const rest = a % b;
+    a = b;
+    b = rest;
+  }
+  return a;
+}
+
+export function lcm(left, right) {
+  if (left === 0 || right === 0) return 0;
+  return Math.abs(left * right) / gcd(left, right);
+}
+
+export function infinite() {
+  return Infinity;
+}
+
+export function nan() {
+  return NaN;
+}
 `;

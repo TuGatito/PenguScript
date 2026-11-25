@@ -255,6 +255,16 @@ export function resolve_realm(g: JsContext, alias: string): string | undefined {
   return external;
 }
 
+// Realm que declara un tipo (`rune`, `omen`, `seal`, `echo`), o `undefined`
+// si no se encuentra en el grafo cargado.
+export function realm_of_type(g: JsContext, name: string): string | undefined {
+  for (const unit of g.units.values()) {
+    const env = unit.module.env;
+    if (env.runes.has(name) || env.omens.has(name) || env.aliases.has(name)) return unit.module.realm;
+  }
+  return undefined;
+}
+
 // Las anotaciones de tipos viven en la unidad del archivo que se emite: los
 // nodos de `std/io` no están en el mapa de la unidad de entrada.
 export function type_of(g: JsContext, node: ExprNode): PenguType {

@@ -4,6 +4,49 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+## Backend JavaScript: tipos y control como expresión (P2 de `plan_codegen_js.md`)
+
+- **Runes**: un rune sin `enchanting`, `constructor`, `destructor` ni `heir` se
+  emite como fábrica de objeto literal (`export function Punto(x, y) { return
+  { x, y }; }`), serializable con `JSON.stringify` y copiable con `rt.clone`.
+  Un rune con métodos, constructor, destructor o herencia se emite como
+  `class` de ES2022: `extends` para `heir`, `super(...)` para `parent(...)`,
+  `this` para `@`, `_clone()` para copias por valor y `_destroy()` cuando hay
+  destructor. Un constructor sin cuerpo sigue asignando los campos homónimos a
+  sus parámetros, como la lista de inicialización de C++.
+- **Omens**: las unitarias y `flags` se emiten como objetos congelados de
+  enteros (`Object.freeze({ Red: 0, Green: 1 })`, `1/2/4…` en `flags`) y las
+  algebraicas como fábricas de variante (`Circle: (_0) => ({ tag: "Circle",
+  _0 })`). `match` se traduce a comparaciones de `tag`/valor con
+  `rt.panic("match sin variante")` como salida imposible y soporte de `guard`,
+  `else` y patrones de tupla.
+- **`seal` y `echo`** se borran en runtime; sus métodos se emiten como
+  funciones libres con nombre derivado del tipo (`UserId__label(self)`).
+- **Control como expresión**: `if` (ternario o IIFE), `switch` y `match` como
+  valor, `do`, bucles con `break valor` (tipo `T?`), `else` de bucle (con flag
+  `_cortado` y slot para el valor descartado), comprensiones de `vector`,
+  `map` y `set` con cláusulas anidadas y filtros.
+- **Semántica de valor**: `rt.clone` en asignaciones y argumentos cuyo tipo es
+  un contenedor o un rune, con `Object.create` + copia de campos como último
+  recurso y respeto de `_clone()`. Las cadenas de herencia también se copian.
+- **Intrínsecos de matemáticas**: `math::*`, `float::*` y `long_double::*`
+  mapean a `Math.*` y a un puñado de funciones de `pengu_rt.mjs` (`round` con
+  signo, `nearbyint` al par, `exp2`, `fmod`, `remainder`, `fdim`, `fma`,
+  `copysign`, `signbit`, `is_infinite`, `clamp`, `gcd`, `lcm`, `infinite`,
+  `nan`).
+- **Bugs reparados por el camino**: un `break` con valor daba `E0809` (ahora
+  asigna el slot del bucle); un `parent(...)` dentro del constructor se emitía
+  después de las asignaciones de campo (en JS tiene que ser `super(...)`
+  antes); el constructor no aplicaba la asignación implícita campo←parámetro
+  de C++ (`nombre` quedaba `undefined` en los herederos).
+- **Tests**: `tests/e2e/js_parity.test.ts` cubre ya `03_control`, `05_runes`,
+  `06_omens` y `07_seal`, más dos casos fuente (runes objeto/clase/herencia y
+  comprensiones/`break` con valor/`else` de bucle). Los ocho primeros
+  ejemplos imprimen byte a byte lo mismo que el backend C++20.
+- **Nota de secuencia**: `12_colecciones` pasa a P3 porque sus métodos
+  (`vector.sort`, `string.trim`, `set.union`, `int.abs`…) son `enchanting`
+  sobre incorporados y necesitan el mecanismo de receptores de P3.
+
 ## Backend JavaScript: emisión ESM (P1 de `plan_codegen_js.md`)
 
 - **`pengu build --target js` emite código de verdad**: un archivo `.mjs` por

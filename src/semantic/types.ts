@@ -273,6 +273,11 @@ export function is_float(type: PenguType): boolean {
   return false;
 }
 
+// `char` es un carácter: en JS una cadena de un code unit.
+export function is_char(type: PenguType): boolean {
+  return type.kind === "primitive" && type.name === "char";
+}
+
 export function is_string(type: PenguType): boolean {
   if (type.kind === "primitive") return STRING_NAMES.has(type.name);
   return false;

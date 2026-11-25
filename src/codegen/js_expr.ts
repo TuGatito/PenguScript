@@ -9,12 +9,13 @@
 import type { ExprNode, StringPartNode } from "../frontend/ast_expr.ts";
 import type { Block } from "../frontend/ast_stmt.ts";
 import type { PenguType } from "../semantic/types.ts";
-import { is_float, is_integer, is_string, is_void } from "../semantic/types.ts";
+import { is_char, is_float, is_integer, is_string, is_void } from "../semantic/types.ts";
 import { js_default_value, is_bigint_type, js_integer_kind, js_int_normalizer } from "./js_types.ts";
 import {
   cross_reference,
   current_unit,
   expression_type,
+  fresh_name,
   is_local_declared,
   js_error,
   line,
@@ -26,7 +27,15 @@ import {
 } from "./js_context.ts";
 import { js_identifier, js_string_literal } from "./js_names.ts";
 import { emit_call, emit_path_reference } from "./js_expr_call.ts";
+import {
+  emit_comprehension,
+  emit_match_statement,
+  emit_match_value,
+  emit_switch_statement,
+  emit_switch_value,
+} from "./js_expr_control.ts";
 import { ensure_constant, ensure_function, ensure_realm } from "./js_module.ts";
+import { rune_operator_method } from "./js_type_decl.ts";
 import { emit_statement } from "./js_stmt.ts";
 
 type NumKind = "int" | "float" | "bigint";
@@ -81,6 +90,9 @@ export function emit_expr(g: JsContext, node: ExprNode, expected?: PenguType): s
     case "self": {
       return g.self_expression ?? "this";
     }
+    case "parent_call": {
+      return `super(${node.args.map((arg) => emit_expr(g, arg.expr)).join(", ")})`;
+    }
     case "path": {
       return emit_path_reference(g, node.segments, node.span);
     }
@@ -127,6 +139,21 @@ export function emit_expr(g: JsContext, node: ExprNode, expected?: PenguType): s
     }
     case "if": {
       return emit_if(g, node, expected);
+    }
+    case "while":
+    case "for_numeric":
+    case "for_iter":
+    case "repeat": {
+      return emit_loop_value(g, node, expected);
+    }
+    case "switch": {
+      return emit_switch_value(g, node, expected);
+    }
+    case "match": {
+      return emit_match_value(g, node, expected);
+    }
+    case "comprehension": {
+      return emit_comprehension(g, node, expected);
     }
     case "do": {
       return capture_iife(g, () => emit_value_block(g, node.block, expected));
@@ -212,10 +239,8 @@ function emit_binary(g: JsContext, node: Extract<ExprNode, { kind: "binary" }>):
     runtime_name(g);
     return `rt.contains(${emit_expr(g, node.right)}, ${emit_expr(g, node.left)})`;
   }
-  if (op === "<=>") {
-    js_error(g, "la comparación «<=>» todavía no se emite a JavaScript (fase P3)", node.span);
-    return "undefined";
-  }
+  const operator = rune_operator_call(g, node, op, left_type, right_type);
+  if (operator !== undefined) return operator;
 
   const comparison =
     op === "==" || op === "!=" || op === "<" || op === "<=" || op === ">" || op === ">=";
@@ -245,6 +270,12 @@ function emit_cast(g: JsContext, node: Extract<ExprNode, { kind: "cast" }>): str
   const source = expression_type(g, node.value);
   const target_kind = num_kind(target, g);
   const source_kind = num_kind(source, g);
+
+  // `char` es una cadena de un carácter en JS: hay que convertir el code unit.
+  if (is_char(source) && target_kind === "int") return `(${value}).charCodeAt(0)`;
+  if (is_char(target) && source_kind !== undefined && source_kind !== "float") {
+    return `String.fromCharCode(${value})`;
+  }
 
   if (target_kind === "bigint") {
     if (source_kind === "float") return `BigInt(Math.trunc(${value}))`;
@@ -385,24 +416,19 @@ export function emit_as_statement(g: JsContext, node: ExprNode): void {
       for (const statement of node.block.statements) emit_statement(g, statement);
       return;
     }
-    case "while": {
-      emit_while(g, node);
-      return;
-    }
-    case "for_numeric": {
-      emit_for_numeric(g, node);
-      return;
-    }
-    case "for_iter": {
-      emit_for_iter(g, node);
-      return;
-    }
+    case "while":
+    case "for_numeric":
+    case "for_iter":
     case "repeat": {
-      emit_repeat(g, node);
+      emit_loop_statement(g, node);
       return;
     }
     case "switch": {
-      emit_switch(g, node);
+      emit_switch_statement(g, node);
+      return;
+    }
+    case "match": {
+      emit_match_statement(g, node);
       return;
     }
     default: {
@@ -412,6 +438,84 @@ export function emit_as_statement(g: JsContext, node: ExprNode): void {
         node.span,
       );
     }
+  }
+}
+
+export type LoopNode = Extract<ExprNode, { kind: "while" | "repeat" | "for_numeric" | "for_iter" }>;
+
+// Un bucle puede devolver valor (`break valor`) y llevar `else` (se ejecuta
+// solo si no hubo `break`). JS no tiene ninguna de las dos cosas: se emite un
+// flag `_cortadoN` y, si hay valor, un IIFE con `_resN`.
+interface LoopBreak {
+  readonly flag: string;
+  readonly slot: string;
+}
+
+const PLAIN_BREAK: LoopBreak = { flag: "", slot: "" };
+
+function loop_else(node: LoopNode): Block | undefined {
+  return "else_block" in node ? node.else_block : undefined;
+}
+
+export function emit_loop_statement(g: JsContext, node: LoopNode): void {
+  const else_block = loop_else(node);
+  const flag = else_block === undefined ? "" : fresh_name(g, "cortado");
+  if (flag !== "") line(g, `let ${flag} = false;`);
+  // Un `break valor` en posición de sentencia descarta el valor, pero la
+  // asignación tiene que existir para no romper el flujo.
+  const wants_value = expression_type(g, node).kind === "optional";
+  const slot = wants_value ? fresh_name(g, "descartado") : "";
+  if (slot !== "") line(g, `let ${slot} = null;`);
+  emit_loop_core(g, node, { flag, slot });
+  if (else_block !== undefined) {
+    line(g, `if (!${flag}) {`);
+    emit_branch(g, else_block, undefined, false);
+    line(g, "}");
+  }
+}
+
+export function emit_loop_value(g: JsContext, node: LoopNode, expected?: PenguType): string {
+  const result = expected ?? expression_type(g, node);
+  const else_block = loop_else(node);
+  return capture_iife(g, () => {
+    const slot = fresh_name(g, "res");
+    line(g, `let ${slot} = ${js_default_value(result, g.mode)};`);
+    const flag = else_block === undefined ? "" : fresh_name(g, "cortado");
+    if (flag !== "") line(g, `let ${flag} = false;`);
+    emit_loop_core(g, node, { flag, slot });
+    if (else_block !== undefined) {
+      line(g, `if (!${flag}) {`);
+      emit_value_block(g, else_block, result);
+      line(g, "}");
+    }
+    line(g, `return ${slot};`);
+  });
+}
+
+function emit_loop_core(g: JsContext, node: LoopNode, brk: LoopBreak): void {
+  g.break_flags.push(brk.flag);
+  g.break_values.push(brk.slot);
+  try {
+    switch (node.kind) {
+      case "while": {
+        emit_while(g, node);
+        return;
+      }
+      case "repeat": {
+        emit_repeat(g, node);
+        return;
+      }
+      case "for_numeric": {
+        emit_for_numeric(g, node);
+        return;
+      }
+      default: {
+        emit_for_iter(g, node);
+      }
+    }
+  } finally {
+    g.break_flags.pop();
+    g.break_values.pop();
   }
 }
 
@@ -432,13 +536,11 @@ function emit_repeat(g: JsContext, node: Extract<ExprNode, { kind: "repeat" }>):
 }
 
 function emit_loop_body(g: JsContext, block: Block): void {
-  g.break_flags.push("loop");
   push_scope(g);
   g.indent += 1;
   for (const statement of block.statements) emit_statement(g, statement);
   g.indent -= 1;
   pop_scope(g);
-  g.break_flags.pop();
 }
 
 function emit_for_numeric(g: JsContext, node: Extract<ExprNode, { kind: "for_numeric" }>): void {
@@ -448,7 +550,6 @@ function emit_for_numeric(g: JsContext, node: Extract<ExprNode, { kind: "for_num
   const step = node.step;
   push_scope(g);
   declare_local_name(g, node.variable);
-  g.break_flags.push("loop");
 
   if (step === undefined) {
     line(g, `for (let ${variable} = ${start}; ${variable} <= ${end}; ${variable} += 1) {`);
@@ -469,14 +570,11 @@ function emit_for_numeric(g: JsContext, node: Extract<ExprNode, { kind: "for_num
   for (const statement of node.body.statements) emit_statement(g, statement);
   g.indent -= 1;
   line(g, "}");
-
-  g.break_flags.pop();
   pop_scope(g);
 }
 
 function emit_for_iter(g: JsContext, node: Extract<ExprNode, { kind: "for_iter" }>): void {
   push_scope(g);
-  g.break_flags.push("loop");
   const variables = node.variables.map((name) => js_identifier(name));
   for (const name of node.variables) declare_local_name(g, name);
 
@@ -510,28 +608,7 @@ function emit_for_iter(g: JsContext, node: Extract<ExprNode, { kind: "for_iter" 
     line(g, "}");
   }
 
-  g.break_flags.pop();
   pop_scope(g);
-}
-
-// `switch` sin `break` de valor: cada rama devuelve o corta.
-function emit_switch(g: JsContext, node: Extract<ExprNode, { kind: "switch" }>): void {
-  const subject = emit_expr(g, node.subject);
-  const subject_name = `_sujeto${g.temp}`;
-  g.temp += 1;
-  line(g, `const ${subject_name} = ${subject};`);
-  for (const arm of node.arms) {
-    for (const pattern of arm.patterns) {
-      line(g, `if (${subject_name} === ${emit_expr(g, pattern)}) {`);
-      emit_branch(g, arm.body, undefined, false);
-      line(g, "}");
-    }
-  }
-  if (node.else_block !== undefined) {
-    line(g, "{");
-    emit_branch(g, node.else_block, undefined, false);
-    line(g, "}");
-  }
 }
 
 // Cuerpo con valor: la última expresión se convierte en `return`; si no hay
@@ -608,9 +685,34 @@ export function capture_lines(g: JsContext, body: () => void, indent?: number): 
   return captured.join("\n");
 }
 
-function capture_iife(g: JsContext, body: () => void): string {
+export function capture_iife(g: JsContext, body: () => void): string {
   const inner = capture_lines(g, body, g.indent + 1);
   const indent = "  ".repeat(g.indent);
   const opening = inner.length === 0 ? "" : `\n${inner}\n${indent}`;
   return `(() => {${opening}})()`;
+}
+
+// Operadores declarados por un `rune`: `p + q` → `p.op_add(q)`. Las
+// comparaciones derivan de `<=>` cuando no hay método propio (§4.4).
+function rune_operator_call(
+  g: JsContext,
+  node: Extract<ExprNode, { kind: "binary" }>,
+  op: string,
+  left_type: PenguType,
+  right_type: PenguType,
+): string | undefined {
+  if (left_type.kind !== "named") return undefined;
+  const realm = current_unit(g).module.realm;
+  const direct = rune_operator_method(g, realm, left_type.name, op);
+  if (direct !== undefined) {
+    return `${emit_expr(g, node.left)}.${direct}(${emit_expr(g, node.right)})`;
+  }
+  if (op === "<" || op === "<=" || op === ">" || op === ">=") {
+    const cmp = rune_operator_method(g, realm, left_type.name, "<=>");
+    if (cmp !== undefined) {
+      return `(${emit_expr(g, node.left)}.${cmp}(${emit_expr(g, node.right)}) ${op} 0)`;
+    }
+  }
+  void right_type;
+  return undefined;
 }

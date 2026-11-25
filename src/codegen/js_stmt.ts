@@ -15,11 +15,13 @@ import {
   is_local_declared,
   js_error,
   line,
+  runtime_name,
   type_of,
   expression_type,
   type JsContext,
 } from "./js_context.ts";
 import { js_identifier } from "./js_names.ts";
+import { needs_clone } from "./js_types.ts";
 import { emit_expr, emit_as_statement, is_control_expr } from "./js_expr.ts";
 
 export function emit_statement(g: JsContext, statement: StmtNode): void {
@@ -58,10 +60,16 @@ export function emit_statement(g: JsContext, statement: StmtNode): void {
       return;
     }
     case "break": {
-      if (g.break_values.length > 0) {
-        js_error(g, "`break` con valor todavía no se emite a JavaScript (fase P2)", statement.span);
-        return;
+      const slot = g.break_values[g.break_values.length - 1];
+      const flag = g.break_flags[g.break_flags.length - 1];
+      if (statement.value !== undefined) {
+        if (slot === undefined || slot === "") {
+          js_error(g, "`break` con valor fuera de un bucle con valor", statement.span);
+          return;
+        }
+        line(g, `${slot} = ${emit_expr(g, statement.value)};`);
       }
+      if (flag !== undefined && flag !== "") line(g, `${flag} = true;`);
       line(g, "break;");
       return;
     }
@@ -85,7 +93,13 @@ export function emit_assign(
 ): void {
   const targets = statement.targets;
   const expected: PenguType | undefined = declared_hint(g, statement.declared_type, statement.value);
-  const value = emit_expr(g, statement.value, expected);
+  const raw_value = emit_expr(g, statement.value, expected);
+  // Asignar un valor con semántica de valor copia (C++ copia siempre) (§3).
+  const value_type = expression_type(g, statement.value);
+  const value =
+    needs_clone(value_type) && statement.op === "="
+      ? `${runtime_name(g)}.clone(${raw_value})`
+      : raw_value;
   const single = targets.length === 1 ? targets[0] : undefined;
 
   if (targets.length > 1) {
