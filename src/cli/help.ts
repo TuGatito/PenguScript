@@ -35,7 +35,7 @@ export function main_help(): string {
     "  bindgen   Genera declaraciones .d.pengu desde cabeceras C/C++.",
     "  size      Mide tamaños y alineación reales de los tipos del proyecto.",
     "  init      Crea un proyecto nuevo con pengu.toml y src/main.pengu.",
-    "  doctor    Muestra el estado del toolchain (bun, g++, clang++).",
+    "  doctor    Muestra el toolchain y la stdlib que usa el compilador.",
     "  clean     Borra la caché de compilación.",
     "",
     "Opciones globales:",
@@ -103,7 +103,9 @@ const COMMAND_HELP: Readonly<Record<CommandName, string>> = {
   doctor: [
     `Uso: ${TOOL_NAME} doctor [--json]`,
     "",
-    "  Comprueba bun, g++, clang++ y las rutas del runtime.",
+    "  Muestra bun, los compiladores de C++20 y la huella de la stdlib que",
+    "  lleva el binario. Si el proyecto tiene su propio std/, avisa cuando no",
+    "  coincide: reinstala el compilador para que CLI y LSP usen la misma.",
   ].join("\n"),
   clean: [
     `Uso: ${TOOL_NAME} clean`,

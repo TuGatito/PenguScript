@@ -10,7 +10,7 @@ import { run_fmt } from "./cli/fmt_command.ts";
 import { run_lsp } from "./cli/lsp_command.ts";
 import { run_bindgen } from "./cli/bindgen_command.ts";
 import { run_size } from "./cli/size_command.ts";
-import { probe_toolchain } from "./driver/toolchain.ts";
+import { run_doctor } from "./cli/doctor_command.ts";
 import { LANGUAGE_NAME, LANGUAGE_VERSION } from "./version.ts";
 import { TOOL_NAME, VERSION } from "./version.ts";
 
@@ -110,15 +110,10 @@ function main(argv: readonly string[]): number {
       return result.exit_code;
     }
     case "doctor": {
-      const toolchains = probe_toolchain();
-      print(`${TOOL_NAME} ${VERSION} (${LANGUAGE_NAME} ${LANGUAGE_VERSION})`);
-      print(`bun ${process.versions.bun ?? "desconocido"}`);
-      if (toolchains.length === 0) {
-        print("sin compilador de C++20 (instala g++ o clang++)");
-        return 1;
-      }
-      for (const info of toolchains) print(`${info.compiler} ${info.version}`);
-      return 0;
+      const result = run_doctor(args, process.cwd());
+      if (result.exit_code === 0) print(result.output);
+      else print_error(result.output);
+      return result.exit_code;
     }
   }
 }

@@ -4,6 +4,18 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+### Identidad del compilador (F3 de `plan_lsp_errores.md`)
+
+- `src/project/std_bundle.ts` (generado) exporta `STD_FINGERPRINT` y
+  `STD_FILE_COUNT`: sha256 sobre rutas y contenido de `std/`, estable entre el
+  script de empaquetado y el binario. `scripts/embed_std.ts --check` falla si
+  la std cambió sin regenerar el paquete.
+- `pengu doctor` deja de responder lo mismo para cualquier binario: muestra la
+  huella de la std empotrada, la raíz del proyecto y si su `std/` coincide
+  (con el aviso de reinstalar cuando no). `--json` está implementado de
+  verdad, con la misma información en forma de datos.
+- Nuevo `src/cli/doctor_command.ts`; regresiones en `tests/cli/doctor.test.ts`.
+
 ### Proyecto real en el repositorio (F2 de `plan_lsp_errores.md`)
 
 - **`pengu.toml` en la raíz** (nuevo): el repositorio es un proyecto, así que

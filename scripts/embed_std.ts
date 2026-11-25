@@ -5,6 +5,7 @@
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { fingerprint_sources } from "../src/project/std_fingerprint.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const std_dir = join(root, "std");
@@ -23,15 +24,24 @@ function std_files(): string[] {
   return files;
 }
 
+function sources(): ReadonlyMap<string, string> {
+  const map = new Map<string, string>();
+  for (const file of std_files()) map.set(file, readFileSync(join(root, file), "utf8"));
+  return map;
+}
+
 function render(): string {
+  const bundled = sources();
   const lines = [
     "// GENERADO por scripts/embed_std.ts — no editar a mano.",
     "// Copia el texto de `std/*.pengu` dentro del binario compilado.",
     "",
+    `export const STD_FILE_COUNT = ${bundled.size};`,
+    `export const STD_FINGERPRINT = ${JSON.stringify(fingerprint_sources(bundled))};`,
+    "",
     "export const STD_SOURCES: Readonly<Record<string, string>> = {",
   ];
-  for (const file of std_files()) {
-    const text = readFileSync(join(root, file), "utf8");
+  for (const [file, text] of bundled) {
     lines.push(`  ${JSON.stringify(file)}: ${JSON.stringify(text)},`);
   }
   lines.push("};", "");
