@@ -20,6 +20,8 @@ import {
 import {
   cross_reference,
   current_unit,
+  declare_local,
+  declare_local_type,
   realm_of_type,
   expression_type,
   fresh_name,
@@ -28,6 +30,7 @@ import {
   local_type,
   line,
   pop_scope,
+  quiet_type_node,
   push_scope,
   runtime_name,
   symbol_name,
@@ -43,7 +46,12 @@ import {
   emit_switch_value,
 } from "./js_expr_control.ts";
 import { ensure_constant, ensure_function, ensure_realm } from "./js_module.ts";
-import { free_method_export, operator_method_name, rune_operator_owner } from "./js_type_decl.ts";
+import {
+  free_method_export,
+  operator_method_name,
+  rune_operator_owner,
+  type_key,
+} from "./js_type_decl.ts";
 import { emit_statement } from "./js_stmt.ts";
 
 type NumKind = "int" | "float" | "bigint";
@@ -537,7 +545,7 @@ function emit_branch(
   if (value) {
     emit_value_block(g, block, expected);
   } else {
-    for (const statement of block.statements) emit_statement(g, statement);
+    emit_block_statements(g, block);
   }
   g.indent -= 1;
   pop_scope(g);
@@ -556,7 +564,7 @@ export function emit_as_statement(g: JsContext, node: ExprNode): void {
       return;
     }
     case "unsafe": {
-      for (const statement of node.block.statements) emit_statement(g, statement);
+      emit_block_statements(g, node.block);
       return;
     }
     case "while":
@@ -681,7 +689,7 @@ function emit_repeat(g: JsContext, node: Extract<ExprNode, { kind: "repeat" }>):
 function emit_loop_body(g: JsContext, block: Block): void {
   push_scope(g);
   g.indent += 1;
-  for (const statement of block.statements) emit_statement(g, statement);
+  emit_block_statements(g, block);
   g.indent -= 1;
   pop_scope(g);
 }
@@ -710,7 +718,7 @@ function emit_for_numeric(g: JsContext, node: Extract<ExprNode, { kind: "for_num
     );
   }
   g.indent += 1;
-  for (const statement of node.body.statements) emit_statement(g, statement);
+  emit_block_statements(g, node.body);
   g.indent -= 1;
   line(g, "}");
   pop_scope(g);
@@ -728,7 +736,7 @@ function emit_for_iter(g: JsContext, node: Extract<ExprNode, { kind: "for_iter" 
     const flag = node.iterable.inclusive ? "true" : "false";
     line(g, `for (const ${variables[0] ?? "_"} of rt.range(${start}, ${end}, ${flag})) {`);
     g.indent += 1;
-    for (const statement of node.body.statements) emit_statement(g, statement);
+    emit_block_statements(g, node.body);
     g.indent -= 1;
     line(g, "}");
   } else if (variables.length > 1) {
@@ -739,14 +747,14 @@ function emit_for_iter(g: JsContext, node: Extract<ExprNode, { kind: "for_iter" 
     g.indent += 1;
     for (const name of node.variables) declare_local_name(g, name);
     line(g, `const [${variables.join(", ")}] = ${pair};`);
-    for (const statement of node.body.statements) emit_statement(g, statement);
+    emit_block_statements(g, node.body);
     g.indent -= 1;
     pop_scope(g);
     line(g, "}");
   } else {
     line(g, `for (const ${variables[0] ?? "_"} of ${emit_expr(g, node.iterable)}) {`);
     g.indent += 1;
-    for (const statement of node.body.statements) emit_statement(g, statement);
+    emit_block_statements(g, node.body);
     g.indent -= 1;
     line(g, "}");
   }
@@ -765,16 +773,103 @@ export function emit_value_block(g: JsContext, block: Block, result: PenguType |
     value_expr !== undefined &&
     (declared_value ||
       (expr_type !== undefined && !is_voidish(expr_type) && expr_type.kind !== "any"));
+
+  emit_scoped(g, block, () => {
+    for (const statement of block.statements) {
+      if (returns_implicitly && statement === last && statement.kind === "expr_stmt") {
+        line(g, `return ${emit_expr(g, statement.expr, result)};`);
+        continue;
+      }
+      emit_statement(g, statement);
+    }
+    if (!returns_implicitly && result !== undefined && needs_default(result)) {
+      line(g, `return ${js_default_value(result, g.mode)};`);
+    }
+  });
+}
+
+// Cuerpo de un bloque sin valor: sentencias, con `try/finally` si declara
+// locales con destructor.
+export function emit_block_statements(g: JsContext, block: Block): void {
+  emit_scoped(g, block, () => {
+    for (const statement of block.statements) emit_statement(g, statement);
+  });
+}
+
+// Emite `emit_body` capturando sus líneas. Si el bloque declara locales con
+// `destructor`, los declara antes del `try` (con `let`, porque `finally` no
+// vería un `const` del `try`) y los destruye en orden inverso al salir.
+function emit_scoped(g: JsContext, block: Block, emit_body: () => void): void {
+  const destroyed = destructible_locals(g, block);
+  for (const item of destroyed) {
+    declare_local(g, item.name);
+    declare_local_type(g, item.name, item.type);
+  }
+
+  const saved_lines = g.file.lines;
+  g.file.lines = [];
+  let body: string[];
+  try {
+    emit_body();
+    body = g.file.lines;
+  } finally {
+    g.file.lines = saved_lines;
+  }
+
+  if (destroyed.length === 0) {
+    saved_lines.push(...body);
+    return;
+  }
+  for (const item of destroyed) line(g, `let ${item.name};`);
+  line(g, "try {");
+  g.indent += 1;
+  for (const text of body) saved_lines.push(text.length === 0 ? text : `  ${text}`);
+  g.indent -= 1;
+  line(g, "} finally {");
+  g.indent += 1;
+  for (const item of [...destroyed].reverse()) line(g, `${item.name}?._destroy();`);
+  g.indent -= 1;
+  line(g, "}");
+}
+
+// Locales que este bloque declara y cuyo tipo tiene `destructor`.
+function destructible_locals(
+  g: JsContext,
+  block: Block,
+): readonly { name: string; type: PenguType }[] {
+  const found: { name: string; type: PenguType }[] = [];
+  const seen = new Set<string>();
   for (const statement of block.statements) {
-    if (returns_implicitly && statement === last && statement.kind === "expr_stmt") {
-      line(g, `return ${emit_expr(g, statement.expr, result)};`);
+    if (statement.kind === "const_stmt") {
+      const type = statement.declared_type === undefined
+        ? expression_type(g, statement.value)
+        : quiet_type_node(g, statement.declared_type);
+      if (!has_destructor(g, type) || seen.has(statement.name)) continue;
+      seen.add(statement.name);
+      found.push({ name: js_identifier(statement.name), type });
       continue;
     }
-    emit_statement(g, statement);
+    if (statement.kind !== "assign" || statement.mutable === false) continue;
+    if (statement.declared_type === undefined) continue;
+    const type = quiet_type_node(g, statement.declared_type);
+    for (const target of statement.targets) {
+      if (target.kind !== "ident" || seen.has(target.name)) continue;
+      if (!has_destructor(g, type)) continue;
+      seen.add(target.name);
+      found.push({ name: js_identifier(target.name), type });
+    }
   }
-  if (!returns_implicitly && result !== undefined && needs_default(result)) {
-    line(g, `return ${js_default_value(result, g.mode)};`);
-  }
+  return found;
+}
+
+// ¿El tipo declara `destructor`? Un `optional` de un rune con destructor
+// también lo tiene (se destruye solo si hay valor).
+function has_destructor(g: JsContext, type: PenguType): boolean {
+  let inner = type;
+  while (inner.kind === "optional") inner = inner.inner;
+  if (inner.kind !== "named") return false;
+  const realm = realm_of_type(g, inner.name) ?? g.file.realm;
+  return g.destructor_runes.has(type_key(realm, inner.name));
 }
 
 // `none` y `void` significan "no devuelve nada": ni `return` implícito ni

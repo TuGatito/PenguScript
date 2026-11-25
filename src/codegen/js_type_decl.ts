@@ -61,6 +61,20 @@ export function collect_class_runes(units: readonly ProgramUnit[]): ReadonlySet<
   return classes;
 }
 
+// Runes con `destructor`: sus locales hay que destruirlos al salir del ámbito
+// (`try/finally`), igual que hace RAII en C++.
+export function collect_destructor_runes(units: readonly ProgramUnit[]): ReadonlySet<string> {
+  const keys = new Set<string>();
+  for (const unit of units) {
+    for (const decl of unit.program.decls) {
+      if (decl.kind === "rune_decl" && decl.destructor !== undefined) {
+        keys.add(type_key(unit.module.realm, decl.name));
+      }
+    }
+  }
+  return keys;
+}
+
 export function is_class_rune(g: JsContext, realm: string, name: string): boolean {
   return g.class_runes.has(type_key(realm, name));
 }

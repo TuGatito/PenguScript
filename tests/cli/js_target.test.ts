@@ -124,6 +124,15 @@ describe("compile_file con target js", () => {
   });
 });
 
+describe("--emit-cpp en el backend JavaScript", () => {
+  test("avisa de que no aplica en vez de ignorarlo", () => {
+    const file = project(HELLO);
+    const result = run_build(parse_args(["build", "--target", "js", "--emit-cpp", file]));
+    expect(result.exit_code).toBe(0);
+    expect(result.output).toContain("--emit-cpp solo aplica a --target cpp");
+  });
+});
+
 describe("lo que el backend JavaScript no puede representar", () => {
   test("check --target js rechaza meld con E0807 antes de emitir", () => {
     const file = project(`meld Union

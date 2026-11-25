@@ -29,7 +29,7 @@ import {
   type JsContext,
 } from "./js_context.ts";
 import { js_identifier } from "./js_names.ts";
-import { capture_iife, emit_expr, emit_value_block } from "./js_expr.ts";
+import { capture_iife, emit_block_statements, emit_expr, emit_value_block } from "./js_expr.ts";
 import { ensure_type } from "./js_module.ts";
 import { emit_statement } from "./js_stmt.ts";
 
@@ -63,7 +63,7 @@ export function emit_match_statement(g: JsContext, node: MatchNode): void {
   if (node.else_block !== undefined) {
     line(g, `if (!${flag}) {`);
     g.indent += 1;
-    for (const statement of node.else_block.statements) emit_statement(g, statement);
+    emit_block_statements(g, node.else_block);
     g.indent -= 1;
     line(g, "}");
   }
@@ -207,7 +207,7 @@ function emit_arm_body(g: JsContext, body: Block, mode: MatchMode): void {
     emit_value_block(g, body, mode.result);
     return;
   }
-  for (const statement of body.statements) emit_statement(g, statement);
+  emit_block_statements(g, body);
 }
 
 // --- switch --------------------------------------------------------------
@@ -236,7 +236,7 @@ export function emit_switch_statement(g: JsContext, node: SwitchNode): void {
   line(g, "{");
   g.indent += 1;
   open_scope(g, () => {
-    for (const statement of else_block.statements) emit_statement(g, statement);
+    emit_block_statements(g, else_block);
   });
   g.indent -= 1;
   line(g, "}");
@@ -254,7 +254,7 @@ function emit_switch_arm(
   g.indent += 1;
   open_scope(g, () => {
     if (result === undefined) {
-      for (const statement of arm.body.statements) emit_statement(g, statement);
+      emit_block_statements(g, arm.body);
       return;
     }
     emit_value_block(g, arm.body, result);

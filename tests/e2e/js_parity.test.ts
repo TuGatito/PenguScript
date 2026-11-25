@@ -127,6 +127,54 @@ main = ->
   );
 
   test(
+    "destructores: fin de ámbito, bucle y salida temprana",
+    () => {
+      if (runtime === undefined) {
+        expect(true).toBe(true);
+        return;
+      }
+      const dir = mkdtempSync(join(tmpdir(), "pengu_parity_"));
+      const file = join(dir, "main.pengu");
+      writeFileSync(
+        file,
+        `invoke "std/io"
+
+rune Caja
+  nombre: string
+  constructor(nombre: string)
+
+  destructor
+    io::println("cerrando #{@nombre}")
+
+cierra = (n: int) -> int
+  const g = Caja("guardia")
+  if n > 1
+    return n * 2
+  n
+
+main = ->
+  io::println("inicio")
+  const a = Caja("a")
+  mut i = 0
+  while i < 2
+    const c = Caja("bucle #{i}")
+    i += 1
+  io::println("valor #{cierra(3)}")
+  io::println("fin")
+`,
+      );
+      const esperado = ejecutar(compilar_cpp(file), []);
+      const obtenido = ejecutar(runtime.command, [compilar_js(file)]);
+      expect(obtenido.stdout).toBe(esperado.stdout);
+      // El destructor corre al salir del ámbito, una vez por iteración y
+      // también al volver antes de tiempo.
+      expect(esperado.stdout).toContain("cerrando bucle 1");
+      expect(esperado.stdout).toContain("cerrando guardia");
+    },
+    60000,
+  );
+
+  test(
     "enteros, división y formato de dobles",
     () => {
       if (runtime === undefined) {

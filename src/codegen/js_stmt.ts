@@ -97,6 +97,7 @@ export function emit_statement(g: JsContext, statement: StmtNode): void {
         return;
       }
       declare_local(g, statement.name);
+      declare_local_type(g, statement.name, expected ?? expression_type(g, statement.value));
       line(
         g,
         `const ${js_identifier(statement.name)} = ${emit_expr(g, statement.value, expected)};`,

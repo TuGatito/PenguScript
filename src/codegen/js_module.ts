@@ -21,7 +21,12 @@ import {
   type JsFile,
 } from "./js_context.ts";
 import { emit_constants, emit_function } from "./js_decl.ts";
-import { collect_class_runes, emit_type_decls, is_class_rune } from "./js_type_decl.ts";
+import {
+  collect_class_runes,
+  collect_destructor_runes,
+  emit_type_decls,
+  is_class_rune,
+} from "./js_type_decl.ts";
 
 export interface JsGeneratedFile {
   readonly name: string;
@@ -58,6 +63,7 @@ export function generate_js_program(
     jsdoc: options.jsdoc === true,
     units: by_realm,
     class_runes: collect_class_runes([...by_realm.values()]),
+    destructor_runes: collect_destructor_runes([...by_realm.values()]),
   });
 
   const main = entry.module.functions.get("main");

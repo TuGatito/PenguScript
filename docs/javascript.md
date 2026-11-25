@@ -35,6 +35,25 @@ desde `main`, así que el resultado se lee como código escrito a mano.
 - `seal` y `echo` desaparecen en runtime (cuestan cero).
 - Las funciones de `enchanting` son funciones libres con *name mangling*
   (`string__to_upper`, `abs__int8_t`), nunca parches de `prototype`.
+- Un `rune` con `destructor` emite `_destroy()` y **los bloques que declaran
+  locales de ese tipo se envuelven en `try/finally`**, así que el destructor
+  corre al salir del ámbito, en cada iteración de un bucle y también al volver
+  antes de tiempo:
+
+  ```js
+  export function main() {
+    let c;
+    try {
+      c = new Caja("uno");
+      println("dentro");
+    } finally {
+      c?._destroy();
+    }
+  }
+  ```
+
+  Limitación conocida: un **temporal** con destructor que no se guarda en una
+  variable no se destruye (C++ sí lo haría al final de la expresión).
 
 ## Semántica que se conserva
 

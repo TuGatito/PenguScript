@@ -4,6 +4,23 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+## Backend JavaScript: destructores deterministas
+
+- **Los destructores ya se ejecutan en JavaScript.** Era una deuda del plan:
+  `_destroy()` se emitía pero nadie lo llamaba. Ahora `collect_destructor_runes`
+  alimenta el contexto y los bloques que declaran locales de un tipo con
+  `destructor` se emiten con `try/finally`, declarando esos locales con `let`
+  antes del `try` (un `const` dentro del `try` no se vería en `finally`). Cubre
+  cuerpos de función, ramas de `if`, cuerpos de bucle (una vez por iteración),
+  `do`, `unsafe`, brazos de `switch`/`match` y el `else` de bucle; el orden de
+  destrucción es el inverso al de declaración, como en C++.
+- Test diferencial nuevo en `tests/e2e/js_parity.test.ts` («destructores: fin de
+  ámbito, bucle y salida temprana») que compara la salida con el binario C++.
+- Limitación documentada en `docs/javascript.md`: un temporal con destructor que
+  no se guarda en una variable no se destruye (C++ sí lo haría).
+- `--emit-cpp` con `--target js` ahora avisa de que solo aplica al backend C++
+  en vez de ignorarse en silencio.
+
 ## Backend JavaScript: paridad y cierre (P7 de `plan_codegen_js.md`)
 
 - **Suite diferencial completa**: 16 ejemplos, 10 casos de biblioteca estándar

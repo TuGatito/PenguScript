@@ -53,7 +53,9 @@ export function run_build(args: ParsedArgs): CommandResult {
     const cached = options_out(args) ? `✓ ${file} sin cambios en ${dir}` : `✓ ${file} sin cambios (caché)`;
     const message = result.reused === true ? cached : generated;
     const entry = result.js_entry_path;
-    return { exit_code: 0, output: entry === undefined ? message : `${message}\n  entrada: ${entry}` };
+    const base = entry === undefined ? message : `${message}\n  entrada: ${entry}`;
+    const extra = emit_cpp_notice(args, file, result);
+    return { exit_code: 0, output: extra === undefined ? base : `${base}\n${extra}` };
   }
 
   let message = result.reused === true ? `✓ ${file} sin cambios (caché)` : `✓ ${file} compilado`;
@@ -80,6 +82,11 @@ function emit_cpp_notice(
   result: ReturnType<typeof compile_file>,
 ): string | undefined {
   if (!flag_bool(args, "emit-cpp")) return undefined;
+  // El backend JavaScript no genera C++: se avisa en vez de ignorarlo en
+  // silencio.
+  if (result.target === "js") {
+    return "aviso: --emit-cpp solo aplica a --target cpp; se ignoró";
+  }
   if (result.cpp_path === undefined || result.cache_dir === undefined) return undefined;
   const target_dir = dirname(resolve(file));
   const stem = basename(file).replace(/\.pengu$/, "");
