@@ -242,10 +242,9 @@ function load_one(state: LoadState, file: string): LoadedModule | undefined {
   const imports_by_alias = new Map<string, LoadedModule>();
   for (const [alias, imported] of info.imports) {
     const resolved = resolve_module_file(file, imported.path, state.root);
-    if (resolved === undefined && imported.path.startsWith("std/")) {
-      // Sin archivo .d.pengu: la firma la aporta el checker (intrínseca).
-      continue;
-    }
+    // Todos los módulos de `std/` son archivos: si uno no resuelve, es un
+    // error del proyecto (o un compilador instalado sin esa parte de la
+    // biblioteca), no algo que se pueda ignorar en silencio.
     if (resolved === undefined) {
       report(
         state,

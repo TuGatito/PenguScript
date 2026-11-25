@@ -4,6 +4,15 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+### LSP: importaciones `std/` inexistentes (F1 de `plan_lsp_errores.md`)
+
+- Una importación `std/…` que no resuelve ya no se ignora en silencio: se
+  reporta `E0301 no se encuentra el módulo` con las rutas buscadas, igual que
+  cualquier otro módulo. Antes el grafo se saltaba el módulo y el usuario solo
+  veía errores de miembros («el tipo «char» no tiene el miembro «is_space»»),
+  que apuntaban al sitio equivocado.
+- Regresiones nuevas en `tests/project/imports.test.ts`.
+
 ### Biblioteca estándar: F9 (documentación)
 
 - **`scripts/gen_stdlib_docs.ts`** (nuevo): genera `docs/stdlib_api.md` desde el
