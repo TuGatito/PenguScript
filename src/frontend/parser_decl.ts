@@ -134,7 +134,37 @@ export function parse_decl(c: Cursor): DeclNode | undefined {
       const name = expect_ident(c, "tras unsafe");
       if (!name) return undefined;
       expect(c, "=", "en la firma de la función");
-      return parse_function_decl(c, name, true);
+      return parse_function_decl(c, name, true, false);
+    }
+    case "async": {
+      advance(c);
+      if (at(c, "operator")) {
+        push_error(
+          c,
+          CODES.async_not_allowed,
+          "un operador libre no puede ser «async»",
+          token.span,
+        );
+        // Se recupera analizando el operador como si no llevara «async».
+        return parse_free_operator(c, token.span);
+      }
+      const is_unsafe = eat(c, "unsafe") !== undefined;
+      const name = expect_ident(c, is_unsafe ? "tras async unsafe" : "tras async");
+      if (!name) return undefined;
+      expect(c, "=", "en la firma de la función");
+      if (!is_function_start(c)) {
+        push_error(
+          c,
+          CODES.async_not_allowed,
+          "«async» solo puede acompañar a una función",
+          token.span,
+          "escribe una lambda o una función tras «async nombre =»",
+        );
+        // Se consume el valor para no encadenar errores de sintaxis.
+        parse_expression(c);
+        return undefined;
+      }
+      return parse_function_decl(c, name, is_unsafe, true);
     }
     case "declare":
       return parse_declare(c, token.span);
@@ -284,6 +314,7 @@ function parse_free_operator(c: Cursor, start: Span): DeclNode | undefined {
     result,
     body,
     is_unsafe: false,
+    is_async: false,
     operator: symbol.text,
     span: merge_span(start, body.span),
   };
@@ -314,7 +345,7 @@ function parse_named_decl(c: Cursor): DeclNode | undefined {
   if (at(c, "=")) {
     advance(c);
     if (is_function_start(c)) {
-      return parse_function_decl(c, name, false);
+      return parse_function_decl(c, name, false, false);
     }
     const value = parse_expression(c);
     return {
@@ -451,7 +482,12 @@ function parse_extern(c: Cursor, start: Span): DeclNode | undefined {
   };
 }
 
-function parse_function_decl(c: Cursor, name: Token, is_unsafe: boolean): FunctionDecl {
+function parse_function_decl(
+  c: Cursor,
+  name: Token,
+  is_unsafe: boolean,
+  is_async: boolean,
+): FunctionDecl {
   const { sigils, needs } = parse_sigils(c);
   const params: readonly ParamNode[] = at(c, "->") ? [] : parse_params(c);
   expect(c, "->", "en la firma de la función");
@@ -466,6 +502,7 @@ function parse_function_decl(c: Cursor, name: Token, is_unsafe: boolean): Functi
     result,
     body,
     is_unsafe,
+    is_async,
     span: merge_span(name.span, body.span),
   };
 }
@@ -815,11 +852,21 @@ function parse_enchant_pattern(c: Cursor): TypeNode | undefined {
 }
 
 function parse_method(c: Cursor): MethodDecl {
+  const async_token = eat(c, "async");
+  const is_async = async_token !== undefined;
   const mutable = eat(c, "mut") !== undefined;
   let name: Token | undefined;
   let operator: string | undefined;
 
   if (at(c, "operator")) {
+    if (async_token !== undefined) {
+      push_error(
+        c,
+        CODES.async_not_allowed,
+        "un operador no puede ser «async»",
+        async_token.span,
+      );
+    }
     const operator_token = advance(c);
     if (at(c, "[")) {
       advance(c);
@@ -853,6 +900,7 @@ function parse_method(c: Cursor): MethodDecl {
     result,
     body,
     is_unsafe: false,
+    is_async,
     span: merge_span(name?.span ?? peek(c).span, body.span),
   };
 }

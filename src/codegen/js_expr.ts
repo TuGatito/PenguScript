@@ -169,6 +169,17 @@ export function emit_expr(g: JsContext, node: ExprNode, expected?: PenguType): s
     case "unsafe": {
       return capture_iife(g, () => emit_value_block(g, node.block, expected));
     }
+    case "await": {
+      if (g.await_depth === 0) {
+        js_error(
+          g,
+          "«await» fuera de una función «async»: el checker debería haberlo rechazado",
+          node.span,
+        );
+      }
+      g.await_seen += 1;
+      return `await (${emit_expr(g, node.value)})`;
+    }
     case "lambda": {
       return emit_lambda(g, node);
     }
@@ -452,9 +463,11 @@ function emit_lambda(g: JsContext, node: Extract<ExprNode, { kind: "lambda" }>):
   });
   const result = node.result === undefined ? undefined : expression_type(g, node);
   const saved_return = g.return_type;
+  const saved_async = g.await_depth;
   push_scope(g);
   for (const param of node.params) declare_local_name(g, param.name);
   g.return_type = result;
+  g.await_depth = node.is_async ? saved_async + 1 : 0;
   const body = capture_lines(
     g,
     () => emit_value_block(g, node.body, result),
@@ -462,8 +475,9 @@ function emit_lambda(g: JsContext, node: Extract<ExprNode, { kind: "lambda" }>):
   );
   pop_scope(g);
   g.return_type = saved_return;
+  g.await_depth = saved_async;
   const indent = "  ".repeat(g.indent);
-  return `((${params.join(", ")}) => {\n${body}\n${indent}})`;
+  return `(${node.is_async ? "async " : ""}(${params.join(", ")}) => {\n${body}\n${indent}})`;
 }
 
 function declare_local_name(g: JsContext, name: string): void {
@@ -815,9 +829,13 @@ export function capture_lines(g: JsContext, body: () => void, indent?: number): 
 }
 
 export function capture_iife(g: JsContext, body: () => void): string {
+  const before = g.await_seen;
   const inner = capture_lines(g, body, g.indent + 1);
   const indent = "  ".repeat(g.indent);
   const opening = inner.length === 0 ? "" : `\n${inner}\n${indent}`;
+  // Una IIFE con `await` dentro tiene que ser `async` y esperarse: si no, el
+  // `await` quedaría fuera de una función `async` (error de sintaxis).
+  if (g.await_seen > before) return `await (async () => {${opening}})()`;
   return `(() => {${opening}})()`;
 }
 

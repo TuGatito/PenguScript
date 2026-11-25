@@ -231,7 +231,7 @@ const KEYWORDS_FOR_COMPLETION: readonly string[] = [
   "heir", "constructor", "destructor", "parent", "declare", "extern", "unsafe", "mut", "const",
   "static", "needs", "operator", "if", "unless", "else", "then", "switch", "when", "match",
   "do", "while", "until", "repeat", "for", "in", "break", "continue", "return", "pass",
-  "true", "false", "none", "nullptr", "and", "or", "not",
+  "true", "false", "none", "nullptr", "and", "or", "not", "async", "await",
 ];
 
 // Para el resaltado de miembros se reutilizan los símbolos visibles del

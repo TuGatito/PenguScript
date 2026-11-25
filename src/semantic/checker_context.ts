@@ -44,6 +44,8 @@ export interface CheckContext {
   scope: Scope;
   current_return: PenguType | undefined;
   unsafe_depth: number;
+  // 0 fuera de una función `async`: `await` solo es legal si es > 0.
+  async_depth: number;
   loop_depth: number;
   // Tipos de los `break value` del bucle actual (pila por anidamiento).
   break_types: PenguType[][];
@@ -105,6 +107,7 @@ export function make_context(
     scope: make_scope(),
     current_return: undefined,
     unsafe_depth: 0,
+    async_depth: 0,
     loop_depth: 0,
     break_types: [],
     self_type: undefined,

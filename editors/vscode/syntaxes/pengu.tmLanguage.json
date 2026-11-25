@@ -252,7 +252,7 @@
       "patterns": [
         {
           "name": "storage.modifier.pengu",
-          "match": "\\b(mut|const|static|unsafe|needs|operator|constructor|destructor|parent|bits)\\b"
+          "match": "\\b(mut|const|static|unsafe|needs|operator|constructor|destructor|parent|bits|async)\\b"
         }
       ]
     },
@@ -260,7 +260,7 @@
       "patterns": [
         {
           "name": "keyword.control.pengu",
-          "match": "\\b(if|unless|else|then|switch|when|match|do|while|until|repeat|for|in|break|continue|return|pass)\\b"
+          "match": "\\b(if|unless|else|then|switch|when|match|do|while|until|repeat|for|in|break|continue|return|pass|await)\\b"
         },
         {
           "name": "keyword.operator.word.pengu",

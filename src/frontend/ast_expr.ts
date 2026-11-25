@@ -44,6 +44,7 @@ export type ExprNode =
   | ForNumericNode
   | ForIterNode
   | LambdaNode
+  | AwaitNode
   | UnsafeNode;
 
 export interface IntLitNode {
@@ -321,6 +322,12 @@ export interface ForIterNode {
   readonly span: Span;
 }
 
+export interface AwaitNode {
+  readonly kind: "await";
+  readonly value: ExprNode;
+  readonly span: Span;
+}
+
 export interface LambdaNode {
   readonly kind: "lambda";
   readonly sigils: readonly string[];
@@ -329,6 +336,7 @@ export interface LambdaNode {
   readonly result: TypeNode | undefined;
   readonly body: Block;
   readonly is_unsafe: boolean;
+  readonly is_async: boolean;
   readonly span: Span;
 }
 

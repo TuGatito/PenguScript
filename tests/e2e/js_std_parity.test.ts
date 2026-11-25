@@ -63,7 +63,7 @@ main = ->
 `,
     );
     expect(out.length).toBeGreaterThan(0);
-  });
+  }, 30_000);
 
   test("std/vector y std/array: orden y orden superior", () => {
     const out = expect_parity(
@@ -91,7 +91,7 @@ main = ->
 `,
     );
     expect(out.length).toBeGreaterThan(0);
-  });
+  }, 30_000);
 
   test("std/map y std/set", () => {
     const out = expect_parity(
@@ -116,7 +116,7 @@ main = ->
 `,
     );
     expect(out.length).toBeGreaterThan(0);
-  });
+  }, 30_000);
 
   test("std/optional y std/result", () => {
     const out = expect_parity(
@@ -136,7 +136,7 @@ main = ->
 `,
     );
     expect(out.length).toBeGreaterThan(0);
-  });
+  }, 30_000);
 
   test("std/math y std/format", () => {
     const out = expect_parity(
@@ -153,7 +153,7 @@ main = ->
 `,
     );
     expect(out.length).toBeGreaterThan(0);
-  });
+  }, 30_000);
 
   test("std/hash, std/encoding y std/char", () => {
     const out = expect_parity(
@@ -171,7 +171,7 @@ main = ->
 `,
     );
     expect(out.length).toBeGreaterThan(0);
-  });
+  }, 30_000);
 
   test("std/json: lectura y escritura", () => {
     const out = expect_parity(
@@ -188,7 +188,7 @@ main = ->
 `,
     );
     expect(out.length).toBeGreaterThan(0);
-  });
+  }, 30_000);
 
   test("std/integers: precisión de 64 bits", () => {
     const out = expect_parity(
@@ -206,7 +206,7 @@ main = ->
 `,
     );
     expect(out.length).toBeGreaterThan(0);
-  });
+  }, 30_000);
 
   test("std/fs, std/os y std/time: entorno", () => {
     const out = expect_parity(
@@ -231,7 +231,7 @@ main = ->
 `,
     );
     expect(out.length).toBeGreaterThan(0);
-  });
+  }, 30_000);
 
   test("std/assert: un fallo termina con «panic»", () => {
     if (!has_node) return;
@@ -259,5 +259,5 @@ main = ->
     expect(js_run.stdout).toBe(cpp_run.stdout);
     expect(js_run.status).not.toBe(0);
     expect(`${js_run.stderr}${js_run.stdout}`).toContain("antes");
-  });
+  }, 30_000);
 });

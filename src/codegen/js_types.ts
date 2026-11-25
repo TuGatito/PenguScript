@@ -10,7 +10,7 @@
 // dos cosas: ni se clonan ni se convierten.
 
 import type { PenguType } from "../semantic/types.ts";
-import { integer_shape } from "../semantic/types.ts";
+import { any_type, integer_shape } from "../semantic/types.ts";
 
 export type Int64Mode = "bigint" | "number";
 
@@ -104,6 +104,9 @@ export function js_type(type: PenguType, mode: Int64Mode = DEFAULT_INT64_MODE): 
     }
     case "named": {
       if (type.name === "Ordering") return "number";
+      if (type.name === "future") {
+        return `Promise<${js_type(type.args[0] ?? any_type("future"), mode)}>`;
+      }
       const container = CONTAINERS[type.name];
       if (container === "Array") {
         if (type.name === "pair" || type.name === "tuple") {
@@ -274,6 +277,9 @@ export function needs_clone(type: PenguType): boolean {
       return false;
     case "named": {
       if (type.name === "Ordering") return false;
+      // Un `future<T>` es una `Promise`: es un identificador, no un valor, y
+      // clonarla rompería el objeto (`then` sobre un receptor incompatible).
+      if (type.name === "future") return false;
       if (CONTAINERS[type.name] !== undefined) return true;
       // Un tipo de usuario (rune) puede ser un objeto plano o una clase:
       // ambos se copian campo a campo.

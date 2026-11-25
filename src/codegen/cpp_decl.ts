@@ -22,6 +22,8 @@ import type { GenContext } from "./cpp_context.ts";
 import { declare_local, line, pop_scope, push_scope } from "./cpp_context.ts";
 import { cpp_identifier, cpp_type, cpp_type_node, sanitize_namespace } from "./cpp_types.ts";
 import { emit_value_block } from "./cpp_stmt.ts";
+import { CODES } from "../diagnostics/codes.ts";
+import { error as diagnostic_error } from "../diagnostics/diagnostic.ts";
 import { emit_expr } from "./cpp_expr.ts";
 import { generic_type, named } from "../semantic/types.ts";
 import type { TypeDecl } from "./cpp_type_order.ts";
@@ -349,6 +351,17 @@ function generic_param_overrides(
 }
 
 function emit_function(g: GenContext, decl: FunctionDecl): void {
+  if (decl.is_async) {
+    g.sink.add(
+      diagnostic_error(
+        CODES.async_unsupported_target,
+        `«${decl.name}» es «async»: el backend C++20 no tiene asincronía`,
+        decl.name_span,
+        "compila con «--target js» o quita el «async»",
+      ),
+    );
+    return;
+  }
   const generic = decl.sigils.length > 0;
   const overrides = generic ? generic_param_overrides(g, decl) : undefined;
   if (generic) {

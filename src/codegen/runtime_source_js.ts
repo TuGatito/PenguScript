@@ -275,6 +275,8 @@ export function is_cell(value) {
 
 export function clone(value) {
   if (value === null || typeof value !== "object") return value;
+  // Una Promise es un identificador: se comparte, no se copia.
+  if (value instanceof Promise) return value;
   if (Array.isArray(value)) return value.map(clone);
   if (value instanceof Map) {
     const copia = new Map();

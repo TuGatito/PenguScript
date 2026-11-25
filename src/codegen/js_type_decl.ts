@@ -12,6 +12,7 @@
 import type { DeclNode, MethodDecl, OmenDecl, RuneDecl } from "../frontend/ast_decl.ts";
 import type { ExprNode } from "../frontend/ast_expr.ts";
 import type { PenguType } from "../semantic/types.ts";
+import { future_inner } from "../semantic/types.ts";
 import { omen_methods_of } from "../semantic/module_info.ts";
 import type { ProgramUnit } from "./cpp_module.ts";
 import { is_type_decl, order_type_decls } from "./cpp_type_order.ts";
@@ -261,17 +262,21 @@ function emit_rune_method(
   const saved_indent = g.indent;
   const saved_self = g.self_expression;
   const saved_return = g.return_type;
+  const saved_async = g.await_depth;
+  // Un método `async` devuelve `T`: el `future<T>` solo lo ven los llamantes.
+  const result = info === undefined ? undefined : future_inner(info.result) ?? info.result;
   g.file.lines = [];
   g.indent = 0;
   g.self_expression = "self";
-  g.return_type = info?.result;
+  g.return_type = result;
+  g.await_depth = method.is_async ? saved_async + 1 : 0;
   const text = with_fresh_locals(g, () => {
     push_scope(g);
     declare_local(g, "self");
     for (const param of method.params) declare_local(g, param.name);
-    line(g, `export function ${exported}(self${params.length === 0 ? "" : `, ${params.join(", ")}`}) {`);
+    line(g, `export ${method.is_async ? "async " : ""}function ${exported}(self${params.length === 0 ? "" : `, ${params.join(", ")}`}) {`);
     g.indent += 1;
-    emit_value_block(g, method.body, info?.result);
+    emit_value_block(g, method.body, result);
     g.indent -= 1;
     line(g, "}");
     return g.file.lines.join("\n");
@@ -280,6 +285,7 @@ function emit_rune_method(
   g.indent = saved_indent;
   g.self_expression = saved_self;
   g.return_type = saved_return;
+  g.await_depth = saved_async;
   g.file.functions.push(text);
 }
 

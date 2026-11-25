@@ -69,6 +69,7 @@ export interface FunctionDecl {
   readonly result: TypeNode | undefined;
   readonly body: Block;
   readonly is_unsafe: boolean;
+  readonly is_async: boolean;
   // Presente en los operadores libres (`operator + = (a, b) -> T`):
   // el nombre real de la función es el símbolo del operador.
   readonly operator?: string;
@@ -113,6 +114,7 @@ export interface MethodDecl {
   readonly result: TypeNode | undefined;
   readonly body: Block;
   readonly is_unsafe: boolean;
+  readonly is_async: boolean;
   readonly span: Span;
 }
 

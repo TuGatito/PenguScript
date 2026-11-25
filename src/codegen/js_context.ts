@@ -76,6 +76,10 @@ export interface JsContext {
   return_type: PenguType | undefined;
   // Expresión que representa `@` en el cuerpo actual (`undefined` → none).
   self_expression: string | undefined;
+  // `await` emitido hasta ahora (permite saber si una IIFE capturada debe ser
+  // `async`) y profundidad de funciones `async` en emisión.
+  await_seen: number;
+  await_depth: number;
   // Runas que se emiten como `class` (calculado sobre todo el programa).
   readonly class_runes: ReadonlySet<string>;
   // Runas con `destructor` declarado: obligan a `try/finally`.
@@ -118,6 +122,8 @@ export function make_js_context(
     in_value_body: false,
     return_type: undefined,
     self_expression: undefined,
+    await_seen: 0,
+    await_depth: 0,
     class_runes: options.class_runes ?? new Set(),
     enchant_base: undefined,
     destructor_runes: options.destructor_runes ?? new Set(),

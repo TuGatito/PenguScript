@@ -27,6 +27,8 @@ import {
   type_of,
 } from "./cpp_context.ts";
 import { cpp_identifier, cpp_type, cpp_type_node, cpp_value_type, sanitize_namespace } from "./cpp_types.ts";
+import { CODES } from "../diagnostics/codes.ts";
+import { error as diagnostic_error } from "../diagnostics/diagnostic.ts";
 import { is_adapter_type, is_map_type, is_sequence_container, is_set_type } from "../semantic/builtin_members.ts";
 import { omen_methods_of } from "../semantic/module_info.ts";
 import { find_echo_method } from "../semantic/type_env.ts";
@@ -208,6 +210,17 @@ export function emit_expr(g: GenContext, node: ExprNode): string {
       return emit_for_iter(g, node);
     case "lambda":
       return emit_lambda(g, node);
+    case "await":
+      // `async`/`await` solo tienen backend JavaScript (P5, E0804).
+      g.sink.add(
+        diagnostic_error(
+          CODES.async_unsupported_target,
+          "«await» solo se puede compilar con «--target js»; el backend C++20 no tiene asincronía",
+          node.span,
+          "usa «--target js» o quita el «await»",
+        ),
+      );
+      return emit_expr(g, node.value);
     case "unsafe":
       return build_lambda(g, "", cpp_value_type(type_of(g, node), g.type_realms), () => {
         emit_value_block(g, node.block, cpp_value_type(type_of(g, node), g.type_realms));

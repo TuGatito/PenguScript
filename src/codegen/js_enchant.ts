@@ -212,6 +212,7 @@ function emit_enchanting(
   const saved_self = g.self_expression;
   const saved_return = g.return_type;
   const saved_base = g.enchant_base;
+  const saved_async = g.await_depth;
   const file = g.file;
   const text = with_fresh_locals(g, () => {
   push_scope(g);
@@ -230,9 +231,10 @@ function emit_enchanting(
   g.enchant_base = base;
   g.self_expression = cell ? "self.value" : "self";
   g.return_type = result;
+  g.await_depth = method.is_async ? saved_async + 1 : 0;
   return capture_lines(g, () => {
     const signature = params.length === 0 ? "self" : `self, ${params.join(", ")}`;
-    line(g, `export function ${exported}(${signature}) {`);
+    line(g, `export ${method.is_async ? "async " : ""}function ${exported}(${signature}) {`);
     g.indent += 1;
     emit_value_block(g, method.body, result);
     g.indent -= 1;
@@ -242,6 +244,7 @@ function emit_enchanting(
   g.self_expression = saved_self;
   g.return_type = saved_return;
   g.enchant_base = saved_base;
+  g.await_depth = saved_async;
   file.functions.push(text);
 }
 

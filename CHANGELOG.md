@@ -4,6 +4,45 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+## Lenguaje y backend JavaScript: `async`/`await` (P5 de `plan_codegen_js.md`)
+
+- **`async`/`await` en el lenguaje**: `async` puede preceder a una función, a
+  una lambda y a un método de `enchanting`; dentro del cuerpo, `await` liga como
+  prefijo fuerte (`await f(x).y` espera el miembro, `await a + b` es
+  `(await a) + b`). No hay espera implícita: la palabra clave es explícita.
+- **`future<T>`**: el tipo que devuelve una función `async` (`named("future")`),
+  escribible en anotaciones (`pendiente: future<int> = compute(21)`). Las
+  llamadas ven `future<T>` y el cuerpo se comprueba contra `T`.
+- **Diagnósticos nuevos en uso**: `E0516` (`await` fuera de `async`, incluida
+  una lambda no `async` anidada, que no hereda el permiso), `E0517` (`async`
+  delante de un operador o de algo que no es una función), `E0606` (un `ref<T>`
+  local que cruza un punto de suspensión) y `E0501` con el mensaje que nombra
+  `future<T>` cuando se espera algo que no es un futuro.
+- **Backend JavaScript**: las funciones `async` se emiten `export async
+  function`, `await (expr)` en las expresiones y **toda IIFE capturada que
+  contenga un `await` se emite `await (async () => { … })()`**, de modo que
+  `match`, `if` como valor, `do`, comprensiones y `break` con valor siguen
+  funcionando dentro de una función asíncrona. Un `async main` se espera con
+  top-level `await` en el lanzador.
+- **Backend C++20**: `async`/`await` se rechazan con `E0804`
+  (`async_unsupported_target`) y una nota que apunta a `--target js`; el
+  programa no llega a emitirse.
+- **Herramientas**: `async` y `await` en el autocompletado del LSP y en la
+  gramática de VS Code; el formateador los trata como cualquier palabra clave.
+  `docs/cheatsheet.md` documenta la semántica y las reglas.
+- **`future<T>` es un identificador, no un valor**: `needs_clone` devuelve
+  `false` y `rt.clone` deja pasar las `Promise`, de modo que un futuro se puede
+  guardar en un `vector<future<T>>` y esperarse después sin romper el objeto.
+- **Tests nuevos**: `tests/parser/parser_async.test.ts` (precedencia y
+  modificadores), `tests/checker/async.test.ts` (tipos, `E0516`, `E0517`,
+  `E0606`, `E0501`) y `tests/e2e/js_async.test.ts` (ejecución real con `node`,
+  orden secuencial, `await` dentro de control como expresión, futuros en
+  contenedores y rechazo del backend C++).
+- **Tiempo límite de las pruebas**: `bun test` corre con `--timeout 30000`
+  (`bun run test`); los tests de paridad que compilan C++ y ejecutan `node`
+  declaran además su propio límite, porque el valor por defecto de 5 s no
+  alcanza bajo carga. El `timeout` de `bunfig.toml` no lo aplica Bun 1.4.
+
 ## Backend JavaScript: biblioteca estándar completa (P4 de `plan_codegen_js.md`)
 
 - **Runtime `pengu_rt.mjs` completo**: se añadieron fs, os, proceso, tiempo,

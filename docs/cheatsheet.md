@@ -3297,6 +3297,64 @@ change `ü`, `ñ` or any other non-ASCII letter.
 - Methods added by `enchanting` are visible only to code that imports the
   module that declares them.
 
+## Asynchronous functions
+
+`async` marks a function, method or lambda whose result is a `future<T>`;
+`await` unwraps it back to `T`. There is no implicit awaiting: the keyword is
+part of the language, not an inference rule.
+
+```pengu
+invoke "std/io"
+
+async fetch = (name: string) -> string
+  await pause(2)
+  "valor de #{name}"
+
+async pause = (ticks: int) -> void
+  io::println("esperando #{ticks}")
+
+async main = -> int
+  primero = await fetch("uno")
+  io::println(primero)
+  0
+```
+
+### Rules
+
+| Rule | What happens |
+|------|--------------|
+| `async f = (…) -> T` | `f` has type `(…) -> future<T>`; the body still yields `T` |
+| `await e` | `e` must be a `future<T>`; the expression has type `T` |
+| `await` outside `async` | E0516 `await_outside_async` |
+| `async` where it cannot apply | E0517 `async_not_allowed` (operators, fields, non-functions) |
+| `ref<T>` alive across `await` | E0606 `borrow_across_await`: a borrow cannot cross a suspension point |
+| `await` of a non-future | E0501 type mismatch naming `future<T>` |
+| `--target cpp` | E0804 `async_unsupported_target`: C++20 has no promises yet |
+
+`future<T>` can be named in annotations, so a future can be stored and awaited
+later:
+
+```pengu
+pendiente: future<int> = compute(21)
+resultado: int = await pendiente
+```
+
+`await` binds like a strong prefix followed by a postfix chain: `await f(x).total`
+awaits the member access, and `await a + b` is `(await a) + b`. Inside a
+comprehension, a `match`, an `if` used as a value or a `do` block, the
+intermediate block becomes an async IIFE, so an `await` in any branch keeps
+working:
+
+```pengu
+valor = match modo
+  when Modo::Rapido then await work(1)
+  else
+    await work(2)
+```
+
+An `async main` is allowed: the JavaScript launcher awaits it with top-level
+`await`, so the process exits with its return value as usual.
+
 ## Type Conversions
 ---
 

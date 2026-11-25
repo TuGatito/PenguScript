@@ -5,6 +5,7 @@
 
 import type {
   ArgNode,
+  AwaitNode,
   Block,
   CallNode,
   ExprNode,
@@ -71,7 +72,7 @@ import type { TypeNode } from "../frontend/ast_type.ts";
 import type { OmenVariantInfo } from "./type_env.ts";
 import { function_type_of, omen_methods_of } from "./module_info.ts";
 import { find_free_operator } from "./operators.ts";
-import { substitute_generics } from "./types.ts";
+import { future_inner, future_type, substitute_generics } from "./types.ts";
 import type { FunctionInfo } from "./module_info.ts";
 import { builtin_function, is_builtin_module } from "./builtin_modules.ts";
 import { shared_type, unique_type, weak_type } from "./types.ts";
@@ -419,6 +420,53 @@ export function infer_for_iter(
   });
 }
 
+// `await` solo existe dentro de una función `async` y desenvuelve `future<T>`.
+// Un `ref<T>` local que cruce el punto de suspensión dejaría de ser exclusivo
+// (el llamante podría mutarlo mientras la tarea espera), así que se rechaza
+// con E0606.
+export function infer_await(ctx: CheckContext, node: AwaitNode): PenguType {
+  const operand = infer_expr(ctx, node.value);
+
+  if (ctx.async_depth === 0) {
+    ctx.sink.add(
+      make_error(
+        CODES.await_outside_async,
+        "«await» solo se puede usar dentro de una función «async»",
+        node.span,
+        "marca la función como «async» o quita el «await»",
+      ),
+    );
+    return UNKNOWN;
+  }
+
+  const borrow = ctx.borrows[ctx.borrows.length - 1];
+  if (borrow !== undefined) {
+    ctx.sink.add(
+      make_error(
+        CODES.borrow_across_await,
+        `«${borrow.name}» sigue prestado cuando la tarea se suspende`,
+        node.span,
+        "suelta el préstamo antes del «await»: una referencia no puede cruzar un punto de suspensión",
+      ),
+    );
+    return UNKNOWN;
+  }
+
+  const inner = future_inner(operand);
+  if (inner !== undefined) return inner;
+  if (is_any(operand)) return UNKNOWN;
+
+  ctx.sink.add(
+    make_error(
+      CODES.type_mismatch,
+      `«await» necesita un «future<T>» y recibió «${type_display(operand)}»`,
+      node.span,
+      "usa «await» solo con llamadas a funciones «async»",
+    ),
+  );
+  return UNKNOWN;
+}
+
 export function infer_lambda(ctx: CheckContext, node: LambdaNode): PenguType {
   const params = node.params.map((param) =>
     param.type === undefined ? UNKNOWN : resolve_type_node(param.type, ctx.module.env, ctx.sink),
@@ -428,7 +476,11 @@ export function infer_lambda(ctx: CheckContext, node: LambdaNode): PenguType {
     : resolve_type_node(node.result, ctx.module.env, ctx.sink);
 
   const previous_return = ctx.current_return;
+  const previous_async = ctx.async_depth;
   ctx.current_return = declared_result;
+  // Una lambda no `async` dentro de una `async` no hereda el permiso de
+  // `await`: el contexto se reinicia.
+  ctx.async_depth = node.is_async ? previous_async + 1 : 0;
   try {
     const body = with_new_scope(ctx, () => {
       node.params.forEach((param, index) => {
@@ -451,9 +503,10 @@ export function infer_lambda(ctx: CheckContext, node: LambdaNode): PenguType {
     if (declared_result !== undefined) {
       check_initialization(ctx, declared_result, body, node.span, "como valor de retorno de la lambda");
     }
-    return function_type(params, result, variadic, required);
+    return function_type(params, node.is_async ? future_type(result) : result, variadic, required);
   } finally {
     ctx.current_return = previous_return;
+    ctx.async_depth = previous_async;
   }
 }
 

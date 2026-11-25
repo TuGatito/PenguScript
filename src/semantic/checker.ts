@@ -35,6 +35,7 @@ import {
   resolve_type_node,
 } from "./type_env.ts";
 import {
+  UNKNOWN,
   VOID,
   any_type,
   generic_type,
@@ -51,6 +52,7 @@ import { enchant_target_of, type_pattern_type } from "./enchant_targets.ts";
 import { check_bitfield, check_meld } from "./meld_check.ts";
 import { reject_opaque_by_value } from "./opaque_check.ts";
 import type { PenguType } from "./types.ts";
+import { future_inner } from "./types.ts";
 import type { ExternalImports } from "./external.ts";
 import type { LocalSymbol } from "./symbols.ts";
 import type { Span } from "../util/span.ts";
@@ -227,8 +229,15 @@ function check_function(ctx: CheckContext, decl: FunctionDecl): void {
   reject_opaque_by_value(ctx, info.result, decl.span, "el retorno de la función");
   const previous_return = ctx.current_return;
   const previous_unsafe = ctx.unsafe_depth;
-  ctx.current_return = is_any(info.result) ? undefined : info.result;
+  const previous_async = ctx.async_depth;
+  // El cuerpo de una función `async` vale `T` (no `future<T>`), que es lo que
+  // el módulo ya guardó desenvuelto; resolver el `TypeNode` otra vez aquí
+  // rompería los sigilos genéricos, que solo existen dentro de `with_sigils`.
+  ctx.current_return = decl.is_async
+    ? future_inner(info.result) ?? UNKNOWN
+    : is_any(info.result) ? undefined : info.result;
   if (decl.is_unsafe) ctx.unsafe_depth += 1;
+  if (decl.is_async) ctx.async_depth += 1;
 
   with_sigils(ctx, decl.sigils, () => {
   try {
@@ -250,6 +259,7 @@ function check_function(ctx: CheckContext, decl: FunctionDecl): void {
   } finally {
     ctx.current_return = previous_return;
     ctx.unsafe_depth = previous_unsafe;
+    ctx.async_depth = previous_async;
   }
   });
 }
@@ -485,6 +495,7 @@ function check_method(ctx: CheckContext, method: MethodDecl, self_type: PenguTyp
   const previous_mutable = ctx.self_mutable;
   const previous_return = ctx.current_return;
   const previous_unsafe = ctx.unsafe_depth;
+  const previous_async = ctx.async_depth;
 
   ctx.self_type = self_type;
   ctx.self_mutable = method.mutable;
@@ -492,6 +503,7 @@ function check_method(ctx: CheckContext, method: MethodDecl, self_type: PenguTyp
     ? undefined
     : resolve_type_node(method.result, ctx.module.env, ctx.sink);
   if (method.is_unsafe) ctx.unsafe_depth += 1;
+  if (method.is_async) ctx.async_depth += 1;
 
   try {
     const body = with_fresh_scope(ctx, () => {
@@ -514,6 +526,7 @@ function check_method(ctx: CheckContext, method: MethodDecl, self_type: PenguTyp
     ctx.self_mutable = previous_mutable;
     ctx.current_return = previous_return;
     ctx.unsafe_depth = previous_unsafe;
+    ctx.async_depth = previous_async;
   }
 }
 

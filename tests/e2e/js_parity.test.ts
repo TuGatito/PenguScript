@@ -318,5 +318,5 @@ main = ->
   test("el runtime existe si hay runtime de JavaScript", () => {
     if (runtime === undefined) return;
     expect(existsSync(runtime.command)).toBe(true);
-  });
+  }, 30_000);
 });

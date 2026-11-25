@@ -17,6 +17,7 @@ import {
   type JsContext,
 } from "./js_context.ts";
 import { free_operator_name, js_identifier } from "./js_names.ts";
+import { future_inner } from "../semantic/types.ts";
 import { capture_lines, emit_expr, emit_value_block } from "./js_expr.ts";
 
 // Cuerpo de una función de PenguScript. Los genéricos no se emiten: en JS los
@@ -34,22 +35,28 @@ export function emit_function(g: JsContext, unit: ProgramUnit, decl: FunctionDec
 
   const saved_self = g.self_expression;
   const saved_return = g.return_type;
+  const saved_async = g.await_depth;
+  // El cuerpo devuelve `T`, no `future<T>`: `await` desenvuelve el futuro y
+  // la función `async` lo vuelve a envolver al salir (una `Promise`).
+  const result = info === undefined ? undefined : future_inner(info.result) ?? info.result;
   g.self_expression = undefined;
-  g.return_type = info?.result;
+  g.return_type = result;
+  g.await_depth = decl.is_async ? saved_async + 1 : 0;
   const file = g.file;
   const text = with_fresh_locals(g, () => {
     push_scope(g);
     for (const param of decl.params) declare_local(g, param.name);
     return capture_lines(g, () => {
-      line(g, `export function ${name}(${params.join(", ")}) {`);
+      line(g, `export ${decl.is_async ? "async " : ""}function ${name}(${params.join(", ")}) {`);
       g.indent += 1;
-      emit_value_block(g, decl.body, info?.result);
+      emit_value_block(g, decl.body, result);
       g.indent -= 1;
       line(g, "}");
     });
   });
   g.self_expression = saved_self;
   g.return_type = saved_return;
+  g.await_depth = saved_async;
   file.functions.push(text);
 }
 

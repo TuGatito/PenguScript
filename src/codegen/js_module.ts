@@ -80,7 +80,9 @@ export function generate_js_program(
   if (options.include_runtime !== false) {
     files.push({ name: "pengu_rt.mjs", code: RUNTIME_JS });
   }
-  files.push({ name: "index.mjs", code: launcher(entry_file, main !== undefined) });
+  // `main` puede ser `async`: el lanzador lo espera con top-level await.
+  const main_is_async = main?.is_async === true;
+  files.push({ name: "index.mjs", code: launcher(entry_file, main !== undefined, main_is_async) });
 
   return { files, entry: "index.mjs", has_main: main !== undefined };
 }
@@ -187,7 +189,11 @@ function assemble_file(file: JsFile, files: ReadonlyMap<string, JsFile>): string
 
 // Lanzador: importa `main`, prepara los argumentos y reproduce el `panic` de
 // C++ (`panic: <mensaje>` en stderr, código de salida 1).
-function launcher(entry_file: JsFile | undefined, has_main: boolean): string {
+function launcher(
+  entry_file: JsFile | undefined,
+  has_main: boolean,
+  main_is_async: boolean,
+): string {
   const lines = ["// Punto de entrada generado por pengu. No editar a mano."];
   lines.push('import * as rt from "./pengu_rt.mjs";');
   const main_name = entry_file?.symbols.get("main") ?? "main";
@@ -206,7 +212,7 @@ function launcher(entry_file: JsFile | undefined, has_main: boolean): string {
     return `${lines.join("\n")}\n`;
   }
   lines.push("try {");
-  lines.push(`  const resultado = ${main_name}();`);
+  lines.push(`  const resultado = ${main_is_async ? "await " : ""}${main_name}();`);
   lines.push('  if (typeof resultado === "number") process.exit(resultado);');
   lines.push("} catch (error) {");
   lines.push("  const mensaje = error instanceof Error ? error.message : String(error);");

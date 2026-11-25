@@ -22,7 +22,7 @@ import type {
 } from "../frontend/ast_decl.ts";
 import type { ParamNode } from "../frontend/ast_param.ts";
 import type { PenguType } from "./types.ts";
-import { UNKNOWN, VOID, any_type, function_type, generic_type, named, type_display } from "./types.ts";
+import { UNKNOWN, VOID, any_type, function_type, future_type, generic_type, named, type_display } from "./types.ts";
 import type { AliasInfo, FieldInfo, MethodInfo, OmenInfo, RuneInfo, TypeEnv } from "./type_env.ts";
 import { make_type_env, resolve_type_node } from "./type_env.ts";
 import type { EnchantedType } from "./type_env.ts";
@@ -51,6 +51,9 @@ export interface FunctionInfo {
   readonly result: PenguType;
   readonly decl: FunctionDecl | undefined;
   readonly is_unsafe: boolean;
+  // `async`: el cuerpo se comprueba contra `result` y las llamadas ven
+  // `future<result>`.
+  readonly is_async: boolean;
   readonly is_extern: boolean;
   readonly is_intrinsic: boolean;
   readonly span: Span;
@@ -470,7 +473,8 @@ export function omen_methods_of(omen: OmenInfo): Map<string, MethodInfo> | undef
 export function resolve_method(method: MethodDecl, env: TypeEnv, sink: DiagnosticSink): MethodInfo {
   const sigils = [...env.sigils.keys()];
   const params = resolve_params(method.params, env, sink);
-  const result = method.result ? resolve_type_node(method.result, env, sink) : UNKNOWN;
+  const declared = method.result ? resolve_type_node(method.result, env, sink) : UNKNOWN;
+  const result = method.is_async ? future_type(declared) : declared;
   return {
     name: method.operator ?? method.name,
     params: params.map((param) => param.type),
@@ -479,6 +483,7 @@ export function resolve_method(method: MethodDecl, env: TypeEnv, sink: Diagnosti
     required: params.filter((param) => !param.has_default && !param.variadic).length,
     result,
     mutable: method.mutable,
+    is_async: method.is_async,
     operator: method.operator,
     sigils,
     span: method.name_span,
@@ -546,6 +551,7 @@ function register_extern(
     result: declared.result ? resolve_type_node(declared.result, env, sink) : VOID,
     decl: undefined,
     is_unsafe: false,
+    is_async: false,
     is_extern: true,
     is_intrinsic: false,
     span: declared.name_span,
@@ -581,6 +587,7 @@ function register_intrinsic(
     result: declared.result ? resolve_type_node(declared.result, env, sink) : VOID,
     decl: undefined,
     is_unsafe: false,
+    is_async: false,
     is_extern: false,
     is_intrinsic: true,
     span: declared.name_span,
@@ -602,7 +609,7 @@ function register_function(
   for (const sigil of decl.sigils) env.sigils.set(sigil, generic_type(sigil));
 
   const params = resolve_params(decl.params, env, sink);
-  const result = decl.result ? resolve_type_node(decl.result, env, sink) : UNKNOWN;
+  const declared = decl.result ? resolve_type_node(decl.result, env, sink) : UNKNOWN;
 
   restore_sigils(env, previous);
 
@@ -613,9 +620,10 @@ function register_function(
     needs: decl.needs,
     params,
     variadic: params.some((param) => param.variadic),
-    result,
+    result: decl.is_async ? future_type(declared) : declared,
     decl,
     is_unsafe: decl.is_unsafe,
+    is_async: decl.is_async,
     is_extern: false,
     is_intrinsic: false,
     span: decl.name_span,

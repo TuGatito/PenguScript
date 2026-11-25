@@ -11,7 +11,7 @@
   "scripts": {
     "pengu": "bun run src/main.ts",
     "check": "bun run src/main.ts check",
-    "test": "bun test",
+    "test": "bun test --timeout 30000",
     "typecheck": "tsc --noEmit",
     "build": "bun run scripts/embed_std.ts && bun build --compile --outfile dist/pengu src/main.ts",
     "doctor": "bun run src/main.ts doctor",

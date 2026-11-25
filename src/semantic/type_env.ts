@@ -21,6 +21,7 @@ import {
   primitive,
   range_type,
   ref_to,
+  future_type,
   tuple_type,
   function_type,
   substitute_generics,
@@ -45,6 +46,7 @@ export interface MethodInfo {
   readonly required: number;
   readonly result: PenguType;
   readonly mutable: boolean;
+  readonly is_async: boolean;
   readonly operator: string | undefined;
   readonly sigils: readonly string[];
   readonly span: Span;
@@ -280,6 +282,17 @@ export function resolve_named_type(
 
   // `Ordering` es el resultado de `<=>` y lo aporta el runtime.
   if (name === "Ordering" && args.length === 0) return named("Ordering");
+
+  // `future<T>` es el resultado de una función `async` (P5).
+  if (name === "future") {
+    if (args.length !== 1) {
+      sink.add(
+        make_error(CODES.wrong_arity, "«future» necesita exactamente un argumento de tipo", span),
+      );
+      return UNKNOWN;
+    }
+    return future_type(args[0] as PenguType);
+  }
 
   // Un tipo cualificado (`result::Result`) es el mismo tipo que su
   // nombre base: el alias solo sirve para encontrarlo en otro módulo.

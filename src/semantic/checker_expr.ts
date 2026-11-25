@@ -96,6 +96,7 @@ import { infer_call, infer_construction, infer_declared, literal_element } from 
 import { infer_member, infer_path, rune_operator_method } from "./checker_member.ts";
 import { infer_binary, infer_cast, infer_unary, is_display } from "./checker_ops.ts";
 import {
+  infer_await,
   infer_comprehension,
   infer_for_iter,
   infer_for_numeric,
@@ -285,6 +286,8 @@ function infer_expr_impl(ctx: CheckContext, node: ExprNode): PenguType {
       return infer_for_iter(ctx, node);
     case "lambda":
       return infer_lambda(ctx, node);
+    case "await":
+      return infer_await(ctx, node);
     case "unsafe":
       ctx.unsafe_depth += 1;
       try {

@@ -127,6 +127,9 @@ export function cpp_type(type: PenguType, realms?: TypeRealms): string {
       return PRIMITIVES[type.name] ?? type.name;
     case "named": {
       if (type.name === "Ordering" && type.args.length === 0) return "::pengu::Ordering";
+      // `future<T>` no tiene equivalente en C++20: el diagnóstico E0804 lo
+      // emite el emisor, aquí solo se evita generar un tipo inexistente.
+      if (type.name === "future") return "::pengu::Value";
       const realm = realms?.get(type.name);
       const base = CONTAINERS[type.name] ?? (realm !== undefined ? `${sanitize_namespace(realm)}::${type.name}` : type.name);
       if (type.args.length === 0) return base;

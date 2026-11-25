@@ -134,6 +134,26 @@ function parse_unary(c: Cursor): ExprNode {
     return { kind: "unary", op: "not", operand, span: merge_span(token.span, operand.span) };
   }
 
+  // `await` liga como un prefijo fuerte: `await f(x).y` es `await (f(x).y)`
+  // y `await a + b` es `(await a) + b`, igual que en JavaScript.
+  if (token.kind === "await") {
+    advance(c);
+    const operand = parse_expression(c, 12);
+    return { kind: "await", value: operand, span: merge_span(token.span, operand.span) };
+  }
+
+  // `async` delante de una lambda (`async (x: int) -> int …`).
+  if (token.kind === "async") {
+    const next = peek(c, 1);
+    if (next.kind === "(" || next.kind === "->") {
+      advance(c);
+      return parse_lambda(c, true);
+    }
+    push_error(c, CODES.expected_expression, "«async» debe preceder a una lambda", token.span);
+    advance(c);
+    return parse_postfix(c);
+  }
+
   if (
     token.kind === "-" ||
     token.kind === "~" ||
@@ -767,9 +787,9 @@ function parse_group_or_tuple(c: Cursor): ExprNode {
   };
 }
 
-function parse_lambda(c: Cursor): LambdaNode {
+function parse_lambda(c: Cursor, is_async = false): LambdaNode {
   const start = peek(c);
-  const params = parse_params(c);
+  const params = at(c, "->") ? [] : parse_params(c);
   expect(c, "->", "en la lambda");
   const { result, body } = parse_return_and_body(c);
   return {
@@ -780,6 +800,7 @@ function parse_lambda(c: Cursor): LambdaNode {
     result,
     body,
     is_unsafe: false,
+    is_async,
     span: merge_span(start.span, body.span),
   };
 }

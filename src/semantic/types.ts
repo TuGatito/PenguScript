@@ -208,6 +208,21 @@ export function range_type(element: PenguType): RangeType {
   return { kind: "range", element };
 }
 
+// `future<T>` es el resultado de una función `async`: agnóstico de backend
+// (`Promise<T>` en JavaScript, un error explícito en C++).
+export function future_type(inner: PenguType): PenguType {
+  return named("future", [inner]);
+}
+
+export function is_future(type: PenguType): type is NamedType {
+  return type.kind === "named" && type.name === "future" && type.args.length === 1;
+}
+
+// Tipo que produce `await f()`: el `T` de `future<T>`.
+export function future_inner(type: PenguType): PenguType | undefined {
+  return is_future(type) ? type.args[0] : undefined;
+}
+
 export function tuple_type(items: readonly PenguType[]): TupleType {
   return { kind: "tuple", items };
 }
