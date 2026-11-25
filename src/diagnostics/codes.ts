@@ -53,12 +53,15 @@ export const CODES = {
   not_display: "E0512",
   invalid_any_cast: "E0514",
   not_first_class: "E0515",
+  await_outside_async: "E0516",
+  async_not_allowed: "E0517",
 
   use_after_move: "E0601",
   exclusive_borrow: "E0602",
   unsafe_required: "E0603",
   mutation_during_iteration: "E0604",
   dangling_reference: "E0605",
+  borrow_across_await: "E0606",
 
   omen_not_exhaustive: "E0701",
   invalid_omen_variant: "E0702",
@@ -79,6 +82,11 @@ export const CODES = {
   cpp_emit_failed: "E0801",
   toolchain_missing: "E0802",
   compile_failed: "E0803",
+  async_unsupported_target: "E0804",
+  target_invalid: "E0806",
+  js_target_unsupported: "E0807",
+  js_intrinsic_missing: "E0808",
+  js_emit_failed: "E0809",
 
   lsp_protocol: "E0901",
   bindgen_failed: "E0902",

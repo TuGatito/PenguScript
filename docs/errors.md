@@ -83,6 +83,8 @@ Formato: `archivo:línea:columna: severidad[código]: mensaje`.
 | E0513 | `missing_capability` | Una instancia genérica no cumple las capacidades de `needs`. |
 | E0514 | `invalid_any_cast` | Se intenta convertir `any` con `as` (en cualquier dirección). |
 | E0515 | `not_first_class` | Se guarda como valor una función `unsafe`, una función con parámetros `mut` o un método `mut`. |
+| E0516 | `await_outside_async` | `await` en una función o lambda que no es `async`. |
+| E0517 | `async_not_allowed` | `async` donde no cabe (campo de `rune`, `declare`, operador libre…). |
 
 ## Memoria (E06xx)
 
@@ -93,6 +95,7 @@ Formato: `archivo:línea:columna: severidad[código]: mensaje`.
 | E0603 | `unsafe_required` | Operación `unsafe` fuera de un bloque `unsafe`. |
 | E0604 | `mutation_during_iteration` | Mutación estructural durante la iteración. |
 | E0605 | `dangling_reference` | Referencia que sobreviviría a su valor. |
+| E0606 | `borrow_across_await` | Un `ref<T>` local seguiría vivo después de un `await`. |
 
 ## Runes y omens (E07xx)
 
@@ -121,6 +124,11 @@ Formato: `archivo:línea:columna: severidad[código]: mensaje`.
 | E0801 | `cpp_emit_failed` | El generador no puede traducir una construcción. |
 | E0802 | `toolchain_missing` | No hay compilador de C++ disponible. |
 | E0803 | `compile_failed` | El compilador de C++ rechazó el código generado (incluye stderr). |
+| E0804 | `async_unsupported_target` | `async`/`await` con `--target cpp`, que todavía no los soporta. |
+| E0806 | `target_invalid` | `--target` con un backend desconocido (`cpp` o `js`). |
+| E0807 | `js_target_unsupported` | El backend JS todavía no cubre esa construcción o ese comando. |
+| E0808 | `js_intrinsic_missing` | Un `declare` de la stdlib no tiene equivalente en el runtime JS. |
+| E0809 | `js_emit_failed` | El generador de JavaScript no puede traducir una construcción. |
 
 ## LSP y bindgen (E09xx)
 

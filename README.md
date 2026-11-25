@@ -70,8 +70,8 @@ están en [editors/vscode/README.md](editors/vscode/README.md).
 | Comando | Descripción |
 | --- | --- |
 | `pengu run <archivo>` | Compila y ejecuta; lo que sigue a `--` va al programa |
-| `pengu build <archivo>` | Compila a nativo (`--out`, `--compiler`, `--link`) |
-| `pengu check <archivo>` | Solo análisis: lexer, parser y checker |
+| `pengu build <archivo>` | Compila a nativo (`-o`/`--out`, `--compiler`, `--link`, `--release`, `--emit-cpp`) |
+| `pengu check <archivo>` | Solo análisis: lexer, parser y checker (`--target`) |
 | `pengu fmt [ruta]` | Formatea (`--check` para verificar sin escribir) |
 | `pengu lsp` | Servidor LSP por stdin/stdout |
 | `pengu size [archivo]` | Bytes y alineación medidos (`--json`, `--type`, `--fields`) |
@@ -79,6 +79,10 @@ están en [editors/vscode/README.md](editors/vscode/README.md).
 | `pengu init [dir] [nombre]` | Crea un proyecto con `pengu.toml` |
 | `pengu doctor` | Toolchain y huella de la stdlib; avisa si el proyecto tiene otra (`--json`) |
 | `pengu clean` | Borra las cachés `.pengu-cache` |
+
+Los comandos `build`, `run` y `check` aceptan `--target <cpp|js>`: el backend
+por defecto es C++20. El backend JavaScript (ES2022/ESM) está en desarrollo y
+todavía no emite código; `--target js` analiza el programa y lo dice.
 
 ## Si el LSP marca errores que `pengu check` no ve
 

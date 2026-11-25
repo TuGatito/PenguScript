@@ -6,6 +6,7 @@
 import { dirname, join, resolve } from "node:path";
 import { default_entry } from "./entry.ts";
 import { analyze_graph } from "../driver/analyze.ts";
+import { parse_target } from "../driver/target.ts";
 import { compute_layout } from "../driver/layout.ts";
 import { make_sink } from "../diagnostics/sink.ts";
 import { render_diagnostics } from "../diagnostics/render.ts";
@@ -23,6 +24,14 @@ export function run_size(
   positionals: readonly string[],
   flags: Readonly<Record<string, string | true>>,
 ): SizeCommandResult {
+  const choice = parse_target(typeof flags.target === "string" ? flags.target : undefined);
+  if (!choice.ok) return { exit_code: 1, output: `error: ${choice.message}` };
+  if (choice.target === "js") {
+    return {
+      exit_code: 1,
+      output: "error: «size» mide el diseño de memoria del backend C++; en JavaScript no hay tamaños ni alineación",
+    };
+  }
   const file = resolve(positionals.length > 0 ? (positionals[0] ?? default_entry(positionals)) : default_entry(positionals));
   const json = flags.json === true;
   const sink = make_sink({ max: 200 });

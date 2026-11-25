@@ -8,10 +8,13 @@ export interface ParsedArgs {
 }
 
 // Flags que esperan un valor en el argumento siguiente (`--out ruta`).
-const VALUE_FLAGS = new Set(["out", "realm", "link", "clang", "lib", "entry", "target", "type", "compiler", "base", "base-realm", "base-module"]);
+const VALUE_FLAGS = new Set(["out", "realm", "link", "clang", "lib", "entry", "target", "int64", "type", "compiler", "base", "base-realm", "base-module"]);
 
 // Estos flags aceptan valores que empiezan por `-` (`--link -lraylib`).
 const DASHED_VALUE_FLAGS = new Set(["link", "lib"]);
+
+// Alias cortos de una letra documentados en `help`: `-o <ruta>` = `--out`.
+const SHORT_VALUE_FLAGS: Readonly<Record<string, string>> = { o: "out" };
 
 export function parse_args(argv: readonly string[]): ParsedArgs {
   const positionals: string[] = [];
@@ -60,6 +63,24 @@ export function parse_args(argv: readonly string[]): ParsedArgs {
       continue;
     }
     if (arg.startsWith("-") && arg.length > 1) {
+      const short = SHORT_VALUE_FLAGS[arg[1] ?? ""];
+      if (short !== undefined) {
+        // `-o ruta`, `-o=ruta` y `-oruta` son la misma bandera.
+        const rest = arg.slice(2);
+        const attached = rest.startsWith("=") ? rest.slice(1) : rest;
+        if (attached.length > 0) {
+          flags[short] = attached;
+          continue;
+        }
+        const next = argv[index + 1];
+        if (next !== undefined && !next.startsWith("-")) {
+          flags[short] = next;
+          index += 1;
+        } else {
+          flags[short] = true;
+        }
+        continue;
+      }
       flags[arg.slice(1)] = true;
       continue;
     }

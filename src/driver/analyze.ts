@@ -99,11 +99,12 @@ export function analyze_project(source_path: string, options: AnalyzeOptions = {
     // Se reutiliza el módulo ya recogido: al cargar el grafo se fusionan
     // los símbolos de los realms reabiertos en varios archivos.
     const module = loaded.info;
+    const external = { modules: external_modules, selective, enchants };
     check_loaded_module(module, loaded.program, sink, {
       types,
       member_targets,
       locals,
-      external: { modules: external_modules, selective, enchants },
+      external,
     });
 
     // Alias visible → realm de origen y nombre real del símbolo (puede diferir
@@ -122,6 +123,7 @@ export function analyze_project(source_path: string, options: AnalyzeOptions = {
         external_realms,
         selective_symbols,
         external_modules,
+        external,
       },
       types,
       member_targets,

@@ -10,6 +10,7 @@ import type { Program } from "../frontend/ast.ts";
 import type { ModuleInfo } from "../semantic/module_info.ts";
 import type { PenguType } from "../semantic/types.ts";
 import type { MethodTarget } from "../semantic/type_env.ts";
+import type { ExternalImports } from "../semantic/external.ts";
 import { cpp_type, sanitize_namespace } from "./cpp_types.ts";
 import type { TypeRealms } from "./cpp_types.ts";
 import { make_gen_context, line } from "./cpp_context.ts";
@@ -27,6 +28,9 @@ export interface ProgramUnit {
   readonly selective_symbols: ReadonlyMap<string, { readonly realm: string; readonly name: string }>;
   // Alias de `invoke` → módulo importado.
   readonly external_modules: ReadonlyMap<string, ModuleInfo>;
+  // Símbolos importados con su tipo, tal como los vio el checker. El emisor
+  // lo usa para resolver `realm::simbolo` sin repetir búsquedas.
+  readonly external?: ExternalImports;
 }
 
 export interface GeneratedModule {

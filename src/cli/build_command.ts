@@ -1,13 +1,16 @@
-// Comando `pengu build`: compila un archivo a un ejecutable nativo.
+// Comando `pengu build`: compila un archivo a un binario nativo (backend
+// C++) o a un conjunto de módulos ESM (backend JavaScript).
 
-import { copyFileSync, existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { compile_file } from "../driver/compile.ts";
 import { render_diagnostics } from "../diagnostics/render.ts";
 import { make_source } from "../util/span.ts";
 import { readFileSync } from "node:fs";
-import { flag_string, type ParsedArgs } from "./args.ts";
+import { flag_bool, flag_string, type ParsedArgs } from "./args.ts";
 import { default_entry } from "./entry.ts";
+import { parse_target } from "../driver/target.ts";
+import { parse_int64_mode } from "../codegen/js_types.ts";
 
 export interface CommandResult {
   readonly exit_code: number;
@@ -19,13 +22,28 @@ export function run_build(args: ParsedArgs): CommandResult {
   const out = flag_string(args, "out");
   const compiler = flag_string(args, "compiler");
   const link = flag_string(args, "link");
+  const choice = parse_target(flag_string(args, "target"));
+  if (!choice.ok) return { exit_code: 1, output: `error: ${choice.message}` };
+  const int64 = parse_int64_mode(flag_string(args, "int64"));
+  if (!int64.ok) return { exit_code: 1, output: `error: ${int64.message}` };
+
   const result = compile_file(file, {
     compiler,
     link: link === undefined ? [] : link.split(",").map((item) => item.trim()).filter((item) => item.length > 0),
+    target: choice.target,
+    out: out === undefined ? undefined : resolve(out),
+    release: flag_bool(args, "release"),
+    int64: int64.mode,
+    jsdoc: flag_bool(args, "jsdoc"),
   });
 
   if (!result.ok) {
     return { exit_code: 1, output: explain_failure(result, file) };
+  }
+
+  if (choice.target === "js") {
+    const entry = result.js_entry_path ?? result.output_dir ?? "";
+    return { exit_code: 0, output: `✓ ${file} compilado a JavaScript en ${entry}` };
   }
 
   let message = result.reused === true ? `✓ ${file} sin cambios (caché)` : `✓ ${file} compilado`;
@@ -40,7 +58,31 @@ export function run_build(args: ParsedArgs): CommandResult {
           : `✓ ${file} compilado en ${result.binary_path}`;
     }
   }
-  return { exit_code: 0, output: message };
+  const extra = emit_cpp_notice(args, file, result);
+  return { exit_code: 0, output: extra === undefined ? message : `${message}\n${extra}` };
+}
+
+// `--emit-cpp`: copia el `.cpp` generado y la cabecera del runtime junto al
+// fuente, para poder leerlos o depurarlos.
+function emit_cpp_notice(
+  args: ParsedArgs,
+  file: string,
+  result: ReturnType<typeof compile_file>,
+): string | undefined {
+  if (!flag_bool(args, "emit-cpp")) return undefined;
+  if (result.cpp_path === undefined || result.cache_dir === undefined) return undefined;
+  const target_dir = dirname(resolve(file));
+  const stem = basename(file).replace(/\.pengu$/, "");
+  const cpp_out = join(target_dir, `${stem}.cpp`);
+  const header_out = join(target_dir, "pengu_rt.hpp");
+  try {
+    mkdirSync(target_dir, { recursive: true });
+    copyFileSync(result.cpp_path, cpp_out);
+    copyFileSync(join(result.cache_dir, "pengu_rt.hpp"), header_out);
+  } catch (error) {
+    return `aviso: no se pudo conservar el C++ generado (${String(error)})`;
+  }
+  return `  C++ generado: ${cpp_out}`;
 }
 
 export function explain_failure(

@@ -10,6 +10,7 @@ import { CODES } from "../diagnostics/codes.ts";
 import { error as make_error } from "../diagnostics/diagnostic.ts";
 import { make_source as source_of, span_from } from "../util/span.ts";
 import { analyze_graph } from "../driver/analyze.ts";
+import { parse_target } from "../driver/target.ts";
 import { make_sink } from "../diagnostics/sink.ts";
 import { render_diagnostics } from "../diagnostics/render.ts";
 import { make_source } from "../util/span.ts";
@@ -25,6 +26,8 @@ export function run_check(
   positionals: readonly string[],
   flags: Readonly<Record<string, string | true>>,
 ): CheckCommandResult {
+  const choice = parse_target(typeof flags.target === "string" ? flags.target : undefined);
+  if (!choice.ok) return { exit_code: 1, output: `error: ${choice.message}` };
   const files = positionals.length > 0 ? positionals : [default_entry(positionals)];
   const messages: string[] = [];
   const sources = new Map<string, Source>();

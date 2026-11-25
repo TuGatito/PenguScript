@@ -4,6 +4,43 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+## Backend JavaScript: andamiaje (P0 de `plan_codegen_js.md`)
+
+- **`--target <cpp|js>`** en `build`, `run` y `check` (por defecto `cpp`, así
+  que nada cambia para quien no lo pase). Un backend desconocido se rechaza con
+  `backend desconocido «wasm»; los disponibles son cpp y js`.
+- **Backend JS seleccionable pero aún sin emisión**: `compile_js_file` analiza
+  el programa con el mismo frontend y checker que C++ (mismos diagnósticos) y,
+  si está limpio, responde con `E0807` explicando que falta la emisión y cómo
+  seguir con `--target cpp`. `pengu run --target js` usa `js_runner.ts`
+  (`bun` o, si no está, `node`).
+- **Módulos nuevos**: `driver/target.ts` (selección de backend),
+  `driver/compile_js.ts` (esqueleto del driver JS), `driver/js_runner.ts`,
+  `codegen/js_types.ts` (tabla de tipos `PenguType`→JS, `needs_clone`,
+  `--int64`), `codegen/js_names.ts` (identificadores, alias, nombres de archivo
+  y literales) y `codegen/js_context.ts` (contexto de emisión por realm con
+  archivos, imports, ámbitos y nombres temporales).
+- **Nuevos diagnósticos**: `E0516 await_outside_async`, `E0517
+  async_not_allowed`, `E0606 borrow_across_await`, `E0804
+  async_unsupported_target`, `E0806 target_invalid`, `E0807
+  js_target_unsupported`, `E0808 js_intrinsic_missing` y `E0809
+  js_emit_failed`, documentados en `docs/errors.md`.
+- **`ProgramUnit.external`**: el análisis ahora entrega a los backends los
+  `ExternalImports` que ya usaba el checker (`modules`/`selective`/`enchants`),
+  necesario para resolver métodos de `enchanting` importados.
+- **Bugs reparados por el camino**: `-o <ruta>` guardaba `true` en `out` (el
+  valor se perdía y el binario no se copiaba de la caché); `--release` y
+  `--emit-cpp` estaban documentados en `help` pero no implementados;
+  `CompileOptions.keep_cpp` era código muerto.
+- **Tests nuevos**: `tests/codegen/js_types.test.ts`, `js_names.test.ts`,
+  `tests/driver/target.test.ts`, `tests/cli/args.test.ts`,
+  `tests/cli/js_target.test.ts` y `tests/cli/build_out.test.ts` (este último
+  compila de verdad y ejecuta el binario para cubrir la regresión de `-o`).
+- Verificado: `bun test` **547 pass / 0 fail** (1586 expect, 85 archivos);
+  `bunx tsc --noEmit` limpio; `pengu fmt --check` «89 archivo(s) ya
+  formateados»; y a mano `build --release --emit-cpp`, `build -o`, `run
+  --target js`, `size --target js` y `check --target js`.
+
 ## Bindings C: documentación y cierre (F7 de `plan_bindings.md`)
 
 - **`docs/ffi.md` nuevo**: referencia completa de los enlaces con C —qué es un
