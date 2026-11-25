@@ -50,6 +50,7 @@ export function resolve_native_type(
   registry: TypeRegistry,
   depth = 0,
 ): ResolvedType {
+  const is_const = /\bconst\b/.test(qual_type);
   const text = clean(qual_type);
   if (depth > MAX_DEPTH) return { pengu: "raw<void>", ok: true, note: "ciclo de typedefs" };
 
@@ -64,11 +65,17 @@ export function resolve_native_type(
   // Punteros a función: se enlazan como `raw<void>`.
   if (/\(\s*\*/.test(text)) return { pengu: "raw<void>", ok: true, note: "puntero a función" };
 
-  // Punteros: `char*` cruza como `string`; el resto como `raw<T>`.
+  // Punteros: `const char*` cruza como `string` y `char*` escribible como
+  // `raw<char>` (el buffer se crea con `std/ffi::CString`); el resto como
+  // `raw<T>`.
   const pointer = /^(.*?)\s*\*+$/.exec(text);
   if (pointer !== null) {
     const inner = clean(pointer[1] ?? "");
-    if (inner === "char") return { pengu: "string", ok: true, note: undefined };
+    if (inner === "char") {
+      return is_const
+        ? { pengu: "string", ok: true, note: undefined }
+        : { pengu: "raw<char>", ok: true, note: "buffer escribible: usa ffi::CString" };
+    }
     if (inner === "void") return { pengu: "raw<void>", ok: true, note: undefined };
     if (registry.aliases.has(inner)) return { pengu: `raw<${inner}>`, ok: true, note: undefined };
     if (registry.records.has(inner) || registry.enums.has(inner)) {

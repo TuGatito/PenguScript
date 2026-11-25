@@ -4,6 +4,22 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+## Bindings C: buffers y `std/ffi` (F5 de `plan_bindings.md`)
+
+- **`std/ffi.pengu` nuevo**: rune `CString { datos: vector<char> }` (cadena
+  terminada en NUL) con `mut ptr` (`raw<char>`), `text`, `len`, `capacity`,
+  `is_empty`, `mut clear`, `mut set` y `to_string`; libres `cstring(texto,
+  capacidad = 0)` para crear el buffer, y `read(ptr)` / `write(ptr, texto)`
+  para punteros sueltos. Los accesos por puntero van dentro de `unsafe`.
+- **`char*` escribible → `raw<char>`** en bindgen (`const char*` sigue siendo
+  `string`): las funciones que escriben en un buffer, como `TextCopy` de
+  raylib o las de raygui, se pueden llamar con `buffer.ptr()`.
+- **Runtime**: `cstring_ptr`, `cstring_text`, `cstring_read`,
+  `cstring_write` y `cstring_from_text`, con `#include <cstring>`.
+- Regresiones: `tests/bindgen/buffers.test.ts` (fixture C que rellena y copia
+  en `char*`, ABI real; y `TextCopy` de raylib escribiendo en un `CString`) y
+  `tests/std/ffi.test.ts` (crear, leer, escribir y limpiar).
+
 ## Bindings C: constantes y macros (F4 de `plan_bindings.md`)
 
 - **`pengu bindgen` traduce también las macros constantes**. Lee

@@ -74,14 +74,14 @@ Los tipos de un módulo importado se pueden nombrar cualificados: `result::Resul
 
 ### Módulos previstos (fases F7–F9)
 
-El plan `scratch/plan_stdlib.md` define el resto de la biblioteca. `std/sys` y `std/ffi` de las secciones siguientes son el diseño objetivo: todavía **no existen** como archivos y se implementarán en fases posteriores (datos/CLI y avanzados).
+El plan `scratch/plan_stdlib.md` define el resto de la biblioteca. `std/sys` de la sección siguiente es el diseño objetivo: todavía **no existe** como archivo y se implementará en una fase posterior. `std/ffi` ya existe con los buffers de C (F5 de los bindings).
 
 ### Layer 0 — FFI
 
 | Module | Files | Contents |
 |--------|-------|----------|
 | `std/sys` | `.d.pengu` | OS syscalls: `read`, `write`, `open`, `close`, `stat`, `lseek`, `mmap`, `munmap`, `exit`, `getpid`, `kill`, `signal`, `fork`, `execve`, `getenv`, `setenv`, `socket`, `bind`, `listen`, `accept`, `connect`. All `unsafe`. |
-| `std/ffi` | `.d.pengu` | C++ library bindings, organized by realm: `cmath` (`sqrt`, `sin`, `cos`, `pow`, `log`, `exp`…), `cstring` (`memcpy`, `memset`, `strlen`, `strcmp`), `cstdlib` (`malloc`, `free`, `qsort`), `ctime` (`clock_gettime`, `time`). All `unsafe`. |
+| `std/ffi.pengu` | `.pengu` | Buffers de C: rune `CString { datos: vector<char> }` con `mut ptr` (`raw<char>`), `text`, `len`, `capacity`, `is_empty`, `mut clear`, `mut set` y `to_string`; libres `cstring(texto, capacidad = 0)`, `read(ptr)` y `write(ptr, texto)` para punteros sueltos. Los punteros se usan dentro de `unsafe`. |
 
 ### Layer 1 — Intrinsics on built-in types
 

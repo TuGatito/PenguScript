@@ -238,6 +238,28 @@ Funciones:
 
 Intrínsecos (`declare`): `base64_raw`, `base64_decode_raw`, `hex_raw`, `hex_decode_raw`, `url_raw`, `url_decode_raw`, `bytes_raw`, `bytes_text_raw`, `from_bytes_raw`, `is_utf8_raw`.
 
+## `std/ffi`
+
+Buffers de C: cadenas mutables para las funciones que escriben en `char*`.  Un `CString` guarda el texto en un `vector<char>` terminado en NUL, así que se puede pasar a una función C con `ptr()` y volver a leer con `text()`.
+
+Realm: `ffi`.
+
+Runes:
+
+- `rune CString` — campos: `datos: vector<char>`
+
+Métodos (enchantings):
+
+- `enchanting CString` — `mut ptr() -> raw<char>`, `text() -> string`, `len() -> size_t`, `capacity() -> size_t`, `is_empty() -> bool`, `mut clear() -> void`, `mut set(texto: string) -> void`, `to_string() -> string`
+
+Funciones:
+
+- `cstring(texto: string, capacidad: size_t = …) -> CString`
+- `read(texto: raw<char>) -> string`
+- `write(texto: raw<char>, valor: string) -> void`
+
+Intrínsecos (`declare`): `ptr_raw`, `text_raw`, `from_text_raw`, `read_raw`, `write_raw`.
+
 ## `std/file`
 
 Archivos con manejador (F8).  `File` guarda un puntero de `std::FILE` como `int64_t`. Si `open` falla devuelve `none`; los métodos de lectura/escritura devuelven `T?` o `bool`, nunca abortan el proceso. Cierra siempre con `close`.

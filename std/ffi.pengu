@@ -1,0 +1,60 @@
+-- Buffers de C: cadenas mutables para las funciones que escriben en `char*`.
+--
+-- Un `CString` guarda el texto en un `vector<char>` terminado en NUL, así que
+-- se puede pasar a una función C con `ptr()` y volver a leer con `text()`.
+
+realm ffi
+
+invoke "std/string"
+
+declare
+  ptr_raw = (datos: ref<vector<char>>) -> raw<char>
+  text_raw = (datos: ref<vector<char>>) -> string
+  from_text_raw = (texto: string, capacidad: size_t) -> vector<char>
+  read_raw = (texto: raw<char>) -> string
+  write_raw = (texto: raw<char>, valor: string) -> void
+
+rune CString
+  datos: vector<char>
+
+enchanting CString
+-- Puntero al buffer para pasarlo a una función C que escribe en él.
+  mut ptr = -> raw<char>
+    ptr_raw(ref(@datos))
+
+  text = -> string
+    text_raw(ref(@datos))
+
+  len = -> size_t
+    #@.text()
+
+  capacity = -> size_t
+    #@datos
+
+  is_empty = -> bool
+    @.text().is_empty()
+
+  mut clear = -> void
+    @datos.clear()
+    @datos.push('\0')
+
+  mut set = (texto: string) -> void
+    @datos.clear()
+    for caracter in texto.chars()
+      @datos.push(caracter)
+    @datos.push('\0')
+
+  to_string = -> string
+    @.text()
+
+    -- Crea un buffer con `texto` y capacidad para `capacidad` bytes más.
+cstring = (texto: string, capacidad: size_t = size_t::from(0)) -> CString
+  CString(from_text_raw(texto, capacidad))
+
+  -- Lee una cadena de C. El puntero debe ser válido: úsalo dentro de «unsafe».
+read = (texto: raw<char>) -> string
+  read_raw(texto)
+
+  -- Escribe en un buffer de C. El buffer debe tener espacio para `valor` y NUL.
+write = (texto: raw<char>, valor: string) -> void
+  write_raw(texto, valor)
