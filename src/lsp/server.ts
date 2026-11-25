@@ -47,6 +47,9 @@ import { empty_sizes_state, has_sizes, invalidate_sizes, refresh_sizes, schedule
 import type { SizesState } from "./sizes_state.ts";
 import { make_parse_cache } from "../project/module_graph.ts";
 import type { ParseCache } from "../project/module_graph.ts";
+import { workspace_root } from "./workspace.ts";
+import { project_std } from "../project/std_fingerprint.ts";
+import { STD_FINGERPRINT } from "../project/std_bundle.ts";
 
 interface Document {
   readonly uri: string;
@@ -76,6 +79,10 @@ interface ServerState {
   published: Map<string, string>;
   perf: Perf;
   parse_cache: ParseCache;
+  // Raíz del workspace (`rootUri`/`workspaceFolders`), si el editor la manda.
+  root: string | undefined;
+  // El aviso de stdlib desalineada se manda una sola vez por sesión.
+  warned_std: boolean;
   // Ids de las peticiones que el servidor inicia (refresco de inlay hints).
   next_id: number;
 }
@@ -115,6 +122,21 @@ function position_of(params: Record<string, unknown> | undefined): { line: numbe
   return (params as { readonly position?: { line: number; character: number } } | undefined)?.position;
 }
 
+// Si el proyecto tiene su propio `std/`, tiene que ser el mismo que lleva el
+// binario: con dos copias distintas el LSP marca errores que el CLI no ve.
+function warn_std_mismatch(state: ServerState): void {
+  if (state.warned_std || state.root === undefined) return;
+  const std = project_std(state.root);
+  if (std === undefined || std.fingerprint === STD_FINGERPRINT) return;
+  state.warned_std = true;
+  notify(state, "window/showMessage", {
+    type: 2,
+    message:
+      `La stdlib del proyecto (${std.fingerprint}) no coincide con la del compilador (${STD_FINGERPRINT}). ` +
+      "Ejecuta «bash scripts/install.sh» para que el LSP y el CLI usen la misma biblioteca.",
+  });
+}
+
 // Los buffers abiertos son la fuente: el proyecto se analiza con ellos.
 function overlays(state: ServerState): Map<string, string> {
   const map = new Map<string, string>();
@@ -130,7 +152,7 @@ const SIZES_IDLE_MS = 400;
 function rebuild(state: ServerState, entry: string): void {
   const started = performance.now();
   try {
-    state.project = build_project(entry, overlays(state), { parse_cache: state.parse_cache });
+    state.project = build_project(entry, overlays(state), { parse_cache: state.parse_cache, root: state.root });
     invalidate_sizes(state.sizes);
   } catch {
     state.project = undefined;
@@ -197,6 +219,7 @@ function handle_request(state: ServerState, message: JsonRpcMessage): void {
 
   switch (message.method) {
     case "initialize": {
+      state.root = workspace_root(params);
       state.sizes_in_hints = initialization_wants_sizes(params);
       state.hover_sizes = initialization_wants_hover_sizes(params);
       respond(state, id, {
@@ -221,6 +244,7 @@ function handle_request(state: ServerState, message: JsonRpcMessage): void {
         },
         serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
       });
+      warn_std_mismatch(state);
       return;
     }
     case "shutdown":
@@ -548,6 +572,8 @@ export function start_lsp_server(): void {
     published: new Map(),
     perf: { analysis_ms: 0, publish_ms: 0, sizes_ms: 0 },
     parse_cache: make_parse_cache(),
+    root: undefined,
+    warned_std: false,
     next_id: 1,
   };
 

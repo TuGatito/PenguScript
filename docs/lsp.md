@@ -4,6 +4,15 @@ El servidor habla JSON-RPC 2.0 por stdio (`Content-Length`), sin dependencias.
 Trabaja sobre un **proyecto**: el documento abierto, sus `invoke` (incluido
 `std/`) y los buffers sin guardar que el editor todavía no escribió a disco.
 
+La raíz del proyecto la anuncia el editor (`rootUri` o `workspaceFolders`);
+si no la manda, se deduce del archivo abierto. Con una raíz explícita, las
+importaciones absolutas (`invoke "lib/util"`, `invoke "std/char"`) se
+resuelven contra el workspace aunque el archivo esté en otro sitio. Si el
+proyecto tiene su propio `std/` y no coincide con el que lleva el binario, el
+servidor manda **un** `window/showMessage` de aviso al arrancar (con la huella
+de cada copia y la orden para reinstalar): con dos stdlibs distintas el LSP
+marcaría errores que el CLI no ve.
+
 ## Capacidades
 
 | Capacidad | Estado | Qué hace |

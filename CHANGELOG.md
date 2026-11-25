@@ -4,6 +4,20 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+### LSP: raíz del workspace (F4 de `plan_lsp_errores.md`)
+
+- El servidor de lenguaje usa `rootUri` (o `workspaceFolders`) como raíz del
+  proyecto: las importaciones absolutas se resuelven contra el workspace y no
+  contra el directorio del archivo abierto. Sin raíz explícita se mantiene el
+  comportamiento anterior (deducirla del archivo).
+- Si el `std/` del proyecto no coincide con el del compilador, el servidor
+  envía un único `window/showMessage` con las dos huellas y la orden para
+  reinstalar, en vez de publicar diagnósticos que solo existen por ese
+  desajuste.
+- Nuevo `src/lsp/workspace.ts`; `AnalyzeOptions.root`, `LoadOptions.root`,
+  `ProjectOptions.root` y `ProjectState.root`. Regresiones en
+  `tests/lsp/root.test.ts` y `docs/lsp.md` actualizado.
+
 ### Identidad del compilador (F3 de `plan_lsp_errores.md`)
 
 - `src/project/std_bundle.ts` (generado) exporta `STD_FINGERPRINT` y

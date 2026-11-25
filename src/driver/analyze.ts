@@ -49,10 +49,16 @@ export interface AnalyzeOptions {
   readonly read_file?: (path: string) => string | undefined;
   // Reutiliza el AST de los archivos cuyo contenido no cambió.
   readonly parse_cache?: ParseCache;
+  // Raíz del proyecto cuando no debe deducirse del archivo (LSP con workspace).
+  readonly root?: string;
 }
 
 export function analyze_project(source_path: string, options: AnalyzeOptions = {}): ProjectAnalysis {
-  const graph = load_graph(source_path, { read_file: options.read_file, parse_cache: options.parse_cache });
+  const graph = load_graph(source_path, {
+    read_file: options.read_file,
+    parse_cache: options.parse_cache,
+    root: options.root,
+  });
 
   const modules: LoadedAnalysis[] = [];
   for (const loaded of graph.order) {

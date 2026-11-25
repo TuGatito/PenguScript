@@ -3,6 +3,8 @@
 // y con un índice de símbolos listo para responder consultas.
 
 import { readFileSync } from "node:fs";
+import { dirname } from "node:path";
+import { find_project_root } from "../project/paths.ts";
 import { make_source } from "../util/span.ts";
 import type { Source } from "../util/span.ts";
 import type { Program } from "../frontend/ast.ts";
@@ -27,6 +29,7 @@ export interface FileAnalysis {
 
 export interface ProjectState {
   readonly entry: string;
+  readonly root: string;
   readonly files: ReadonlyMap<string, FileAnalysis>;
   readonly index: SymbolIndex;
   // Unidades listas para codegen: la medición de tamaños las reutiliza.
@@ -40,6 +43,8 @@ export interface ProjectState {
 export interface ProjectOptions {
   // Caché de parseo que el servidor conserva entre pulsaciones.
   readonly parse_cache?: ParseCache;
+  // Raíz del workspace: manda sobre la raíz deducida del archivo abierto.
+  readonly root?: string;
 }
 
 export function build_project(
@@ -47,7 +52,11 @@ export function build_project(
   overlays: ReadonlyMap<string, string> = new Map(),
   options: ProjectOptions = {},
 ): ProjectState {
-  const project = analyze_project(entry, { read_file: (path) => overlays.get(path), parse_cache: options.parse_cache });
+  const project = analyze_project(entry, {
+    read_file: (path) => overlays.get(path),
+    parse_cache: options.parse_cache,
+    root: options.root,
+  });
 
   const files = new Map<string, FileAnalysis>();
   for (const analyzed of project.modules) {
@@ -72,6 +81,7 @@ export function build_project(
   const entry_module = project.entry?.loaded.info ?? entry_file.module;
   return {
     entry,
+    root: options.root ?? find_project_root(dirname(entry)),
     files,
     index: build_index(files),
     units,

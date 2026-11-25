@@ -6,12 +6,12 @@
 // proyecto para poder avisar antes de perder tiempo depurando diagnósticos
 // que no existen.
 
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 import { flag_bool, type ParsedArgs } from "./args.ts";
 import { probe_toolchain } from "../driver/toolchain.ts";
 import { find_project_root } from "../project/paths.ts";
-import { fingerprint_sources } from "../project/std_fingerprint.ts";
+import { project_std } from "../project/std_fingerprint.ts";
+import type { StdIdentity } from "../project/std_fingerprint.ts";
 import { STD_FILE_COUNT, STD_FINGERPRINT } from "../project/std_bundle.ts";
 import { LANGUAGE_NAME, LANGUAGE_VERSION, TOOL_NAME, VERSION } from "../version.ts";
 
@@ -20,33 +20,19 @@ export interface DoctorResult {
   readonly output: string;
 }
 
-export interface ProjectStd {
-  readonly fingerprint: string;
-  readonly files: number;
+export interface ProjectStd extends StdIdentity {
   readonly matches: boolean;
 }
 
-function collect_pengu(dir: string, root: string, into: Map<string, string>): void {
-  for (const name of readdirSync(dir).sort()) {
-    const path = join(dir, name);
-    if (statSync(path).isDirectory()) collect_pengu(path, root, into);
-    else if (name.endsWith(".pengu")) into.set(relative(root, path).split("\\").join("/"), readFileSync(path, "utf8"));
-  }
-}
-
-function project_std(root: string): ProjectStd | undefined {
-  const dir = join(root, "std");
-  if (!existsSync(dir)) return undefined;
-  const sources = new Map<string, string>();
-  collect_pengu(dir, root, sources);
-  const fingerprint = fingerprint_sources(sources);
-  return { fingerprint, files: sources.size, matches: fingerprint === STD_FINGERPRINT };
+function project_std_identity(root: string): ProjectStd | undefined {
+  const identity = project_std(root);
+  return identity === undefined ? undefined : { ...identity, matches: identity.fingerprint === STD_FINGERPRINT };
 }
 
 export function run_doctor(args: ParsedArgs, cwd: string): DoctorResult {
   const json = flag_bool(args, "json");
   const root = find_project_root(cwd);
-  const std = project_std(root);
+  const std = project_std_identity(root);
   const toolchains = probe_toolchain();
 
   if (json) {

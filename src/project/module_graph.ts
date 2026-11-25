@@ -69,6 +69,8 @@ function content_hash(text: string): string {
 export interface LoadOptions {
   // El LSP lee primero los buffers abiertos, después el disco.
   readonly read_file?: (path: string) => string | undefined;
+  // Raíz del proyecto: el LSP usa la del workspace, no la del archivo abierto.
+  readonly root?: string;
   // Reutiliza el AST de los archivos cuyo contenido no cambió.
   readonly parse_cache?: ParseCache;
 }
@@ -295,7 +297,7 @@ function load_one(state: LoadState, file: string): LoadedModule | undefined {
 }
 
 export function load_graph(entry_file: string, options: LoadOptions = {}): ModuleGraph {
-  const root = find_project_root(dirname(entry_file));
+  const root = options.root ?? find_project_root(dirname(entry_file));
   const state: LoadState = {
     loaded: new Map(),
     visiting: new Set(),
