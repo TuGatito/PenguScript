@@ -238,8 +238,13 @@ respeta las dependencias y un record con un campo no traducible se omite con
 motivo. Las firmas las valida el checker y el layout coincide con C:
 `pengu size --fields` muestra los mismos bytes, alineación y desplazamientos.
 
+Las **macros constantes** también se traducen: enteros y decimales como
+`define`, colores como `const Color`, alias de enums con su valor. Las macros
+de función y las de plataforma se omiten con motivo en el informe.
+
 Con `raylib` instalada, `pengu bindgen /usr/include/raylib.h --realm raylib
---out raylib.d.pengu --link raylib` genera enlaces completos y verificados.
+--out raylib.d.pengu --link raylib` genera 619 funciones y 40 constantes
+(colores, versión, `PI`, `DEG2RAD`…), listas para compilar y enlazar.
 
 ## Documentación
 

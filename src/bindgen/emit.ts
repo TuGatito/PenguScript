@@ -5,6 +5,7 @@
 // `extern "C"` con las funciones.
 
 import type { NativeEnum, NativeHeader, NativeRecord } from "./clang_ast.ts";
+import type { MacroTable, NativeConstant } from "./macros.ts";
 import { build_registry, resolve_native_type } from "./native_types.ts";
 import type { TypeRegistry } from "./native_types.ts";
 import { order_records } from "./records.ts";
@@ -13,6 +14,7 @@ import { is_keyword } from "../frontend/token.ts";
 export interface BindingReport {
   readonly text: string;
   readonly functions: number;
+  readonly constants: number;
   readonly skipped: readonly string[];
 }
 
@@ -95,7 +97,16 @@ function alias_target(qual_type: string, registry: TypeRegistry): string | undef
   return resolved.ok && resolved.pengu !== "int" ? resolved.pengu : undefined;
 }
 
-export function render_bindings(header_name: string, realm: string, header: NativeHeader): BindingReport {
+function render_constant(item: NativeConstant): string {
+  return `${item.kind} ${item.name}: ${item.type} = ${item.value}`;
+}
+
+export function render_bindings(
+  header_name: string,
+  realm: string,
+  header: NativeHeader,
+  macros: MacroTable = { constants: [], skipped: [] },
+): BindingReport {
   const registry = build_registry(header);
   const lines: string[] = [
     `-- Enlaces generados por «pengu bindgen» desde ${header_name}.`,
@@ -149,6 +160,19 @@ export function render_bindings(header_name: string, realm: string, header: Nati
     lines.push(`echo ${item.name} = ${target}`, "");
   }
 
+  // Constantes de la cabecera (#define): después de los tipos, porque un
+  // `const Color` necesita el rune, y antes del `extern`.
+  let constants = 0;
+  for (const item of macros.skipped) skipped.push(item);
+  for (const item of macros.constants) {
+    if (is_keyword(item.name)) {
+      skipped.push(`${item.name}: el nombre es palabra reservada de PenguScript`);
+      continue;
+    }
+    lines.push(render_constant(item), "");
+    constants += 1;
+  }
+
   lines.push('extern "C"');
   let emitted = 0;
   for (const fn of header.functions) {
@@ -177,6 +201,6 @@ export function render_bindings(header_name: string, realm: string, header: Nati
   }
 
   lines.push("");
-  return { text: lines.join("\n"), functions: emitted, skipped };
+  return { text: lines.join("\n"), functions: emitted, constants, skipped };
 }
 

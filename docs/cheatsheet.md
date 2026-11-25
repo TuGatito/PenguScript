@@ -960,6 +960,7 @@ Rules:
 - `bits N campo: T` needs an integer type and `1 <= N <= width of T` (`E0712`). In C++ it is a bitfield, so `pengu size --fields` reports `bits N` instead of an offset.
 - `callback` types cross the ABI as C function pointers; `string` parameters are `const char*`.
 - `link` is transitive: any module in the project may declare the libraries it needs.
+- `pengu bindgen` translates the header's object-like macros too: an integer or decimal constant becomes `define`, a compound literal such as `CLITERAL(Color){255, 0, 0, 255}` becomes a `const Color`, and a macro that aliases an enum variant becomes a `define` with the variant's value. Function-like macros, platform macros and non-constant expressions are reported as omitted.
 
 ## Memory
 

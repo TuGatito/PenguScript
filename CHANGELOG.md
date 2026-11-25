@@ -4,6 +4,27 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+## Bindings C: constantes y macros (F4 de `plan_bindings.md`)
+
+- **`pengu bindgen` traduce también las macros constantes**. Lee
+  `clang -E -dM` y clasifica las macros de objeto: enteros (`int` o
+  `int64_t` según el rango y el signo), decimales (`double`, incluidos
+  `PI`, `DEG2RAD` y `RAD2DEG` mediante un evaluador decimal que resuelve
+  referencias a otras macros), texto, caracteres, inicializadores compuestos
+  como `CLITERAL(Color){200, 200, 200, 255}` (se emiten como `const Color`) y
+  alias de variantes de un `omen` (`MOUSE_LEFT_BUTTON = 0`).
+- **Se omiten con motivo**: macros de función, macros del compilador o de la
+  plataforma (`_*`, `PLATFORM_*`, `__*`), nombres que son keyword de
+  PenguScript, nombres ya emitidos por un `omen` y expresiones que no son
+  constantes. El informe de `pengu bindgen` cuenta funciones y constantes.
+- **Resultado medido**: `raylib.h` → 619 funciones y 40 constantes (26
+  colores, versión mayor/menor/parche, `PI`, `DEG2RAD`, `RAD2DEG` y seis alias
+  de enums); `raygui.h` → 680 funciones y 46 constantes. Los dos `.d.pengu`
+  generados pasan `pengu check`.
+- Regresiones: `tests/bindgen/macros.test.ts` cubre las seis clases de macro
+  (entero, negativo, grande, decimal, expresión decimal, texto, carácter,
+  color y alias de enum) contra un fixture C real y contra `raylib.h`.
+
 ## Bindings C: bindgen de tipos (F3 de `plan_bindings.md`)
 
 - **La cabecera completa**, no solo las funciones: `pengu bindgen` emite

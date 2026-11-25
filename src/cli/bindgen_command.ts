@@ -6,6 +6,7 @@ import type { ParsedArgs } from "./args.ts";
 import { flag_string } from "./args.ts";
 import { collect_header, dump_ast, find_clang } from "../bindgen/clang_ast.ts";
 import { render_bindings, sanitize_realm } from "../bindgen/emit.ts";
+import { collect_macros } from "../bindgen/macros.ts";
 import { CODES } from "../diagnostics/codes.ts";
 import { link_flag } from "../driver/link.ts";
 
@@ -39,12 +40,14 @@ export function run_bindgen(args: ParsedArgs): CommandResult {
   }
 
   const realm = sanitize_realm(flag_string(args, "realm") ?? basename(header));
-  const report = render_bindings(basename(header), realm, collect_header(ast));
+  const parsed = collect_header(ast);
+  const macros = collect_macros(header, clang, args.include_dirs, parsed.enums);
+  const report = render_bindings(basename(header), realm, parsed, macros);
 
   const out = resolve(flag_string(args, "out") ?? header.replace(/\.[^./\\]+$/, ".d.pengu"));
   writeFileSync(out, report.text, "utf8");
 
-  const lines = [`Enlaces: ${report.functions} función(es) en ${out}`];
+  const lines = [`Enlaces: ${report.functions} función(es) y ${report.constants} constante(s) en ${out}`];
   const link = flag_string(args, "link");
   if (link !== undefined) lines.push(`enlaza el ejecutable con: ${link_flag(link)}`);
   if (report.skipped.length > 0) {
