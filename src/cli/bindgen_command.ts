@@ -7,6 +7,7 @@ import { flag_string } from "./args.ts";
 import { collect_functions, dump_ast, find_clang } from "../bindgen/clang_ast.ts";
 import { render_bindings, sanitize_realm } from "../bindgen/emit.ts";
 import { CODES } from "../diagnostics/codes.ts";
+import { link_flag } from "../driver/link.ts";
 
 export interface CommandResult {
   readonly exit_code: number;
@@ -31,7 +32,7 @@ export function run_bindgen(args: ParsedArgs): CommandResult {
 
   let ast: unknown;
   try {
-    ast = dump_ast(header, clang);
+    ast = dump_ast(header, clang, args.include_dirs);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     return { exit_code: 1, output: `clang falló al analizar la cabecera:\n${detail}` };
@@ -45,7 +46,7 @@ export function run_bindgen(args: ParsedArgs): CommandResult {
 
   const lines = [`Enlaces: ${report.functions} función(es) en ${out}`];
   const link = flag_string(args, "link");
-  if (link !== undefined) lines.push(`enlaza el ejecutable con: -l${link}`);
+  if (link !== undefined) lines.push(`enlaza el ejecutable con: ${link_flag(link)}`);
   if (report.skipped.length > 0) {
     lines.push("omitidas:");
     for (const item of report.skipped) lines.push(`  ${item}`);

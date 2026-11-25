@@ -34,10 +34,11 @@ export function find_clang(): string | undefined {
   return undefined;
 }
 
-export function dump_ast(header: string, clang: string): unknown {
+export function dump_ast(header: string, clang: string, include_dirs: readonly string[] = []): unknown {
+  const includes = include_dirs.flatMap((dir) => ["-I", dir]);
   const dump = spawnSync(
     clang,
-    ["-x", "c++-header", "-std=c++20", "-Xclang", "-ast-dump=json", "-fsyntax-only", header],
+    ["-x", "c++-header", "-std=c++20", ...includes, "-Xclang", "-ast-dump=json", "-fsyntax-only", header],
     { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
   );
   if (dump.status !== 0) {

@@ -57,12 +57,14 @@ const COMMAND_HELP: Readonly<Record<CommandName, string>> = {
     "  --release          Optimiza (-O2) y oculta símbolos.",
     "  --emit-cpp         Conserva los .hpp/.cpp generados.",
     "  --cxx <compilador> g++ (por defecto) o clang++.",
+    "  --link <lib|obj>   Enlaza con una biblioteca (`raylib` → `-lraylib`) u objeto.",
   ].join("\n"),
   run: [
     `Uso: ${TOOL_NAME} run <archivo.pengu> [-- args...]`,
     "",
     "  Compila con caché y ejecuta el binario resultante.",
     "  --release          Optimiza antes de ejecutar.",
+    "  --link <lib|obj>   Enlaza con una biblioteca o un objeto.",
   ].join("\n"),
   check: [
     `Uso: ${TOOL_NAME} check [archivo|dir] [opciones]`,
@@ -94,6 +96,7 @@ const COMMAND_HELP: Readonly<Record<CommandName, string>> = {
     "  --clang <ruta>     Ejecutable clang++ a usar.",
     "  --realm <nombre>   Realm de las declaraciones generadas.",
     "  -I <dir>           Directorio de includes (repetible).",
+    "  --link <lib>       Solo informa de la orden de enlace (`-llib`).",
   ].join("\n"),
   init: [
     `Uso: ${TOOL_NAME} init [directorio]`,

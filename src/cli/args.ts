@@ -3,15 +3,21 @@ export interface ParsedArgs {
   readonly positionals: readonly string[];
   readonly flags: Readonly<Record<string, string | true>>;
   readonly passthrough: readonly string[];
+  /** Directorios de `-I` (bindgen los pasa a clang). */
+  readonly include_dirs: readonly string[];
 }
 
 // Flags que esperan un valor en el argumento siguiente (`--out ruta`).
 const VALUE_FLAGS = new Set(["out", "realm", "link", "clang", "lib", "entry", "target", "type", "compiler"]);
 
+// Estos flags aceptan valores que empiezan por `-` (`--link -lraylib`).
+const DASHED_VALUE_FLAGS = new Set(["link", "lib"]);
+
 export function parse_args(argv: readonly string[]): ParsedArgs {
   const positionals: string[] = [];
   const flags: Record<string, string | true> = {};
   const passthrough: string[] = [];
+  const include_dirs: string[] = [];
   let command = "";
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -28,7 +34,8 @@ export function parse_args(argv: readonly string[]): ParsedArgs {
         flags[body.slice(0, equals)] = body.slice(equals + 1);
       } else if (VALUE_FLAGS.has(body)) {
         const next = argv[index + 1];
-        if (next !== undefined && !next.startsWith("-")) {
+        const dashed = DASHED_VALUE_FLAGS.has(body);
+        if (next !== undefined && (dashed ? !next.startsWith("--") : !next.startsWith("-"))) {
           flags[body] = next;
           index += 1;
         } else {
@@ -36,6 +43,19 @@ export function parse_args(argv: readonly string[]): ParsedArgs {
         }
       } else {
         flags[body] = true;
+      }
+      continue;
+    }
+    if (arg === "-I" || arg.startsWith("-I")) {
+      const attached = arg.slice(2);
+      if (attached.length > 0) {
+        include_dirs.push(attached);
+      } else {
+        const next = argv[index + 1];
+        if (next !== undefined) {
+          include_dirs.push(next);
+          index += 1;
+        }
       }
       continue;
     }
@@ -50,7 +70,7 @@ export function parse_args(argv: readonly string[]): ParsedArgs {
     positionals.push(arg);
   }
 
-  return { command, positionals, flags, passthrough };
+  return { command, positionals, flags, passthrough, include_dirs };
 }
 
 export function flag_string(args: ParsedArgs, name: string): string | undefined {

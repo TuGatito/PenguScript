@@ -200,6 +200,14 @@ inline std::string to_string(std::uint8_t value) {
 }
 inline std::string to_string(bool value) { return value ? "true" : "false"; }
 
+// Frontera C: una función nativa recibe «const char*» y puede devolverlo.
+// Una cadena nula se convierte en la cadena vacía.
+inline const char* c_str(const std::string& value) { return value.c_str(); }
+inline const char* c_str(const char* value) { return value; }
+inline std::string from_c_string(const char* value) {
+  return value == nullptr ? std::string() : std::string(value);
+}
+
 // Cadenas anchas: se reducen a UTF-8 aproximado (byte a byte) para
 // poder imprimirlas. La conversión completa es trabajo de std/.
 inline std::string to_string(const std::wstring& value) { return std::string(value.begin(), value.end()); }

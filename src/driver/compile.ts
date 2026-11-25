@@ -21,6 +21,7 @@ import type { ModuleInfo } from "../semantic/module_info.ts";
 import type { PenguType } from "../semantic/types.ts";
 import { make_source, span_from } from "../util/span.ts";
 import { find_cxx } from "./toolchain.ts";
+import { link_flags } from "./link.ts";
 
 export interface CompileOptions {
   // Objetos o bibliotecas extra para el enlazador (`.o`, `.a`, `-lm`...).
@@ -43,6 +44,7 @@ export interface CompileResult {
 
 export function compile_file(path: string, options: CompileOptions = {}): CompileResult {
   const source_path = resolve(path);
+  const link = link_flags(options.link ?? []);
   if (!existsSync(source_path)) {
     return {
       ok: false,
@@ -96,7 +98,7 @@ export function compile_file(path: string, options: CompileOptions = {}): Compil
     generated.code,
     RUNTIME_HEADER,
     compiler,
-    ...(options.link ?? []),
+    ...link,
   ].join("\u0000");
   const cache_dir = options.out_dir ?? join(dirname(source_path), ".pengu-cache", content_hash(source_path, cache_key));
   mkdirSync(cache_dir, { recursive: true });
@@ -121,7 +123,7 @@ export function compile_file(path: string, options: CompileOptions = {}): Compil
 
   const compile = spawnSync(
     compiler,
-    [cpp_path, "-std=c++20", "-O1", "-Wall", "-Wextra", "-Wno-unused-parameter", "-Wno-unused-variable", "-Wno-unused-but-set-variable", "-o", binary_path, ...(options.link ?? [])],
+    [cpp_path, "-std=c++20", "-O1", "-Wall", "-Wextra", "-Wno-unused-parameter", "-Wno-unused-variable", "-Wno-unused-but-set-variable", "-o", binary_path, ...link],
     { encoding: "utf8" },
   );
 

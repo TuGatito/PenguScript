@@ -4,6 +4,34 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+### Bindings C: cimientos del FFI (F0 de `plan_bindings.md`)
+
+- **Un `extern "C"` que devuelve `string` ya compila.** El prototipo se emite
+  como `const char*` y la conversión ocurre en el punto de llamada
+  (`::pengu::from_c_string`, que convierte un puntero nulo en cadena vacía);
+  desaparece la sobrecarga `inline` que era ilegal en C++ por diferir solo en
+  el tipo de retorno (G1).
+- Los argumentos `string` de una función nativa cruzan como `const char*` con
+  `::pengu::c_str`, también en las variádicas (G1).
+- **`--link raylib` enlaza de verdad**: un nombre suelto se normaliza a
+  `-lraylib` en el driver, las rutas (`libfoo.a`, `/ruta/foo.o`) se respetan y
+  `--link -lm` ya no se traga la bandera (G8).
+- **bindgen** sufija con `_` los parámetros que son palabras reservadas de
+  PenguScript (`SetWindowState(flags)` → `flags_: uint32_t`) y mapea los
+  enteros de C a tipos de ancho fijo LP64 (`unsigned int` → `uint32_t`,
+  `long` → `int64_t`, `unsigned long long` → `uint64_t`) para que no aparezcan
+  tipos de dos palabras en las firmas (G2, G4 parcial).
+- Si el nombre de una función C es palabra reservada, bindgen la omite con el
+  motivo en el reporte: renombrarla rompería el símbolo del enlazador.
+- `pengu bindgen -I <dir>` ahora pasa de verdad los directorios de includes a
+  clang (antes se anunciaba en la ayuda y se ignoraban), y `pengu help` de
+  `build`/`run`/`bindgen` documenta `--link`.
+- Nuevas regresiones: `tests/bindgen/extern_string.test.ts`,
+  `tests/bindgen/native_types.test.ts` (struct por valor, enum y `uint64_t`
+  contra C real) y `tests/cli/link.test.ts`.
+- Verificación: `bun test` **462 pruebas en 65 archivos**; `tsc --noEmit`
+  limpio; `pengu fmt --check` sin cambios.
+
 ### Verificación final del LSP (F6 de `plan_lsp_errores.md`)
 
 - Binario y `.vsix` reinstalados. La sonda JSON-RPC sobre los archivos del

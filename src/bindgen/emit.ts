@@ -2,6 +2,7 @@
 
 import type { NativeFunction } from "./clang_ast.ts";
 import { map_c_type } from "./type_map.ts";
+import { is_keyword } from "../frontend/token.ts";
 
 export interface BindingReport {
   readonly text: string;
@@ -14,6 +15,14 @@ export function sanitize_realm(name: string): string {
   let out = "";
   for (const char of base) out += /[A-Za-z0-9_]/.test(char) ? char : "_";
   return /^[A-Za-z_]/.test(out) ? out : `_${out}`;
+}
+
+// Un identificador de C que es keyword de PenguScript se sufija con `_`:
+// los nombres de parámetros no afectan al símbolo del enlazador.
+export function sanitize_identifier(name: string): string {
+  if (name.length === 0) return "_";
+  const base = /^[A-Za-z_]/.test(name) ? name : `_${name}`;
+  return is_keyword(base) ? `${base}_` : base;
 }
 
 export function render_bindings(header_name: string, realm: string, functions: readonly NativeFunction[]): BindingReport {
@@ -30,12 +39,19 @@ export function render_bindings(header_name: string, realm: string, functions: r
   const skipped: string[] = [];
 
   for (const fn of functions) {
+    // El nombre de la función es el símbolo del enlazador: no se puede
+    // renombrar. Si choca con una keyword, se omite y se reporta.
+    if (is_keyword(fn.name)) {
+      skipped.push(`${fn.name}: el nombre es palabra reservada de PenguScript`);
+      continue;
+    }
+
     const params: string[] = [];
     let supported = true;
     for (const param of fn.params) {
       const mapped = map_c_type(param.type);
       if (!mapped.ok) supported = false;
-      params.push(`${param.name}: ${mapped.pengu}`);
+      params.push(`${sanitize_identifier(param.name)}: ${mapped.pengu}`);
     }
     const result = map_c_type(fn.result);
     if (!result.ok) supported = false;

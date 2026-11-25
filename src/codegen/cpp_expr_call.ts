@@ -32,6 +32,7 @@ import {
   is_string_type,
 } from "../semantic/builtin_members.ts";
 import { omen_methods_of } from "../semantic/module_info.ts";
+import type { FunctionInfo } from "../semantic/module_info.ts";
 import { find_echo_method } from "../semantic/type_env.ts";
 import type { PenguType } from "../semantic/types.ts";
 import { UNKNOWN, is_float, is_numeric, is_string, named, primitive, type_equals } from "../semantic/types.ts";
@@ -93,17 +94,34 @@ export function emit_variadic_args(
   return [...fixed, packed].join(", ");
 }
 
-// ¿La función llamada es un `extern "C"`? Los varargs de C se emiten sin la
-// caja de `any`, con los valores tal cual.
-function is_extern_callee(g: GenContext, callee: ExprNode): boolean {
-  if (callee.kind === "ident") return g.module.functions.get(callee.name)?.is_extern === true;
-  if (callee.kind === "path" && callee.segments.length === 2) {
-    const [head, tail] = callee.segments;
-    if (head === undefined || tail === undefined) return false;
-    const imported = g.external_modules.get(head);
-    return imported?.functions.get(tail)?.is_extern === true;
+// La función nativa llamada, si es un `extern "C"`.
+function extern_function_of(g: GenContext, callee: ExprNode): FunctionInfo | undefined {
+  if (callee.kind === "ident") {
+    const info = g.module.functions.get(callee.name);
+    return info?.is_extern === true ? info : undefined;
   }
-  return false;
+  if (callee.kind === "path" && callee.segments.length === 2) {
+    const head = callee.segments[0];
+    const tail = callee.segments[1];
+    if (head === undefined || tail === undefined) return undefined;
+    const info = g.external_modules.get(head)?.functions.get(tail);
+    return info?.is_extern === true ? info : undefined;
+  }
+  return undefined;
+}
+
+// Argumentos de una llamada nativa: `string` cruza como `const char*` y los
+// varargs de C van sin la caja de `any`, con los valores tal cual.
+function emit_extern_args(g: GenContext, node: CallNode, fn: FunctionInfo): string {
+  const fixed = fn.variadic ? fn.params.slice(0, -1) : fn.params;
+  return node.args
+    .map((arg, index) => {
+      const param = index < fixed.length ? fixed[index] : fn.variadic ? fn.params[fn.params.length - 1] : undefined;
+      const rendered = emit_expr(g, arg.expr);
+      const crosses_as_text = param !== undefined ? is_string(param.type) : is_string(type_of(g, arg.expr));
+      return crosses_as_text ? `::pengu::c_str(${rendered})` : rendered;
+    })
+    .join(", ");
 }
 
 // Los enhechizados de `std/integers` emiten un `min`/`clamp` por cada ancho:
@@ -133,24 +151,25 @@ export function emit_call(g: GenContext, node: CallNode): string {
   const variadic = callee_type.kind === "function" && callee_type.variadic;
   const params = callee_type.kind === "function" ? callee_type.params : [];
   const element = variadic ? params[params.length - 1] : undefined;
-  const extern_variadic = variadic && is_extern_callee(g, node.callee);
-  const args = extern_variadic
-    ? node.args
-        .map((arg) => {
-          const rendered = emit_expr(g, arg.expr);
-          return is_string(type_of(g, arg.expr)) ? `${rendered}.c_str()` : rendered;
-        })
-        .join(", ")
-    : variadic
-    ? emit_variadic_args(g, node, element, Math.max(0, params.length - 1))
-    : node.args
-        .map((arg, index) => {
-          const rendered = emit_expr(g, arg.expr);
-          const param = params[index];
-          // Pasar un `unique<T>` por valor lo mueve.
-          return param?.kind === "unique" && !arg.mutable ? `std::move(${rendered})` : rendered;
-        })
-        .join(", ");
+  const extern_function = extern_function_of(g, node.callee);
+  const args =
+    extern_function !== undefined
+      ? emit_extern_args(g, node, extern_function)
+      : variadic
+        ? emit_variadic_args(g, node, element, Math.max(0, params.length - 1))
+        : node.args
+            .map((arg, index) => {
+              const rendered = emit_expr(g, arg.expr);
+              const param = params[index];
+              // Pasar un `unique<T>` por valor lo mueve.
+              return param?.kind === "unique" && !arg.mutable ? `std::move(${rendered})` : rendered;
+            })
+            .join(", ");
+  // Un `extern` que devuelve `string` emite `const char*`: se envuelve aquí.
+  const wrap_result = (text: string): string =>
+    extern_function !== undefined && is_string(extern_function.result)
+      ? `::pengu::from_c_string(${text})`
+      : text;
   const callee = node.callee;
   if (callee.kind === "path" && callee.segments.length === 2) {
     const target_name = callee.segments[0];
@@ -167,10 +186,10 @@ export function emit_call(g: GenContext, node: CallNode): string {
   const explicit_type_args: readonly TypeNode[] = callee_type_args ?? node.type_args;
   const type_args = explicit_type_args.map((arg: TypeNode) => cpp_type_node(arg, g.module.env, g.type_realms));
   if (callee.kind === "ident") {
-    return emit_ident_call(g, callee.name, type_args, args, node);
+    return wrap_result(emit_ident_call(g, callee.name, type_args, args, node));
   }
   if (callee.kind === "path") {
-    return emit_path_call(g, callee.segments, type_args, args);
+    return wrap_result(emit_path_call(g, callee.segments, type_args, args));
   }
   if (callee.kind === "member") {
     const target = g.member_targets.get(callee);

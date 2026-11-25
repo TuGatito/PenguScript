@@ -1,4 +1,8 @@
 // Traducción de tipos de C/C++ a tipos de PenguScript.
+//
+// Los enteros de C se mapean a tipos de ancho fijo (LP64, la plataforma de
+// generación de 0.1.0): así `unsigned int` no aparece como tipo de dos
+// palabras en firmas ni en `T::from`, y el layout coincide con la cabecera.
 
 const DIRECT: Readonly<Record<string, string>> = {
   void: "void",
@@ -6,19 +10,22 @@ const DIRECT: Readonly<Record<string, string>> = {
   char: "char",
   "signed char": "int8_t",
   "unsigned char": "uint8_t",
-  short: "short",
-  "unsigned short": "unsigned short",
+  short: "int16_t",
+  "unsigned short": "uint16_t",
   int: "int",
-  "unsigned int": "unsigned int",
-  long: "long",
-  "unsigned long": "unsigned long",
-  "long long": "long long",
-  "unsigned long long": "unsigned long long",
+  "unsigned int": "uint32_t",
+  long: "int64_t",
+  "unsigned long": "uint64_t",
+  "long long": "int64_t",
+  "unsigned long long": "uint64_t",
   float: "float",
   double: "double",
   "long double": "long double",
   size_t: "size_t",
   "std::size_t": "size_t",
+  ptrdiff_t: "ptrdiff_t",
+  intptr_t: "intptr_t",
+  uintptr_t: "uintptr_t",
   int8_t: "int8_t",
   int16_t: "int16_t",
   int32_t: "int32_t",

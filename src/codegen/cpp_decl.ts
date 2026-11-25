@@ -129,19 +129,15 @@ export function emit_rest_declarations(g: GenContext, decls: readonly DeclNode[]
 
 // Declaraciones `extern "C"`: prototipos sin cuerpo para enlazar con
 // bibliotecas nativas (las genera `pengu bindgen`).
-// `string` cruza la frontera C como `const char*`; la envoltura convierte.
+// `string` cruza la frontera C como `const char*`: la conversión vive en el
+// punto de llamada (`::pengu::c_str`/`::pengu::from_c_string`), no en una
+// sobrecarga, porque una sobrecarga con los mismos parámetros y otro tipo de
+// retorno es ilegal en C++.
 function c_boundary_type(rendered: string): string {
   return rendered === "std::string" ? "const char*" : rendered;
 }
 
-interface CDeclaration {
-  readonly name: string;
-  readonly params: readonly { readonly name: string; readonly type: string }[];
-  readonly result: string;
-}
-
 function emit_extern(g: GenContext, decl: Extract<DeclNode, { kind: "extern_decl" }>): void {
-  const declarations: CDeclaration[] = [];
   line(g, `extern "${decl.abi ?? "C"}" {`);
   g.indent += 1;
   for (const declared of decl.declares) {
@@ -155,34 +151,9 @@ function emit_extern(g: GenContext, decl: Extract<DeclNode, { kind: "extern_decl
     const rendered = fixed.map((param) => `${c_boundary_type(param.type)} ${param.name}`);
     if (variadic) rendered.push("...");
     line(g, `${c_boundary_type(result)} ${cpp_identifier(declared.name)}(${rendered.join(", ")});`);
-    declarations.push({ name: cpp_identifier(declared.name), params: fixed, result });
   }
   g.indent -= 1;
   line(g, "}");
-
-  // Sobrecarga de conveniencia: acepta `string` y lo convierte a `const char*`.
-  for (const declaration of declarations) {
-    const converts =
-      declaration.result === "std::string" || declaration.params.some((param) => param.type === "std::string");
-    if (!converts) continue;
-    const params = declaration.params.map(
-      (param) => `${param.type}${param.type === "auto" ? "" : " const&"} ${param.name}`,
-    );
-    const args = declaration.params
-      .map((param) => (param.type === "std::string" ? `${param.name}.c_str()` : param.name))
-      .join(", ");
-    line(g, `inline ${declaration.result} ${declaration.name}(${params.join(", ")}) {`);
-    g.indent += 1;
-    if (declaration.result === "void") {
-      line(g, `${declaration.name}(${args});`);
-    } else if (declaration.result === "std::string") {
-      line(g, `return std::string(${declaration.name}(${args}));`);
-    } else {
-      line(g, `return ${declaration.name}(${args});`);
-    }
-    g.indent -= 1;
-    line(g, "}");
-  }
 }
 
 function collect_methods(decls: readonly DeclNode[]): Map<string, readonly MethodDecl[]> {
