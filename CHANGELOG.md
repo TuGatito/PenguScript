@@ -4,6 +4,43 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+## Backend JavaScript: enchanting, contenedores y operadores (P3 de `plan_codegen_js.md`)
+
+- **Receptores de `enchanting`**: los métodos se emiten como funciones libres
+  por realm (`export function string__trim(self)`) y se resuelven con la
+  anotación del checker (`member_targets`), sin tocar `prototype` globales. Un
+  receptor de tipo de valor (`string`, `int`, `double`…) que se muta se pasa
+  como celda `rt.ref(() => x, (v) => { x = v; })`, de modo que `nombre.pop()`
+  escribe de vuelta en la variable del llamante.
+- **Métodos de rune**: PenguScript no tiene despacho virtual, igual que el
+  backend C++. Los métodos se emiten como funciones libres
+  `Animal__describir(self)` y la llamada se resuelve por el tipo estático, así
+  que `ref<Animal>` ve `Animal.describir` y `Perro` ve el suyo; `class` se
+  queda solo con constructor, `_clone()` y `_destroy()`.
+- **Operadores de usuario**: `operator +`/`[]`/`<=>`/`+=`… se emiten como
+  `<Tipo>__op_<nombre>` (`Punto__op_add`) y los operadores libres como
+  `op_mul`, con conversión a `rt.Ordering` para `<=>` y derivación de `<`,
+  `<=`, `>`, `>=`. Una asignación compuesta cuyo operador muta el receptor se
+  emite como sentencia, no como asignación.
+- **Contenedores**: `vector`/`array`/`deque`/`list` → `Array`, `set` → `Set`,
+  `map` → `Map`, con la tabla de métodos de §4.6 (`push`, `pop`, `first`,
+  `last`, `contains`, `insert_at`, `remove_at`, `sum`, `product`, `get`,
+  `get_or`, `size`, `keys`, `values`, `insert`, `remove`, `to_vector`…) y la
+  semántica de `get` como `T?` (`null` si la clave o el índice no existen).
+- **Cadenas**: intrínsecos `string::*_raw` sobre el runtime JS (`trim`,
+  `to_upper`, `to_lower`, `split`, `find`, `replace_first`, `reverse`,
+  `parse_int`, `parse_double`, `bytes`), con el centinela `npos` de C++
+  (`#texto` cuando no se encuentra) para que la stdlib compile sin cambios.
+- **`T::from` / `T::try_from`** se resuelven como conversión numérica explícita
+  (`Number`/`BigInt`, normalización de 32 bits y `null` si `try_from` no puede
+  representar el valor).
+- **C++ (deuda reparada)**: `to_upper`/`to_lower` eran byte a byte y corrompían
+  UTF-8 (`pingüinos` → `PINGüINOS`). Ahora `utf8_map` decodifica puntos de
+  código (Latin-1 + Latin Extended-A) y los dos backends coinciden.
+- **Tests**: `tests/e2e/js_parity.test.ts` pasa de 8 a 13 ejemplos (`09_stdlib`,
+  `10_ownership`, `11_polimorfismo`, `12_colecciones`, `13_enchanting`) con
+  comparación byte a byte contra el binario C++.
+
 ## Backend JavaScript: tipos y control como expresión (P2 de `plan_codegen_js.md`)
 
 - **Runes**: un rune sin `enchanting`, `constructor`, `destructor` ni `heir` se

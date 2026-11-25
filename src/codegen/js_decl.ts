@@ -8,14 +8,15 @@
 import type { FunctionDecl } from "../frontend/ast_decl.ts";
 import type { ProgramUnit } from "./cpp_module.ts";
 import { declare_local, line, pop_scope, push_scope, symbol_name, type JsContext } from "./js_context.ts";
-import { js_identifier } from "./js_names.ts";
+import { free_operator_name, js_identifier } from "./js_names.ts";
 import { capture_lines, emit_expr, emit_value_block } from "./js_expr.ts";
 
 // Cuerpo de una función de PenguScript. Los genéricos no se emiten: en JS los
 // tipos no existen y las funciones son polimórficas por naturaleza.
 export function emit_function(g: JsContext, unit: ProgramUnit, decl: FunctionDecl): void {
   const info = unit.module.functions.get(decl.name);
-  const name = symbol_name(g, decl.name);
+  // Un operador libre se exporta como `op_mul`, `op_eq`… (§4.4).
+  const name = symbol_name(g, free_operator_name(decl.name) ?? decl.name);
   const params = decl.params.map((param) => {
     const param_name = js_identifier(param.name);
     if (param.variadic) return `...${param_name}`;

@@ -136,6 +136,7 @@ export function pop_back_checked(items) {
 
 export function contains(container, value) {
   if (typeof container === "string") return container.includes(value);
+  if (Array.isArray(container)) return container.includes(value);
   return container.has(value);
 }
 
@@ -204,6 +205,20 @@ export function is_terminal() {
 // semántica de valor (§3).
 
 export const CELL = Symbol("pengu.ref");
+
+// Celda de referencia para tipos de valor (cadenas, números): es lo que
+// permite que un metodo mut escriba de vuelta en la variable del llamante.
+export function ref(get, set) {
+  return {
+    [CELL]: true,
+    get value() {
+      return get();
+    },
+    set value(dato) {
+      set(dato);
+    },
+  };
+}
 
 export function is_cell(value) {
   return typeof value === "object" && value !== null && value[CELL] === true;
@@ -309,5 +324,115 @@ export function infinite() {
 
 export function nan() {
   return NaN;
+}
+
+// --- Cadenas ------------------------------------------------------------
+//
+// Los declare de std/string trabajan con ref<string>, pero la cadena se pasa
+// por valor: en JavaScript las cadenas son inmutables y las variantes *_raw
+// solo leen. find devuelve la longitud cuando no encuentra, que es el
+// centinela que usa std/string (equivalente a npos en C++).
+
+// Las variantes *_raw reciben ref<string> en PenguScript: la celda puede
+// llegar como tal o ya desenvuelta segun el punto de llamada.
+function text_of(value) {
+  return is_cell(value) ? value.value : value;
+}
+
+export function find_raw(texto, buscado) {
+  texto = text_of(texto);
+  buscado = text_of(buscado);
+  const posicion = texto.indexOf(buscado);
+  return posicion < 0 ? texto.length : posicion;
+}
+
+export function rfind_raw(texto, buscado) {
+  texto = text_of(texto);
+  buscado = text_of(buscado);
+  const posicion = texto.lastIndexOf(buscado);
+  return posicion < 0 ? texto.length : posicion;
+}
+
+export function find_from_raw(texto, buscado, desde) {
+  texto = text_of(texto);
+  buscado = text_of(buscado);
+  desde = text_of(desde);
+  const posicion = desde > texto.length ? -1 : texto.indexOf(buscado, desde);
+  return posicion < 0 ? texto.length : posicion;
+}
+
+export function trim_raw(texto) {
+  texto = text_of(texto);
+  return texto.trim();
+}
+
+export function to_upper_raw(texto) {
+  texto = text_of(texto);
+  return texto.toUpperCase();
+}
+
+export function to_lower_raw(texto) {
+  texto = text_of(texto);
+  return texto.toLowerCase();
+}
+
+export function split_raw(texto, separador) {
+  texto = text_of(texto);
+  separador = text_of(separador);
+  if (separador.length === 0) return Array.from(texto);
+  return texto.split(separador);
+}
+
+export function split_whitespace_raw(texto) {
+  texto = text_of(texto);
+  const limpio = texto.trim();
+  return limpio.length === 0 ? [] : limpio.split(/\s+/);
+}
+
+export function replace_first_raw(texto, viejo, nuevo) {
+  texto = text_of(texto);
+  viejo = text_of(viejo);
+  nuevo = text_of(nuevo);
+  const posicion = texto.indexOf(viejo);
+  if (posicion < 0) return texto;
+  return texto.slice(0, posicion) + nuevo + texto.slice(posicion + viejo.length);
+}
+
+export function reverse_raw(texto) {
+  texto = text_of(texto);
+  return Array.from(texto).reverse().join("");
+}
+
+export function char_count_raw(texto) {
+  texto = text_of(texto);
+  return Array.from(texto).length;
+}
+
+export function parse_int_raw(texto) {
+  texto = text_of(texto);
+  const limpio = texto.trim();
+  if (!/^[+-]?\d+$/.test(limpio)) return null;
+  const valor = Number(limpio);
+  if (!Number.isSafeInteger(valor)) return null;
+  return valor;
+}
+
+export function parse_double_raw(texto) {
+  texto = text_of(texto);
+  const limpio = texto.trim();
+  if (limpio.length === 0 || !/^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/.test(limpio)) return null;
+  return Number(limpio);
+}
+
+export function bytes_raw(texto) {
+  texto = text_of(texto);
+  return Array.from(new TextEncoder().encode(texto));
+}
+
+// --- Opcionales ---------------------------------------------------------
+
+export function unwrap(value) {
+  if (value === null || value === undefined) panic("optional vacío");
+  return value;
 }
 `;

@@ -61,6 +61,29 @@ const MATH_JS: Readonly<Record<string, string>> = {
   not_a_number: "rt.nan",
 };
 
+// `std/string`: las variantes `*_raw` reciben `ref<string>` pero leen la
+// cadena tal cual (las cadenas de JS son inmutables).
+const STRING_JS: Readonly<Record<string, string>> = {
+  find_raw: "rt.find_raw",
+  rfind_raw: "rt.rfind_raw",
+  find_from_raw: "rt.find_from_raw",
+  trim_raw: "rt.trim_raw",
+  to_upper_raw: "rt.to_upper_raw",
+  to_lower_raw: "rt.to_lower_raw",
+  split_raw: "rt.split_raw",
+  split_whitespace_raw: "rt.split_whitespace_raw",
+  replace_first_raw: "rt.replace_first_raw",
+  reverse_raw: "rt.reverse_raw",
+  char_count_raw: "rt.char_count_raw",
+  parse_int_raw: "rt.parse_int_raw",
+  parse_double_raw: "rt.parse_double_raw",
+  bytes_raw: "rt.bytes_raw",
+};
+
+const STRING_FUNCTIONS: ReadonlyMap<string, string> = new Map(
+  Object.entries(STRING_JS).map(([name, target]) => [`string::${name}`, target]),
+);
+
 const MATH_FUNCTIONS: ReadonlyMap<string, string> = new Map(
   Object.entries(MATH_JS).map(([name, target]) => [`math::${name}`, target]),
 );
@@ -83,6 +106,7 @@ export const BUILTIN_JS: ReadonlyMap<string, string> = new Map([
   ["assert::fail", "rt.assert_fail"],
   ...MATH_FUNCTIONS,
   ...FLOAT_FUNCTIONS,
+  ...STRING_FUNCTIONS,
 ]);
 
 // Intrínsecos del lenguaje (no vienen de un `declare`). En C++ son

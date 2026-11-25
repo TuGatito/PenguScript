@@ -109,3 +109,32 @@ export function js_number_literal(value: number): string {
 export function js_bigint_literal(digits: string): string {
   return `${digits}n`;
 }
+
+// `operator *` / `operator ==`: el símbolo del operador no es un identificador
+// válido, así que se exporta con la misma tabla que los métodos.
+export function free_operator_name(name: string): string | undefined {
+  if (!name.startsWith("operator ")) return undefined;
+  return `op_${OPERATOR_EXPORTS[name.slice("operator ".length).trim()] ?? js_identifier(name)}`;
+}
+
+const OPERATOR_EXPORTS: Readonly<Record<string, string>> = {
+  "+": "add",
+  "-": "sub",
+  "*": "mul",
+  "/": "div",
+  "%": "mod",
+  "==": "eq",
+  "!=": "ne",
+  "<": "lt",
+  "<=": "le",
+  ">": "gt",
+  ">=": "ge",
+  "<=>": "cmp",
+  "[]": "index",
+  "()": "call",
+  "+=": "add_assign",
+  "-=": "sub_assign",
+  "*=": "mul_assign",
+  "/=": "div_assign",
+  "%=": "mod_assign",
+};

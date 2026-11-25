@@ -130,13 +130,13 @@ function emit_rune_class(g: JsContext, unit: ProgramUnit, decl: RuneDecl): void 
   } else {
     emit_synthetic_constructor(g, decl, parent !== undefined);
   }
-  for (const method of methods_of(unit, decl.name)) emit_method(g, unit, method);
   emit_clone(g, unit, decl);
   if (decl.destructor !== undefined) emit_destroy(g, decl);
 
   g.self_expression = saved_self;
   g.indent -= 1;
   line(g, "}");
+  emit_rune_methods(g, unit, decl);
 }
 
 function emit_constructor(g: JsContext, decl: RuneDecl, has_parent: boolean): void {
@@ -228,26 +228,57 @@ function methods_of(unit: ProgramUnit, target: string): readonly MethodDecl[] {
   return methods;
 }
 
-function emit_method(g: JsContext, unit: ProgramUnit, method: MethodDecl): void {
+// PenguScript no tiene despacho virtual: una llamada se resuelve con el tipo
+// estático del receptor. Por eso los métodos de un rune se emiten como
+// funciones libres (`Animal__describir(self, …)`) y no como métodos de la
+// clase: `extends` solo aporta datos, `_clone` y el constructor heredado.
+function emit_rune_methods(g: JsContext, unit: ProgramUnit, decl: RuneDecl): void {
+  for (const method of methods_of(unit, decl.name)) {
+    emit_rune_method(g, unit, decl.name, method);
+  }
+}
+
+function emit_rune_method(
+  g: JsContext,
+  unit: ProgramUnit,
+  base: string,
+  method: MethodDecl,
+): void {
   const info = method_info(unit, method);
-  const name = method.operator === undefined ? js_identifier(method.name) : operator_method_name(method.operator);
+  const exported = free_method_export(
+    base,
+    method.operator === undefined ? method.name : operator_method_name(method.operator),
+  );
+  symbol_name(g, method.operator === undefined ? method.name : method.operator);
   const params = method.params.map((param) => {
     const param_name = js_identifier(param.name);
     if (param.variadic) return `...${param_name}`;
     if (param.default_value === undefined) return param_name;
     return `${param_name} = ${emit_expr(g, param.default_value)}`;
   });
-  push_scope(g);
-  for (const param of method.params) declare_local(g, param.name);
+  const saved_lines = g.file.lines;
+  const saved_indent = g.indent;
+  const saved_self = g.self_expression;
   const saved_return = g.return_type;
+  g.file.lines = [];
+  g.indent = 0;
+  g.self_expression = "self";
   g.return_type = info?.result;
-  line(g, `${name}(${params.join(", ")}) {`);
+  push_scope(g);
+  declare_local(g, "self");
+  for (const param of method.params) declare_local(g, param.name);
+  line(g, `export function ${exported}(self${params.length === 0 ? "" : `, ${params.join(", ")}`}) {`);
   g.indent += 1;
   emit_value_block(g, method.body, info?.result);
   g.indent -= 1;
   line(g, "}");
-  g.return_type = saved_return;
   pop_scope(g);
+  const text = g.file.lines.join("\n");
+  g.file.lines = saved_lines;
+  g.indent = saved_indent;
+  g.self_expression = saved_self;
+  g.return_type = saved_return;
+  g.file.functions.push(text);
 }
 
 function method_info(unit: ProgramUnit, method: MethodDecl) {
@@ -436,6 +467,58 @@ const OPERATOR_NAMES: Readonly<Record<string, string>> = {
 };
 
 // ¿El rune declara un método para este operador? Devuelve su nombre en JS.
+
+// Rune que declara realmente un método: el propio tipo o el primero de su
+// cadena `heir` (`PenguScript` no tiene despacho virtual, la llamada se
+// resuelve con el tipo estático).
+export function rune_method_owner(
+  g: JsContext,
+  realm: string,
+  type_name: string,
+  method_name: string,
+): { realm: string; type: string; operator?: string } | undefined {
+  let current_realm = realm;
+  let current_name = type_name;
+  const seen = new Set<string>();
+  while (!seen.has(`${current_realm}::${current_name}`)) {
+    seen.add(`${current_realm}::${current_name}`);
+    const rune = g.units.get(current_realm)?.module.env.runes.get(current_name);
+    if (rune === undefined) return undefined;
+    const info = rune.methods.get(method_name);
+    if (info !== undefined) {
+      return { realm: current_realm, type: current_name, operator: info.operator };
+    }
+    const parent = rune.parent;
+    if (parent === undefined) return undefined;
+    current_name = parent;
+  }
+  return undefined;
+}
+
+// Rune que declara un operador (incluye `<=>` para derivar comparaciones).
+export function rune_operator_owner(
+  g: JsContext,
+  realm: string,
+  type_name: string,
+  op: string,
+): { realm: string; type: string } | undefined {
+  let current_realm = realm;
+  let current_name = type_name;
+  const seen = new Set<string>();
+  while (!seen.has(`${current_realm}::${current_name}`)) {
+    seen.add(`${current_realm}::${current_name}`);
+    const rune = g.units.get(current_realm)?.module.env.runes.get(current_name);
+    if (rune === undefined) return undefined;
+    for (const info of rune.methods.values()) {
+      if (info.operator === op) return { realm: current_realm, type: current_name };
+    }
+    const parent = rune.parent;
+    if (parent === undefined) return undefined;
+    current_name = parent;
+  }
+  return undefined;
+}
+
 export function rune_operator_method(
   g: JsContext,
   realm: string,

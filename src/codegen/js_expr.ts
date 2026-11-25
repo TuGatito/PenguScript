@@ -9,15 +9,23 @@
 import type { ExprNode, StringPartNode } from "../frontend/ast_expr.ts";
 import type { Block } from "../frontend/ast_stmt.ts";
 import type { PenguType } from "../semantic/types.ts";
-import { is_char, is_float, is_integer, is_string, is_void } from "../semantic/types.ts";
-import { js_default_value, is_bigint_type, js_integer_kind, js_int_normalizer } from "./js_types.ts";
+import { INT, is_char, is_float, is_integer, is_string, is_void, type_equals } from "../semantic/types.ts";
+import {
+  is_64_bit_integer,
+  js_default_value,
+  is_bigint_type,
+  js_integer_kind,
+  js_int_normalizer,
+} from "./js_types.ts";
 import {
   cross_reference,
   current_unit,
+  realm_of_type,
   expression_type,
   fresh_name,
   is_local_declared,
   js_error,
+  local_type,
   line,
   pop_scope,
   push_scope,
@@ -25,7 +33,7 @@ import {
   symbol_name,
   type JsContext,
 } from "./js_context.ts";
-import { js_identifier, js_string_literal } from "./js_names.ts";
+import { free_operator_name, js_identifier, js_string_literal } from "./js_names.ts";
 import { emit_call, emit_path_reference } from "./js_expr_call.ts";
 import {
   emit_comprehension,
@@ -35,7 +43,7 @@ import {
   emit_switch_value,
 } from "./js_expr_control.ts";
 import { ensure_constant, ensure_function, ensure_realm } from "./js_module.ts";
-import { rune_operator_method } from "./js_type_decl.ts";
+import { free_method_export, operator_method_name, rune_operator_owner } from "./js_type_decl.ts";
 import { emit_statement } from "./js_stmt.ts";
 
 type NumKind = "int" | "float" | "bigint";
@@ -49,7 +57,7 @@ function num_kind(type: PenguType, g: JsContext): NumKind | undefined {
 
 // Convierte un valor numérico al tipo destino (`BigInt`/`Number`), respetando
 // la promoción que C++ hace de forma implícita.
-function coerce(g: JsContext, code: string, from: PenguType, to: PenguType): string {
+export function coerce(g: JsContext, code: string, from: PenguType, to: PenguType): string {
   const from_kind = num_kind(from, g);
   const to_kind = num_kind(to, g);
   if (from_kind === undefined || to_kind === undefined) return code;
@@ -202,12 +210,67 @@ function emit_ident(g: JsContext, name: string, span: ExprNode["span"]): string 
   return "undefined";
 }
 
-function emit_index(g: JsContext, node: Extract<ExprNode, { kind: "index" }>): string {
+// Índice numérico como `number`: en PenguScript los índices son `size_t` (64
+// bits), pero un array de JS se indexa con números (§2.2).
+export function emit_index_number(g: JsContext, node: ExprNode): string {
+  const type = expression_type(g, node);
+  const code = emit_expr(g, node, INT);
+  if (is_64_bit_integer(type)) return `Number(${code})`;
+  return code;
+}
+
+// Destino de una asignación a un índice: `obj[i]` para secuencias y
+// `obj.set(k, v)` para mapas; `rt.vec_at`/`rt.map_at` solo leen.
+export function emit_store_target(
+  g: JsContext,
+  node: Extract<ExprNode, { kind: "index" }>,
+  value: string,
+  operator: string,
+): string {
   const object = emit_expr(g, node.object);
-  const index = emit_expr(g, node.index);
+  const operator_index = rune_index_call(g, node);
+  if (operator_index !== undefined) {
+    if (operator === "=") return `${operator_index}.value = ${value}`;
+    return `${operator_index}.value ${operator} ${value}`;
+  }
+  const index = emit_index_number(g, node.index);
+  const type = expression_type(g, node.object);
+  const container = type.kind === "named" ? type.name : "";
+  if (container === "map" || container === "unordered_map" || container === "multimap") {
+    if (operator === "=") return `${object}.set(${index}, ${value})`;
+    runtime_name(g);
+    return `${object}.set(${index}, rt.map_at(${object}, ${index}) ${operator.slice(0, -1)} ${value})`;
+  }
+  if (operator === "=") return `${object}[${index}] = ${value}`;
+  return `${object}[${index}] ${operator} ${value}`;
+}
+
+// `operator []` de un rune devuelve `ref<T>`: se lee y se escribe por `.value`.
+function rune_index_call(
+  g: JsContext,
+  node: Extract<ExprNode, { kind: "index" }>,
+): string | undefined {
+  const type = expression_type(g, node.object);
+  if (type.kind !== "named") return undefined;
+  const realm = realm_of_type(g, type.name) ?? current_unit(g).module.realm;
+  const owner = rune_operator_owner(g, realm, type.name, "[]");
+  if (owner === undefined) return undefined;
+  const exported = free_method_export(owner.type, operator_method_name("[]"));
+  const target = cross_reference(g, owner.realm, exported);
+  const object = emit_expr(g, node.object);
+  const index = emit_index_number(g, node.index);
+  return `${target}(${object}, ${index})`;
+}
+
+function emit_index(g: JsContext, node: Extract<ExprNode, { kind: "index" }>): string {
+  const operator_index = rune_index_call(g, node);
+  if (operator_index !== undefined) return `${operator_index}.value`;
+  const object = emit_expr(g, node.object);
+  const index = emit_index_number(g, node.index);
   const type = expression_type(g, node.object);
   const container = type.kind === "named" ? type.name : "";
   if (container === "array" || container === "span") return `${object}[${index}]`;
+  if (is_string(type)) return `${object}[${index}]`;
   runtime_name(g);
   if (container === "map" || container === "unordered_map") return `rt.map_at(${object}, ${index})`;
   return `rt.vec_at(${object}, ${index})`;
@@ -220,6 +283,8 @@ function emit_unary(g: JsContext, node: Extract<ExprNode, { kind: "unary" }>): s
     runtime_name(g);
     return `rt.len(${emit_expr(g, node.operand)})`;
   }
+  const unary_operator = unary_rune_operator(g, node, op);
+  if (unary_operator !== undefined) return unary_operator;
   if (op === "-") return `-(${emit_expr(g, node.operand)})`;
   if (op === "~") return `~(${emit_expr(g, node.operand)})`;
   if (op === "+") return `+(${emit_expr(g, node.operand)})`;
@@ -227,17 +292,50 @@ function emit_unary(g: JsContext, node: Extract<ExprNode, { kind: "unary" }>): s
   return "undefined";
 }
 
+
+// Tipo de un operando: el declarado de una variable manda sobre la anotación
+// del checker (que puede haber perdido el nombre del alias o del rune).
+function operand_type(g: JsContext, node: ExprNode): PenguType {
+  if (node.kind === "ident") {
+    const declared = local_type(g, node.name);
+    if (declared !== undefined) return declared;
+  }
+  return expression_type(g, node);
+}
+
+
+// Operador unario declarado por un rune (`operator -` sin parámetros): `-p` →
+// `Punto__op_sub(p)`.
+function unary_rune_operator(
+  g: JsContext,
+  node: Extract<ExprNode, { kind: "unary" }>,
+  op: string,
+): string | undefined {
+  if (op !== "-" && op !== "+" && op !== "~") return undefined;
+  const type = operand_type(g, node.operand);
+  if (type.kind !== "named") return undefined;
+  const realm = realm_of_type(g, type.name);
+  if (realm === undefined) return undefined;
+  const owner = rune_operator_owner(g, realm, type.name, op);
+  if (owner === undefined) return undefined;
+  const callable = cross_reference(g, owner.realm, free_method_export(owner.type, operator_method_name(op)));
+  return `${callable}(${emit_expr(g, node.operand)})`;
+}
+
 function emit_binary(g: JsContext, node: Extract<ExprNode, { kind: "binary" }>): string {
   const op = node.op;
   const result = expression_type(g, node);
-  const left_type = expression_type(g, node.left);
-  const right_type = expression_type(g, node.right);
+  const left_type = operand_type(g, node.left);
+  const right_type = operand_type(g, node.right);
 
   if (op === "and") return `(${emit_expr(g, node.left, left_type)} && ${emit_expr(g, node.right, right_type)})`;
   if (op === "or") return `(${emit_expr(g, node.left, left_type)} || ${emit_expr(g, node.right, right_type)})`;
   if (op === "in") {
     runtime_name(g);
     return `rt.contains(${emit_expr(g, node.right)}, ${emit_expr(g, node.left)})`;
+  }
+  if (process.env.PENGU_DEBUG_JS === "1") {
+    console.error("bin", op, left_type.kind, left_type.kind === "named" ? left_type.name : "", right_type.kind);
   }
   const operator = rune_operator_call(g, node, op, left_type, right_type);
   if (operator !== undefined) return operator;
@@ -701,18 +799,69 @@ function rune_operator_call(
   left_type: PenguType,
   right_type: PenguType,
 ): string | undefined {
-  if (left_type.kind !== "named") return undefined;
-  const realm = current_unit(g).module.realm;
-  const direct = rune_operator_method(g, realm, left_type.name, op);
+  const left = emit_expr(g, node.left);
+  const right = emit_expr(g, node.right);
+  if (left_type.kind !== "named") {
+    // Operador libre con el tipo a la derecha (`2 * p`).
+    const free = free_operator_function(g, op, left_type, right_type);
+    if (free === undefined) return undefined;
+    const exported = free_operator_name(`operator ${op}`) ?? op;
+    ensure_function(g, free.realm, `operator ${op}`);
+    const target = cross_reference(g, free.realm, exported);
+    return `${target}(${left}, ${right})`;
+  }
+  const realm = realm_of_type(g, left_type.name) ?? current_unit(g).module.realm;
+  const direct = rune_operator_owner(g, realm, left_type.name, op);
   if (direct !== undefined) {
-    return `${emit_expr(g, node.left)}.${direct}(${emit_expr(g, node.right)})`;
+    const exported = free_method_export(direct.type, operator_method_name(op));
+    const target = cross_reference(g, direct.realm, exported);
+    return `${target}(${left}, ${right})`;
   }
   if (op === "<" || op === "<=" || op === ">" || op === ">=") {
-    const cmp = rune_operator_method(g, realm, left_type.name, "<=>");
+    const cmp = rune_operator_owner(g, realm, left_type.name, "<=>");
     if (cmp !== undefined) {
-      return `(${emit_expr(g, node.left)}.${cmp}(${emit_expr(g, node.right)}) ${op} 0)`;
+      const exported = free_method_export(cmp.type, operator_method_name("<=>"));
+      const target = cross_reference(g, cmp.realm, exported);
+      return `(${target}(${left}, ${right}) ${op} 0)`;
     }
   }
-  void right_type;
+  // Operador libre (`operator * = (escala: int, p: Punto)`): una función del
+  // programa con dos parámetros que aceptan los operandos (§4.4).
+  const free = free_operator_function(g, op, left_type, right_type);
+  if (free !== undefined) {
+    const exported = free_operator_name(`operator ${op}`) ?? op;
+    ensure_function(g, free.realm, `operator ${op}`);
+    const target = cross_reference(g, free.realm, exported);
+    return `${target}(${left}, ${right})`;
+  }
   return undefined;
+}
+
+// Operador definido como función libre en cualquier realm del programa.
+function free_operator_function(
+  g: JsContext,
+  op: string,
+  left_type: PenguType,
+  right_type: PenguType,
+): { realm: string } | undefined {
+  const wanted = `operator ${op}`;
+  for (const unit of g.units.values()) {
+    for (const info of unit.module.functions.values()) {
+      if (info.name !== wanted || info.params.length !== 2) continue;
+      const [first, second] = info.params;
+      if (first === undefined || second === undefined) continue;
+      if (!accepts_operand(first.type, left_type)) continue;
+      if (!accepts_operand(second.type, right_type)) continue;
+      return { realm: unit.module.realm };
+    }
+  }
+  return undefined;
+}
+
+function accepts_operand(parameter: PenguType, operand: PenguType): boolean {
+  if (parameter.kind === "any" || parameter.kind === "named") {
+    // Un parámetro genérico (`T`) acepta cualquier cosa.
+    return parameter.kind === "any" || type_equals(parameter, operand) || operand.kind === "named";
+  }
+  return type_equals(parameter, operand);
 }

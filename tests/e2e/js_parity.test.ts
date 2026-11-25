@@ -24,6 +24,11 @@ const PARITY_EXAMPLES = [
   "06_omens",
   "07_seal",
   "08_modules",
+  "09_stdlib",
+  "10_ownership",
+  "11_polimorfismo",
+  "12_colecciones",
+  "13_enchanting",
 ];
 
 function ejecutar(comando: string, args: readonly string[]): { stdout: string; status: number } {

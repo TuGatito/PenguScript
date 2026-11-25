@@ -509,16 +509,79 @@ inline std::string trim_raw(const std::string& text) {
   return text.substr(first, last - first);
 }
 
-inline std::string to_upper_raw(const std::string& text) {
-  std::string out = text;
-  for (char& letter : out) letter = static_cast<char>(std::toupper(static_cast<unsigned char>(letter)));
+// Las cadenas son UTF-8: convertir byte a byte rompe cualquier letra fuera de
+// ASCII. Se decodifica por puntos de código y se aplica una tabla para
+// Latin-1 y Latin Extended-A (el juego que cubre las lenguas de Europa
+// occidental); el resto de escrituras se deja intacto.
+inline char32_t utf8_upper(char32_t cp) {
+  if (cp < 0x80) return static_cast<char32_t>(std::toupper(static_cast<int>(cp)));
+  if (cp == 0x00DF || cp == 0x00B5) return cp;  // ß y µ no cambian
+  if (cp == 0x00FF) return 0x0178;              // ÿ → Ÿ
+  if (cp == 0x0131) return 0x0049;              // ı → I
+  if (cp == 0x017F) return 0x0053;              // ſ → S
+  if (cp >= 0x00E0 && cp <= 0x00FE && cp != 0x00F7) return cp - 0x20;
+  if (cp >= 0x0100 && cp <= 0x0177 && cp % 2 == 0) return cp - 1;
+  return cp;
+}
+
+inline char32_t utf8_lower(char32_t cp) {
+  if (cp < 0x80) return static_cast<char32_t>(std::tolower(static_cast<int>(cp)));
+  if (cp == 0x0130) return 0x0069;              // İ → i
+  if (cp == 0x0178) return 0x00FF;              // Ÿ → ÿ
+  if (cp >= 0x00C0 && cp <= 0x00DE && cp != 0x00D7) return cp + 0x20;
+  if (cp >= 0x0100 && cp <= 0x0177 && cp % 2 == 1) return cp + 1;
+  return cp;
+}
+
+inline std::string utf8_map(const std::string& text, char32_t (*convert)(char32_t)) {
+  std::string out;
+  out.reserve(text.size());
+  std::size_t index = 0;
+  while (index < text.size()) {
+    const unsigned char lead = static_cast<unsigned char>(text[index]);
+    std::size_t length = 1;
+    char32_t codepoint = lead;
+    if (lead >= 0xF0) {
+      length = 4;
+      codepoint = lead & 0x07;
+    } else if (lead >= 0xE0) {
+      length = 3;
+      codepoint = lead & 0x0F;
+    } else if (lead >= 0xC0) {
+      length = 2;
+      codepoint = lead & 0x1F;
+    }
+    if (index + length > text.size()) length = 1;
+    for (std::size_t offset = 1; offset < length; ++offset) {
+      codepoint = (codepoint << 6) | (static_cast<unsigned char>(text[index + offset]) & 0x3F);
+    }
+    codepoint = convert(codepoint);
+    if (codepoint < 0x80) {
+      out.push_back(static_cast<char>(codepoint));
+    } else if (codepoint < 0x800) {
+      out.push_back(static_cast<char>(0xC0 | (codepoint >> 6)));
+      out.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+    } else if (codepoint < 0x10000) {
+      out.push_back(static_cast<char>(0xE0 | (codepoint >> 12)));
+      out.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+      out.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+    } else {
+      out.push_back(static_cast<char>(0xF0 | (codepoint >> 18)));
+      out.push_back(static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F)));
+      out.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+      out.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+    }
+    index += length;
+  }
   return out;
 }
 
+inline std::string to_upper_raw(const std::string& text) {
+  return utf8_map(text, utf8_upper);
+}
+
 inline std::string to_lower_raw(const std::string& text) {
-  std::string out = text;
-  for (char& letter : out) letter = static_cast<char>(std::tolower(static_cast<unsigned char>(letter)));
-  return out;
+  return utf8_map(text, utf8_lower);
 }
 
 inline std::size_t rfind_raw(const std::string& text, const std::string& needle) {

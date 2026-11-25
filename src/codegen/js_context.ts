@@ -10,7 +10,9 @@
 // (cabecera diferida): el orden de emisión no importa.
 
 import type { ExprNode } from "../frontend/ast_expr.ts";
-import type { DiagnosticSink } from "../diagnostics/sink.ts";
+import { make_sink, type DiagnosticSink } from "../diagnostics/sink.ts";
+import { resolve_type_node } from "../semantic/type_env.ts";
+import type { TypeNode } from "../frontend/ast_type.ts";
 import { error as diagnostic_error } from "../diagnostics/diagnostic.ts";
 import { CODES } from "../diagnostics/codes.ts";
 import type { ProgramUnit } from "./cpp_module.ts";
@@ -32,7 +34,7 @@ export interface JsFile {
   readonly realm: string;
   readonly name: string;
   // Constantes del realm, en orden de dependencias (sin cabecera).
-  readonly lines: string[];
+  lines: string[];
   // Funciones ya completas. Van en bloques aparte para que emitir una
   // función desde dentro de otra no la parta por la mitad: el orden textual
   // del archivo nunca depende del orden de descubrimiento.
@@ -78,6 +80,11 @@ export interface JsContext {
   readonly class_runes: ReadonlySet<string>;
   // Runas con `destructor` declarado: obligan a `try/finally`.
   readonly destructor_runes: ReadonlySet<string>;
+  // Tipo con el que se declaró cada variable local (para conversiones).
+  readonly local_types: Map<string, PenguType>;
+  // Base del `enchanting` que se está emitiendo (`string`, `optional`…), para
+  // resolver los miembros nativos de `@` dentro del cuerpo.
+  enchant_base: string | undefined;
 }
 
 export interface JsContextOptions {
@@ -112,7 +119,9 @@ export function make_js_context(
     return_type: undefined,
     self_expression: undefined,
     class_runes: options.class_runes ?? new Set(),
+    enchant_base: undefined,
     destructor_runes: options.destructor_runes ?? new Set(),
+    local_types: new Map(),
   };
 }
 
@@ -190,7 +199,7 @@ export function cross_reference(g: JsContext, realm: string, name: string): stri
 
 // Nombre con el que un archivo exporta un símbolo, sin cambiar el archivo
 // activo. Sirve para importarlo desde otro realm.
-function symbol_name_in(file: JsFile, name: string): string {
+export function symbol_name_in(file: JsFile, name: string): string {
   const existing = file.symbols.get(name);
   if (existing !== undefined) return existing;
   const local = js_alias(js_identifier(name), file.taken);
@@ -273,4 +282,23 @@ export function type_of(g: JsContext, node: ExprNode): PenguType {
 
 export function expression_type(g: JsContext, node: ExprNode): PenguType {
   return type_of(g, node);
+}
+
+// Resolución de un `TypeNode` sin diagnósticos. El emisor solo necesita una
+// pista de tipo para decidir copias y literales; si el tipo no se resuelve
+// (por ejemplo `T` de un `enchanting` genérico) el checker ya lo validó y no
+// hay que duplicar el aviso.
+export function quiet_type_node(g: JsContext, node: TypeNode): PenguType {
+  const sink = make_sink({ max: 0 });
+  return resolve_type_node(node, current_unit(g).module.env, sink);
+}
+
+// Registra el tipo de una variable local recién declarada.
+export function declare_local_type(g: JsContext, name: string, type: PenguType): void {
+  g.local_types.set(name, type);
+}
+
+// Tipo conocido de una variable local (`undefined` si no se declaró aquí).
+export function local_type(g: JsContext, name: string): PenguType | undefined {
+  return g.local_types.get(name);
 }
