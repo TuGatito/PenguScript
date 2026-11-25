@@ -696,6 +696,19 @@ export function check_mut_argument(
   }
 }
 
+// Un enumerador de un omen unitario (los enums de C) encaja donde se
+// espera un entero, como en C. El codegen inserta el `static_cast`.
+function enum_value_fits(ctx: CheckContext, expected: PenguType, actual: PenguType): boolean {
+  if (actual.kind !== "named" || integer_shape(expected) === undefined) return false;
+  const unit_only = (omen: OmenInfo | undefined): boolean =>
+    omen !== undefined && [...omen.variants.values()].every((variant) => variant.payload.length === 0);
+  if (unit_only(ctx.module.env.omens.get(actual.name))) return true;
+  for (const module of ctx.external?.modules.values() ?? []) {
+    if (unit_only(module.env.omens.get(actual.name))) return true;
+  }
+  return false;
+}
+
 export function check_argument_value(
   ctx: CheckContext,
   expected: PenguType,
@@ -708,6 +721,7 @@ export function check_argument_value(
   if (is_generic_type(ctx, expected) || is_generic_type(ctx, actual)) return;
   if (!can_assign(expected, actual, ctx.module.env)) {
     if (literal_fits_type(ctx, expected, value)) return;
+    if (enum_value_fits(ctx, expected, actual)) return;
     report_error(
       ctx,
       CODES.type_mismatch,

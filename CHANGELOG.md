@@ -4,6 +4,36 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+## Bindings C: bindgen de tipos (F3 de `plan_bindings.md`)
+
+- **La cabecera completa**, no solo las funciones: `pengu bindgen` emite
+  `omen` para los enums (valores explícitos e implícitos; los anónimos
+  heredan el nombre de su `typedef`), `rune` para los structs, `meld` para las
+  uniones, `bits N campo: Tipo` para los bitfields, `echo` para los typedefs y
+  `opaque` para los records incompletos.
+- **Orden topológico** (`src/bindgen/records.ts`): un record se emite después
+  de los tipos que usa su cuerpo; los ciclos por valor se detectan y se
+  omiten con motivo. Los campos resuelven alias al tipo final y un record con
+  un campo no traducible se omite entero para no romper el layout.
+- **Resolución de tipos** (`src/bindgen/native_types.ts`): `array<T, N>` para
+  arrays, `raw<T>` para punteros, `string` para `char*` y `raw<void>` para
+  callbacks y punteros desconocidos. Los typedefs de función se reportan como
+  callbacks y sus parámetros en las funciones cruzan como `raw<void>`.
+- **Enums de C como enteros**: un valor `omen` unitario encaja donde se espera
+  un entero (como en C) y el codegen inserta `static_cast<T>` en los
+  argumentos de `extern`, lo que hace usable `SetConfigFlags(unsigned int)`.
+- **`meld` y `std::hash`**: las uniones se hashean por bytes (no hay miembro
+  activo conocido), requisito para meter un record con unión en un `map`.
+- **Layout verificado**: las 35 records de `raylib.h` coinciden con C en
+  tamaño, alineación y los 202 desplazamientos comprobados (0 discrepancias);
+  `raylib.d.pengu` genera 619 funciones y solo reporta los 6 typedefs de
+  callback. Conexión y llamadas reales (`Fade`, `CheckCollisionRecs`) probadas
+  contra raylib 6.2.
+- Regresiones: `tests/bindgen/types.test.ts` (ABI con struct anidado, unión,
+  enum con saltos, alias, arrays y bitfields; `pengu size` = C) y
+  `tests/bindgen/raylib_layout.test.ts` (9 tipos reales con tamaño,
+  alineación y offsets iguales a C).
+
 ## Bindings C: lenguaje `.d.pengu` v2 (F2 de `plan_bindings.md`)
 
 - **Seis construcciones nuevas** para escribir cabeceras C sin trucos:

@@ -658,6 +658,31 @@ function emit_hash_specializations(g: GenContext, decls: readonly TypeDecl[]): v
       line(g, "};");
       continue;
     }
+    // Una unión no tiene un miembro activo conocido: se hashean sus
+    // bytes (sus campos son triviales, requisito de `meld`).
+    if (decl.kind === "meld_decl") {
+      if (decl.fields.length === 0) continue;
+      if (!emitted) line(g, "namespace std {");
+      emitted = true;
+      const name = cpp_identifier(decl.name);
+      if (decl.sigils.length > 0) {
+        line(g, `template <${decl.sigils.map((sigil) => `typename ${sigil}`).join(", ")}>`);
+        line(g, `struct hash<::${realm}::${name}<${decl.sigils.join(", ")}>> {`);
+      } else {
+        line(g, "template <>");
+        line(g, `struct hash<::${realm}::${name}> {`);
+      }
+      g.indent += 1;
+      line(g, `std::size_t operator()(const ::${realm}::${name}${generic_args(decl.sigils)}& value) const noexcept {`);
+      g.indent += 1;
+      line(g, "const auto* bytes = reinterpret_cast<const char*>(&value);");
+      line(g, "return std::hash<std::string_view>{}(std::string_view(bytes, sizeof(value)));");
+      g.indent -= 1;
+      line(g, "}");
+      g.indent -= 1;
+      line(g, "};");
+      continue;
+    }
     if (decl.kind === "seal_decl") {
       if (!emitted) line(g, "namespace std {");
       emitted = true;

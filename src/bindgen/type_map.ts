@@ -76,7 +76,3 @@ export function map_c_type(qual_type: string): MappedType {
 
   return { pengu: "int", ok: false };
 }
-
-export function is_supported(qual_type: string): boolean {
-  return map_c_type(qual_type).ok;
-}

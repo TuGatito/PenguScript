@@ -4,7 +4,7 @@ import { existsSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import type { ParsedArgs } from "./args.ts";
 import { flag_string } from "./args.ts";
-import { collect_functions, dump_ast, find_clang } from "../bindgen/clang_ast.ts";
+import { collect_header, dump_ast, find_clang } from "../bindgen/clang_ast.ts";
 import { render_bindings, sanitize_realm } from "../bindgen/emit.ts";
 import { CODES } from "../diagnostics/codes.ts";
 import { link_flag } from "../driver/link.ts";
@@ -39,7 +39,7 @@ export function run_bindgen(args: ParsedArgs): CommandResult {
   }
 
   const realm = sanitize_realm(flag_string(args, "realm") ?? basename(header));
-  const report = render_bindings(basename(header), realm, collect_functions(ast));
+  const report = render_bindings(basename(header), realm, collect_header(ast));
 
   const out = resolve(flag_string(args, "out") ?? header.replace(/\.[^./\\]+$/, ".d.pengu"));
   writeFileSync(out, report.text, "utf8");

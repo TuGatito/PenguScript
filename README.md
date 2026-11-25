@@ -231,8 +231,15 @@ gcc -c -O1 -o demo.o demo.c
 pengu build main.pengu --link demo.o
 ```
 
-`bindgen` escribe un módulo con `extern "C"` y firmas traducidas; el checker
-las valida y el generador emite los prototipos correspondientes.
+`bindgen` traduce también los **tipos** de la cabecera: `omen` para los enums,
+`rune` para los structs, `meld` para las uniones, `bits` para los bitfields,
+`echo` para los typedefs y `opaque` para los records incompletos. El orden
+respeta las dependencias y un record con un campo no traducible se omite con
+motivo. Las firmas las valida el checker y el layout coincide con C:
+`pengu size --fields` muestra los mismos bytes, alineación y desplazamientos.
+
+Con `raylib` instalada, `pengu bindgen /usr/include/raylib.h --realm raylib
+--out raylib.d.pengu --link raylib` genera enlaces completos y verificados.
 
 ## Documentación
 

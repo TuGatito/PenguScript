@@ -35,7 +35,7 @@ import { omen_methods_of } from "../semantic/module_info.ts";
 import type { FunctionInfo } from "../semantic/module_info.ts";
 import { find_echo_method } from "../semantic/type_env.ts";
 import type { PenguType } from "../semantic/types.ts";
-import { UNKNOWN, is_float, is_numeric, is_string, named, primitive, type_equals } from "../semantic/types.ts";
+import { UNKNOWN, integer_shape, is_float, is_numeric, is_string, named, primitive, type_equals } from "../semantic/types.ts";
 import { is_conversion_target } from "../semantic/checker_expr.ts";
 import { resolve_type_node } from "../semantic/type_env.ts";
 import { STRING_TYPES } from "../frontend/ast_type.ts";
@@ -118,7 +118,13 @@ function emit_extern_args(g: GenContext, node: CallNode, fn: FunctionInfo): stri
     .map((arg, index) => {
       const param = index < fixed.length ? fixed[index] : fn.variadic ? fn.params[fn.params.length - 1] : undefined;
       const rendered = emit_expr(g, arg.expr);
-      const crosses_as_text = param !== undefined ? is_string(param.type) : is_string(type_of(g, arg.expr));
+      const arg_type = type_of(g, arg.expr);
+      // Un enum de C (`omen` unitario) pasado a un entero se convierte
+      // explícitamente, como haría C con el enum subyacente.
+      if (param !== undefined && integer_shape(param.type) !== undefined && arg_type.kind === "named") {
+        return `static_cast<${cpp_type(param.type, g.type_realms)}>(${rendered})`;
+      }
+      const crosses_as_text = param !== undefined ? is_string(param.type) : is_string(arg_type);
       return crosses_as_text ? `::pengu::c_str(${rendered})` : rendered;
     })
     .join(", ");
