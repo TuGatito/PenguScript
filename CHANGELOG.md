@@ -4,6 +4,20 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+### Verificación final del LSP (F6 de `plan_lsp_errores.md`)
+
+- Binario y `.vsix` reinstalados. La sonda JSON-RPC sobre los archivos del
+  informe (y sobre el resto de `std/` y `examples/`) da **0 diagnósticos**
+  tanto ejecutada desde el repositorio (usa el `std/` del proyecto) como desde
+  un directorio sin proyecto (usa la std empotrada).
+- `pengu doctor` en el repositorio confirma que la huella del proyecto y la del
+  binario coinciden; en un proyecto con un `std/` distinto avisa con la orden
+  de reinstalar.
+- `bun test`: **456 pruebas en 62 archivos**; `tsc --noEmit` limpio;
+  `pengu fmt --check` sin cambios; `embed_std.ts --check` y
+  `gen_stdlib_docs.ts --check` al día.
+- README: receta de diagnóstico para «el LSP marca lo que el CLI no ve».
+
 ### Higiene de diagnósticos y guía de desajustes (F5 de `plan_lsp_errores.md`)
 
 - Retirados `E0002 manifest_missing` y `E0003 manifest_invalid`: el manifiesto
@@ -653,11 +667,12 @@ técnica conocida en el compilador.
 
 ### Verificado
 
-- `bun test`: 443 pruebas en 58 archivos (lexer, parser, checker, formateador,
+- `bun test`: 456 pruebas en 62 archivos (lexer, parser, checker, formateador,
   LSP de integración, de consultas, de sincronización y de rendimiento,
   medición de tamaños, bindgen, biblioteca estándar, conformidad y e2e de los
   ejemplos, de las fases F1–F9, G1–G6, H1–H7, I1–I8, L1–L6 y de la biblioteca
   estándar (F0–F8), la documentación generada de la stdlib y las importaciones
-  selectivas, y de la extensión de VS Code).
+  selectivas, y de la extensión de VS Code, más las regresiones del plan
+  `lsp_errores` (importaciones, raíz del proyecto, doctor y raíz del LSP).
 - `tsc --noEmit` sin errores y `pengu fmt --check` sin cambios pendientes.
 - Los 15 ejemplos de `examples/` compilan y ejecutan con el compilador final.

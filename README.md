@@ -77,8 +77,24 @@ están en [editors/vscode/README.md](editors/vscode/README.md).
 | `pengu size [archivo]` | Bytes y alineación medidos (`--json`, `--type`, `--fields`) |
 | `pengu bindgen <cabecera>` | Genera `*.d.pengu` desde una cabecera C/C++ |
 | `pengu init [dir] [nombre]` | Crea un proyecto con `pengu.toml` |
-| `pengu doctor` | Muestra versiones de Bun y de los compiladores |
+| `pengu doctor` | Toolchain y huella de la stdlib; avisa si el proyecto tiene otra (`--json`) |
 | `pengu clean` | Borra las cachés `.pengu-cache` |
+
+## Si el LSP marca errores que `pengu check` no ve
+
+Casi siempre hay dos copias distintas de `std/` en juego (el binario instalado
+trae una empotrada y el proyecto puede tener la suya). Ejecuta `pengu doctor`:
+
+```
+std 44 archivo(s) · 732383169c004163
+proyecto /home/tu/proyecto
+  std/ del proyecto 44 archivo(s) · 732383169c004163 (coincide con el binario)
+```
+
+Si dice **NO coincide**, reinstala el compilador (`bash scripts/install.sh`) y
+recarga el editor. Si el proyecto tiene su propio `std/` y no hay `pengu.toml`
+en la raíz, el LSP no puede saber que es del proyecto: crea el manifiesto con
+`pengu init`. Los detalles están en `docs/errors.md`.
 
 ## Estructura
 
