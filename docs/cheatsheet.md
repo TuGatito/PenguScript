@@ -917,7 +917,7 @@ int sumar(const std::vector<T>& numeros) { ... }
 int suma_heterogenea(const std::vector<::pengu::Value>& partes) { ... }
 ```
 
-### Declaring C types and libraries
+### Interoperabilidad con C
 
 A declaration module (`.d.pengu`) mirrors a C header with six constructs. Each one exists because a C declaration cannot be written with `rune`/`extern` alone:
 
@@ -963,6 +963,28 @@ Rules:
 - `pengu bindgen` translates the header's object-like macros too: an integer or decimal constant becomes `define`, a compound literal such as `CLITERAL(Color){255, 0, 0, 255}` becomes a `const Color`, and a macro that aliases an enum variant becomes a `define` with the variant's value. Function-like macros, platform macros and non-constant expressions are reported as omitted.
 - `pengu bindgen --check` regenerates in memory and fails when the committed file is stale; `--base header.h --base-realm raylib` reuses another binding, qualifying its types (`raylib::Rectangle`) instead of duplicating them.
 - A writable `char*` parameter becomes `raw<char>`, while `const char*` stays `string`. Build the buffer with `std/ffi::cstring(texto, capacidad)` and pass `buffer.ptr()` inside `unsafe`; `buffer.text()` reads what the C function wrote, and `ffi::read`/`ffi::write` work on loose pointers.
+
+Flujo con `pengu bindgen`:
+
+```bash
+# 1. Genera el módulo de declaraciones desde la cabecera.
+pengu bindgen /usr/include/raylib.h --realm raylib --link raylib \
+  --out bindings/raylib/raylib.d.pengu
+
+# 2. Importa el módulo y usa la API con nombres de C.
+#    invoke "../../bindings/raylib/raylib.d"
+#    raylib::InitWindow(800, 450, "hola")
+
+# 3. Comprueba que el archivo comprometido sigue al día.
+pengu bindgen /usr/include/raylib.h --realm raylib --link raylib \
+  --out bindings/raylib/raylib.d.pengu --check
+```
+
+`bindgen` traduce funciones, records, enums, alias, callbacks y macros
+constantes; el informe lista lo que omite y por qué. Con `--base cabecera.h
+--base-realm raylib` reutiliza otro módulo sin duplicar tipos (raygui sobre
+raylib). La referencia completa —ABI de uniones y bitfields, buffers, límites
+y ejemplos— está en [docs/ffi.md](ffi.md).
 
 ## Memory
 

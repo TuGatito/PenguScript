@@ -113,6 +113,7 @@ export function render_bindings(
   const registry = build_registry(header, base);
   const lines: string[] = [
     `-- Enlaces generados por «pengu bindgen» desde ${header_name}.`,
+    `-- Plataforma: ${process.platform} ${process.arch} (LP64).`,
     "-- No edites este archivo a mano: vuelve a ejecutar bindgen.",
     "",
     `realm ${realm}`,

@@ -54,6 +54,10 @@ export function run_bindgen(args: ParsedArgs): CommandResult {
   if (flag_bool(args, "check")) {
     if (!existsSync(out)) return { exit_code: 1, output: `no existe «${out}»: ejecuta pengu bindgen para generarlo` };
     const current = readFileSync(out, "utf8");
+    const platform = current.split("\n").find((line) => line.startsWith("-- Plataforma:"));
+    if (platform !== undefined && !platform.includes(`${process.platform} ${process.arch}`)) {
+      return { exit_code: 1, output: `«${out}» se generó en otra plataforma (${platform.slice(15)}); vuelve a ejecutar pengu bindgen` };
+    }
     if (current !== report.text) {
       return { exit_code: 1, output: `«${out}» está desactualizado: vuelve a ejecutar pengu bindgen` };
     }

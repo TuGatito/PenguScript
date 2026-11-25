@@ -4,6 +4,26 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+## Bindings C: documentación y cierre (F7 de `plan_bindings.md`)
+
+- **`docs/ffi.md` nuevo**: referencia completa de los enlaces con C —qué es un
+  `.d.pengu`, tabla keyword → uso → C++ generado, reglas de ABI (runes, arrays,
+  uniones `meld`, enums, bitfields, callbacks y agregados anónimos), punteros y
+  buffers con `std/ffi`, variádicas, flujo de `pengu bindgen` con raylib y
+  raygui, y catálogo de diagnósticos E0301/E0712–E0715.
+- **`docs/cheatsheet.md`**: la sección de C pasa a «Interoperabilidad con C»,
+  con el flujo de `bindgen` (generar, importar, `--check`) y la referencia a
+  `docs/ffi.md`.
+- **`README.md`**: enlaces documentados, `bindings/` en la estructura del
+  repositorio y `docs/ffi.md` en la lista de documentación.
+- **`--check` anota la plataforma**: el archivo generado lleva
+  `-- Plataforma: linux x64 (LP64)` y `bindgen --check` avisa cuando el
+  archivo se generó en otra plataforma (D7).
+- Verificado: `bun test` **497 pass / 0 fail / 1392 expect / 79 archivos**
+  (516 s); `bunx tsc --noEmit` limpio; `pengu fmt --check` «89 archivo(s) ya
+  formateados»; `embed_std --check` y `gen_stdlib_docs --check` al día;
+  `bindings/raylib` y `bindings/raygui` regenerados y al día.
+
 ## Bindings C: validación raylib y raygui (F6 de `plan_bindings.md`)
 
 - **Enlaces comprometidos**: `bindings/raylib/raylib.d.pengu` (619 funciones,

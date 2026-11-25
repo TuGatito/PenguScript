@@ -270,7 +270,8 @@ necesita el objeto de raygui con `-DRAYGUI_IMPLEMENTATION`.
 - [`docs/cheatsheet.md`](docs/cheatsheet.md): referencia del lenguaje.
 - [`docs/stdlib.md`](docs/stdlib.md): biblioteca estándar por capas.
 - [`docs/stdlib_api.md`](docs/stdlib_api.md): referencia generada desde el código (firmas exactas).
-- `docs/lsp.md`: capacidades del servidor LSP y ajustes de la extensión.
+- [`docs/ffi.md`](docs/ffi.md): enlaces con C, ABI, `.d.pengu` y `pengu bindgen`.
+- [`docs/lsp.md`](docs/lsp.md): capacidades del servidor LSP y ajustes de la extensión.
 - `docs/errors.md`: catálogo de códigos de diagnóstico.
 - [`scratch/plan_typescript.md`](scratch/plan_typescript.md): plan por fases.
 - [`scratch/plan_extension_vscode.md`](scratch/plan_extension_vscode.md): auditoría y fases de la extensión.

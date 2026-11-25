@@ -68,6 +68,22 @@ describe("enlaces comprometidos", () => {
     expect(run.output).toContain("al día");
   }, 60_000);
 
+  test("un archivo generado en otra plataforma se avisa", () => {
+    const header = raylib_header();
+    if (header === undefined) return;
+    const dir = mkdtempSync(join(tmpdir(), "pengu-platform-"));
+    try {
+      const out = join(dir, "raylib.d.pengu");
+      const committed = readFileSync(join(root, "bindings", "raylib", "raylib.d.pengu"), "utf8");
+      writeFileSync(out, committed.replace(/-- Plataforma: [^\n]*/, "-- Plataforma: win32 x64 (LP64)."));
+      const run = bindgen([header, "--realm", "raylib", "--link", "raylib", "--out", out, "--check"]);
+      expect(run.status).toBe(1);
+      expect(run.output).toContain("otra plataforma");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
   test("un archivo desactualizado falla y no se reescribe", () => {
     const header = raylib_header();
     if (header === undefined) return;
