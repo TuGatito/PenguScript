@@ -25,6 +25,7 @@ import { declare, lookup } from "./scopes.ts";
 import type { CheckContext } from "./checker_context.ts";
 import { with_scope } from "./checker_context.ts";
 import { symbol_type_of } from "./external.ts";
+import { literal_fits_type } from "./literal_fit.ts";
 import { has_enchanted_method, resolve_enchanted_call } from "./checker_enchants.ts";
 import {
   add_borrow,
@@ -615,7 +616,7 @@ export function check_arguments(
         );
         continue;
       }
-      check_argument_value(ctx, element, inner, position, name, arg.expr.span);
+      check_argument_value(ctx, element, inner, position, name, arg.expr.span, arg.expr);
       continue;
     }
 
@@ -624,12 +625,12 @@ export function check_arguments(
       position += 1;
       if (param === undefined) continue;
       if (!arg.mutable) mark_moved(ctx, arg.expr, param);
-      check_argument_value(ctx, param, actual, position - 1, name, arg.expr.span);
+      check_argument_value(ctx, param, actual, position - 1, name, arg.expr.span, arg.expr);
       continue;
     }
 
     if (variadic && element !== undefined) {
-      check_argument_value(ctx, element, actual, position, name, arg.expr.span);
+      check_argument_value(ctx, element, actual, position, name, arg.expr.span, arg.expr);
       position += 1;
       if (!arg.mutable) mark_moved(ctx, arg.expr, element);
     }
@@ -689,9 +690,11 @@ export function check_argument_value(
   index: number,
   name: string,
   span: Span,
+  value?: ExprNode,
 ): void {
   if (is_generic_type(ctx, expected) || is_generic_type(ctx, actual)) return;
   if (!can_assign(expected, actual, ctx.module.env)) {
+    if (literal_fits_type(ctx, expected, value)) return;
     report_error(
       ctx,
       CODES.type_mismatch,

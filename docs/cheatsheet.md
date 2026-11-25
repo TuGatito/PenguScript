@@ -3242,6 +3242,32 @@ PenguScript has one cast operator with two checking modes, plus two checked conv
 
 The rule is simple: **safe casts are `as`; dangerous casts are the same `as` inside `unsafe`; anything that may fail at runtime uses `try_from` or `from`.** There is no `unsafe as` keyword.
 
+### Literals take the expected type
+
+A literal is not a value of one fixed type: it adapts to where it is used, as
+long as its value fits. That keeps C bindings readable.
+
+```coffee
+color = Color(255, 0, 0, 255)     -- fields are uint8_t: no ::from needed
+half  = Fade(color, 0.5)          -- 0.5 is a double literal, the parameter is float
+estado = SetWindowState(FLAG)     -- const FLAG: int = 0x40, parameter uint32_t
+```
+
+```c++
+Color color = Color{255, 0, 0, 255};
+Color half  = Fade(color, 0.5);
+SetWindowState(FLAG);
+```
+
+The rule covers **integer literals** (they fit any integer type whose range
+contains the value), **decimal literals** (they fit `float`, `double` and
+`long double`) and **`const` values whose value is known at compile time**.
+
+A `mut` variable, a parameter or any value computed at run time is **not** a
+literal: `pinta(n)` with `n: int` still needs `uint32_t::from(n)`. Out-of-range
+literals (`Color(256, …)`) and negative literals passed to an unsigned type
+are errors.
+
 ### Safe casts — `as`
 
 `as` is accepted by the compiler only when the conversion is **guaranteed lossless and defined** — no data loss, no UB. Anything else requires an `unsafe` block or function (or a checked helper).

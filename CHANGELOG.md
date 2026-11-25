@@ -4,7 +4,24 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
-### Bindings C: cimientos del FFI (F0 de `plan_bindings.md`)
+## Bindings C: coerción de literales (F1 de `plan_bindings.md`)
+
+- Un literal cuyo valor cabe en el destino ya no exige `::from`:
+  `Color(255, 0, 0, 255)` con campos `uint8_t`, `Fade(color, 0.5)` con un
+  parámetro `float` y `SetWindowState(FLAG)` con `const FLAG: int = 0x40`
+  pasan a un parámetro `uint32_t`. Vale para literales enteros, decimales y
+  constantes evaluables.
+- Se rechazan los valores que no caben (`Color(256, …)`, `-1` a unsigned) y
+  las variables siguen necesitando la conversión explícita.
+- El checker gana `src/semantic/literal_fit.ts` (`integer_value_of`,
+  `literal_fits_type`), usado por argumentos (funciones, métodos y
+  constructores de runes) y por las inicializaciones tipadas.
+- Regresiones: `tests/checker/literals.test.ts` (9 casos) y
+  `tests/bindgen/raylib_literals.test.ts` contra la raylib instalada
+  (`Color`, `Fade`, `GetRandomValue`); el fixture de F0 ya no usa `::from`.
+- Documentado en `docs/cheatsheet.md` («Literals take the expected type»).
+
+## Bindings C: cimientos del FFI (F0 de `plan_bindings.md`)
 
 - **Un `extern "C"` que devuelve `string` ya compila.** El prototipo se emite
   como `const char*` y la conversión ocurre en el punto de llamada

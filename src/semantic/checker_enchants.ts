@@ -230,7 +230,7 @@ function validate_arguments(
     if (expected === undefined) return;
     const value = arg.spread ? sequence_element_of(actual.type) : actual.type;
     if (value === undefined) return;
-    check_argument_value(ctx, expected, value, index, name, arg.expr.span);
+    check_argument_value(ctx, expected, value, index, name, arg.expr.span, arg.expr);
   });
 }
 

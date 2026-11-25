@@ -24,6 +24,7 @@ import {
   float_rank,
   UNKNOWN,
 } from "./types.ts";
+import { literal_fits_type } from "./literal_fit.ts";
 import type { IntegerShape } from "./types.ts";
 import type { ExternalImports } from "./external.ts";
 import type { LocalSymbol } from "./symbols.ts";
@@ -386,7 +387,7 @@ export function check_initialization(
   if (expected.kind === "function") check_first_class_value(ctx, value);
   if (compound_fits(ctx, expected, value, actual)) return;
   if (can_assign(expected, actual, ctx.module.env)) return;
-  if (literal_fits(expected, actual, value)) return;
+  if (literal_fits(ctx, expected, value)) return;
   report_type_mismatch(ctx, expected, actual, span, context);
 }
 
@@ -426,29 +427,6 @@ function compound_fits(
 }
 
 // Un literal entero se ajusta al tipo declarado si su valor cabe.
-function literal_fits(expected: PenguType, actual: PenguType, value: ExprNode | undefined): boolean {
-  if (value === undefined) return false;
-  if (value.kind === "int_lit" && actual.kind === "primitive" && actual.name === "int") {
-    const shape = integer_shape(expected);
-    if (shape === undefined) return false;
-    return literal_in_range(value.value, shape);
-  }
-  if (value.kind === "float_lit" && actual.kind === "primitive" && actual.name === "double") {
-    return float_rank(expected) !== undefined;
-  }
-  return false;
-}
-
-function literal_in_range(text: string, shape: IntegerShape): boolean {
-  let number: bigint;
-  try {
-    number = BigInt(text);
-  } catch {
-    return false;
-  }
-  if (!shape.signed) {
-    return number >= 0n && number < 1n << BigInt(shape.bits);
-  }
-  const limit = 1n << BigInt(shape.bits - 1);
-  return number >= -limit && number < limit;
+function literal_fits(ctx: CheckContext, expected: PenguType, value: ExprNode | undefined): boolean {
+  return literal_fits_type(ctx, expected, value);
 }
