@@ -17,6 +17,11 @@ export interface CommandResult {
   readonly output: string;
 }
 
+// ¿La salida va a un `--out` explícito (no a la caché)?
+function options_out(args: ParsedArgs): boolean {
+  return flag_string(args, "out") !== undefined;
+}
+
 export function run_build(args: ParsedArgs): CommandResult {
   const file = default_entry(args.positionals);
   const out = flag_string(args, "out");
@@ -42,8 +47,13 @@ export function run_build(args: ParsedArgs): CommandResult {
   }
 
   if (choice.target === "js") {
-    const entry = result.js_entry_path ?? result.output_dir ?? "";
-    return { exit_code: 0, output: `✓ ${file} compilado a JavaScript en ${entry}` };
+    const dir = result.output_dir ?? "";
+    const count = result.files?.length ?? 0;
+    const generated = `✓ ${count} módulo(s) generados en ${dir}`;
+    const cached = options_out(args) ? `✓ ${file} sin cambios en ${dir}` : `✓ ${file} sin cambios (caché)`;
+    const message = result.reused === true ? cached : generated;
+    const entry = result.js_entry_path;
+    return { exit_code: 0, output: entry === undefined ? message : `${message}\n  entrada: ${entry}` };
   }
 
   let message = result.reused === true ? `✓ ${file} sin cambios (caché)` : `✓ ${file} compilado`;

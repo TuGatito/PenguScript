@@ -6,6 +6,7 @@
 // un error de zona muerta temporal).
 
 import type { FunctionDecl } from "../frontend/ast_decl.ts";
+import type { FunctionInfo } from "../semantic/module_info.ts";
 import type { ProgramUnit } from "./cpp_module.ts";
 import {
   declare_local,
@@ -17,8 +18,15 @@ import {
   type JsContext,
 } from "./js_context.ts";
 import { free_operator_name, js_identifier } from "./js_names.ts";
+import { emit_jsdoc, type DocParam } from "./js_doc.ts";
 import { future_inner } from "../semantic/types.ts";
 import { capture_lines, emit_expr, emit_value_block } from "./js_expr.ts";
+
+// Parámetros documentables de una función ya analizada.
+export function doc_params(info: FunctionInfo | undefined): DocParam[] {
+  if (info === undefined) return [];
+  return info.params.map((param) => ({ name: param.name, type: param.type }));
+}
 
 // Cuerpo de una función de PenguScript. Los genéricos no se emiten: en JS los
 // tipos no existen y las funciones son polimórficas por naturaleza.
@@ -47,6 +55,10 @@ export function emit_function(g: JsContext, unit: ProgramUnit, decl: FunctionDec
     push_scope(g);
     for (const param of decl.params) declare_local(g, param.name);
     return capture_lines(g, () => {
+      emit_jsdoc(g, {
+        params: doc_params(info),
+        result: info === undefined ? undefined : future_inner(info.result) ?? info.result,
+      });
       line(g, `export ${decl.is_async ? "async " : ""}function ${name}(${params.join(", ")}) {`);
       g.indent += 1;
       emit_value_block(g, decl.body, result);

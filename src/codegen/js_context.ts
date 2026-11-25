@@ -54,6 +54,7 @@ export interface JsContext {
   readonly sink: DiagnosticSink;
   readonly types: ReadonlyMap<ExprNode, PenguType>;
   readonly mode: Int64Mode;
+  readonly jsdoc: boolean;
   // Realm → unidad analizada (todas las del programa, entrada incluida).
   readonly units: ReadonlyMap<string, ProgramUnit>;
   // Realm → archivo.
@@ -93,6 +94,8 @@ export interface JsContext {
 
 export interface JsContextOptions {
   readonly mode?: Int64Mode;
+  // Comentarios JSDoc en el código generado (`--jsdoc`).
+  readonly jsdoc?: boolean;
   readonly units?: ReadonlyMap<string, ProgramUnit>;
   readonly class_runes?: ReadonlySet<string>;
   readonly destructor_runes?: ReadonlySet<string>;
@@ -109,6 +112,7 @@ export function make_js_context(
     sink,
     types: unit.types,
     mode: options.mode ?? DEFAULT_INT64_MODE,
+    jsdoc: options.jsdoc === true,
     units: options.units ?? new Map([[unit.module.realm, unit]]),
     files: new Map([[unit.module.realm, root]]),
     file: root,

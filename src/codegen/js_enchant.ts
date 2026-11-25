@@ -25,6 +25,7 @@ import {
   pop_scope,
   push_scope,
   realm_of_type,
+  quiet_type_node,
   with_fresh_locals,
   runtime_name,
   symbol_name_in,
@@ -33,6 +34,7 @@ import {
 } from "./js_context.ts";
 import { capture_lines, emit_expr, emit_value_block } from "./js_expr.ts";
 import { js_identifier } from "./js_names.ts";
+import { emit_jsdoc } from "./js_doc.ts";
 import { operator_method_name } from "./js_type_decl.ts";
 
 // Enhechizamientos declarados en un módulo (los `enchanting` del archivo).
@@ -234,6 +236,14 @@ function emit_enchanting(
   g.await_depth = method.is_async ? saved_async + 1 : 0;
   return capture_lines(g, () => {
     const signature = params.length === 0 ? "self" : `self, ${params.join(", ")}`;
+    emit_jsdoc(g, {
+      summary: `${base}.${method.name} — método de enchanting.`,
+      params: method.params.map((param) => ({
+        name: param.name,
+        type: param.type === undefined ? UNKNOWN : quiet_type_node(g, param.type),
+      })),
+      result: method.result === undefined ? result : doc_result(g, method, result),
+    });
     line(g, `export ${method.is_async ? "async " : ""}function ${exported}(${signature}) {`);
     g.indent += 1;
     emit_value_block(g, method.body, result);
@@ -252,6 +262,14 @@ function emit_enchanting(
 // `enchanting` genérico el checker ya validó el tipo y resolverlo aquí con el
 // entorno del módulo puede emitir diagnósticos espurios (`set<T>` con `T` sin
 // `<=>`). Solo interesa distinguir `void` de «produce valor».
+// Para documentar, se intenta resolver el tipo declarado; si no, el del
+// emisor (los genéricos del propio método quedan como `any`).
+function doc_result(g: JsContext, method: MethodDecl, fallback: PenguType | undefined): PenguType | undefined {
+  if (method.result === undefined) return fallback;
+  const resolved = quiet_type_node(g, method.result);
+  return resolved.kind === "any" ? fallback : resolved;
+}
+
 function quiet_result(method: MethodDecl): PenguType | undefined {
   const node = method.result;
   if (node === undefined) return undefined;

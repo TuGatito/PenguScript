@@ -26,7 +26,10 @@ export function compile_js_file(path: string, options: CompileOptions = {}): Com
   }
 
   const mode = options.int64 ?? DEFAULT_INT64_MODE;
-  const program = generate_js_program(analysis.units, entry, sink, { mode });
+  const program = generate_js_program(analysis.units, entry, sink, {
+    mode,
+    jsdoc: options.jsdoc === true,
+  });
   if (sink.has_errors()) {
     return { ok: false, target: "js", diagnostics: sink.diagnostics, output: "", source_path };
   }

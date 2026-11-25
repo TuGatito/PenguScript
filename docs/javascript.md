@@ -1,0 +1,80 @@
+# Backend JavaScript (`--target js`)
+
+PenguScript compila a C++20 por defecto. Con `--target js` el mismo programa se
+emite como **módulos ES2022** (`.mjs`) que se pueden importar desde cualquier
+proyecto de Bun, Node.js o el navegador:
+
+```bash
+pengu build --target js examples/01_hello/main.pengu
+pengu run --target js examples/01_hello/main.pengu
+pengu build --target js --out dist examples/01_hello/main.pengu
+```
+
+La salida es un `.mjs` por `realm`, un `pengu_rt.mjs` con el runtime mínimo y un
+`index.mjs` que arranca el programa. Solo se emiten los símbolos alcanzables
+desde `main`, así que el resultado se lee como código escrito a mano.
+
+## Forma del código emitido
+
+- Un `rune` sin comportamiento (sin `constructor`, `destructor`, `heir` ni
+  `enchanting`) es una **fábrica de objetos planos**:
+
+  ```js
+  export function Punto(x, y) {
+    return { x, y };
+  }
+  ```
+
+  Es estructuralmente una `interface` y se serializa directo con
+  `JSON.stringify`.
+
+- Un `rune` con comportamiento es una **clase ES2022** con `extends`, `super`,
+  `this` y `_clone()` para las copias por valor.
+- `omen` unitarias y `flags` son objetos congelados de enteros (`Color.Red`);
+  las algebraicas son `{ tag, _0, … }` creadas por funciones congeladas.
+- `seal` y `echo` desaparecen en runtime (cuestan cero).
+- Las funciones de `enchanting` son funciones libres con *name mangling*
+  (`string__to_upper`, `abs__int8_t`), nunca parches de `prototype`.
+
+## Semántica que se conserva
+
+- **Valor vs. referencia**: asignar un `rune` o un contenedor sin `ref<T>`
+  copia (`rt.clone`), igual que el backend C++.
+- **Enteros**: `int64_t` y `uint64_t` usan `BigInt` (con `--int64 number` para
+  IEEE 754, más rápido y con pérdida por encima de 2⁵³); la división entera es
+  `Math.trunc(a / b)`.
+- **Formato de dobles**: `echo`/`println` de un `double` reproduce el `%g` de
+  C++ (6 cifras significativas), no el `Number#toString` de JavaScript.
+- **`match` exhaustivo**: un `match` sin variante que coincida termina con
+  `rt.panic("match sin variante")`, como el `::pengu::panic` de C++.
+- **`async`/`await`**: `future<T>` se emite como `Promise<T>`; las IIFEs que
+  contienen un `await` se vuelven `await (async () => { … })()`.
+
+## Diferencias conocidas frente a C++20
+
+| Tema | C++20 | JavaScript |
+|------|-------|------------|
+| `#texto` | bytes UTF-8 | unidades UTF-16 |
+| Iteración de `map`/`set` | ordenada | orden de inserción |
+| `int64_t` | exacto | `BigInt` (o `number` con `--int64 number`) |
+| `os::arch()` | `x86_64`, `aarch64` | se traduce desde Node |
+| `random` | `std::mt19937_64` | xorshift128+ |
+| `async`/`await` | E0804 (no soportado) | `Promise` |
+| `size`, `bindgen`, FFI, `thread`, `meld` | sí | no (solo `--target cpp`) |
+
+Las diferencias están cubiertas por `tests/e2e/js_parity.test.ts` y
+`tests/e2e/js_std_parity.test.ts`, que compilan el mismo fuente con los dos
+backends y comparan la salida byte a byte.
+
+## Opciones
+
+| Opción | Efecto |
+|--------|--------|
+| `--target cpp\|js` | backend (por defecto `cpp`) |
+| `--out <ruta>` | directorio de salida de los `.mjs` |
+| `--int64 bigint\|number` | representación de los enteros de 64 bits |
+| `--jsdoc` | añade `@param`/`@returns` a las funciones emitidas |
+| `--release` | modo de optimización del backend C++ |
+
+Con `--target js`, `pengu size` y `pengu bindgen` responden con un error claro:
+dependen del modelo de memoria de C++.

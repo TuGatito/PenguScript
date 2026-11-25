@@ -26,7 +26,8 @@ describe("build --target js", () => {
   test("emite un punto de entrada ejecutable", () => {
     const file = project(HELLO);
     const result = run_build(parse_args(["build", file, "--target", "js"]));
-    expect(result.output).toContain("compilado a JavaScript en");
+    expect(result.output).toContain("módulo(s) generados en");
+    expect(result.output).toContain("entrada:");
     expect(result.exit_code).toBe(0);
   });
 

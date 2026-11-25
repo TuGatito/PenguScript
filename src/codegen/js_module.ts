@@ -39,6 +39,8 @@ export interface JsProgram {
 export interface JsProgramOptions {
   readonly mode?: Int64Mode;
   readonly include_runtime?: boolean;
+  // Comentarios JSDoc en el código emitido (`--jsdoc`).
+  readonly jsdoc?: boolean;
 }
 
 // Emite el programa completo. `units` son las unidades analizadas (la entrada
@@ -53,6 +55,7 @@ export function generate_js_program(
   for (const unit of units) by_realm.set(unit.module.realm, unit);
   const g = make_js_context(entry, sink, {
     mode: options.mode ?? DEFAULT_INT64_MODE,
+    jsdoc: options.jsdoc === true,
     units: by_realm,
     class_runes: collect_class_runes([...by_realm.values()]),
   });

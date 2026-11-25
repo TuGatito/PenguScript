@@ -4,6 +4,25 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+## Backend JavaScript: CLI, caché y documentación (P6 de `plan_codegen_js.md`)
+
+- **`--out` es el directorio de salida** del backend JavaScript y la emisión
+  escribe **solo si el contenido cambia**: recompilar un proyecto sin cambios
+  no toca fechas de modificación. El mensaje lo dice: `✓ <n> módulo(s)
+  generados en <dir>` la primera vez, `sin cambios (caché)` o `sin cambios en
+  <dir>` después, más la ruta del `index.mjs`.
+- **`--jsdoc`**: comentarios `@param`/`@returns` derivados de los tipos que ya
+  resolvió el checker, para funciones, runes y sus campos
+  (`src/codegen/js_doc.ts`). Sin la opción no se escribe una línea extra.
+- **Constructores más limpios**: si el cuerpo del constructor ya asigna `@x`,
+  el emisor no repite la asignación implícita campo←parámetro.
+- **Documentación**: nueva página [`docs/javascript.md`](docs/javascript.md) con
+  la forma del código emitido, la semántica que se conserva, la tabla de
+  diferencias con C++20 y todas las opciones; enlazada desde el `README`.
+- **Pruebas**: la suite corre con `--timeout 30000` (`bun run test`) y los
+  tests de paridad declaran su propio límite, porque compilar C++ y ejecutar
+  `node` en paralelo supera el valor por defecto de 5 s.
+
 ## Lenguaje y backend JavaScript: `async`/`await` (P5 de `plan_codegen_js.md`)
 
 - **`async`/`await` en el lenguaje**: `async` puede preceder a una función, a

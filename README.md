@@ -281,6 +281,7 @@ necesita el objeto de raygui con `-DRAYGUI_IMPLEMENTATION`.
 - [`docs/stdlib_api.md`](docs/stdlib_api.md): referencia generada desde el código (firmas exactas).
 - [`docs/ffi.md`](docs/ffi.md): enlaces con C, ABI, `.d.pengu` y `pengu bindgen`.
 - [`docs/lsp.md`](docs/lsp.md): capacidades del servidor LSP y ajustes de la extensión.
+- [`docs/javascript.md`](docs/javascript.md): backend JavaScript (`--target js`), forma del código emitido y diferencias con C++20.
 - `docs/errors.md`: catálogo de códigos de diagnóstico.
 - [`scratch/plan_typescript.md`](scratch/plan_typescript.md): plan por fases.
 - [`scratch/plan_extension_vscode.md`](scratch/plan_extension_vscode.md): auditoría y fases de la extensión.

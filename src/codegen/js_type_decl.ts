@@ -9,10 +9,11 @@
 // `seal` y `echo` no existen en runtime: se borran y sus constructores se
 // resuelven en el punto de uso.
 
+import type { Block } from "../frontend/ast_stmt.ts";
 import type { DeclNode, MethodDecl, OmenDecl, RuneDecl } from "../frontend/ast_decl.ts";
 import type { ExprNode } from "../frontend/ast_expr.ts";
 import type { PenguType } from "../semantic/types.ts";
-import { future_inner } from "../semantic/types.ts";
+import { UNKNOWN, future_inner } from "../semantic/types.ts";
 import { omen_methods_of } from "../semantic/module_info.ts";
 import type { ProgramUnit } from "./cpp_module.ts";
 import { is_type_decl, order_type_decls } from "./cpp_type_order.ts";
@@ -22,11 +23,13 @@ import {
   line,
   pop_scope,
   push_scope,
+  quiet_type_node,
   with_fresh_locals,
   symbol_name,
   type JsContext,
 } from "./js_context.ts";
 import { js_identifier } from "./js_names.ts";
+import { emit_jsdoc } from "./js_doc.ts";
 import { emit_expr, emit_value_block } from "./js_expr.ts";
 import { emit_statement } from "./js_stmt.ts";
 
@@ -108,11 +111,33 @@ function emit_rune(g: JsContext, unit: ProgramUnit, decl: RuneDecl): void {
     return `${param} = ${emit_expr(g, field.default_value)}`;
   });
   const fields = decl.fields.map((field) => js_identifier(field.name));
+  emit_jsdoc(g, { summary: `${decl.name} — rune de PenguScript.`, params: field_params(unit, decl) });
   line(g, `export function ${name}(${params.join(", ")}) {`);
   g.indent += 1;
   line(g, `return { ${fields.join(", ")} };`);
   g.indent -= 1;
   line(g, "}");
+}
+
+// Campos que el cuerpo del constructor asigna directamente (`@campo = …`).
+function assigned_fields(body: Block): Set<string> {
+  const names = new Set<string>();
+  for (const statement of body.statements) {
+    if (statement.kind !== "assign" || statement.op !== "=") continue;
+    for (const target of statement.targets) {
+      if (target.kind === "member" && target.object.kind === "self") names.add(target.name);
+    }
+  }
+  return names;
+}
+
+// Campos documentables de un rune (para `--jsdoc`).
+function field_params(unit: ProgramUnit, decl: RuneDecl) {
+  const info = unit.module.env.runes.get(decl.name);
+  return decl.fields.map((field) => ({
+    name: field.name,
+    type: info?.fields.get(field.name)?.type ?? UNKNOWN,
+  }));
 }
 
 // `rune` con comportamiento → clase ES2022.
@@ -121,6 +146,7 @@ function emit_rune_class(g: JsContext, unit: ProgramUnit, decl: RuneDecl): void 
   const name = symbol_name(g, decl.name);
   const parent = info?.parent === undefined ? undefined : symbol_name(g, info.parent);
   const heritage = parent === undefined ? "" : ` extends ${parent}`;
+  emit_jsdoc(g, { summary: `${decl.name} — rune de PenguScript con comportamiento.` });
   line(g, `export class ${name}${heritage} {`);
   g.indent += 1;
 
@@ -172,6 +198,9 @@ function emit_constructor(g: JsContext, decl: RuneDecl, has_parent: boolean): vo
 
   const field_names = new Set(decl.fields.map((field) => field.name));
   const param_names = new Set(constructor.params.map((param) => param.name));
+  // Campos que el cuerpo del constructor ya asigna (`@x = x`): repetirlos
+  // aquí ensuciaría el JavaScript sin cambiar el resultado.
+  const already = assigned_fields(constructor.body);
   // Los campos con valor por defecto se inicializan antes de las asignaciones
   // del constructor del usuario (§2.5); los que reciben un parámetro del mismo
   // nombre se asignan solos, como en C++ (lista de inicialización).
@@ -181,7 +210,7 @@ function emit_constructor(g: JsContext, decl: RuneDecl, has_parent: boolean): vo
     line(g, `this.${js_identifier(field.name)} = ${masked(field, value)};`);
   }
   for (const param of constructor.params) {
-    if (!field_names.has(param.name)) continue;
+    if (!field_names.has(param.name) || already.has(param.name)) continue;
     const name = js_identifier(param.name);
     const field = decl.fields.find((candidate) => candidate.name === param.name);
     const value = field === undefined ? name : masked(field, name);
@@ -270,6 +299,13 @@ function emit_rune_method(
   g.self_expression = "self";
   g.return_type = result;
   g.await_depth = method.is_async ? saved_async + 1 : 0;
+  emit_jsdoc(g, {
+    params: method.params.map((param) => ({
+      name: param.name,
+      type: param.type === undefined ? UNKNOWN : quiet_type_node(g, param.type),
+    })),
+    result,
+  });
   const text = with_fresh_locals(g, () => {
     push_scope(g);
     declare_local(g, "self");
@@ -426,6 +462,13 @@ function emit_free_method(
   const saved_return = g.return_type;
   g.self_expression = "self";
   g.return_type = result;
+  emit_jsdoc(g, {
+    params: method.params.map((param) => ({
+      name: param.name,
+      type: param.type === undefined ? UNKNOWN : quiet_type_node(g, param.type),
+    })),
+    result,
+  });
   line(g, `export function ${exported}(self${params.length === 0 ? "" : `, ${params.join(", ")}`}) {`);
   g.indent += 1;
   emit_value_block(g, method.body, result);
