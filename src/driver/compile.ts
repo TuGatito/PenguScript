@@ -1,8 +1,12 @@
-// Driver de compilación: fuente PenguScript → C++20 → ejecutable.
+// Driver de compilación. Dos backends tras el mismo análisis:
 //
-// Cada compilación vive en `.pengu-cache/<hash>/`, junto a la cabecera
-// del runtime. La caché es deliberadamente simple (sin manifiesto de
-// dependencias todavía): el hash incluye ruta y contenido.
+// - `cpp` (por defecto): fuente → C++20 → ejecutable nativo, en
+//   `.pengu-cache/<hash>/` junto a la cabecera del runtime.
+// - `js`: fuente → módulos ESM, en `.pengu-cache/js-<hash>/` o en `--out`
+//   (ver `compile_js.ts`).
+//
+// La caché es deliberadamente simple (sin manifiesto de dependencias todavía):
+// el hash incluye ruta y contenido.
 
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";

@@ -4,6 +4,57 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+## Backend JavaScript: emisión ESM (P1 de `plan_codegen_js.md`)
+
+- **`pengu build --target js` emite código de verdad**: un archivo `.mjs` por
+  `realm` más `pengu_rt.mjs` (runtime) e `index.mjs` (lanzador) en
+  `.pengu-cache/js-<hash>/` o en el directorio de `--out`. `pengu run --target
+  js` lo ejecuta con `bun` o `node`.
+- **Emisión perezosa por alcanzabilidad**: como JavaScript no tiene enlazador,
+  solo se emite lo que el programa usa. Se arranca en `main` y cada referencia
+  (función o constante del mismo realm, `realm::simbolo`, import selectivo)
+  emite el símbolo en su archivo si aún no existe. Así `01_hello` no arrastra
+  todo `std/string`.
+- **Un módulo ESM por realm, con su API exportada**: cada archivo exporta sus
+  funciones y constantes (`export function`, `export const`), de modo que
+  cualquier otro realm puede importarlas con `import { x } from "./realm.mjs"`.
+- **Módulos nuevos**: `codegen/js_module.ts` (programa, archivos, cabeceras de
+  `import`, lanzador), `js_decl.ts` (funciones y constantes), `js_stmt.ts`
+  (asignaciones y sentencias), `js_expr.ts` (expresiones, control como
+  expresión, `capture_lines`), `js_expr_call.ts` (llamadas, argumentos,
+  variádicos), `builtins_emit_js.ts` (intrínsecos `realm::nombre` → `rt.*`) y
+  `runtime_source_js.ts` (`pengu_rt.mjs`). `js_context.ts` gana `units`,
+  `emitted`, `started`, `current_unit`, `resolve_realm`, `cross_reference` y
+  símbolos por archivo con alias.
+- **Semántica numérica**: literales `int64_t`/`uint64_t` como `BigInt` (`123n`)
+  y conversiones explícitas con `BigInt()`/`Number()`; división entera con
+  `Math.trunc`; normalización `|0`/`>>>0` por ancho; comparaciones estrictas
+  (`===`) salvo que haya `BigInt`; formato de dobles idéntico a
+  `std::ostringstream` (`%g`, 6 dígitos significativos) en `rt.fmt_float`.
+- **Expresiones y control**: `if` como ternario o IIFE según las ramas; `for`,
+  `while`, `repeat` y `switch` como sentencias; `break`/`continue`/`return`
+  dentro de bucles; interpolación `#{...}` como plantilla con `rt.show` (los
+  `string` se insertan sin comillas); parámetros con valor por defecto,
+  variádicos y lambdas.
+- **Runtime JS mínimo** (`pengu_rt.mjs`): `fmt_float`, `show`, `box`,
+  `Ordering`, `range`, `len`, `vec_at`, `map_at`, `pop_back_checked`,
+  `contains`, `panic`, `assert_that`/`assert_fail`, `or_panic`, `set_args`,
+  `write_values`/`eprint_values`/`format_values` y `flush`/`is_terminal`.
+- **Bugs reparados por el camino**: las constantes de un realm se emitían con
+  la indentación del punto de llamada (ahora se capturan a cero); los tipos se
+  consultaban en el mapa de la unidad de entrada en vez de la unidad que se
+  emitía (`doble` devolvía `0`); una función emitida desde dentro de otra se
+  intercalaba en su cuerpo (`SyntaxError: Unexpected token 'export'`); los
+  parámetros variádicos no entraban en el ámbito; `rt` se usaba sin `import`
+  dentro de `capture_lines`; un `main` sin tipo de retorno recibía un `return
+  null` sintético. Además, `EPIPE` al canalizar la salida ya no imprime un
+  volcado de pila.
+- **Tests nuevos**: `tests/e2e/js_parity.test.ts` compila el mismo programa con
+  los dos backends y compara la salida byte a byte (`01_hello`,
+  `02_variables`, `04_functions`, `08_modules` y un caso de enteros, división y
+  formato de dobles); `tests/cli/js_target.test.ts` reescrito para P1 (módulos
+  generados, `--out`, reutilización, diagnóstico compartido).
+
 ## Backend JavaScript: andamiaje (P0 de `plan_codegen_js.md`)
 
 - **`--target <cpp|js>`** en `build`, `run` y `check` (por defecto `cpp`, así

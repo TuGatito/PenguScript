@@ -1,10 +1,13 @@
 // Estado compartido por el emisor de JavaScript.
 //
-// A diferencia del backend C++, un programa no produce un archivo sino
-// **uno por realm** (§12.1 #3). El contexto guarda el mapa de archivos y
-// apunta al que se está emitiendo; los imports se acumulan en cada archivo
-// y se escriben al final (cabecera diferida), así que el orden de emisión
-// no importa.
+// A diferencia del backend C++, un programa no produce un archivo sino **uno
+// por realm** (§12.1 #3). Además, JS no tiene enlazador: solo se emite lo que
+// el programa puede llegar a usar, así que el contexto guarda qué símbolos ya
+// se emitieron (`emitted`) y resuelve las referencias entre realms como
+// `import` con alias local (`cross_reference`).
+//
+// Los imports se acumulan por archivo y la cabecera se escribe al final
+// (cabecera diferida): el orden de emisión no importa.
 
 import type { ExprNode } from "../frontend/ast_expr.ts";
 import type { DiagnosticSink } from "../diagnostics/sink.ts";
@@ -16,16 +19,32 @@ import { UNKNOWN } from "../semantic/types.ts";
 import type { Span } from "../util/span.ts";
 import type { Int64Mode } from "./js_types.ts";
 import { DEFAULT_INT64_MODE } from "./js_types.ts";
-import { RESERVED_FILE_NAMES, js_file_name, js_identifier, js_unique_file_name } from "./js_names.ts";
+import {
+  RESERVED_FILE_NAMES,
+  js_alias,
+  js_file_name,
+  js_identifier,
+  js_unique_file_name,
+} from "./js_names.ts";
 
 // Un archivo `.mjs` del programa generado.
 export interface JsFile {
   readonly realm: string;
   readonly name: string;
+  // Constantes del realm, en orden de dependencias (sin cabecera).
   readonly lines: string[];
-  // Archivo del que se importa → nombres importados (export y alias local
-  // coinciden siempre: el alias se decide aquí una sola vez).
-  readonly imports: Map<string, Set<string>>;
+  // Funciones ya completas. Van en bloques aparte para que emitir una
+  // función desde dentro de otra no la parta por la mitad: el orden textual
+  // del archivo nunca depende del orden de descubrimiento.
+  readonly functions: string[];
+  // Símbolo de PenguScript → nombre local en este archivo.
+  readonly symbols: Map<string, string>;
+  // Realm de origen → nombre exportado → alias local.
+  readonly imports: Map<string, Map<string, string>>;
+  // Nombres ocupados en este archivo (símbolos, alias e `rt`).
+  readonly taken: Set<string>;
+  // El módulo usa el runtime (`import * as rt from "./pengu_rt.mjs"`).
+  uses_rt: boolean;
 }
 
 export interface JsContext {
@@ -33,9 +52,15 @@ export interface JsContext {
   readonly sink: DiagnosticSink;
   readonly types: ReadonlyMap<ExprNode, PenguType>;
   readonly mode: Int64Mode;
+  // Realm → unidad analizada (todas las del programa, entrada incluida).
+  readonly units: ReadonlyMap<string, ProgramUnit>;
   // Realm → archivo.
   readonly files: Map<string, JsFile>;
   file: JsFile;
+  // Claves `${realm}\0${kind}\0${name}` ya emitidas o en curso.
+  readonly emitted: Set<string>;
+  // Realms cuyo cuerpo de constantes ya se volcó.
+  readonly started: Set<string>;
   readonly scopes: string[][];
   indent: number;
   temp: number;
@@ -45,6 +70,8 @@ export interface JsContext {
   readonly break_values: string[];
   // Verdadero mientras se emite el cuerpo de una función con resultado.
   in_value_body: boolean;
+  // Tipo de retorno de la función que se emite (para `return` y literales).
+  return_type: PenguType | undefined;
   // Expresión que representa `@` en el cuerpo actual (`undefined` → none).
   self_expression: string | undefined;
   // Runas que se emiten como `class` (calculado sobre todo el programa).
@@ -55,6 +82,7 @@ export interface JsContext {
 
 export interface JsContextOptions {
   readonly mode?: Int64Mode;
+  readonly units?: ReadonlyMap<string, ProgramUnit>;
   readonly class_runes?: ReadonlySet<string>;
   readonly destructor_runes?: ReadonlySet<string>;
 }
@@ -64,28 +92,41 @@ export function make_js_context(
   sink: DiagnosticSink,
   options: JsContextOptions = {},
 ): JsContext {
-  const root: JsFile = {
-    realm: unit.module.realm,
-    name: js_unique_file_name(js_file_name(unit.module.realm), RESERVED_FILE_NAMES),
-    lines: [],
-    imports: new Map(),
-  };
+  const root = make_js_file(unit.module.realm, new Set());
   return {
     unit,
     sink,
     types: unit.types,
     mode: options.mode ?? DEFAULT_INT64_MODE,
+    units: options.units ?? new Map([[unit.module.realm, unit]]),
     files: new Map([[unit.module.realm, root]]),
     file: root,
+    emitted: new Set(),
+    started: new Set(),
     scopes: [[]],
     indent: 0,
     temp: 0,
     break_flags: [],
     break_values: [],
     in_value_body: false,
+    return_type: undefined,
     self_expression: undefined,
     class_runes: options.class_runes ?? new Set(),
     destructor_runes: options.destructor_runes ?? new Set(),
+  };
+}
+
+function make_js_file(realm: string, taken: ReadonlySet<string>): JsFile {
+  const names = new Set([...RESERVED_FILE_NAMES, ...taken]);
+  return {
+    realm,
+    name: js_unique_file_name(js_file_name(realm), names),
+    lines: [],
+    functions: [],
+    symbols: new Map(),
+    imports: new Map(),
+    taken: new Set(["rt"]),
+    uses_rt: false,
   };
 }
 
@@ -94,11 +135,8 @@ export function make_js_context(
 export function file_for(g: JsContext, realm: string): JsFile {
   const existing = g.files.get(realm);
   if (existing !== undefined) return existing;
-  const taken = new Set([...RESERVED_FILE_NAMES, ...g.files.values()].map((file) =>
-    typeof file === "string" ? file : file.name,
-  ));
-  const name = js_unique_file_name(js_file_name(realm), taken);
-  const file: JsFile = { realm, name, lines: [], imports: new Map() };
+  const taken = new Set([...RESERVED_FILE_NAMES, ...[...g.files.values()].map((file) => file.name)]);
+  const file = make_js_file(realm, taken);
   g.files.set(realm, file);
   return file;
 }
@@ -115,11 +153,50 @@ export function with_file(g: JsContext, realm: string, body: () => void): void {
   }
 }
 
-// Añade un nombre a la lista de imports del archivo activo.
-export function add_import(g: JsContext, from: string, name: string): void {
-  const list = g.file.imports.get(from);
-  if (list === undefined) g.file.imports.set(from, new Set([name]));
-  else list.add(name);
+// Nombre local de un símbolo de este archivo, declarándolo si es la primera
+// vez. Dos símbolos que sanean igual (`class` y `class_`) no colisionan.
+export function symbol_name(g: JsContext, name: string): string {
+  const existing = g.file.symbols.get(name);
+  if (existing !== undefined) return existing;
+  const local = js_alias(js_identifier(name), g.file.taken);
+  g.file.symbols.set(name, local);
+  g.file.taken.add(local);
+  return local;
+}
+
+// El runtime del programa (`rt`), añadiendo el import si hace falta.
+export function runtime_name(g: JsContext): string {
+  g.file.uses_rt = true;
+  return "rt";
+}
+
+// Referencia a un símbolo de otro realm (o del propio archivo). Devuelve el
+// nombre con el que se usa en el código emitido.
+export function cross_reference(g: JsContext, realm: string, name: string): string {
+  if (realm === g.file.realm) return symbol_name(g, name);
+  const target = file_for(g, realm);
+  const exported = target.symbols.get(name) ?? symbol_name_in(target, name);
+  const key = `${realm}\u0000${exported}`;
+  const existing = g.file.imports.get(realm)?.get(exported);
+  if (existing !== undefined) return existing;
+  const local = js_alias(exported, g.file.taken);
+  g.file.taken.add(local);
+  const map = g.file.imports.get(realm) ?? new Map<string, string>();
+  map.set(exported, local);
+  g.file.imports.set(realm, map);
+  void key;
+  return local;
+}
+
+// Nombre con el que un archivo exporta un símbolo, sin cambiar el archivo
+// activo. Sirve para importarlo desde otro realm.
+function symbol_name_in(file: JsFile, name: string): string {
+  const existing = file.symbols.get(name);
+  if (existing !== undefined) return existing;
+  const local = js_alias(js_identifier(name), file.taken);
+  file.symbols.set(name, local);
+  file.taken.add(local);
+  return local;
 }
 
 export function js_error(g: JsContext, message: string, span: Span): void {
@@ -163,10 +240,27 @@ export function fresh_name(g: JsContext, prefix: string): string {
   return `_${prefix}${g.temp}`;
 }
 
+// Unidad del archivo que se está emitiendo (no siempre es la de entrada:
+// emitir `io::println` cambia el archivo activo a `io`).
+export function current_unit(g: JsContext): ProgramUnit {
+  return g.units.get(g.file.realm) ?? g.unit;
+}
+
+// Realm de un alias de `invoke`. El alias puede no coincidir con el nombre
+// del realm (`invoke "./numeros" as nums`), así que se consultan los realms
+// externos del módulo actual.
+export function resolve_realm(g: JsContext, alias: string): string | undefined {
+  if (g.units.has(alias)) return alias;
+  const external = current_unit(g).external_realms?.get(alias);
+  return external;
+}
+
+// Las anotaciones de tipos viven en la unidad del archivo que se emite: los
+// nodos de `std/io` no están en el mapa de la unidad de entrada.
 export function type_of(g: JsContext, node: ExprNode): PenguType {
-  return g.types.get(node) ?? UNKNOWN;
+  return current_unit(g).types.get(node) ?? UNKNOWN;
 }
 
 export function expression_type(g: JsContext, node: ExprNode): PenguType {
-  return g.types.get(node) ?? UNKNOWN;
+  return type_of(g, node);
 }

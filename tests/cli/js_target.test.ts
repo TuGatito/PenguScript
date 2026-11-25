@@ -1,9 +1,8 @@
-// P0: el comando `build --target js` todavía no emite código, pero debe
-// analizar el programa (mismos diagnósticos que C++) y decirlo con claridad en
-// vez de fallar con un error de compilador de C++.
+// P1: `--target js` emite módulos ESM ejecutables. Estos tests comprueban el
+// contrato del comando (mensaje, archivos, errores) sin depender de C++.
 
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse_args } from "../../src/cli/args.ts";
@@ -11,7 +10,7 @@ import { run_build } from "../../src/cli/build_command.ts";
 import { compile_file } from "../../src/driver/compile.ts";
 
 function project(source: string): string {
-  const dir = mkdtempSync(join(tmpdir(), "pengu_js0_"));
+  const dir = mkdtempSync(join(tmpdir(), "pengu_js1_"));
   const file = join(dir, "main.pengu");
   writeFileSync(file, source);
   return file;
@@ -23,14 +22,12 @@ main = ->
   io::println("hola")
 `;
 
-describe("build --target js (P0)", () => {
-  test("informa de que el backend aún no emite código", () => {
+describe("build --target js", () => {
+  test("emite un punto de entrada ejecutable", () => {
     const file = project(HELLO);
     const result = run_build(parse_args(["build", file, "--target", "js"]));
-    expect(result.exit_code).toBe(1);
-    expect(result.output).toContain("E0807");
-    expect(result.output).toContain("todavía no emite código");
-    expect(result.output).toContain("--target cpp");
+    expect(result.output).toContain("compilado a JavaScript en");
+    expect(result.exit_code).toBe(0);
   });
 
   test("los errores de tipo se detectan antes de emitir", () => {
@@ -57,13 +54,46 @@ describe("build --target js (P0)", () => {
   });
 });
 
-describe("compile_file con target js (P0)", () => {
-  test("devuelve target js y un diagnóstico E0807", () => {
+describe("compile_file con target js", () => {
+  test("devuelve los módulos generados y el punto de entrada", () => {
     const file = project(HELLO);
     const result = compile_file(file, { target: "js" });
-    expect(result.ok).toBe(false);
+    expect(result.ok).toBe(true);
     expect(result.target).toBe("js");
-    expect(result.diagnostics.map((item) => item.code)).toEqual(["E0807"]);
+    expect(result.js_entry_path).toBeDefined();
+    expect(existsSync(result.js_entry_path ?? "")).toBe(true);
+    const names = (result.files ?? []).map((path) => path.slice(path.lastIndexOf("/") + 1));
+    expect(names).toContain("main.mjs");
+    expect(names).toContain("io.mjs");
+    expect(names).toContain("pengu_rt.mjs");
+    expect(names).toContain("index.mjs");
+  });
+
+  test("el código generado es ESM limpio y cita el realm", () => {
+    const file = project(HELLO);
+    const result = compile_file(file, { target: "js" });
+    const main = (result.files ?? []).find((path) => path.endsWith("/main.mjs"));
+    const code = readFileSync(main ?? "", "utf8");
+    expect(code).toContain("export function main()");
+    expect(code).toContain('from "./io.mjs"');
+    expect(code).not.toContain("require(");
+  });
+
+  test("--out elige el directorio de salida", () => {
+    const file = project(HELLO);
+    const out = join(tmpdir(), `pengu_js_out_${Date.now()}`);
+    const result = compile_file(file, { target: "js", out });
+    expect(result.ok).toBe(true);
+    expect(result.js_entry_path).toBe(join(out, "index.mjs"));
+    expect(existsSync(join(out, "main.mjs"))).toBe(true);
+  });
+
+  test("una segunda compilación reutiliza los archivos si no cambian", () => {
+    const file = project(HELLO);
+    const first = compile_file(file, { target: "js" });
+    const second = compile_file(file, { target: "js" });
+    expect(first.reused).toBe(false);
+    expect(second.reused).toBe(true);
   });
 
   test("sin target sigue compilando con C++ (target por defecto)", () => {
@@ -79,5 +109,26 @@ describe("compile_file con target js (P0)", () => {
     expect(result.ok).toBe(false);
     expect(result.target).toBe("js");
     expect(result.diagnostics.map((item) => item.code)).toEqual(["E0005"]);
+  });
+
+  test("el runtime generado trae las piezas compartidas", () => {
+    const file = project(HELLO);
+    const result = compile_file(file, { target: "js" });
+    const runtime = (result.files ?? []).find((path) => path.endsWith("/pengu_rt.mjs"));
+    const code = readFileSync(runtime ?? "", "utf8");
+    expect(code).toContain("export function fmt_float");
+    expect(code).toContain("Ordering");
+    expect(code).toContain("export function panic");
+  });
+});
+
+describe("punto de entrada", () => {
+  test("importa el módulo del realm y no filtra rutas absolutas", () => {
+    const file = project(HELLO);
+    const result = compile_file(file, { target: "js" });
+    const entry = result.js_entry_path ?? "";
+    const text = readFileSync(entry, "utf8");
+    expect(text).toContain("./main.mjs");
+    expect(text).not.toContain(tmpdir());
   });
 });

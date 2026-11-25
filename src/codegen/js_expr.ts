@@ -1,0 +1,616 @@
+// Expresiones del emisor JavaScript.
+//
+// Reglas de tipos numéricos (paridad con C++): el checker anota los literales
+// como `int`, así que el tipo *esperado* viaja por las funciones de emisión
+// (`expected`) y decide si un entero de 64 bits se escribe `1000n` o `1000`.
+// La división entera se traduce a `Math.trunc(a / b)` porque `/` en JS es
+// siempre flotante.
+
+import type { ExprNode, StringPartNode } from "../frontend/ast_expr.ts";
+import type { Block } from "../frontend/ast_stmt.ts";
+import type { PenguType } from "../semantic/types.ts";
+import { is_float, is_integer, is_string, is_void } from "../semantic/types.ts";
+import { js_default_value, is_bigint_type, js_integer_kind, js_int_normalizer } from "./js_types.ts";
+import {
+  cross_reference,
+  current_unit,
+  expression_type,
+  is_local_declared,
+  js_error,
+  line,
+  pop_scope,
+  push_scope,
+  runtime_name,
+  symbol_name,
+  type JsContext,
+} from "./js_context.ts";
+import { js_identifier, js_string_literal } from "./js_names.ts";
+import { emit_call, emit_path_reference } from "./js_expr_call.ts";
+import { ensure_constant, ensure_function, ensure_realm } from "./js_module.ts";
+import { emit_statement } from "./js_stmt.ts";
+
+type NumKind = "int" | "float" | "bigint";
+
+function num_kind(type: PenguType, g: JsContext): NumKind | undefined {
+  if (is_bigint_type(type, g.mode)) return "bigint";
+  if (is_float(type)) return "float";
+  if (is_integer(type)) return "int";
+  return undefined;
+}
+
+// Convierte un valor numérico al tipo destino (`BigInt`/`Number`), respetando
+// la promoción que C++ hace de forma implícita.
+function coerce(g: JsContext, code: string, from: PenguType, to: PenguType): string {
+  const from_kind = num_kind(from, g);
+  const to_kind = num_kind(to, g);
+  if (from_kind === undefined || to_kind === undefined) return code;
+  if (to_kind === "bigint" && from_kind !== "bigint") {
+    // Un literal ya emitido como `123n` (porque se le pasó el tipo esperado)
+    // no necesita conversión.
+    return /^[+-]?\d+n$/.test(code) ? code : `BigInt(${code})`;
+  }
+  if (to_kind !== "bigint" && from_kind === "bigint") return `Number(${code})`;
+  return code;
+}
+
+export function emit_expr(g: JsContext, node: ExprNode, expected?: PenguType): string {
+  switch (node.kind) {
+    case "int_lit": {
+      const bigint = expected !== undefined && is_bigint_type(expected, g.mode);
+      return bigint ? `${node.value}n` : node.value;
+    }
+    case "float_lit": {
+      return node.value;
+    }
+    case "bool_lit": {
+      return node.value ? "true" : "false";
+    }
+    case "char_lit": {
+      return js_string_literal(node.value);
+    }
+    case "string_lit": {
+      return emit_string_lit(g, node.parts);
+    }
+    case "none_lit":
+    case "nullptr_lit": {
+      return "null";
+    }
+    case "ident": {
+      return emit_ident(g, node.name, node.span);
+    }
+    case "self": {
+      return g.self_expression ?? "this";
+    }
+    case "path": {
+      return emit_path_reference(g, node.segments, node.span);
+    }
+    case "member": {
+      return `${emit_expr(g, node.object)}.${js_identifier(node.name)}`;
+    }
+    case "index": {
+      return emit_index(g, node);
+    }
+    case "call": {
+      return emit_call(g, node, expected);
+    }
+    case "unary": {
+      return emit_unary(g, node);
+    }
+    case "binary": {
+      return emit_binary(g, node);
+    }
+    case "cast": {
+      return emit_cast(g, node);
+    }
+    case "tuple": {
+      return `[${node.items.map((item) => emit_expr(g, item)).join(", ")}]`;
+    }
+    case "vector_lit": {
+      return `[${node.items.map((item) => emit_expr(g, item, expected)).join(", ")}]`;
+    }
+    case "map_lit": {
+      const args = type_args(g, node);
+      const entries = node.entries.map(
+        (entry) => `[${emit_expr(g, entry.key, args[0])}, ${emit_expr(g, entry.value, args[1])}]`,
+      );
+      return `new Map([${entries.join(", ")}])`;
+    }
+    case "set_lit": {
+      const args = type_args(g, node);
+      return `new Set([${node.items.map((item) => emit_expr(g, item, args[0])).join(", ")}])`;
+    }
+    case "range": {
+      runtime_name(g);
+      const start = emit_expr(g, node.start);
+      const end = emit_expr(g, node.end);
+      return `rt.range(${start}, ${end}, ${node.inclusive ? "true" : "false"})`;
+    }
+    case "if": {
+      return emit_if(g, node, expected);
+    }
+    case "do": {
+      return capture_iife(g, () => emit_value_block(g, node.block, expected));
+    }
+    case "unsafe": {
+      return capture_iife(g, () => emit_value_block(g, node.block, expected));
+    }
+    case "lambda": {
+      return emit_lambda(g, node);
+    }
+    default: {
+      js_error(
+        g,
+        `la expresión «${node.kind}» todavía no se emite a JavaScript (fase posterior del plan)`,
+        node.span,
+      );
+      return "undefined";
+    }
+  }
+}
+
+function type_args(g: JsContext, node: ExprNode): readonly PenguType[] {
+  const type = expression_type(g, node);
+  return type.kind === "named" ? type.args : [];
+}
+
+function emit_ident(g: JsContext, name: string, span: ExprNode["span"]): string {
+  if (is_local_declared(g, name)) return js_identifier(name);
+  const unit = current_unit(g);
+  const module = unit.module;
+  const realm = module.realm;
+  const imported = unit.selective_symbols.get(name);
+  if (imported !== undefined) {
+    ensure_realm(g, imported.realm);
+    return cross_reference(g, imported.realm, imported.name);
+  }
+  if (module.consts.has(name)) {
+    ensure_constant(g, realm, name);
+    return symbol_name(g, name);
+  }
+  if (module.functions.has(name)) {
+    ensure_function(g, realm, name);
+    return cross_reference(g, realm, name);
+  }
+  js_error(g, `no se encontró el símbolo «${name}» al emitir JavaScript`, span);
+  return "undefined";
+}
+
+function emit_index(g: JsContext, node: Extract<ExprNode, { kind: "index" }>): string {
+  const object = emit_expr(g, node.object);
+  const index = emit_expr(g, node.index);
+  const type = expression_type(g, node.object);
+  const container = type.kind === "named" ? type.name : "";
+  if (container === "array" || container === "span") return `${object}[${index}]`;
+  runtime_name(g);
+  if (container === "map" || container === "unordered_map") return `rt.map_at(${object}, ${index})`;
+  return `rt.vec_at(${object}, ${index})`;
+}
+
+function emit_unary(g: JsContext, node: Extract<ExprNode, { kind: "unary" }>): string {
+  const op = node.op;
+  if (op === "not" || op === "!") return `!(${emit_expr(g, node.operand)})`;
+  if (op === "#") {
+    runtime_name(g);
+    return `rt.len(${emit_expr(g, node.operand)})`;
+  }
+  if (op === "-") return `-(${emit_expr(g, node.operand)})`;
+  if (op === "~") return `~(${emit_expr(g, node.operand)})`;
+  if (op === "+") return `+(${emit_expr(g, node.operand)})`;
+  js_error(g, `el operador unario «${op}» todavía no se emite a JavaScript (fase P3)`, node.span);
+  return "undefined";
+}
+
+function emit_binary(g: JsContext, node: Extract<ExprNode, { kind: "binary" }>): string {
+  const op = node.op;
+  const result = expression_type(g, node);
+  const left_type = expression_type(g, node.left);
+  const right_type = expression_type(g, node.right);
+
+  if (op === "and") return `(${emit_expr(g, node.left, left_type)} && ${emit_expr(g, node.right, right_type)})`;
+  if (op === "or") return `(${emit_expr(g, node.left, left_type)} || ${emit_expr(g, node.right, right_type)})`;
+  if (op === "in") {
+    runtime_name(g);
+    return `rt.contains(${emit_expr(g, node.right)}, ${emit_expr(g, node.left)})`;
+  }
+  if (op === "<=>") {
+    js_error(g, "la comparación «<=>» todavía no se emite a JavaScript (fase P3)", node.span);
+    return "undefined";
+  }
+
+  const comparison =
+    op === "==" || op === "!=" || op === "<" || op === "<=" || op === ">" || op === ">=";
+  const target = comparison ? right_type : result;
+  const left = coerce(g, emit_expr(g, node.left, target), left_type, target);
+  const right = coerce(g, emit_expr(g, node.right, comparison ? left_type : result), right_type, target);
+
+  if (op === "==" || op === "!=") {
+    const any_bigint = num_kind(left_type, g) === "bigint" || num_kind(right_type, g) === "bigint";
+    const js_op = any_bigint ? op : `${op}=`;
+    return `(${left} ${js_op} ${right})`;
+  }
+  if (comparison) return `(${left} ${op} ${right})`;
+
+  if (op === "/" && is_integer(result) && !is_bigint_type(result, g.mode)) {
+    return `Math.trunc(${left} / ${right})`;
+  }
+  if (op === ">>" && js_integer_kind(result) === "uint32") {
+    return `(${left} >>> ${right})`;
+  }
+  return `(${left} ${op} ${right})`;
+}
+
+function emit_cast(g: JsContext, node: Extract<ExprNode, { kind: "cast" }>): string {
+  const value = emit_expr(g, node.value);
+  const target = expression_type(g, node);
+  const source = expression_type(g, node.value);
+  const target_kind = num_kind(target, g);
+  const source_kind = num_kind(source, g);
+
+  if (target_kind === "bigint") {
+    if (source_kind === "float") return `BigInt(Math.trunc(${value}))`;
+    return `BigInt(${value})`;
+  }
+  if (target_kind === "float") return `Number(${value})`;
+  if (target_kind === "int") {
+    const kind = js_integer_kind(target);
+    if (kind !== undefined) return js_int_normalizer(kind)(value);
+    return `Number(${value})`;
+  }
+  // `seal` y `echo` se borran en tiempo de ejecución: el cast es identidad.
+  if (is_string(target) && is_integer(source)) return `String.fromCharCode(${value})`;
+  return `(${value})`;
+}
+
+function emit_string_lit(g: JsContext, parts: readonly StringPartNode[]): string {
+  if (parts.length === 1) {
+    const only = parts[0];
+    if (only !== undefined && only.kind === "text_part") return js_string_literal(only.text);
+  }
+  const pieces = parts.map((part) => {
+    if (part.kind === "text_part") return escape_template(part.text);
+    const type = expression_type(g, part.expr);
+    const code = emit_expr(g, part.expr, type);
+    if (is_string(type)) return `\${${code}}`;
+    runtime_name(g);
+    if (type.kind === "tuple" || (type.kind === "named" && type.name === "pair")) {
+      return `\${rt.show_tuple(${code})}`;
+    }
+    return `\${rt.show(${code})}`;
+  });
+  return `\`${pieces.join("")}\``;
+}
+
+function escape_template(text: string): string {
+  return js_string_literal(text).slice(1, -1).replace(/`/g, "\\`").replace(/\$\{/g, "\\${");
+}
+
+function emit_lambda(g: JsContext, node: Extract<ExprNode, { kind: "lambda" }>): string {
+  const params = node.params.map((param) => {
+    const name = js_identifier(param.name);
+    if (param.default_value !== undefined) return `${name} = ${emit_expr(g, param.default_value)}`;
+    return name;
+  });
+  const result = node.result === undefined ? undefined : expression_type(g, node);
+  const saved_return = g.return_type;
+  push_scope(g);
+  for (const param of node.params) declare_local_name(g, param.name);
+  g.return_type = result;
+  const body = capture_lines(
+    g,
+    () => emit_value_block(g, node.body, result),
+    g.indent + 1,
+  );
+  pop_scope(g);
+  g.return_type = saved_return;
+  const indent = "  ".repeat(g.indent);
+  return `((${params.join(", ")}) => {\n${body}\n${indent}})`;
+}
+
+function declare_local_name(g: JsContext, name: string): void {
+  const scope = g.scopes[g.scopes.length - 1];
+  if (scope !== undefined) scope.push(js_identifier(name));
+}
+
+// `if` como expresión: ternario cuando ambas ramas son una sola expresión,
+// IIFE (que devuelve) cuando hay sentencias de por medio.
+function emit_if(g: JsContext, node: Extract<ExprNode, { kind: "if" }>, expected?: PenguType): string {
+  const condition = condition_code(g, node);
+  const then_expr = single_expression(node.then_block);
+  const else_expr = node.else_block === undefined ? undefined : single_expression(node.else_block);
+  if (then_expr !== undefined && else_expr !== undefined) {
+    return `(${condition} ? ${emit_expr(g, then_expr, expected)} : ${emit_expr(g, else_expr, expected)})`;
+  }
+  return capture_iife(g, () => {
+    emit_if_statement(g, node, expected, true);
+  });
+}
+
+function condition_code(g: JsContext, node: Extract<ExprNode, { kind: "if" }>): string {
+  const code = emit_expr(g, node.condition);
+  return node.unless === true ? `!(${code})` : code;
+}
+
+function single_expression(block: Block): ExprNode | undefined {
+  if (block.statements.length !== 1) return undefined;
+  const only = block.statements[0];
+  if (only === undefined || only.kind !== "expr_stmt") return undefined;
+  return only.expr;
+}
+
+export function emit_if_statement(
+  g: JsContext,
+  node: Extract<ExprNode, { kind: "if" }>,
+  expected?: PenguType,
+  value_branches = false,
+): void {
+  line(g, `if (${condition_code(g, node)}) {`);
+  emit_branch(g, node.then_block, expected, value_branches);
+  if (node.else_block !== undefined) {
+    line(g, "} else {");
+    emit_branch(g, node.else_block, expected, value_branches);
+  }
+  line(g, "}");
+}
+
+function emit_branch(
+  g: JsContext,
+  block: Block,
+  expected: PenguType | undefined,
+  value: boolean,
+): void {
+  push_scope(g);
+  g.indent += 1;
+  if (value) {
+    emit_value_block(g, block, expected);
+  } else {
+    for (const statement of block.statements) emit_statement(g, statement);
+  }
+  g.indent -= 1;
+  pop_scope(g);
+}
+
+// Emisión como sentencia de una expresión de control (los `break`/`return`
+// must stay reales: no se encierran en una lambda).
+export function emit_as_statement(g: JsContext, node: ExprNode): void {
+  switch (node.kind) {
+    case "if": {
+      emit_if_statement(g, node);
+      return;
+    }
+    case "do": {
+      emit_value_block(g, node.block, undefined);
+      return;
+    }
+    case "unsafe": {
+      for (const statement of node.block.statements) emit_statement(g, statement);
+      return;
+    }
+    case "while": {
+      emit_while(g, node);
+      return;
+    }
+    case "for_numeric": {
+      emit_for_numeric(g, node);
+      return;
+    }
+    case "for_iter": {
+      emit_for_iter(g, node);
+      return;
+    }
+    case "repeat": {
+      emit_repeat(g, node);
+      return;
+    }
+    case "switch": {
+      emit_switch(g, node);
+      return;
+    }
+    default: {
+      js_error(
+        g,
+        `la expresión «${node.kind}» todavía no se emite como sentencia (fase P2)`,
+        node.span,
+      );
+    }
+  }
+}
+
+function emit_while(g: JsContext, node: Extract<ExprNode, { kind: "while" }>): void {
+  const code = emit_expr(g, node.condition);
+  const condition = node.until === true ? `!(${code})` : code;
+  line(g, `while (${condition}) {`);
+  emit_loop_body(g, node.body);
+  line(g, "}");
+}
+
+// `repeat … until c` repite *mientras* `c` sea falsa: `do { } while (!c)`.
+function emit_repeat(g: JsContext, node: Extract<ExprNode, { kind: "repeat" }>): void {
+  const condition = emit_expr(g, node.condition);
+  line(g, "do {");
+  emit_loop_body(g, node.body);
+  line(g, `} while (!(${condition}));`);
+}
+
+function emit_loop_body(g: JsContext, block: Block): void {
+  g.break_flags.push("loop");
+  push_scope(g);
+  g.indent += 1;
+  for (const statement of block.statements) emit_statement(g, statement);
+  g.indent -= 1;
+  pop_scope(g);
+  g.break_flags.pop();
+}
+
+function emit_for_numeric(g: JsContext, node: Extract<ExprNode, { kind: "for_numeric" }>): void {
+  const variable = js_identifier(node.variable);
+  const start = emit_expr(g, node.start);
+  const end = emit_expr(g, node.end);
+  const step = node.step;
+  push_scope(g);
+  declare_local_name(g, node.variable);
+  g.break_flags.push("loop");
+
+  if (step === undefined) {
+    line(g, `for (let ${variable} = ${start}; ${variable} <= ${end}; ${variable} += 1) {`);
+  } else if (step.kind === "int_lit") {
+    const negative = step.value.startsWith("-");
+    line(
+      g,
+      `for (let ${variable} = ${start}; ${variable} ${negative ? ">=" : "<="} ${end}; ${variable} += ${step.value}) {`,
+    );
+  } else {
+    const name = `${variable}_paso`;
+    line(
+      g,
+      `for (let ${variable} = ${start}, ${name} = ${emit_expr(g, step)}; ${name} > 0 ? ${variable} <= ${end} : ${variable} >= ${end}; ${variable} += ${name}) {`,
+    );
+  }
+  g.indent += 1;
+  for (const statement of node.body.statements) emit_statement(g, statement);
+  g.indent -= 1;
+  line(g, "}");
+
+  g.break_flags.pop();
+  pop_scope(g);
+}
+
+function emit_for_iter(g: JsContext, node: Extract<ExprNode, { kind: "for_iter" }>): void {
+  push_scope(g);
+  g.break_flags.push("loop");
+  const variables = node.variables.map((name) => js_identifier(name));
+  for (const name of node.variables) declare_local_name(g, name);
+
+  if (node.iterable.kind === "range") {
+    runtime_name(g);
+    const start = emit_expr(g, node.iterable.start);
+    const end = emit_expr(g, node.iterable.end);
+    const flag = node.iterable.inclusive ? "true" : "false";
+    line(g, `for (const ${variables[0] ?? "_"} of rt.range(${start}, ${end}, ${flag})) {`);
+    g.indent += 1;
+    for (const statement of node.body.statements) emit_statement(g, statement);
+    g.indent -= 1;
+    line(g, "}");
+  } else if (variables.length > 1) {
+    const pair = `_par${g.temp}`;
+    g.temp += 1;
+    line(g, `for (const ${pair} of ${emit_expr(g, node.iterable)}) {`);
+    push_scope(g);
+    g.indent += 1;
+    for (const name of node.variables) declare_local_name(g, name);
+    line(g, `const [${variables.join(", ")}] = ${pair};`);
+    for (const statement of node.body.statements) emit_statement(g, statement);
+    g.indent -= 1;
+    pop_scope(g);
+    line(g, "}");
+  } else {
+    line(g, `for (const ${variables[0] ?? "_"} of ${emit_expr(g, node.iterable)}) {`);
+    g.indent += 1;
+    for (const statement of node.body.statements) emit_statement(g, statement);
+    g.indent -= 1;
+    line(g, "}");
+  }
+
+  g.break_flags.pop();
+  pop_scope(g);
+}
+
+// `switch` sin `break` de valor: cada rama devuelve o corta.
+function emit_switch(g: JsContext, node: Extract<ExprNode, { kind: "switch" }>): void {
+  const subject = emit_expr(g, node.subject);
+  const subject_name = `_sujeto${g.temp}`;
+  g.temp += 1;
+  line(g, `const ${subject_name} = ${subject};`);
+  for (const arm of node.arms) {
+    for (const pattern of arm.patterns) {
+      line(g, `if (${subject_name} === ${emit_expr(g, pattern)}) {`);
+      emit_branch(g, arm.body, undefined, false);
+      line(g, "}");
+    }
+  }
+  if (node.else_block !== undefined) {
+    line(g, "{");
+    emit_branch(g, node.else_block, undefined, false);
+    line(g, "}");
+  }
+}
+
+// Cuerpo con valor: la última expresión se convierte en `return`; si no hay
+// ninguna (o es una estructura de control), se devuelve el valor por defecto.
+export function emit_value_block(g: JsContext, block: Block, result: PenguType | undefined): void {
+  const last = block.statements[block.statements.length - 1];
+  const value_expr = last !== undefined && last.kind === "expr_stmt" ? last.expr : undefined;
+  const expr_type = value_expr === undefined ? undefined : expression_type(g, value_expr);
+  const declared_value = result !== undefined && !is_voidish(result) && result.kind !== "any";
+  const returns_implicitly =
+    value_expr !== undefined &&
+    (declared_value ||
+      (expr_type !== undefined && !is_voidish(expr_type) && expr_type.kind !== "any"));
+  for (const statement of block.statements) {
+    if (returns_implicitly && statement === last && statement.kind === "expr_stmt") {
+      line(g, `return ${emit_expr(g, statement.expr, result)};`);
+      continue;
+    }
+    emit_statement(g, statement);
+  }
+  if (!returns_implicitly && result !== undefined && needs_default(result)) {
+    line(g, `return ${js_default_value(result, g.mode)};`);
+  }
+}
+
+// `none` y `void` significan "no devuelve nada": ni `return` implícito ni
+// valor por defecto.
+export function is_voidish(type: PenguType): boolean {
+  return is_void(type) || type.kind === "none" || type.kind === "any";
+}
+
+// Una función sin tipo de retorno declarado (`any`) devuelve lo que devuelva
+// su última expresión; no se le añade un `return` sintético.
+function needs_default(result: PenguType | undefined): boolean {
+  if (result === undefined) return false;
+  if (result.kind === "any") return false;
+  return !is_voidish(result);
+}
+
+// `if`, `while`, `for`, `switch` y `match` como valor necesitan un `return`
+// real dentro de su IIFE; como sentencia, no.
+export function is_control_expr(node: ExprNode): boolean {
+  return (
+    node.kind === "if" ||
+    node.kind === "while" ||
+    node.kind === "for_numeric" ||
+    node.kind === "for_iter" ||
+    node.kind === "repeat" ||
+    node.kind === "switch" ||
+    node.kind === "match"
+  );
+}
+
+// --- Captura de bloques ---------------------------------------------------
+// Las expresiones que necesitan un cuerpo con `return` (IIFE) emiten sus
+// líneas en una lista aparte y se incrustan como texto.
+
+export function capture_lines(g: JsContext, body: () => void, indent?: number): string {
+  const saved_file = g.file;
+  const saved_indent = g.indent;
+  const captured: string[] = [];
+  g.file = { ...saved_file, lines: captured };
+  g.indent = indent ?? 0;
+  g.file = { ...saved_file, lines: captured };
+  try {
+    body();
+  } finally {
+    // `uses_rt` es un booleano: el objeto temporal lo copia, así que se
+    // propaga a mano al archivo real.
+    saved_file.uses_rt = saved_file.uses_rt || g.file.uses_rt;
+    g.file = saved_file;
+    g.indent = saved_indent;
+  }
+  return captured.join("\n");
+}
+
+function capture_iife(g: JsContext, body: () => void): string {
+  const inner = capture_lines(g, body, g.indent + 1);
+  const indent = "  ".repeat(g.indent);
+  const opening = inner.length === 0 ? "" : `\n${inner}\n${indent}`;
+  return `(() => {${opening}})()`;
+}

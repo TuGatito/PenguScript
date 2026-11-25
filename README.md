@@ -81,8 +81,13 @@ están en [editors/vscode/README.md](editors/vscode/README.md).
 | `pengu clean` | Borra las cachés `.pengu-cache` |
 
 Los comandos `build`, `run` y `check` aceptan `--target <cpp|js>`: el backend
-por defecto es C++20. El backend JavaScript (ES2022/ESM) está en desarrollo y
-todavía no emite código; `--target js` analiza el programa y lo dice.
+por defecto es C++20. El backend JavaScript (ES2022/ESM) emite un `.mjs` por
+`realm` más `pengu_rt.mjs` (runtime) e `index.mjs` (lanzador) en
+`.pengu-cache/js-<hash>/`, o en el directorio que indique `--out`; el código se
+ejecuta con `bun` o `node`. Cubre por ahora el núcleo del lenguaje (funciones,
+constantes, números, texto, control de flujo y la parte de `std` que ya
+traduce) y avanza por fases según `scratch/plan_codegen_js.md`; lo que aún no
+traduce se diagnostica con `E0807`.
 
 ## Si el LSP marca errores que `pengu check` no ve
 
