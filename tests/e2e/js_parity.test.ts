@@ -29,6 +29,9 @@ const PARITY_EXAMPLES = [
   "11_polimorfismo",
   "12_colecciones",
   "13_enchanting",
+  "14_geometria",
+  "15_juego",
+  "16_herramienta",
 ];
 
 function ejecutar(comando: string, args: readonly string[]): { stdout: string; status: number } {

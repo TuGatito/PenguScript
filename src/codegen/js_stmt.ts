@@ -46,9 +46,7 @@ function declared_named(
   resolved: PenguType | undefined,
 ): PenguType {
   const declared = statement.declared_type;
-  if (declared !== undefined && declared.kind === "named_type" && declared.args.length === 0) {
-    return { kind: "named", name: declared.name, args: [] };
-  }
+  if (declared !== undefined) return quiet_type_node(g, declared);
   return resolved ?? expression_type(g, statement.value);
 }
 

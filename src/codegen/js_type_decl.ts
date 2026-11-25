@@ -21,6 +21,7 @@ import {
   line,
   pop_scope,
   push_scope,
+  with_fresh_locals,
   symbol_name,
   type JsContext,
 } from "./js_context.ts";
@@ -264,16 +265,17 @@ function emit_rune_method(
   g.indent = 0;
   g.self_expression = "self";
   g.return_type = info?.result;
-  push_scope(g);
-  declare_local(g, "self");
-  for (const param of method.params) declare_local(g, param.name);
-  line(g, `export function ${exported}(self${params.length === 0 ? "" : `, ${params.join(", ")}`}) {`);
-  g.indent += 1;
-  emit_value_block(g, method.body, info?.result);
-  g.indent -= 1;
-  line(g, "}");
-  pop_scope(g);
-  const text = g.file.lines.join("\n");
+  const text = with_fresh_locals(g, () => {
+    push_scope(g);
+    declare_local(g, "self");
+    for (const param of method.params) declare_local(g, param.name);
+    line(g, `export function ${exported}(self${params.length === 0 ? "" : `, ${params.join(", ")}`}) {`);
+    g.indent += 1;
+    emit_value_block(g, method.body, info?.result);
+    g.indent -= 1;
+    line(g, "}");
+    return g.file.lines.join("\n");
+  });
   g.file.lines = saved_lines;
   g.indent = saved_indent;
   g.self_expression = saved_self;

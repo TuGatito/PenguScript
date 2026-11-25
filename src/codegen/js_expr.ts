@@ -334,11 +334,13 @@ function emit_binary(g: JsContext, node: Extract<ExprNode, { kind: "binary" }>):
     runtime_name(g);
     return `rt.contains(${emit_expr(g, node.right)}, ${emit_expr(g, node.left)})`;
   }
-  if (process.env.PENGU_DEBUG_JS === "1") {
-    console.error("bin", op, left_type.kind, left_type.kind === "named" ? left_type.name : "", right_type.kind);
-  }
   const operator = rune_operator_call(g, node, op, left_type, right_type);
   if (operator !== undefined) return operator;
+
+  if (op === "<=>") {
+    runtime_name(g);
+    return `rt.compare(${emit_expr(g, node.left)}, ${emit_expr(g, node.right)})`;
+  }
 
   const comparison =
     op === "==" || op === "!=" || op === "<" || op === "<=" || op === ">" || op === ">=";
@@ -404,9 +406,38 @@ function emit_string_lit(g: JsContext, parts: readonly StringPartNode[]): string
     if (type.kind === "tuple" || (type.kind === "named" && type.name === "pair")) {
       return `\${rt.show_tuple(${code})}`;
     }
+    // Un rune con `to_string` en su `enchanting` es dueño de su presentación,
+    // como `to_string_value` en el runtime C++ (§5.2).
+    const renderer = show_renderer(g, type);
+    if (renderer !== undefined) return `\${${renderer}(${code})}`;
+    // Un contenedor de runes con `to_string`: cada elemento se presenta igual.
+    const element = element_renderer(g, type);
+    if (element !== undefined) {
+      return `\${rt.show_list(${code}.map((_x) => ${element}(_x)))}`;
+    }
     return `\${rt.show(${code})}`;
   });
   return `\`${pieces.join("")}\``;
+}
+
+
+// Función libre `Tipo__to_string` si el rune declara `to_string`.
+function show_renderer(g: JsContext, type: PenguType): string | undefined {
+  if (type.kind !== "named") return undefined;
+  const realm = realm_of_type(g, type.name);
+  if (realm === undefined) return undefined;
+  const unit = g.units.get(realm);
+  const rune = unit?.module.env.runes.get(type.name);
+  if (rune === undefined || !rune.methods.has("to_string")) return undefined;
+  return cross_reference(g, realm, free_method_export(type.name, "to_string"));
+}
+
+// Renderizador de los elementos de un contenedor de runes con `to_string`.
+function element_renderer(g: JsContext, type: PenguType): string | undefined {
+  if (type.kind !== "named") return undefined;
+  if (type.name !== "vector" && type.name !== "array" && type.name !== "set") return undefined;
+  const inner = type.args[0];
+  return inner === undefined ? undefined : show_renderer(g, inner);
 }
 
 function escape_template(text: string): string {

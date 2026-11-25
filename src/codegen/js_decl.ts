@@ -7,7 +7,15 @@
 
 import type { FunctionDecl } from "../frontend/ast_decl.ts";
 import type { ProgramUnit } from "./cpp_module.ts";
-import { declare_local, line, pop_scope, push_scope, symbol_name, type JsContext } from "./js_context.ts";
+import {
+  declare_local,
+  line,
+  pop_scope,
+  push_scope,
+  symbol_name,
+  with_fresh_locals,
+  type JsContext,
+} from "./js_context.ts";
 import { free_operator_name, js_identifier } from "./js_names.ts";
 import { capture_lines, emit_expr, emit_value_block } from "./js_expr.ts";
 
@@ -24,23 +32,24 @@ export function emit_function(g: JsContext, unit: ProgramUnit, decl: FunctionDec
     return param_name;
   });
 
-  push_scope(g);
-  for (const param of decl.params) declare_local(g, param.name);
   const saved_self = g.self_expression;
   const saved_return = g.return_type;
   g.self_expression = undefined;
   g.return_type = info?.result;
   const file = g.file;
-  const text = capture_lines(g, () => {
-    line(g, `export function ${name}(${params.join(", ")}) {`);
-    g.indent += 1;
-    emit_value_block(g, decl.body, info?.result);
-    g.indent -= 1;
-    line(g, "}");
+  const text = with_fresh_locals(g, () => {
+    push_scope(g);
+    for (const param of decl.params) declare_local(g, param.name);
+    return capture_lines(g, () => {
+      line(g, `export function ${name}(${params.join(", ")}) {`);
+      g.indent += 1;
+      emit_value_block(g, decl.body, info?.result);
+      g.indent -= 1;
+      line(g, "}");
+    });
   });
   g.self_expression = saved_self;
   g.return_type = saved_return;
-  pop_scope(g);
   file.functions.push(text);
 }
 

@@ -34,7 +34,15 @@ import {
   operator_method_name,
   rune_method_owner,
 } from "./js_type_decl.ts";
-import { base_name_of, emit_enchanting_call, is_value_base, object_lvalue } from "./js_enchant.ts";
+import {
+  base_name_of,
+  emit_enchanting_call,
+  enchanting_method,
+  ensure_enchanting,
+  find_enchanting,
+  is_value_base,
+  object_lvalue,
+} from "./js_enchant.ts";
 import { type_node_name } from "../frontend/ast_type.ts";
 import { realm_of_type } from "./js_context.ts";
 
@@ -120,6 +128,12 @@ function emit_named_call(
 
   const language = builtin_js_target(g, owner, target_name);
   if (language !== undefined) return `${language}(${emit_args(g, undefined, false, node.args)})`;
+
+  // Un parámetro de tipo función (`function<(T) -> bool>`) se llama por su
+  // nombre: dentro del cuerpo es una variable local, no un símbolo del realm.
+  if (realm === undefined && is_local_declared(g, name)) {
+    return `${js_identifier(name)}(${emit_args(g, undefined, false, node.args)})`;
+  }
 
   js_error(g, `no se encontró la función «${name}» al emitir JavaScript`, node.span);
   return "undefined";
@@ -234,6 +248,8 @@ type ContainerKind = "array" | "map" | "set";
 // Familia de un contenedor incorporado, para resolver sus miembros nativos
 // (`push`, `insert`, `keys`…) sin pasar por `enchanting` (§4.6).
 function container_kind(type: PenguType): ContainerKind | undefined {
+  // `array<T, N>` es su propio constructor en el modelo de tipos.
+  if (type.kind === "array") return "array";
   if (type.kind !== "named") return undefined;
   switch (type.name) {
     case "vector":
@@ -613,6 +629,27 @@ function emit_member_call(
   if (is_string(object_type) && member.name === "bytes_raw") {
     runtime_name(g);
     return `rt.bytes_raw(${object})`;
+  }
+  const found = find_enchanting(g, object_type, member.name);
+  if (found !== undefined) {
+    const exported = ensure_enchanting(g, found.realm, found.base, member.name);
+    if (exported !== undefined) {
+      const unit = g.units.get(found.realm);
+      const method = unit === undefined ? undefined : enchanting_method(unit, found.base, member.name);
+      if (method !== undefined) {
+        const args = emit_args(g, undefined, method.params.some((param) => param.variadic), node.args);
+        const target = cross_reference(g, found.realm, exported);
+        return emit_enchanting_call(
+          g,
+          object,
+          object_type,
+          found.realm,
+          member.name,
+          args,
+          object_lvalue(member.object),
+        ) ?? `${target}(${object}${args.length === 0 ? "" : `, ${args}`})`;
+      }
+    }
   }
   js_error(
     g,

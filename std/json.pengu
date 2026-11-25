@@ -140,7 +140,11 @@ at = (valor: Value, indice: size_t) -> Value?
 escaped_text = (texto: string) -> string
   mut salida = ""
   for caracter in texto.chars()
-    codigo = caracter as int
+    mut codigo = caracter as int
+    -- `char` es con signo: se normaliza a byte para no escapar los bytes
+    -- altos de UTF-8 (0xC3 se veía como -61 y salía como \u0-3d).
+    if codigo < 0
+      codigo += 256
     if caracter == '"'
       salida += "\\\""
     else if caracter == '\\'

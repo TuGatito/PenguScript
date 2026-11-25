@@ -24,6 +24,8 @@ import {
   line,
   pop_scope,
   push_scope,
+  realm_of_type,
+  with_fresh_locals,
   runtime_name,
   symbol_name_in,
   with_file,
@@ -49,11 +51,19 @@ export function enchanting_method(
   name: string,
 ): MethodDecl | undefined {
   for (const decl of enchanting_decls(unit)) {
-    if (decl.target !== base) continue;
+    if (!target_matches(unit, decl.target, base)) continue;
     const method = decl.methods.find((candidate) => candidate.name === name);
     if (method !== undefined) return method;
   }
   return undefined;
+}
+
+// Un `echo`/`seal` es transparente en runtime, así que `enchanting Metros`
+// sobre `echo Metros = double` enhechiza `double` (§2.8).
+function target_matches(unit: ProgramUnit, target: string, base: string): boolean {
+  if (target === base) return true;
+  const alias = unit.module.env.aliases.get(target)?.target;
+  return alias !== undefined && base_name_of(alias) === base;
 }
 
 // Nombre exportado del método. En JS no hay sobrecargas, así que un mismo
@@ -199,6 +209,11 @@ function emit_enchanting(
   const cell = !operator && enchanting_receiver_is_cell(base_type, method);
   const result = quiet_result(method);
   const params: string[] = [];
+  const saved_self = g.self_expression;
+  const saved_return = g.return_type;
+  const saved_base = g.enchant_base;
+  const file = g.file;
+  const text = with_fresh_locals(g, () => {
   push_scope(g);
   declare_local(g, "self");
   for (const param of method.params) {
@@ -212,14 +227,10 @@ function emit_enchanting(
       params.push(param_name);
     }
   }
-  const saved_self = g.self_expression;
-  const saved_return = g.return_type;
-  const saved_base = g.enchant_base;
   g.enchant_base = base;
   g.self_expression = cell ? "self.value" : "self";
   g.return_type = result;
-  const file = g.file;
-  const text = capture_lines(g, () => {
+  return capture_lines(g, () => {
     const signature = params.length === 0 ? "self" : `self, ${params.join(", ")}`;
     line(g, `export function ${exported}(${signature}) {`);
     g.indent += 1;
@@ -227,10 +238,10 @@ function emit_enchanting(
     g.indent -= 1;
     line(g, "}");
   });
+  });
   g.self_expression = saved_self;
   g.return_type = saved_return;
   g.enchant_base = saved_base;
-  pop_scope(g);
   file.functions.push(text);
 }
 
@@ -258,6 +269,9 @@ export function base_name_of(type: PenguType): string | undefined {
       return base_name_of(type.inner);
     case "optional":
       return "optional";
+    case "array":
+      // `array<T, N>` se enhechiza como `array` en `std/array`.
+      return "array";
     default:
       return undefined;
   }
@@ -274,17 +288,64 @@ export function emit_enchanting_call(
   args: string,
   lvalue: boolean,
 ): string | undefined {
-  const base = base_name_of(object_type);
+  const unit = g.units.get(realm);
+  // El receptor puede venir envuelto (`optional<T>`, `ref<T>`): se prueban las
+  // bases de dentro hacia fuera hasta dar con el bloque `enchanting`.
+  const base = candidate_bases(g, object_type).find(
+    (candidate) => unit !== undefined && enchanting_method(unit, candidate, name) !== undefined,
+  );
   if (base === undefined) return undefined;
   const exported = ensure_enchanting(g, realm, base, name);
   if (exported === undefined) return undefined;
   const local = cross_reference(g, realm, exported);
-  const unit = g.units.get(realm);
   const method = unit === undefined ? undefined : enchanting_method(unit, base, name);
   if (method === undefined) return undefined;
   const tail = args.length === 0 ? "" : `, ${args}`;
   if (!enchanting_receiver_is_cell(object_type, method)) return `${local}(${object}${tail})`;
   return cell_call(g, local, object, tail, lvalue);
+}
+
+// Último recurso: si el checker no anotó la llamada (p. ej. un método heredado
+// de un `echo`), se busca el `enchanting` por nombre del método entre todas las
+// bases candidatas y los realms cargados.
+export function find_enchanting(
+  g: JsContext,
+  object_type: PenguType,
+  name: string,
+): { realm: string; base: string } | undefined {
+  for (const base of candidate_bases(g, object_type)) {
+    for (const unit of g.units.values()) {
+      if (enchanting_method(unit, base, name) === undefined) continue;
+      return { realm: unit.module.realm, base };
+    }
+  }
+  return undefined;
+}
+
+// Nombres de base candidatos para resolver un `enchanting`: el tipo tal cual y,
+// si viene envuelto, sus capas interiores (`optional<string>` → `string`).
+function candidate_bases(g: JsContext, type: PenguType): string[] {
+  const bases: string[] = [];
+  let current: PenguType | undefined = type;
+  while (current !== undefined) {
+    const name = base_name_of(current);
+    if (name !== undefined && !bases.includes(name)) bases.push(name);
+    // Un `seal`/`echo` es su tipo base en runtime (§2.8): `Metros = seal double`
+    // recibe los métodos de `double`.
+    if (current.kind === "named") {
+      const alias: PenguType | undefined = g.units
+        .get(realm_of_type(g, current.name) ?? "")
+        ?.module.env.aliases.get(current.name)?.target;
+      if (alias !== undefined) {
+        current = alias;
+        continue;
+      }
+    }
+    if (current.kind === "optional" || current.kind === "ref" || current.kind === "raw") current = current.inner;
+    else if (current.kind === "unique" || current.kind === "shared" || current.kind === "weak") current = current.inner;
+    else current = undefined;
+  }
+  return bases;
 }
 
 // ¿La expresión se puede escribir desde JS? Identificadores, campos, índices y

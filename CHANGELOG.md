@@ -4,6 +4,44 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+## Backend JavaScript: biblioteca estándar completa (P4 de `plan_codegen_js.md`)
+
+- **Runtime `pengu_rt.mjs` completo**: se añadieron fs, os, proceso, tiempo,
+  azar (xorshift128+ con semilla), encoding (base64/hex/url/bytes + detección
+  UTF-8), hash (FNV-1a 32/64, djb2, CRC-32, Adler-32), `std/format`
+  (`fixed`/`scientific`/`radix`/plantillas), `std/log`, `std/console`,
+  `crypto::sha256_raw`, `std/file` (descriptores con `Map`), `std/char`,
+  límites de `std/integers`, lectura de `stdin`, `PMap`/`PHeap` con claves
+  estructurales y `rt.sum`/`rt.product`. Los módulos de Node se importan al
+  principio del runtime.
+- **Intrínsecos de la stdlib**: `SYSTEM_JS` en `builtins_emit_js.ts` cubre todo
+  lo que declaran `std/*.pengu` (io, format, log, console, crypto, char,
+  encoding, hash, fs, os, process, random, time, file, integers, json).
+- **Interpolación con `to_string` de rune**: `#{vec2}` usa el `to_string`
+  declarado en su bloque `enchanting` (y lo aplica también dentro de
+  `vector`/`array`/`set`), así que `14_geometria` imprime `(1, 2)` y no
+  `[object Object]`.
+- **Receptores `enchanting` más flexibles**: se prueban el tipo y sus capas
+  (`optional`, `ref`, `raw`, `unique`, `shared`, `weak`) y los alias
+  `seal`/`echo` desenvueltos, de modo que `enchanting Metros` con
+  `echo Metros = double` enhechice `double`.
+- **Ámbitos aislados por función**: `with_fresh_locals` evita que una función
+  emitida desde dentro de otra herede sus locales (causaba tipados erróneos y
+  `x is not defined`). Afecta a `emit_function`, `emit_enchanting` y
+  `emit_rune_method`.
+- **Nuevo test diferencial `tests/e2e/js_std_parity.test.ts`**: 10 casos que
+  comparan `stdout` byte a byte entre el binario C++ y `node` sobre la
+  biblioteca estándar (texto, vector/array, map/set, optional, math/format,
+  hash/encoding/char, json, integers, fs/os/time/path y assert).
+- **Bugs reparados**: `rt.range` con extremos `BigInt`; `array<T, N>` no
+  reconocido por `container_kind`; llamadas a parámetros de tipo función;
+  `os::arch` traducido a los nombres de `uname`; regexes del runtime que habían
+  perdido sus barras invertidas al vivir en un template literal; y en el backend
+  C++, `std/json` escapaba mal los bytes altos de UTF-8 (`\u0-3d`) porque `char`
+  es con signo.
+- **Paridad verificada**: `examples/01`…`16` idénticos byte a byte con
+  `--target js` (`tests/e2e/js_parity.test.ts`, 22 casos).
+
 ## Backend JavaScript: enchanting, contenedores y operadores (P3 de `plan_codegen_js.md`)
 
 - **Receptores de `enchanting`**: los métodos se emiten como funciones libres

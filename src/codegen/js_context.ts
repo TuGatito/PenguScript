@@ -63,7 +63,7 @@ export interface JsContext {
   readonly emitted: Set<string>;
   // Realms cuyo cuerpo de constantes ya se volcó.
   readonly started: Set<string>;
-  readonly scopes: string[][];
+  scopes: string[][];
   indent: number;
   temp: number;
   // Pila de banderas de `break` (para el `else` de los bucles).
@@ -81,7 +81,7 @@ export interface JsContext {
   // Runas con `destructor` declarado: obligan a `try/finally`.
   readonly destructor_runes: ReadonlySet<string>;
   // Tipo con el que se declaró cada variable local (para conversiones).
-  readonly local_types: Map<string, PenguType>;
+  local_types: Map<string, PenguType>;
   // Base del `enchanting` que se está emitiendo (`string`, `optional`…), para
   // resolver los miembros nativos de `@` dentro del cuerpo.
   enchant_base: string | undefined;
@@ -227,7 +227,11 @@ export function push_scope(g: JsContext): void {
 }
 
 export function pop_scope(g: JsContext): void {
-  g.scopes.pop();
+  const scope = g.scopes.pop();
+  // Los tipos de las locales viven en un mapa plano: al cerrar el ámbito hay
+  // que olvidarlos o una función posterior reutilizaría el tipo de otra.
+  if (scope === undefined) return;
+  for (const name of scope) g.local_types.delete(name);
 }
 
 export function declare_local(g: JsContext, name: string): void {
@@ -242,6 +246,22 @@ export function is_local_declared(g: JsContext, name: string): boolean {
     if (scope !== undefined && scope.includes(js_name)) return true;
   }
   return false;
+}
+
+// Emite un cuerpo con ámbitos propios: una función puede emitirse desde dentro
+// de otra (emisión perezosa), y sus locales no deben verse entre sí.
+export function with_fresh_locals<T>(g: JsContext, body: () => T): T {
+  const saved_scopes = g.scopes;
+  const saved_types = g.local_types;
+  g.scopes = [];
+  g.local_types = new Map(saved_types);
+  push_scope(g);
+  try {
+    return body();
+  } finally {
+    g.scopes = saved_scopes;
+    g.local_types = saved_types;
+  }
 }
 
 export function fresh_name(g: JsContext, prefix: string): string {
@@ -296,6 +316,7 @@ export function quiet_type_node(g: JsContext, node: TypeNode): PenguType {
 // Registra el tipo de una variable local recién declarada.
 export function declare_local_type(g: JsContext, name: string, type: PenguType): void {
   g.local_types.set(name, type);
+  g.local_types.set(js_identifier(name), type);
 }
 
 // Tipo conocido de una variable local (`undefined` si no se declaró aquí).
