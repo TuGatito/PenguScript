@@ -102,7 +102,14 @@ tests/         lexer, parser, checker, formatter, lsp, bindgen, extensión y e2e
 docs/          especificación del lenguaje (cheatsheet y stdlib)
 ```
 
-La biblioteca estándar se escribe en `std/*.d.pengu` con firmas `declare`
+El `pengu.toml` de la raíz marca el repositorio como proyecto: así `std/` es
+la biblioteca del repositorio (y no la copia empotrada en el binario `pengu`).
+Sin manifiesto, la raíz es el directorio del archivo y una importación desde
+`src/` no resolvería.
+
+La biblioteca estándar se escribe en `std/*.pengu` (con un bloque `declare`
+para lo intrínseco); las firmas generadas se documentan en
+`docs/stdlib_api.md`.
 (el runtime en C++ las implementa). `io`, `format` y `log` son módulos
 `.pengu` que envuelven intrínsecos sobre `vector<any>`: las funciones
 variádicas aceptan cualquier valor que implemente `Display`.

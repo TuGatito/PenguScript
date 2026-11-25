@@ -1,0 +1,10 @@
+# Manifiesto del repositorio de PenguScript.
+#
+# Marca la raíz del proyecto para que `std/` sea la biblioteca del repositorio
+# (y no la copia empotrada en el binario `pengu`): es lo que mantiene alineados
+# al compilador, al LSP y a las pruebas cuando se edita la stdlib.
+
+[package]
+name = "penguscript"
+version = "0.1.0"
+entry = "examples/01_hello/main.pengu"

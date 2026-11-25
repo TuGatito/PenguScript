@@ -4,6 +4,22 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+### Proyecto real en el repositorio (F2 de `plan_lsp_errores.md`)
+
+- **`pengu.toml` en la raíz** (nuevo): el repositorio es un proyecto, así que
+  su `std/` es la biblioteca que usan el compilador y el LSP, en lugar de la
+  copia empotrada en el binario instalado. Sin él, la raíz era el directorio
+  del archivo abierto y `invoke "std/char"` caía en la std del binario (vieja),
+  que es lo que producía los errores fantasma del LSP.
+- `docs/cheatsheet.md` y `README.md`: la raíz del proyecto es el directorio con
+  `pengu.toml` (opcional para archivos sueltos), orden de resolución
+  `foo.pengu` → `foo.d.pengu` → `foo/index.pengu`, y el `std/` del proyecto
+  gana al empotrado.
+- Regresiones en `tests/project/root.test.ts`, incluida una que exige que el
+  repositorio conserve su manifiesto.
+- Binario y `.vsix` reconstruidos e instalados: la sonda LSP sobre los cuatro
+  archivos del informe pasa de 28 diagnósticos a 0.
+
 ### LSP: importaciones `std/` inexistentes (F1 de `plan_lsp_errores.md`)
 
 - Una importación `std/…` que no resuelve ya no se ignora en silencio: se

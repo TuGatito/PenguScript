@@ -298,14 +298,17 @@ The alias is **local to the importing file**. Other files that import `"utils/st
 
 ### Path resolution
 
-Import paths are **absolute from the project root** by default. The project root is the directory containing `pengu.toml`.
+Import paths are **absolute from the project root** by default. The project root is the directory containing `pengu.toml`; the manifest is optional — a lone file runs without one, and then the root is the file's own directory.
 
 For a path `"foo"`, the compiler tries, in order:
 
 1. `foo.pengu` (a file)
-2. `foo/index.pengu` (a directory's entry point)
+2. `foo.d.pengu` (intrinsic declarations only)
+3. `foo/index.pengu` (a directory's entry point)
 
-If both exist, `foo.pengu` wins. There is no extension guessing — `.pengu` is the only module extension.
+If more than one exists, the first one wins.
+
+Imports under `std/` are special: if the project has its own `std/` (for example, the PenguScript repository), that copy wins over the one bundled in the compiler. That is why a project with its own `std/` needs a `pengu.toml` at its root — without it the compiler cannot tell that `std/` belongs to the project.
 
 **Relative imports** are available for local siblings. They start with `./` or `../` and resolve from the current file's directory:
 
