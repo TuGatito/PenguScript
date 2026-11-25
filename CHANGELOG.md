@@ -38,7 +38,7 @@ sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
   legibilidad y corrección semántica sobre velocidad en bucles calientes.
 - **Documentación de cierre**: `docs/javascript.md` reúne la forma del código
   emitido, la semántica conservada, la tabla de diferencias y todas las
-  opciones; el plan queda con las siete fases marcadas como completadas.
+  opciones; el plan queda con las ocho fases (P0–P7) marcadas como completadas.
 
 ## Backend JavaScript: CLI, caché y documentación (P6 de `plan_codegen_js.md`)
 
