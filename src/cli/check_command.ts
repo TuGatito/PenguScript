@@ -10,6 +10,7 @@ import { CODES } from "../diagnostics/codes.ts";
 import { error as make_error } from "../diagnostics/diagnostic.ts";
 import { make_source as source_of, span_from } from "../util/span.ts";
 import { analyze_graph } from "../driver/analyze.ts";
+import { generate_js_program } from "../codegen/js_module.ts";
 import { parse_target } from "../driver/target.ts";
 import { make_sink } from "../diagnostics/sink.ts";
 import { render_diagnostics } from "../diagnostics/render.ts";
@@ -52,7 +53,13 @@ export function run_check(
     const source = make_source(absolute, text);
     sources.set(absolute, source);
     const sink = make_sink({ max: 200 });
-    analyze_graph(absolute, sink);
+    const analysis = analyze_graph(absolute, sink);
+    // Con `--target js` se comprueba además lo que el emisor JavaScript no
+    // sabe representar (FFI, `meld`, enlaces con C…), sin escribir archivos.
+    if (choice.target === "js" && !sink.has_errors() && analysis.entry_module !== undefined) {
+      const entry = analysis.units.find((unit) => unit.module === analysis.entry_module);
+      if (entry !== undefined) generate_js_program(analysis.units, entry, sink, {});
+    }
     // Los diagnósticos pueden venir de otros módulos del grafo.
     for (const diagnostic of sink.diagnostics) {
       const file = diagnostic.span.file;

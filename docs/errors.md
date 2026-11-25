@@ -63,6 +63,7 @@ Formato: `archivo:línea:columna: severidad[código]: mensaje`.
 | E0404 | `unknown_realm` | Realm no importado. |
 | E0405 | `private_symbol` | Símbolo no visible desde este módulo. |
 | E0406 | `mutable_required` | Se muta algo inmutable: falta `mut` en el binding, en el argumento o en el parámetro. |
+| E0407 | `missing_entry` | El realm de entrada no define `main`: el backend JavaScript no sabe por dónde empezar. |
 
 ## Tipos (E05xx)
 

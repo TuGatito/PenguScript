@@ -64,7 +64,7 @@ export function generate_js_program(
   if (main === undefined) {
     sink.add(
       diagnostic_error(
-        CODES.js_target_unsupported,
+        CODES.missing_entry,
         `el realm de entrada «${entry.module.realm}» no define main`,
         entry.program.span,
       ),

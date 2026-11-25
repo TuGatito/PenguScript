@@ -4,6 +4,25 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+## Backend JavaScript: paridad y cierre (P7 de `plan_codegen_js.md`)
+
+- **Suite diferencial completa**: 16 ejemplos, 10 casos de biblioteca estándar
+  y 6 de `async`/`await` compilan con los dos backends y comparan la salida
+  byte a byte (`tests/e2e/js_parity.test.ts`, `js_std_parity.test.ts`,
+  `js_async.test.ts`).
+- **Divergencias fijadas con tests** (`tests/e2e/js_divergences.test.ts`), para
+  que nadie las descubra en producción: `#texto` mide bytes en C++ y unidades
+  UTF-16 en JS; `map`/`set` iteran ordenados en C++ y en orden de inserción en
+  JS; `--int64 number` pierde precisión por encima de 2⁵³; `os::arch()` se
+  traduce a los nombres de C++.
+- **Rendimiento medido**: `scripts/bench_backends.sh` compara un bucle
+  aritmético de 10⁶ iteraciones — C++ ≈3 ms, JavaScript en Bun ≈36 ms (≈12×,
+  arranque incluido). Anotado en `docs/javascript.md`: el backend JS prioriza
+  legibilidad y corrección semántica sobre velocidad en bucles calientes.
+- **Documentación de cierre**: `docs/javascript.md` reúne la forma del código
+  emitido, la semántica conservada, la tabla de diferencias y todas las
+  opciones; el plan queda con las siete fases marcadas como completadas.
+
 ## Backend JavaScript: CLI, caché y documentación (P6 de `plan_codegen_js.md`)
 
 - **`--out` es el directorio de salida** del backend JavaScript y la emisión

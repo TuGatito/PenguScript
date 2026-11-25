@@ -222,6 +222,12 @@ export function js_error(g: JsContext, message: string, span: Span): void {
   g.sink.add(diagnostic_error(CODES.js_emit_failed, message, span));
 }
 
+// Función del lenguaje que el backend JavaScript no puede representar (FFI,
+// uniones al estilo C, hilos…): E0807, no un fallo del emisor.
+export function js_unsupported(g: JsContext, message: string, span: Span): void {
+  g.sink.add(diagnostic_error(CODES.js_target_unsupported, message, span));
+}
+
 export function line(g: JsContext, text: string): void {
   g.file.lines.push(`${"  ".repeat(g.indent)}${text}`);
 }

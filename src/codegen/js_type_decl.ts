@@ -20,6 +20,7 @@ import { is_type_decl, order_type_decls } from "./cpp_type_order.ts";
 import {
   declare_local,
   js_error,
+  js_unsupported,
   line,
   pop_scope,
   push_scope,
@@ -86,9 +87,9 @@ function emit_type_decl(g: JsContext, unit: ProgramUnit, decl: DeclNode): void {
       emit_free_methods(g, unit, decl.name);
       return;
     case "meld_decl":
-      js_error(
+      js_unsupported(
         g,
-        "`meld` (uniones al estilo C) todavía no se emite a JavaScript: solo tiene sentido con `--target cpp`",
+        "«meld» (uniones al estilo C) no se emite a JavaScript: usa «--target cpp»",
         decl.span,
       );
       return;

@@ -37,6 +37,9 @@ export const CODES = {
   unknown_realm: "E0404",
   private_symbol: "E0405",
   mutable_required: "E0406",
+  // El programa no tiene punto de entrada (el backend JavaScript lo necesita
+  // para saber por dónde empezar a emitir).
+  missing_entry: "E0407",
 
   type_mismatch: "E0501",
   unknown_type: "E0502",

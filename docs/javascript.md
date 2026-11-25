@@ -66,6 +66,23 @@ Las diferencias están cubiertas por `tests/e2e/js_parity.test.ts` y
 `tests/e2e/js_std_parity.test.ts`, que compilan el mismo fuente con los dos
 backends y comparan la salida byte a byte.
 
+## Rendimiento
+
+`scripts/bench_backends.sh` compila el mismo bucle aritmético de 10⁶
+iteraciones con los dos backends y mide el mínimo de cinco ejecuciones
+(incluye el arranque del proceso):
+
+| Backend | Tiempo |
+|---------|--------|
+| C++20 (`-O1`) | ≈3 ms |
+| JavaScript en Bun | ≈36 ms |
+
+Es decir, **≈12× más lento** en un bucle numérico apretado; el arranque de Bun
+es de ≈3 ms, así que casi todo el tiempo es el bucle. Es el precio de la
+aritmética dinámica: el backend JavaScript prioriza legibilidad y corrección
+semántica sobre velocidad en bucles calientes. Para código intensivo en
+cómputo, `--target cpp`.
+
 ## Opciones
 
 | Opción | Efecto |

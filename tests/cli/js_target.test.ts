@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse_args } from "../../src/cli/args.ts";
 import { run_build } from "../../src/cli/build_command.ts";
+import { run_check } from "../../src/cli/check_command.ts";
 import { compile_file } from "../../src/driver/compile.ts";
 
 function project(source: string): string {
@@ -120,6 +121,41 @@ describe("compile_file con target js", () => {
     expect(code).toContain("export function fmt_float");
     expect(code).toContain("Ordering");
     expect(code).toContain("export function panic");
+  });
+});
+
+describe("lo que el backend JavaScript no puede representar", () => {
+  test("check --target js rechaza meld con E0807 antes de emitir", () => {
+    const file = project(`meld Union
+  a: int
+  b: double
+
+main = -> int
+  0
+`);
+    const result = run_check([file], { target: "js" });
+    expect(result.exit_code).toBe(1);
+    expect(result.output).toContain("E0807");
+  });
+
+  test("check sin --target js acepta el mismo programa", () => {
+    const file = project(`meld Union
+  a: int
+  b: double
+
+main = -> int
+  0
+`);
+    expect(run_check([file], {}).exit_code).toBe(0);
+  });
+
+  test("sin main, el backend JavaScript lo dice con E0407", () => {
+    const file = project(`saluda = -> int
+  0
+`);
+    const result = compile_file(file, { target: "js" });
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics.map((item) => item.code)).toContain("E0407");
   });
 });
 
