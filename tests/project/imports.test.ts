@@ -60,6 +60,6 @@ main = -> void
 `,
     });
     expect(with_code(diagnostics, CODES.module_not_found)).toHaveLength(0);
-    expect(with_code(diagnostics, CODES.unknown_member)).toHaveLength(0);
+    expect(with_code(diagnostics, CODES.unknown_method)).toHaveLength(0);
   });
 });
