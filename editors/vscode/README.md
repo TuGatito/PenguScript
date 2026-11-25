@@ -114,6 +114,19 @@ para escribir la ruta absoluta y muestra en la salida los directorios
 consultados. Con `scripts/install.sh` el binario queda en `~/.local/bin/pengu`,
 que ya se busca automáticamente.
 
+## Si el LSP marca errores que `pengu check` no ve
+
+Casi siempre es el mismo problema: el editor y la terminal están usando
+stdlibs distintas. Ejecuta `pengu doctor` en la terminal del proyecto.
+
+- Si dice que el `std/` del proyecto **no coincide** con el del binario,
+  reinstala: `bash scripts/install.sh` y luego «Developer: Reload Window».
+- Si el proyecto tiene su propio `std/` y no hay `pengu.toml` en la raíz, el
+  LSP no puede saber que ese `std/` es del proyecto: crea el manifiesto con
+  `pengu init` o copia el del repositorio.
+- La salida «PenguScript» del editor registra la huella que está usando el
+  servidor al arrancar.
+
 ## Desarrollo
 
 ```bash

@@ -10,8 +10,6 @@ Formato: `archivo:línea:columna: severidad[código]: mensaje`.
 | Código | Nombre | Cuándo aparece |
 | --- | --- | --- |
 | E0001 | `cli_usage` | Comando o argumentos mal usados. |
-| E0002 | `manifest_missing` | Falta `pengu.toml` donde se esperaba. |
-| E0003 | `manifest_invalid` | `pengu.toml` no se puede interpretar. |
 | E0004 | `project_empty` | El proyecto no tiene archivos que compilar. |
 | E0005 | `file_not_found` | No se puede leer el archivo de entrada. |
 
@@ -127,3 +125,22 @@ Formato: `archivo:línea:columna: severidad[código]: mensaje`.
 | E0901 | `lsp_protocol` | Mensaje JSON-RPC inválido. |
 | E0902 | `bindgen_failed` | `clang` no pudo analizar el encabezado. |
 | E0903 | `bindgen_unsupported` | Firma nativa que no se puede mapear (variádicas, tipos desconocidos). |
+
+## Cuando el LSP marca errores que el CLI no ve
+
+Los diagnósticos los produce el mismo checker, así que un desacuerdo casi
+siempre significa que cada uno está leyendo otra cosa. En orden:
+
+1. **Otra stdlib.** `pengu doctor` muestra la huella de la stdlib del binario
+   y la del proyecto. Si no coinciden, reinstala el compilador
+   (`bash scripts/install.sh`) y recarga el editor.
+2. **Otra raíz.** El LSP usa la raíz que anuncia el editor; el CLI, la del
+   archivo. Si el proyecto tiene su propio `std/`, necesita un `pengu.toml` en
+   la raíz para que ambos coincidan.
+3. **Un binario viejo.** Si `pengu doctor --json` no trae `std.fingerprint`,
+   el binario es anterior a esta comprobación: reinstálalo.
+4. **Un buffer sin guardar.** El LSP analiza lo que se ve en el editor; el CLI,
+   lo que hay en disco.
+
+Si tras esto sigue, abre la salida «PenguScript» del editor: ahí queda el
+error exacto del servidor.

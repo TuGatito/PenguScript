@@ -4,6 +4,17 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+### Higiene de diagnósticos y guía de desajustes (F5 de `plan_lsp_errores.md`)
+
+- Retirados `E0002 manifest_missing` y `E0003 manifest_invalid`: el manifiesto
+  es opcional y ningún camino del compilador los emitía, así que solo
+  confundían al leer el catálogo.
+- `docs/errors.md`: nueva sección «Cuando el LSP marca errores que el CLI no
+  ve», con el orden de comprobación (stdlib distinta → `pengu doctor`, raíz
+  distinta → `pengu.toml`, binario viejo, buffer sin guardar).
+- `editors/vscode/README.md`: el mismo diagnóstico desde el editor, con la
+  orden de reinstalar y recargar la ventana.
+
 ### LSP: raíz del workspace (F4 de `plan_lsp_errores.md`)
 
 - El servidor de lenguaje usa `rootUri` (o `workspaceFolders`) como raíz del

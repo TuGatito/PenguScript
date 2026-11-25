@@ -1,7 +1,5 @@
 export const CODES = {
   cli_usage: "E0001",
-  manifest_missing: "E0002",
-  manifest_invalid: "E0003",
   project_empty: "E0004",
   file_not_found: "E0005",
 
