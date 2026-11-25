@@ -5,10 +5,12 @@
 
 import type { Block, ExprNode, Program } from "../frontend/ast.ts";
 import type {
+  CallbackDecl,
   ConstDecl,
   DeclNode,
   EnchantingDecl,
   FunctionDecl,
+  MeldDecl,
   MethodDecl,
   OmenDecl,
   RuneDecl,
@@ -46,6 +48,8 @@ import {
 } from "./types.ts";
 import { STRING_TYPES, is_primitive_type } from "../frontend/ast_type.ts";
 import { enchant_target_of, type_pattern_type } from "./enchant_targets.ts";
+import { check_bitfield, check_meld } from "./meld_check.ts";
+import { reject_opaque_by_value } from "./opaque_check.ts";
 import type { PenguType } from "./types.ts";
 import type { ExternalImports } from "./external.ts";
 import type { LocalSymbol } from "./symbols.ts";
@@ -107,6 +111,12 @@ function check_decl(ctx: CheckContext, decl: DeclNode): void {
     case "rune_decl":
       check_rune(ctx, decl);
       break;
+    case "meld_decl":
+      check_meld(ctx, decl);
+      break;
+    case "callback_decl":
+      check_callback(ctx, decl);
+      break;
     case "enchanting_decl":
       check_enchanting(ctx, decl);
       break;
@@ -117,6 +127,8 @@ function check_decl(ctx: CheckContext, decl: DeclNode): void {
     case "invoke_decl":
     case "echo_decl":
     case "seal_decl":
+    case "link_decl":
+    case "opaque_decl":
       break;
     case "extern_decl":
       check_extern(ctx, decl);
@@ -124,12 +136,30 @@ function check_decl(ctx: CheckContext, decl: DeclNode): void {
   }
 }
 
+function check_callback(ctx: CheckContext, decl: CallbackDecl): void {
+  for (const param of decl.params) {
+    const type = param.type === undefined
+      ? any_type(`parámetro ${param.name}`)
+      : resolve_type_node(param.type, ctx.module.env, ctx.sink);
+    reject_opaque_by_value(ctx, type, param.span, `el parámetro «${param.name}» del callback`);
+  }
+  if (decl.result !== undefined) {
+    const result = resolve_type_node(decl.result, ctx.module.env, ctx.sink);
+    reject_opaque_by_value(ctx, result, decl.result.span, "el retorno del callback");
+  }
+}
+
 function check_extern(ctx: CheckContext, decl: Extract<DeclNode, { kind: "extern_decl" }>): void {
   for (const declared of decl.declares) {
     for (const param of declared.params) {
-      if (param.type !== undefined) resolve_type_node(param.type, ctx.module.env, ctx.sink);
+      if (param.type === undefined) continue;
+      const type = resolve_type_node(param.type, ctx.module.env, ctx.sink);
+      reject_opaque_by_value(ctx, type, param.span, `el parámetro «${param.name}» de «${declared.name}»`);
     }
-    if (declared.result !== undefined) resolve_type_node(declared.result, ctx.module.env, ctx.sink);
+    if (declared.result !== undefined) {
+      const result = resolve_type_node(declared.result, ctx.module.env, ctx.sink);
+      reject_opaque_by_value(ctx, result, declared.result.span, `el retorno de «${declared.name}»`);
+    }
   }
 }
 
@@ -154,6 +184,16 @@ function check_const(ctx: CheckContext, decl: ConstDecl): void {
   }
 
   info.evaluable = eval_const(make_const_scope(ctx.module), decl.value) !== undefined;
+  if (decl.is_define && !info.evaluable) {
+    ctx.sink.add(
+      make_error(
+        CODES.not_const_evaluable,
+        `«${decl.name}» es «define» y necesita un valor evaluable en compilación`,
+        decl.value.span,
+        "usa literales, «const» u operaciones puras",
+      ),
+    );
+  }
   if (decl.is_static && !info.evaluable) {
     ctx.sink.add(
       make_error(
@@ -184,6 +224,7 @@ function check_function(ctx: CheckContext, decl: FunctionDecl): void {
   const info = ctx.module.functions.get(decl.name);
   if (info === undefined) return;
 
+  reject_opaque_by_value(ctx, info.result, decl.span, "el retorno de la función");
   const previous_return = ctx.current_return;
   const previous_unsafe = ctx.unsafe_depth;
   ctx.current_return = is_any(info.result) ? undefined : info.result;
@@ -218,6 +259,7 @@ function check_params(ctx: CheckContext, params: readonly ParamNode[], scope: Sp
     const type = param.type === undefined
       ? any_type(`parámetro ${param.name}`)
       : resolve_type_node(param.type, ctx.module.env, ctx.sink);
+    reject_opaque_by_value(ctx, type, param.span, `el parámetro «${param.name}»`);
     const binding = param_binding_type(param, type);
     declare(ctx.scope, param.name, binding, {
       mutable: param.mutable,
@@ -271,6 +313,14 @@ function check_rune(ctx: CheckContext, decl: RuneDecl): void {
     ctx.self_assign = false;
 
     check_field_shadowing(ctx, decl, rune);
+
+    for (const field of decl.fields) {
+      const info = rune.fields.get(field.name);
+      const type = info?.type;
+      if (type === undefined) continue;
+      if (field.bits !== undefined) check_bitfield(ctx, type, field.bits, field.span);
+      reject_opaque_by_value(ctx, type, field.span, "un campo");
+    }
 
     for (const field of decl.fields) {
       if (field.default_value === undefined) continue;

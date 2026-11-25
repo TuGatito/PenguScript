@@ -21,7 +21,11 @@ export type DeclNode =
   | EchoDecl
   | SealDecl
   | ExternDecl
-  | IntrinsicDecl;
+  | IntrinsicDecl
+  | LinkDecl
+  | OpaqueDecl
+  | CallbackDecl
+  | MeldDecl;
 
 export interface RealmDecl {
   readonly kind: "realm_decl";
@@ -50,6 +54,8 @@ export interface ConstDecl {
   readonly value: ExprNode;
   readonly is_static: boolean;
   readonly mutable: boolean;
+  // `define NOMBRE = valor`: se emite `inline constexpr` y es exportable.
+  readonly is_define: boolean;
   readonly span: Span;
 }
 
@@ -73,6 +79,8 @@ export interface FieldDecl {
   readonly name: string;
   readonly type: TypeNode;
   readonly default_value: ExprNode | undefined;
+  // `bits N nombre: Tipo`: ancho del bitfield; `undefined` si no lo es.
+  readonly bits: number | undefined;
   readonly span: Span;
 }
 
@@ -176,5 +184,41 @@ export interface ExternDecl {
 export interface IntrinsicDecl {
   readonly kind: "intrinsic_decl";
   readonly declares: readonly DeclareDecl[];
+  readonly span: Span;
+}
+
+// `link "raylib"`: bibliotecas que el módulo necesita al enlazar.
+export interface LinkDecl {
+  readonly kind: "link_decl";
+  readonly path: string;
+  readonly span: Span;
+}
+
+// `opaque rAudioBuffer`: tipo incompleto; solo se usa dentro de `raw`/`ref`.
+export interface OpaqueDecl {
+  readonly kind: "opaque_decl";
+  readonly name: string;
+  readonly name_span: Span;
+  readonly span: Span;
+}
+
+// `callback TraceLogCallback = (nivel: int, texto: string) -> void`:
+// puntero a función con ABI C.
+export interface CallbackDecl {
+  readonly kind: "callback_decl";
+  readonly name: string;
+  readonly name_span: Span;
+  readonly params: readonly ParamNode[];
+  readonly result: TypeNode;
+  readonly span: Span;
+}
+
+// `meld Value`: unión C con campos triviales.
+export interface MeldDecl {
+  readonly kind: "meld_decl";
+  readonly name: string;
+  readonly name_span: Span;
+  readonly sigils: readonly string[];
+  readonly fields: readonly FieldDecl[];
   readonly span: Span;
 }

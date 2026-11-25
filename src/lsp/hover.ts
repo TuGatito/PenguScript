@@ -15,7 +15,10 @@ export interface HoverResult {
 // Tamaño en bytes de un tipo, si la medición está disponible.
 export type SizeLookup = (type: PenguType) => { readonly size: number; readonly align: number } | undefined;
 // Desplazamiento de un campo dentro de su tipo medido.
-export type FieldLookup = (type: PenguType, field: string) => { readonly offset: number; readonly size: number } | undefined;
+export type FieldLookup = (
+  type: PenguType,
+  field: string,
+) => { readonly offset?: number; readonly width?: number; readonly size: number } | undefined;
 
 export function hover_at(
   project: ProjectState,
@@ -50,7 +53,13 @@ export function hover_at(
     const placed = fields === undefined || member === undefined || object_type === undefined
       ? undefined
       : fields(object_type, member.name);
-    if (placed !== undefined) sections.push(`desplazamiento: \`${placed.offset} B\` · tamaño: \`${placed.size} B\``);
+    if (placed !== undefined) {
+      sections.push(
+        placed.width !== undefined
+          ? `ancho: \`${placed.width} bit(s)\` · tamaño del campo: \`${placed.size} B\``
+          : `desplazamiento: \`${placed.offset ?? 0} B\` · tamaño: \`${placed.size} B\``,
+      );
+    }
     return { markdown: sections.join("\n\n"), symbol };
   }
 

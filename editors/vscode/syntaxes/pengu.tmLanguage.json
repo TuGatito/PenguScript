@@ -161,11 +161,11 @@
         },
         {
           "name": "keyword.other.declare.pengu",
-          "match": "\\b(declare|extern)\\b"
+          "match": "\\b(declare|extern|link|define)\\b"
         },
         {
           "name": "meta.type-declaration.pengu",
-          "match": "\\b(rune|omen|echo|seal|enchanting|heir|flags)\\b(\\s+)([A-Z][A-Za-z0-9_]*)",
+          "match": "\\b(rune|omen|echo|seal|enchanting|meld|opaque|callback|heir|flags)\\b(\\s+)([A-Z][A-Za-z0-9_]*)",
           "captures": {
             "1": {
               "name": "keyword.declaration.type.pengu"
@@ -252,7 +252,7 @@
       "patterns": [
         {
           "name": "storage.modifier.pengu",
-          "match": "\\b(mut|const|static|unsafe|needs|operator|constructor|destructor|parent)\\b"
+          "match": "\\b(mut|const|static|unsafe|needs|operator|constructor|destructor|parent|bits)\\b"
         }
       ]
     },

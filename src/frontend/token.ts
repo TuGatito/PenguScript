@@ -47,6 +47,11 @@ export const KEYWORDS = [
   "not",
   "declare",
   "extern",
+  "link",
+  "define",
+  "opaque",
+  "callback",
+  "meld",
 ] as const;
 
 export type Keyword = (typeof KEYWORDS)[number];

@@ -44,7 +44,6 @@ export interface CompileResult {
 
 export function compile_file(path: string, options: CompileOptions = {}): CompileResult {
   const source_path = resolve(path);
-  const link = link_flags(options.link ?? []);
   if (!existsSync(source_path)) {
     return {
       ok: false,
@@ -69,6 +68,9 @@ export function compile_file(path: string, options: CompileOptions = {}): Compil
   if (entry_module === undefined) {
     return { ok: false, diagnostics: sink.diagnostics, output: "", source_path };
   }
+  // Los módulos pueden declarar sus bibliotecas con `link "..."`; se
+  // suman a las de la línea de órdenes.
+  const link = link_flags([...units.flatMap((unit) => unit.module.links), ...(options.link ?? [])]);
   const generated = generate_program(units, entry_module, sink);
 
   if (sink.has_errors()) {

@@ -109,6 +109,10 @@ Formato: `archivo:línea:columna: severidad[código]: mensaje`.
 | E0709 | `unknown_enchant_target` | `enchanting` apunta a un tipo que no existe ni admite métodos. |
 | E0710 | `invalid_mut_receiver` | Método `mut` sobre un tipo por valor (`int`, `double`, omens…). |
 | E0711 | `enchant_arity` | El patrón declara un número de sigilos que el tipo no admite. |
+| E0712 | `bitfield_width` | Un campo con `bits` no tiene tipo entero o su ancho no cabe en el tipo. |
+| E0713 | `meld_field_invalid` | Un campo de `meld` no es trivial, tiene valor por defecto o usa `bits`. |
+| E0714 | `meld_access_unsafe` | Se lee un campo de una unión fuera de `unsafe`. |
+| E0715 | `opaque_by_value` | Un tipo `opaque` se usa por valor en vez de dentro de `raw<T>`/`ref<T>`. |
 
 ## Toolchain (E08xx)
 

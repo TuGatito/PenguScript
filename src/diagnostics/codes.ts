@@ -71,6 +71,10 @@ export const CODES = {
   unknown_enchant_target: "E0709",
   invalid_mut_receiver: "E0710",
   enchant_arity: "E0711",
+  bitfield_width: "E0712",
+  meld_field_invalid: "E0713",
+  meld_access_unsafe: "E0714",
+  opaque_by_value: "E0715",
 
   cpp_emit_failed: "E0801",
   toolchain_missing: "E0802",

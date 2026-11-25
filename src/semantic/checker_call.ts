@@ -503,6 +503,19 @@ export function infer_construction(
   const rune = rune_lookup(ctx, name)?.rune;
   if (rune === undefined) return any_type(name);
 
+  // Una unión se crea vacía y se escribe campo a campo.
+  if (rune.meld === true) {
+    if (args.length > 0) {
+      report_error(
+        ctx,
+        CODES.wrong_arity,
+        `«${name}» es una unión: se construye vacía con «${name}()» y se asigna su campo`,
+        span,
+      );
+    }
+    return named(name);
+  }
+
   // Un rune genérico instanciado en la construcción: `Caja<int>(5)`.
   if (type_args.length > 0) {
     if (type_args.length !== rune.sigils.length) {

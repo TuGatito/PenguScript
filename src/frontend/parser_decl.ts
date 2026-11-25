@@ -21,6 +21,7 @@ import {
 } from "./parser_cursor.ts";
 import { CODES } from "../diagnostics/codes.ts";
 import type {
+  ConstDecl,
   ConstructorDecl,
   DeclNode,
   EchoDecl,
@@ -35,6 +36,10 @@ import type {
   SealDecl,
   DeclareDecl,
   IntrinsicDecl,
+  LinkDecl,
+  OpaqueDecl,
+  CallbackDecl,
+  MeldDecl,
 } from "./ast_decl.ts";
 import type { Program } from "./ast.ts";
 import type { ParamNode } from "./ast_param.ts";
@@ -135,6 +140,16 @@ export function parse_decl(c: Cursor): DeclNode | undefined {
       return parse_declare(c, token.span);
     case "extern":
       return parse_extern(c, token.span);
+    case "link":
+      return parse_link(c);
+    case "define":
+      return parse_define(c);
+    case "opaque":
+      return parse_opaque(c);
+    case "callback":
+      return parse_callback(c);
+    case "meld":
+      return parse_meld(c);
     case "ident":
       return parse_named_decl(c);
     default: {
@@ -231,6 +246,7 @@ function parse_const_decl(
     value,
     is_static,
     mutable,
+    is_define: false,
     span: merge_span(start, value.span),
   };
 }
@@ -308,6 +324,7 @@ function parse_named_decl(c: Cursor): DeclNode | undefined {
       value,
       is_static: false,
       mutable: false,
+      is_define: false,
       span: merge_span(name.span, value.span),
     };
   }
@@ -324,6 +341,7 @@ function parse_named_decl(c: Cursor): DeclNode | undefined {
       value,
       is_static: false,
       mutable: false,
+      is_define: false,
       span: merge_span(name.span, value.span),
     };
   }
@@ -369,7 +387,7 @@ export function parse_declare(c: Cursor, start: Span): IntrinsicDecl | undefined
       name_span: name_token.span,
       params,
       result,
-      variadic: false,
+      variadic: params.some((param) => param.variadic),
       span: merge_span(name_token.span, end),
     });
     accept_line_break(c, end, "entre declaraciones intrínsecas");
@@ -417,7 +435,7 @@ function parse_extern(c: Cursor, start: Span): DeclNode | undefined {
       name_span: name_token.span,
       params,
       result,
-      variadic: false,
+      variadic: params.some((param) => param.variadic),
       span: merge_span(name_token.span, end),
     });
     accept_line_break(c, end, "entre declaraciones extern");
@@ -548,6 +566,17 @@ function parse_rune(c: Cursor): RuneDecl {
 }
 
 function parse_field(c: Cursor): FieldDecl {
+  // `bits 3 modo: uint32_t`: `bits` es contextual (solo aquí y seguido de
+  // un entero), así que sigue siendo un identificador normal en el resto
+  // del lenguaje.
+  let bits: number | undefined;
+  const first = peek(c);
+  if (first.kind === "ident" && first.text === "bits" && peek(c, 1).kind === "int") {
+    advance(c);
+    const width = advance(c);
+    const parsed = Number(width.text);
+    bits = Number.isInteger(parsed) ? parsed : undefined;
+  }
   const name = expect_ident(c, "en el campo");
   expect(c, ":", "tras el nombre del campo");
   const type = parse_type(c);
@@ -556,7 +585,98 @@ function parse_field(c: Cursor): FieldDecl {
     name: name?.text ?? "__error__",
     type,
     default_value,
+    bits,
     span: merge_span(name?.span ?? type.span, default_value?.span ?? type.span),
+  };
+}
+
+function parse_link(c: Cursor): LinkDecl {
+  const start = advance(c);
+  const path_token = peek(c);
+  let path = "";
+  if (path_token.kind !== "string") {
+    push_error(c, CODES.expected_token, "se esperaba el nombre de la biblioteca como string", path_token.span);
+  } else {
+    advance(c);
+    path = string_literal_text(path_token);
+  }
+  return { kind: "link_decl", path, span: merge_span(start.span, path_token.span) };
+}
+
+function parse_define(c: Cursor): ConstDecl {
+  const start = advance(c);
+  const name = expect_ident(c, "tras define");
+  const declared_type = at(c, ":") ? (advance(c), parse_type(c)) : undefined;
+  expect(c, "=", "en el define");
+  const value = parse_expression(c);
+  return {
+    kind: "const_decl",
+    name: name?.text ?? "__error__",
+    declared_type,
+    value,
+    is_static: false,
+    mutable: false,
+    is_define: true,
+    span: merge_span(start.span, value.span),
+  };
+}
+
+function parse_opaque(c: Cursor): OpaqueDecl {
+  const start = advance(c);
+  const name = expect_ident(c, "tras opaque");
+  return {
+    kind: "opaque_decl",
+    name: name?.text ?? "__error__",
+    name_span: name?.span ?? start.span,
+    span: merge_span(start.span, name?.span ?? start.span),
+  };
+}
+
+function parse_callback(c: Cursor): CallbackDecl {
+  const start = advance(c);
+  const name = expect_ident(c, "tras callback");
+  expect(c, "=", "en la firma del callback");
+  const params = at(c, "->") ? [] : parse_params(c);
+  expect(c, "->", "en la firma del callback");
+  const result = parse_type(c);
+  return {
+    kind: "callback_decl",
+    name: name?.text ?? "__error__",
+    name_span: name?.span ?? start.span,
+    params,
+    result,
+    span: merge_span(start.span, result.span),
+  };
+}
+
+function parse_meld(c: Cursor): MeldDecl {
+  const start = advance(c);
+  const name = expect_ident(c, "tras meld");
+  const { sigils } = parse_sigils(c);
+
+  const fields: FieldDecl[] = [];
+  if (at(c, "newline") && peek(c, 1).kind === "indent") {
+    open_indented(c, "del meld");
+    while (!at(c, "dedent") && !at(c, "eof")) {
+      if (at(c, "newline")) {
+        advance(c);
+        continue;
+      }
+      const field = parse_field(c);
+      fields.push(field);
+      accept_line_break(c, field.span, "en el meld");
+    }
+    if (at(c, "dedent")) advance(c);
+  }
+
+  const end = fields[fields.length - 1]?.span ?? name?.span ?? start.span;
+  return {
+    kind: "meld_decl",
+    name: name?.text ?? "__error__",
+    name_span: name?.span ?? start.span,
+    sigils,
+    fields,
+    span: merge_span(start.span, end),
   };
 }
 

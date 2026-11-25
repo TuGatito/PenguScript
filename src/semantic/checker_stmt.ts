@@ -26,6 +26,7 @@ import {
 } from "./types.ts";
 import type { PenguType } from "./types.ts";
 import { resolve_type_node } from "./type_env.ts";
+import { reject_opaque_by_value } from "./opaque_check.ts";
 import { builtin_index_result, member_of_builtin } from "./builtin_members.ts";
 
 export function check_statement(ctx: CheckContext, statement: StmtNode): PenguType {
@@ -40,6 +41,7 @@ export function check_statement(ctx: CheckContext, statement: StmtNode): PenguTy
         ? value
         : resolve_type_node(statement.declared_type, ctx.module.env, ctx.sink);
       if (statement.declared_type !== undefined) {
+        reject_opaque_by_value(ctx, type, statement.span, "una constante local");
         check_initialization(ctx, type, value, statement.value.span, "en la constante", statement.value);
       }
       if (declare(ctx.scope, statement.name, type, {
@@ -96,6 +98,7 @@ function check_assign(ctx: CheckContext, node: AssignStmtNode): PenguType {
   // `x: T = v` declara la variable además de asignarla.
   if (node.declared_type !== undefined && node.targets.length === 1) {
     const declared = resolve_type_node(node.declared_type, ctx.module.env, ctx.sink);
+    reject_opaque_by_value(ctx, declared, node.span, "una variable local");
     check_initialization(ctx, declared, value, node.value.span, "en la inicialización", node.value);
     const target = node.targets[0];
     if (target !== undefined && target.kind === "ident") {

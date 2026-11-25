@@ -917,6 +917,50 @@ int sumar(const std::vector<T>& numeros) { ... }
 int suma_heterogenea(const std::vector<::pengu::Value>& partes) { ... }
 ```
 
+### Declaring C types and libraries
+
+A declaration module (`.d.pengu`) mirrors a C header with six constructs. Each one exists because a C declaration cannot be written with `rune`/`extern` alone:
+
+| Keyword | Usage | Generated C++ |
+|---------|-------|---------------|
+| `link` | `link "m"` | adds `-lm` when the module is linked (bare names get `-l`) |
+| `define` | `define MAX_JUGADORES = 8` | `inline constexpr auto MAX_JUGADORES = 8;` |
+| `opaque` | `opaque Textura` | `struct Textura;` (only usable behind `raw<T>`) |
+| `callback` | `callback Doble = (x: int) -> int` | `using Doble = int (*)(int);` |
+| `meld` | `meld Valor` + fields | `union Valor { ... };` |
+| `bits` | `bits 3 modo: uint32_t` inside a `rune` | `std::uint32_t modo : 3;` |
+
+```coffee
+link "m"
+define PI_APROX = 3.14159
+opaque Textura
+callback Filtro = (valor: int) -> int
+
+meld Valor
+  entero: int
+  real: double
+
+rune Opciones
+  bits 2 calidad: uint32_t
+  bits 1 sombras: uint32_t
+```
+
+```c++
+struct Textura;
+using Filtro = int (*)(int);
+union Valor { int entero; double real; };
+struct Opciones { std::uint32_t calidad : 2; std::uint32_t sombras : 1; };
+inline constexpr auto PI_APROX = 3.14159;
+```
+
+Rules:
+
+- An `opaque` name has no size: use it only inside `raw<T>` (or `ref<T>`); by value it is `E0715`.
+- A `meld` is created empty (`Valor()`) and then you assign the active field. **Reading** a `meld` field requires `unsafe`, because the value depends on the last write (`E0714`). Only trivial types fit in a `union` (`E0713`), and a `meld` field cannot have a default value or `bits`.
+- `bits N campo: T` needs an integer type and `1 <= N <= width of T` (`E0712`). In C++ it is a bitfield, so `pengu size --fields` reports `bits N` instead of an offset.
+- `callback` types cross the ABI as C function pointers; `string` parameters are `const char*`.
+- `link` is transitive: any module in the project may declare the libraries it needs.
+
 ## Memory
 
 PenguScript has no garbage collector. Every allocation is freed at a well-defined point: by scope (values), by ownership (smart pointers), or explicitly through unsafe code. That determinism is the point — but it means the programmer has to decide *how* each piece of data is owned and accessed.

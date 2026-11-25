@@ -7,11 +7,12 @@
 
 import type { DeclNode } from "../frontend/ast_decl.ts";
 
-export type TypeDecl = Extract<DeclNode, { kind: "rune_decl" | "omen_decl" | "echo_decl" | "seal_decl" }>;
+export type TypeDecl = Extract<DeclNode, { kind: "rune_decl" | "meld_decl" | "omen_decl" | "echo_decl" | "seal_decl" }>;
 
 export function is_type_decl(decl: DeclNode): decl is TypeDecl {
   return (
     decl.kind === "rune_decl" ||
+    decl.kind === "meld_decl" ||
     decl.kind === "omen_decl" ||
     decl.kind === "echo_decl" ||
     decl.kind === "seal_decl"
@@ -24,6 +25,8 @@ function dependencies_of(decl: TypeDecl): readonly string[] {
   switch (decl.kind) {
     case "rune_decl":
       return decl.parent === undefined ? [] : [decl.parent];
+    case "meld_decl":
+      return [];
     case "echo_decl":
       return decl.target.kind === "named_type" ? [decl.target.name] : [];
     case "seal_decl":

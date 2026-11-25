@@ -4,6 +4,35 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+## Bindings C: lenguaje `.d.pengu` v2 (F2 de `plan_bindings.md`)
+
+- **Seis construcciones nuevas** para escribir cabeceras C sin trucos:
+  `link "m"` (biblioteca que el módulo necesita, transitiva y normalizada a
+  `-lm`), `define NOMBRE = valor` (`inline constexpr`), `opaque Nombre`
+  (`struct Nombre;`, solo usable detrás de `raw<T>`/`ref<T>`),
+  `callback Nombre = (params) -> ret` (`using Nombre = R (*)(params);`),
+  `meld Nombre` (unión C) y `bits N campo: Tipo` dentro de un `rune`
+  (bitfield C++).
+- **`meld`**: se crea vacío (`Bits()`) y se escribe el campo activo; leer un
+  campo exige `unsafe` (E0714). Solo admite tipos triviales (E0713), sin
+  valores por defecto ni `bits`. El constructor de cero argumentos es
+  exclusivo de las uniones.
+- **`bits`**: exige un tipo entero y `1 <= ancho <= bits del tipo` (E0712);
+  el sondeo de `pengu size` emite `BITS` en vez de `offsetof` (que no compila
+  sobre bitfields) y `--fields` muestra `bits N`. El LSP muestra el ancho en
+  el hover.
+- **Checker**: `reject_opaque_by_value` (E0715) en campos, parámetros,
+  retornos, constantes, locales, callbacks y `extern`; `define` debe ser
+  evaluable en compilación; los argumentos de `extern`/`declare` ya marcan
+  `variadic` cuando la firma lo pide.
+- **Driver**: las bibliotecas de `link` de todos los módulos se suman a las
+  de la línea de órdenes antes de compilar y entran en la clave de caché.
+- Regresiones: `tests/bindgen/meld.test.ts` (ABI con una unión C y E0714),
+  `tests/bindgen/bits.test.ts` (ABI con bitfields, E0712 y `pengu size`),
+  `tests/bindgen/decls.test.ts` (opacos, callbacks, `define` y `link "m"`).
+- Documentado en `docs/cheatsheet.md` («Declaring C types and libraries», con
+  la tabla keyword → uso → C++ generado) y `docs/errors.md` (E0712–E0715).
+
 ## Bindings C: coerción de literales (F1 de `plan_bindings.md`)
 
 - Un literal cuyo valor cabe en el destino ya no exige `::from`:
@@ -712,12 +741,14 @@ técnica conocida en el compilador.
 
 ### Verificado
 
-- `bun test`: 456 pruebas en 62 archivos (lexer, parser, checker, formateador,
+- `bun test`: 482 pruebas en 70 archivos (lexer, parser, checker, formateador,
   LSP de integración, de consultas, de sincronización y de rendimiento,
   medición de tamaños, bindgen, biblioteca estándar, conformidad y e2e de los
   ejemplos, de las fases F1–F9, G1–G6, H1–H7, I1–I8, L1–L6 y de la biblioteca
   estándar (F0–F8), la documentación generada de la stdlib y las importaciones
   selectivas, y de la extensión de VS Code, más las regresiones del plan
-  `lsp_errores` (importaciones, raíz del proyecto, doctor y raíz del LSP).
+  `lsp_errores` (importaciones, raíz del proyecto, doctor y raíz del LSP) y de
+  las fases F0–F2 del plan `bindings` (tipos nativos, literales, uniones,
+  bitfields, opacos, callbacks, `define` y `link`).
 - `tsc --noEmit` sin errores y `pengu fmt --check` sin cambios pendientes.
 - Los 15 ejemplos de `examples/` compilan y ejecutan con el compilador final.

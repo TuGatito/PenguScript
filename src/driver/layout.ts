@@ -17,7 +17,10 @@ import { cpp_identifier, cpp_type } from "../codegen/cpp_types.ts";
 
 export interface FieldLayout {
   readonly name: string;
-  readonly offset: number;
+  // Un campo con ancho en bits no tiene desplazamiento propio: C++ no
+  // permite `offsetof` sobre bitfields.
+  readonly offset?: number;
+  readonly width?: number;
   readonly size: number;
 }
 
@@ -52,10 +55,15 @@ export interface LayoutTable {
 
 const EMPTY_TABLE: LayoutTable = { available: false, message: undefined, types: new Map(), values: new Map(), functions: new Map() };
 
+export interface LayoutField {
+  readonly name: string;
+  readonly bits: number | undefined;
+}
+
 export interface LayoutTarget {
   readonly name: string;
   readonly cpp: string;
-  readonly fields: readonly string[];
+  readonly fields: readonly LayoutField[];
 }
 
 export const PRIMITIVE_LAYOUTS: readonly LayoutTarget[] = [
@@ -63,7 +71,7 @@ export const PRIMITIVE_LAYOUTS: readonly LayoutTarget[] = [
   "size_t", "ptrdiff_t", "intptr_t", "uintptr_t", "byte", "int8_t", "uint8_t", "int16_t",
   "uint16_t", "int32_t", "uint32_t", "int64_t", "uint64_t", "string", "string_view",
   "wstring", "u8string", "u16string", "u32string", "char8_t", "char16_t", "char32_t",
-].map((name) => ({ name, cpp: cpp_of_primitive(name), fields: [] }));
+].map((name) => ({ name, cpp: cpp_of_primitive(name), fields: [] as readonly LayoutField[] }));
 
 
 
@@ -99,7 +107,11 @@ export function layout_targets(units: readonly ProgramUnit[]): LayoutTarget[] {
     for (const [name, rune] of unit.module.env.runes) {
       const args = rune.sigils.map(() => "int");
       const cpp = `${realm}::${cpp_identifier(name)}${args.length === 0 ? "" : `<${args.join(", ")}>`}`;
-      targets.push({ name: `${realm}::${name}`, cpp, fields: [...rune.fields.keys()] });
+      targets.push({
+        name: `${realm}::${name}`,
+        cpp,
+        fields: [...rune.fields.values()].map((field) => ({ name: field.name, bits: field.bits })),
+      });
     }
     for (const [name, omen] of unit.module.env.omens) {
       const args = omen.sigils.map(() => "int");
@@ -127,8 +139,14 @@ export function probe_source(units: readonly ProgramUnit[], entry: ModuleInfo): 
   for (const target of targets) {
     lines.push(`  std::printf("SIZE\\t%s\\t%zu\\t%zu\\n", ${JSON.stringify(target.name)}, sizeof(${target.cpp}), alignof(${target.cpp}));`);
     for (const field of target.fields) {
+      if (field.bits !== undefined) {
+        lines.push(
+          `  std::printf("BITS\\t%s\\t%s\\t%d\\n", ${JSON.stringify(target.name)}, ${JSON.stringify(field.name)}, ${field.bits});`,
+        );
+        continue;
+      }
       lines.push(
-        `  std::printf("FIELD\\t%s\\t%s\\t%zu\\t%zu\\n", ${JSON.stringify(target.name)}, ${JSON.stringify(field)}, offsetof(${target.cpp}, ${cpp_identifier(field)}), sizeof(${target.cpp}::${cpp_identifier(field)}));`,
+        `  std::printf("FIELD\\t%s\\t%s\\t%zu\\t%zu\\n", ${JSON.stringify(target.name)}, ${JSON.stringify(field.name)}, offsetof(${target.cpp}, ${cpp_identifier(field.name)}), sizeof(${target.cpp}::${cpp_identifier(field.name)}));`,
       );
     }
   }
@@ -210,6 +228,15 @@ export function parse_probe(output: string): LayoutTable {
         { name: parts[2] ?? "", offset: Number(parts[3] ?? "0"), size: Number(parts[4] ?? "0") },
       ];
       types.set(type.name, { ...type, fields });
+      continue;
+    }
+    if (parts[0] === "BITS" && parts.length >= 4) {
+      const type = types.get(parts[1] ?? "");
+      if (type === undefined) continue;
+      types.set(type.name, {
+        ...type,
+        fields: [...type.fields, { name: parts[2] ?? "", width: Number(parts[3] ?? "0"), size: 0 }],
+      });
       continue;
     }
     if (parts[0] === "VALUE" && parts.length >= 4) {

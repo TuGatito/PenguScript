@@ -237,7 +237,19 @@ export function infer_member(
     const lookup = rune_lookup(ctx, object.name);
     if (lookup !== undefined) {
       const field = find_rune_field(lookup.env, lookup.rune, name);
-      if (field !== undefined) return field.type;
+      if (field !== undefined) {
+        // Leer un campo de una unión depende del miembro activo: es
+        // responsabilidad del programador, así que pide `unsafe`.
+        if (lookup.rune.meld === true && ctx.unsafe_depth === 0) {
+          report_error(
+            ctx,
+            CODES.meld_access_unsafe,
+            `leer «${field.name}» de la unión «${object.name}» requiere «unsafe»`,
+            span,
+          );
+        }
+        return field.type;
+      }
       const method = find_rune_method(lookup.env, lookup.rune, name);
       if (method !== undefined) {
         return function_type(

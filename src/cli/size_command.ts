@@ -58,7 +58,13 @@ export function run_size(
   for (const row of types) {
     lines.push(`${row.name}\t${row.size}\t${row.align}`);
     if (fields) {
-      for (const field of row.fields) lines.push(`  .${field.name}\t${field.size}\t+${field.offset}`);
+      for (const field of row.fields) {
+        lines.push(
+          field.width !== undefined
+            ? `  .${field.name}\t${field.size}\tbits ${field.width}`
+            : `  .${field.name}\t${field.size}\t+${field.offset ?? 0}`,
+        );
+      }
     }
   }
   if (values.length > 0) {

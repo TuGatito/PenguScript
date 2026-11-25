@@ -58,12 +58,28 @@ export function emit_type_declarations(g: GenContext, decls: readonly DeclNode[]
   }
   const types = order_type_decls(type_decls);
 
+  // Los opacos son declaraciones incompletas y los callbacks punteros a
+  // función: no dependen de nada, así que van antes que cualquier tipo.
+  for (const decl of decls) {
+    if (decl.kind === "opaque_decl") {
+      line(g, `struct ${cpp_identifier(decl.name)};`);
+    }
+  }
+  for (const decl of decls) {
+    if (decl.kind === "callback_decl") {
+      emit_callback(g, decl);
+    }
+  }
+
   // Primero los tipos, en orden de dependencia: C++ necesita el padre
   // completo antes que la hija.
   for (const decl of types) {
     switch (decl.kind) {
       case "rune_decl":
         with_sigils(g, decl.sigils, () => emit_rune(g, decl, methods_by_rune.get(decl.name) ?? []));
+        break;
+      case "meld_decl":
+        emit_meld(g, decl);
         break;
       case "omen_decl":
         with_sigils(g, decl.sigils, () => {
@@ -108,9 +124,13 @@ export function emit_rest_declarations(g: GenContext, decls: readonly DeclNode[]
       case "realm_decl":
       case "invoke_decl":
       case "rune_decl":
+      case "meld_decl":
       case "omen_decl":
       case "echo_decl":
       case "seal_decl":
+      case "opaque_decl":
+      case "callback_decl":
+      case "link_decl":
         break;
       case "enchanting_decl":
         if (enchant_target_of(decl.target) !== undefined) emit_builtin_enchanting(g, decl);
@@ -175,6 +195,12 @@ function emit_const(g: GenContext, decl: ConstDecl): void {
   const value = emit_expr(g, decl.value);
   const info = g.module.consts.get(decl.name);
   const evaluable = info?.evaluable === true && declared !== "auto";
+
+  if (info?.is_define === true) {
+    // `define`: constante de compilación exportable (las macros de C).
+    line(g, `inline constexpr ${type} ${name} = ${value};`);
+    return;
+  }
 
   if (decl.is_static) {
     // `static mut`: mutable de módulo, no `const`.
@@ -484,6 +510,44 @@ function emit_param(g: GenContext, param: ParamNode, wrap = false): string {
     : `${rendered} ${name}`;
 }
 
+// Un tipo de un callback cruza con ABI C: `string` es `const char*` y otro
+// callback se nombra por su alias.
+function callback_boundary(type: TypeNode | undefined, g: GenContext): string {
+  if (type === undefined) return "void";
+  if (type.kind === "named_type" && g.module.env.callbacks.has(type.name)) {
+    return cpp_identifier(type.name);
+  }
+  return c_boundary_type(cpp_type_node(type, g.module.env, g.type_realms));
+}
+
+// `callback Nombre = (params) -> ret`: puntero a función con ABI C.
+function emit_callback(g: GenContext, decl: Extract<DeclNode, { kind: "callback_decl" }>): void {
+  const params = decl.params.map((param) => {
+    return callback_boundary(param.type, g);
+  });
+  const result = callback_boundary(decl.result, g);
+  const list = params.length === 0 ? "void" : params.join(", ");
+  line(g, `using ${cpp_identifier(decl.name)} = ${result} (*)(${list});`);
+}
+
+// `meld Nombre` + campos: una `union` de C (solo miembros triviales).
+function emit_meld(g: GenContext, decl: Extract<DeclNode, { kind: "meld_decl" }>): void {
+  if (decl.sigils.length > 0) {
+    line(g, `template <${decl.sigils.map((sigil) => `typename ${sigil}`).join(", ")}>`);
+  }
+  line(g, `union ${cpp_identifier(decl.name)} {`);
+  g.indent += 1;
+  for (const field of decl.fields) {
+    if (field.bits !== undefined) {
+      continue;
+    }
+    const type = cpp_type_node(field.type, g.module.env, g.type_realms);
+    line(g, `${type} ${cpp_identifier(field.name)};`);
+  }
+  g.indent -= 1;
+  line(g, "};");
+}
+
 function emit_rune(
   g: GenContext,
   decl: RuneDecl,
@@ -498,6 +562,10 @@ function emit_rune(
   g.indent += 1;
   for (const field of decl.fields) {
     const type = cpp_type_node(field.type, g.module.env, g.type_realms);
+    if (field.bits !== undefined) {
+      line(g, `${type} ${cpp_identifier(field.name)} : ${field.bits};`);
+      continue;
+    }
     const default_value = field.default_value ? ` = ${emit_expr(g, field.default_value)}` : "";
     line(g, `${type} ${cpp_identifier(field.name)}${default_value};`);
   }

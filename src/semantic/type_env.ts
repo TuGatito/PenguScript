@@ -30,6 +30,8 @@ export interface FieldInfo {
   readonly name: string;
   readonly type: PenguType;
   readonly has_default: boolean;
+  // Ancho en bits de un bitfield (`bits 3 modo: uint32_t`).
+  readonly bits: number | undefined;
   readonly span: Span;
 }
 
@@ -56,11 +58,29 @@ export interface ConstructorInfo {
 export interface RuneInfo {
   readonly kind: "rune";
   readonly name: string;
+  // `meld`: unión C; sus campos se escriben libremente y se leen con `unsafe`.
+  readonly meld?: boolean;
   readonly sigils: readonly string[];
   readonly fields: Map<string, FieldInfo>;
   readonly methods: Map<string, MethodInfo>;
   readonly constructor: ConstructorInfo | undefined;
   readonly parent: string | undefined;
+  readonly span: Span;
+}
+
+// `opaque Nombre`: tipo incompleto declarado por el usuario.
+export interface OpaqueInfo {
+  readonly kind: "opaque";
+  readonly name: string;
+  readonly span: Span;
+}
+
+// `callback Nombre = (params) -> ret`: puntero a función con ABI C.
+export interface CallbackInfo {
+  readonly kind: "callback";
+  readonly name: string;
+  readonly params: readonly PenguType[];
+  readonly result: PenguType;
   readonly span: Span;
 }
 
@@ -125,6 +145,8 @@ export interface TypeEnv {
   readonly runes: Map<string, RuneInfo>;
   readonly omens: Map<string, OmenInfo>;
   readonly aliases: Map<string, AliasInfo>;
+  readonly opaques: Map<string, OpaqueInfo>;
+  readonly callbacks: Map<string, CallbackInfo>;
   /** Clave `base/aridad`: `string/0`, `vector/1`, `tuple/2`. */
   readonly enchants: Map<string, EnchantedType>;
   readonly sigils: Map<string, PenguType>;
@@ -141,6 +163,8 @@ export function make_type_env(): TypeEnv {
     runes: new Map(),
     omens: new Map(),
     aliases: new Map(),
+    opaques: new Map(),
+    callbacks: new Map(),
     sigils: new Map(),
     enchants: new Map(),
     pending_types: [],
@@ -237,7 +261,7 @@ export function resolve_named_type(
     return named(name, args);
   }
 
-  if (env.runes.has(name) || env.omens.has(name)) {
+  if (env.runes.has(name) || env.omens.has(name) || env.opaques.has(name) || env.callbacks.has(name)) {
     return named(name, args);
   }
 
@@ -275,7 +299,15 @@ export function report_pending_types(env: TypeEnv, sink: DiagnosticSink): void {
   for (const pending of env.pending_types) {
     const bare = pending.name.includes("::") ? pending.name.slice(pending.name.lastIndexOf("::") + 2) : pending.name;
     if (env.qualified.has(pending.name)) continue;
-    if (env.runes.has(bare) || env.omens.has(bare) || env.aliases.has(bare)) continue;
+    if (
+      env.runes.has(bare) ||
+      env.omens.has(bare) ||
+      env.aliases.has(bare) ||
+      env.opaques.has(bare) ||
+      env.callbacks.has(bare)
+    ) {
+      continue;
+    }
     sink.add(
       make_error(
         CODES.unknown_type,

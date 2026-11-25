@@ -59,6 +59,8 @@ export interface FunctionInfo {
 export interface ConstInfo {
   readonly kind: "const";
   readonly name: string;
+  // `define`: se emite `inline constexpr` y no lleva `static`.
+  readonly is_define: boolean;
   readonly declared_type: PenguType | undefined;
   readonly decl: ConstDecl;
   readonly is_static: boolean;
@@ -90,6 +92,8 @@ export interface ModuleInfo {
   readonly imports: Map<string, ImportInfo>;
   readonly functions: Map<string, FunctionInfo>;
   readonly consts: Map<string, ConstInfo>;
+  // Bibliotecas declaradas con `link "..."`.
+  readonly links: string[];
 }
 
 export function collect_module(
@@ -101,8 +105,9 @@ export function collect_module(
   const imports = new Map<string, ImportInfo>();
   const functions = new Map<string, FunctionInfo>();
   const consts = new Map<string, ConstInfo>();
+  const links: string[] = [];
 
-  const module: ModuleInfo = { file, realm: default_realm(file), env, imports, functions, consts };
+  const module: ModuleInfo = { file, realm: default_realm(file), env, imports, functions, consts, links };
   let realm = module.realm;
 
   for (const decl of program.decls) {
@@ -131,12 +136,18 @@ export function collect_module(
       case "const_decl":
         register_const(decl, env, consts, sink);
         break;
+      case "link_decl":
+        if (decl.path.length > 0 && !links.includes(decl.path)) links.push(decl.path);
+        break;
       case "realm_decl":
         break;
       case "rune_decl":
+      case "meld_decl":
       case "omen_decl":
       case "echo_decl":
       case "seal_decl":
+      case "opaque_decl":
+      case "callback_decl":
       case "enchanting_decl":
         break;
       case "extern_decl":
@@ -159,11 +170,34 @@ function default_realm(file: string): string {
 function register_type_decl(decl: DeclNode, env: TypeEnv, sink: DiagnosticSink): void {
   switch (decl.kind) {
     case "rune_decl":
-      register_rune(decl, env, sink);
+      register_rune(decl, env, sink, false);
+      break;
+    case "meld_decl":
+      register_rune({ ...decl, kind: "rune_decl", constructor: undefined, destructor: undefined, parent: undefined }, env, sink, true);
       break;
     case "omen_decl":
       register_omen(decl, env, sink);
       break;
+    case "opaque_decl": {
+      if (env.opaques.has(decl.name) || env.runes.has(decl.name) || env.omens.has(decl.name) || env.aliases.has(decl.name)) {
+        duplicate(sink, decl.name, decl.name_span);
+        break;
+      }
+      env.opaques.set(decl.name, { kind: "opaque", name: decl.name, span: decl.name_span });
+      break;
+    }
+    case "callback_decl": {
+      if (env.callbacks.has(decl.name) || env.runes.has(decl.name) || env.omens.has(decl.name) || env.aliases.has(decl.name)) {
+        duplicate(sink, decl.name, decl.name_span);
+        break;
+      }
+      const params = decl.params.map((param) =>
+        param.type === undefined ? UNKNOWN : resolve_type_node(param.type, env, sink),
+      );
+      const result = decl.result === undefined ? VOID : resolve_type_node(decl.result, env, sink);
+      env.callbacks.set(decl.name, { kind: "callback", name: decl.name, params, result, span: decl.name_span });
+      break;
+    }
     case "echo_decl":
     case "seal_decl": {
       if (env.aliases.has(decl.name) || env.runes.has(decl.name) || env.omens.has(decl.name)) {
@@ -192,7 +226,7 @@ function register_type_decl(decl: DeclNode, env: TypeEnv, sink: DiagnosticSink):
   }
 }
 
-function register_rune(rune: RuneDecl, env: TypeEnv, sink: DiagnosticSink): void {
+function register_rune(rune: RuneDecl, env: TypeEnv, sink: DiagnosticSink, meld = false): void {
   if (env.runes.has(rune.name) || env.omens.has(rune.name) || env.aliases.has(rune.name)) {
     duplicate(sink, rune.name, rune.name_span);
     return;
@@ -212,6 +246,7 @@ function register_rune(rune: RuneDecl, env: TypeEnv, sink: DiagnosticSink): void
       name: field.name,
       type,
       has_default: field.default_value !== undefined,
+      bits: field.bits,
       span: field.span,
     });
   }
@@ -223,6 +258,7 @@ function register_rune(rune: RuneDecl, env: TypeEnv, sink: DiagnosticSink): void
   const info: RuneInfo = {
     kind: "rune",
     name: rune.name,
+    meld,
     sigils: rune.sigils,
     fields,
     methods: new Map(),
@@ -604,6 +640,7 @@ function register_const(
   consts.set(decl.name, {
     kind: "const",
     name: decl.name,
+    is_define: decl.is_define,
     declared_type,
     decl,
     is_static: decl.is_static,
