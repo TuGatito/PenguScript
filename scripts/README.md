@@ -6,6 +6,8 @@ Utilidades para compilar e instalar PenguScript sin depender del shell que uses.
 |--------|----------|
 | `install.sh` / `install.ps1` | Compilan `pengu` con Bun y dejan el ejecutable en un directorio del PATH. |
 | `vsix.sh` / `vsix.ps1` | Empaquetan la extensión de VS Code como `.vsix` y la instalan con el CLI `code`. |
+| `bench_backends.sh` | Compara el mismo bucle aritmético compilado a C++20 y a JavaScript (`--target js`). |
+| `embed_std.ts` | Regenera `std_bundle.ts` con las fuentes de `std/` (lo exige un test). |
 
 ## Instalar el ejecutable
 
@@ -24,6 +26,17 @@ En Linux/macOS el script solo escribe el binario: nunca edita `.bashrc`, `.zshrc
 si no, elige el primer directorio escribible del PATH y, como último recurso, deja
 el binario en `~/.local/bin` e indica cómo añadirlo. En Windows modifica la
 variable `Path` de usuario (la heredan todos los shells).
+
+## Medir los dos backends
+
+```sh
+./scripts/bench_backends.sh          # 10⁶ iteraciones
+./scripts/bench_backends.sh 100000   # menos vueltas, para una comprobación rápida
+```
+
+Compila el mismo programa con los dos backends, mide el mínimo de cinco
+ejecuciones e imprime el factor entre JavaScript y C++. Los números de
+referencia están en [`docs/javascript.md`](../docs/javascript.md).
 
 ## Empaquetar e instalar la extensión
 
