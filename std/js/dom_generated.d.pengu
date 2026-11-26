@@ -22,18 +22,18 @@ host js::AddressErrors
   mut sortingCode?: string
 
 host js::AesCbcParams heir js::Algorithm
-  mut iv: js::BufferSource
+  mut iv: js::Any
 
 host js::AesCtrParams heir js::Algorithm
-  mut counter: js::BufferSource
+  mut counter: js::Any
   mut length: int
 
 host js::AesDerivedKeyParams heir js::Algorithm
   mut length: int
 
 host js::AesGcmParams heir js::Algorithm
-  mut additionalData?: js::BufferSource
-  mut iv: js::BufferSource
+  mut additionalData?: js::Any
+  mut iv: js::Any
   mut tagLength?: double
 
 host js::AesKeyAlgorithm heir js::KeyAlgorithm
@@ -57,8 +57,8 @@ host js::AnimationEventInit heir js::EventInit
   mut pseudoElement?: string
 
 host js::AnimationPlaybackEventInit heir js::EventInit
-  mut currentTime?: js::CSSNumberish?
-  mut timelineTime?: js::CSSNumberish?
+  mut currentTime?: js::Any?
+  mut timelineTime?: js::Any?
 
 host js::AssignedNodesOptions
   mut flatten?: bool
@@ -88,14 +88,14 @@ host js::AudioContextOptions
   mut sampleRate?: double
 
 host js::AudioDataCopyToOptions
-  mut format?: js::AudioSampleFormat
+  mut format?: js::Any
   mut frameCount?: double
   mut frameOffset?: double
   mut planeIndex: double
 
 host js::AudioDataInit
-  mut data: js::BufferSource
-  mut format: js::AudioSampleFormat
+  mut data: js::Any
+  mut format: js::Any
   mut numberOfChannels: double
   mut numberOfFrames: double
   mut sampleRate: double
@@ -104,13 +104,13 @@ host js::AudioDataInit
 
 host js::AudioDecoderConfig
   mut codec: string
-  mut description?: js::BufferSource
+  mut description?: js::Any
   mut numberOfChannels: double
   mut sampleRate: double
 
 host js::AudioDecoderInit
-  mut error: js::WebCodecsErrorCallback
-  mut output: js::AudioDataOutputCallback
+  mut error: js::Any
+  mut output: js::Any
 
 host js::AudioDecoderSupport
   mut config?: js::AudioDecoderConfig
@@ -118,15 +118,15 @@ host js::AudioDecoderSupport
 
 host js::AudioEncoderConfig
   mut bitrate?: double
-  mut bitrateMode?: js::BitrateMode
+  mut bitrateMode?: js::Any
   mut codec: string
   mut numberOfChannels: double
   mut opus?: js::OpusEncoderConfig
   mut sampleRate: double
 
 host js::AudioEncoderInit
-  mut error: js::WebCodecsErrorCallback
-  mut output: js::EncodedAudioChunkOutputCallback
+  mut error: js::Any
+  mut output: js::Any
 
 host js::AudioEncoderSupport
   mut config?: js::AudioEncoderConfig
@@ -134,8 +134,8 @@ host js::AudioEncoderSupport
 
 host js::AudioNodeOptions
   mut channelCount?: double
-  mut channelCountMode?: js::ChannelCountMode
-  mut channelInterpretation?: js::ChannelInterpretation
+  mut channelCountMode?: js::Any
+  mut channelInterpretation?: js::Any
 
 host js::AudioProcessingEventInit heir js::EventInit
   mut inputBuffer: js::AudioBuffer
@@ -175,31 +175,31 @@ host js::AuthenticationExtensionsPRFOutputs
   mut results?: js::AuthenticationExtensionsPRFValues
 
 host js::AuthenticationExtensionsPRFValues
-  mut first: js::BufferSource
-  mut second?: js::BufferSource
+  mut first: js::Any
+  mut second?: js::Any
 
 host js::AuthenticatorSelectionCriteria
-  mut authenticatorAttachment?: js::AuthenticatorAttachment
+  mut authenticatorAttachment?: js::Any
   mut requireResidentKey?: bool
-  mut residentKey?: js::ResidentKeyRequirement
-  mut userVerification?: js::UserVerificationRequirement
+  mut residentKey?: js::Any
+  mut userVerification?: js::Any
 
 host js::AvcEncoderConfig
-  mut format?: js::AvcBitstreamFormat
+  mut format?: js::Any
 
 host js::BiquadFilterOptions heir js::AudioNodeOptions
   mut Q?: double
   mut detune?: double
   mut frequency?: double
   mut gain?: double
-  mut type?: js::BiquadFilterType
+  mut type?: js::Any
 
 host js::BlobEventInit
   mut data: js::Blob
   mut timecode?: js::DOMHighResTimeStamp
 
 host js::BlobPropertyBag
-  mut endings?: js::EndingType
+  mut endings?: js::Any
   mut type?: string
 
 host js::CSSMatrixComponentOptions
@@ -211,7 +211,7 @@ host js::CSSNumericType
   mut frequency?: double
   mut length?: int
   mut percent?: double
-  mut percentHint?: js::CSSNumericBaseType
+  mut percentHint?: js::Any
   mut resolution?: double
   mut time?: double
 
@@ -227,7 +227,7 @@ host js::CacheQueryOptions
 
 host js::CanvasRenderingContext2DSettings
   mut alpha?: bool
-  mut colorSpace?: js::PredefinedColorSpace
+  mut colorSpace?: js::Any
   mut desynchronized?: bool
   mut willReadFrequently?: bool
 
@@ -249,13 +249,13 @@ host js::CheckVisibilityOptions
 
 host js::ClientQueryOptions
   mut includeUncontrolled?: bool
-  mut type?: js::ClientTypes
+  mut type?: js::Any
 
 host js::ClipboardEventInit heir js::EventInit
   mut clipboardData?: js::DataTransfer?
 
 host js::ClipboardItemOptions
-  mut presentationStyle?: js::PresentationStyle
+  mut presentationStyle?: js::Any
 
 host js::CloseEventInit heir js::EventInit
   mut code?: double
@@ -266,15 +266,15 @@ host js::CompositionEventInit heir js::UIEventInit
   mut data?: string
 
 host js::ComputedEffectTiming heir js::EffectTiming
-  mut activeDuration?: js::CSSNumberish
+  mut activeDuration?: js::Any
   mut currentIteration?: double?
-  mut endTime?: js::CSSNumberish
-  mut localTime?: js::CSSNumberish?
+  mut endTime?: js::Any
+  mut localTime?: js::Any?
   mut progress?: double?
-  mut startTime?: js::CSSNumberish
+  mut startTime?: js::Any
 
 host js::ComputedKeyframe
-  mut composite: js::CompositeOperationOrAuto
+  mut composite: js::Any
   mut computedOffset: double
   mut easing: string
   mut offset: int?
@@ -314,7 +314,7 @@ host js::CredentialPropertiesOutput
   mut rk?: bool
 
 host js::CredentialRequestOptions
-  mut mediation?: js::CredentialMediationRequirement
+  mut mediation?: js::Any
   mut publicKey?: js::PublicKeyCredentialRequestOptions
   mut signal?: js::AbortSignal
 
@@ -430,15 +430,15 @@ host js::EcdhKeyDeriveParams heir js::Algorithm
   mut public: js::CryptoKey
 
 host js::EcdsaParams heir js::Algorithm
-  mut hash: js::HashAlgorithmIdentifier
+  mut hash: js::Any
 
 host js::EffectTiming
   mut delay?: double
-  mut direction?: js::PlaybackDirection
+  mut direction?: js::Any
   mut duration?: js::Any
   mut easing?: string
   mut endDelay?: double
-  mut fill?: js::FillMode
+  mut fill?: js::Any
   mut iterationStart?: double
   mut iterations?: double
   mut playbackRate?: double
@@ -450,20 +450,20 @@ host js::ElementDefinitionOptions
   mut extends?: string
 
 host js::EncodedAudioChunkInit
-  mut data: js::AllowSharedBufferSource
+  mut data: js::Any
   mut duration?: double
   mut timestamp: double
   mut transfer?: js::Array<js::ArrayBuffer>
-  mut type: js::EncodedAudioChunkType
+  mut type: js::Any
 
 host js::EncodedAudioChunkMetadata
   mut decoderConfig?: js::AudioDecoderConfig
 
 host js::EncodedVideoChunkInit
-  mut data: js::AllowSharedBufferSource
+  mut data: js::Any
   mut duration?: double
   mut timestamp: double
-  mut type: js::EncodedVideoChunkType
+  mut type: js::Any
 
 host js::EncodedVideoChunkMetadata
   mut decoderConfig?: js::VideoDecoderConfig
@@ -530,7 +530,7 @@ host js::FocusOptions
 host js::FontFaceDescriptors
   mut ascentOverride?: string
   mut descentOverride?: string
-  mut display?: js::FontDisplay
+  mut display?: js::Any
   mut featureSettings?: string
   mut lineGapOverride?: string
   mut stretch?: string
@@ -545,7 +545,7 @@ host js::FormDataEventInit heir js::EventInit
   mut formData: js::FormData
 
 host js::FullscreenOptions
-  mut navigationUI?: js::FullscreenNavigationUI
+  mut navigationUI?: js::Any
 
 host js::GainOptions heir js::AudioNodeOptions
   mut gain?: double
@@ -579,12 +579,12 @@ host js::HashChangeEventInit heir js::EventInit
   mut oldURL?: string
 
 host js::HkdfParams heir js::Algorithm
-  mut hash: js::HashAlgorithmIdentifier
-  mut info: js::BufferSource
-  mut salt: js::BufferSource
+  mut hash: js::Any
+  mut info: js::Any
+  mut salt: js::Any
 
 host js::HmacImportParams heir js::Algorithm
-  mut hash: js::HashAlgorithmIdentifier
+  mut hash: js::Any
   mut length?: int
 
 host js::HmacKeyAlgorithm heir js::KeyAlgorithm
@@ -592,7 +592,7 @@ host js::HmacKeyAlgorithm heir js::KeyAlgorithm
   mut length: int
 
 host js::HmacKeyGenParams heir js::Algorithm
-  mut hash: js::HashAlgorithmIdentifier
+  mut hash: js::Any
   mut length?: int
 
 host js::IDBDatabaseInfo
@@ -608,7 +608,7 @@ host js::IDBObjectStoreParameters
   mut keyPath?: js::Any
 
 host js::IDBTransactionOptions
-  mut durability?: js::IDBTransactionDurability
+  mut durability?: js::Any
 
 host js::IDBVersionChangeEventInit heir js::EventInit
   mut newVersion?: double?
@@ -622,18 +622,18 @@ host js::IdleRequestOptions
   mut timeout?: double
 
 host js::ImageBitmapOptions
-  mut colorSpaceConversion?: js::ColorSpaceConversion
-  mut imageOrientation?: js::ImageOrientation
-  mut premultiplyAlpha?: js::PremultiplyAlpha
+  mut colorSpaceConversion?: js::Any
+  mut imageOrientation?: js::Any
+  mut premultiplyAlpha?: js::Any
   mut resizeHeight?: double
-  mut resizeQuality?: js::ResizeQuality
+  mut resizeQuality?: js::Any
   mut resizeWidth?: double
 
 host js::ImageBitmapRenderingContextSettings
   mut alpha?: bool
 
 host js::ImageDataSettings
-  mut colorSpace?: js::PredefinedColorSpace
+  mut colorSpace?: js::Any
 
 host js::ImageEncodeOptions
   mut quality?: double
@@ -644,7 +644,7 @@ host js::InputEventInit heir js::UIEventInit
   mut dataTransfer?: js::DataTransfer?
   mut inputType?: string
   mut isComposing?: bool
-  mut targetRanges?: js::Array<js::StaticRange>
+  mut targetRanges?: js::Array<js::Any>
 
 host js::IntersectionObserverInit
   mut root?: js::Any
@@ -684,7 +684,7 @@ host js::KeyboardEventInit heir js::EventModifierInit
   mut repeat?: bool
 
 host js::Keyframe
-  mut composite?: js::CompositeOperationOrAuto
+  mut composite?: js::Any
   mut easing?: string
   mut offset?: int?
   mut[indice: string]: js::Any
@@ -694,13 +694,13 @@ host js::KeyframeAnimationOptions heir js::KeyframeEffectOptions
   mut timeline?: js::AnimationTimeline?
 
 host js::KeyframeEffectOptions heir js::EffectTiming
-  mut composite?: js::CompositeOperation
-  mut iterationComposite?: js::IterationCompositeOperation
+  mut composite?: js::Any
+  mut iterationComposite?: js::Any
   mut pseudoElement?: string?
 
 host js::LockInfo
   mut clientId?: string
-  mut mode?: js::LockMode
+  mut mode?: js::Any
   mut name?: string
 
 host js::LockManagerSnapshot
@@ -709,7 +709,7 @@ host js::LockManagerSnapshot
 
 host js::LockOptions
   mut ifAvailable?: bool
-  mut mode?: js::LockMode
+  mut mode?: js::Any
   mut signal?: js::AbortSignal
   mut steal?: bool
 
@@ -739,13 +739,13 @@ host js::MediaConfiguration
   mut video?: js::VideoConfiguration
 
 host js::MediaDecodingConfiguration heir js::MediaConfiguration
-  mut type: js::MediaDecodingType
+  mut type: js::Any
 
 host js::MediaElementAudioSourceOptions
   mut mediaElement: js::HTMLMediaElement
 
 host js::MediaEncodingConfiguration heir js::MediaConfiguration
-  mut type: js::MediaEncodingType
+  mut type: js::Any
 
 host js::MediaEncryptedEventInit heir js::EventInit
   mut initData?: js::ArrayBuffer?
@@ -758,14 +758,14 @@ host js::MediaImage
 
 host js::MediaKeyMessageEventInit heir js::EventInit
   mut message: js::ArrayBuffer
-  mut messageType: js::MediaKeyMessageType
+  mut messageType: js::Any
 
 host js::MediaKeySystemConfiguration
   mut audioCapabilities?: js::Array<js::MediaKeySystemMediaCapability>
-  mut distinctiveIdentifier?: js::MediaKeysRequirement
+  mut distinctiveIdentifier?: js::Any
   mut initDataTypes?: js::Array<string>
   mut label?: string
-  mut persistentState?: js::MediaKeysRequirement
+  mut persistentState?: js::Any
   mut sessionTypes?: js::Array<string>
   mut videoCapabilities?: js::Array<js::MediaKeySystemMediaCapability>
 
@@ -799,7 +799,7 @@ host js::MediaRecorderOptions
   mut videoBitsPerSecond?: double
 
 host js::MediaSessionActionDetails
-  mut action: js::MediaSessionAction
+  mut action: js::Any
   mut fastSeek?: bool
   mut seekOffset?: double
   mut seekTime?: double
@@ -834,21 +834,21 @@ host js::MediaTrackCapabilities
   mut width?: js::ULongRange
 
 host js::MediaTrackConstraintSet
-  mut aspectRatio?: js::ConstrainDouble
-  mut autoGainControl?: js::ConstrainBoolean
-  mut backgroundBlur?: js::ConstrainBoolean
-  mut channelCount?: js::ConstrainULong
-  mut deviceId?: js::ConstrainDOMString
-  mut displaySurface?: js::ConstrainDOMString
-  mut echoCancellation?: js::ConstrainBoolean
-  mut facingMode?: js::ConstrainDOMString
-  mut frameRate?: js::ConstrainDouble
-  mut groupId?: js::ConstrainDOMString
-  mut height?: js::ConstrainULong
-  mut noiseSuppression?: js::ConstrainBoolean
-  mut sampleRate?: js::ConstrainULong
-  mut sampleSize?: js::ConstrainULong
-  mut width?: js::ConstrainULong
+  mut aspectRatio?: js::Any
+  mut autoGainControl?: js::Any
+  mut backgroundBlur?: js::Any
+  mut channelCount?: js::Any
+  mut deviceId?: js::Any
+  mut displaySurface?: js::Any
+  mut echoCancellation?: js::Any
+  mut facingMode?: js::Any
+  mut frameRate?: js::Any
+  mut groupId?: js::Any
+  mut height?: js::Any
+  mut noiseSuppression?: js::Any
+  mut sampleRate?: js::Any
+  mut sampleSize?: js::Any
+  mut width?: js::Any
 
 host js::MediaTrackConstraints heir js::MediaTrackConstraintSet
   mut advanced?: js::Array<js::MediaTrackConstraintSet>
@@ -892,7 +892,7 @@ host js::MessageEventInit<T> heir js::EventInit
   mut lastEventId?: string
   mut origin?: string
   mut ports?: js::Array<js::MessagePort>
-  mut source?: js::MessageEventSource?
+  mut source?: js::Any?
 
 host js::MouseEventInit heir js::EventModifierInit
   mut button?: int
@@ -925,7 +925,7 @@ host js::NotificationOptions
   mut badge?: string
   mut body?: string
   mut data?: js::Any
-  mut dir?: js::NotificationDirection
+  mut dir?: string
   mut icon?: string
   mut lang?: string
   mut requireInteraction?: bool
@@ -942,18 +942,18 @@ host js::OfflineAudioContextOptions
 
 host js::OptionalEffectTiming
   mut delay?: double
-  mut direction?: js::PlaybackDirection
+  mut direction?: js::Any
   mut duration?: js::Any
   mut easing?: string
   mut endDelay?: double
-  mut fill?: js::FillMode
+  mut fill?: js::Any
   mut iterationStart?: double
   mut iterations?: double
   mut playbackRate?: double
 
 host js::OpusEncoderConfig
   mut complexity?: double
-  mut format?: js::OpusBitstreamFormat
+  mut format?: js::Any
   mut frameDuration?: double
   mut packetlossperc?: double
   mut usedtx?: bool
@@ -962,8 +962,8 @@ host js::OpusEncoderConfig
 host js::OscillatorOptions heir js::AudioNodeOptions
   mut detune?: double
   mut frequency?: double
-  mut periodicWave?: js::PeriodicWave
-  mut type?: js::OscillatorType
+  mut periodicWave?: js::Any
+  mut type?: js::Any
 
 host js::PageTransitionEventInit heir js::EventInit
   mut persisted?: bool
@@ -972,12 +972,12 @@ host js::PannerOptions heir js::AudioNodeOptions
   mut coneInnerAngle?: double
   mut coneOuterAngle?: double
   mut coneOuterGain?: double
-  mut distanceModel?: js::DistanceModelType
+  mut distanceModel?: js::Any
   mut maxDistance?: double
   mut orientationX?: double
   mut orientationY?: double
   mut orientationZ?: double
-  mut panningModel?: js::PanningModelType
+  mut panningModel?: js::Any
   mut positionX?: double
   mut positionY?: double
   mut positionZ?: double
@@ -1019,7 +1019,7 @@ host js::PaymentItem
   mut label: string
   mut pending?: bool
 
-host js::PaymentMethodChangeEventInit heir js::PaymentRequestUpdateEventInit
+host js::PaymentMethodChangeEventInit
   mut methodDetails?: js::Any
   mut methodName?: string
 
@@ -1032,7 +1032,7 @@ host js::PaymentOptions
   mut requestPayerName?: bool
   mut requestPayerPhone?: bool
   mut requestShipping?: bool
-  mut shippingType?: js::PaymentShippingType
+  mut shippingType?: js::Any
 
 host js::PaymentShippingOption
   mut amount: js::PaymentCurrencyAmount
@@ -1046,9 +1046,9 @@ host js::PaymentValidationErrors
   mut shippingAddress?: js::AddressErrors
 
 host js::Pbkdf2Params heir js::Algorithm
-  mut hash: js::HashAlgorithmIdentifier
+  mut hash: js::Any
   mut iterations: double
-  mut salt: js::BufferSource
+  mut salt: js::Any
 
 host js::PerformanceMarkOptions
   mut detail?: js::Any
@@ -1073,7 +1073,7 @@ host js::PeriodicWaveOptions heir js::PeriodicWaveConstraints
   mut real?: js::Any
 
 host js::PermissionDescriptor
-  mut name: js::PermissionName
+  mut name: string
 
 host js::PictureInPictureEventInit heir js::EventInit
   mut pictureInPictureWindow: js::PictureInPictureWindow
@@ -1131,9 +1131,9 @@ host js::PropertyIndexedKeyframes
   mut[indice: string]: js::Any
 
 host js::PublicKeyCredentialCreationOptions
-  mut attestation?: js::AttestationConveyancePreference
+  mut attestation?: js::Any
   mut authenticatorSelection?: js::AuthenticatorSelectionCriteria
-  mut challenge: js::BufferSource
+  mut challenge: js::Any
   mut excludeCredentials?: js::Array<js::PublicKeyCredentialDescriptor>
   mut extensions?: js::AuthenticationExtensionsClientInputs
   mut pubKeyCredParams: js::Array<js::PublicKeyCredentialParameters>
@@ -1146,7 +1146,7 @@ host js::PublicKeyCredentialCreationOptionsJSON
   mut authenticatorSelection?: js::AuthenticatorSelectionCriteria
   mut challenge: js::Base64URLString
   mut excludeCredentials?: js::Array<js::PublicKeyCredentialDescriptorJSON>
-  mut extensions?: js::AuthenticationExtensionsClientInputsJSON
+  mut extensions?: js::Any
   mut hints?: js::Array<string>
   mut pubKeyCredParams: js::Array<js::PublicKeyCredentialParameters>
   mut rp: js::PublicKeyCredentialRpEntity
@@ -1154,12 +1154,12 @@ host js::PublicKeyCredentialCreationOptionsJSON
   mut user: js::PublicKeyCredentialUserEntityJSON
 
 host js::PublicKeyCredentialDescriptor
-  mut id: js::BufferSource
-  mut transports?: js::Array<js::AuthenticatorTransport>
+  mut id: string
+  mut transports?: js::Array<js::Any>
   mut type: js::PublicKeyCredentialType
 
 host js::PublicKeyCredentialDescriptorJSON
-  mut id: js::Base64URLString
+  mut id: string
   mut transports?: js::Array<string>
   mut type: string
 
@@ -1172,16 +1172,16 @@ host js::PublicKeyCredentialParameters
 
 host js::PublicKeyCredentialRequestOptions
   mut allowCredentials?: js::Array<js::PublicKeyCredentialDescriptor>
-  mut challenge: js::BufferSource
+  mut challenge: js::Any
   mut extensions?: js::AuthenticationExtensionsClientInputs
   mut rpId?: string
   mut timeout?: double
-  mut userVerification?: js::UserVerificationRequirement
+  mut userVerification?: js::Any
 
 host js::PublicKeyCredentialRequestOptionsJSON
   mut allowCredentials?: js::Array<js::PublicKeyCredentialDescriptorJSON>
   mut challenge: js::Base64URLString
-  mut extensions?: js::AuthenticationExtensionsClientInputsJSON
+  mut extensions?: js::Any
   mut hints?: js::Array<string>
   mut rpId?: string
   mut timeout?: double
@@ -1192,11 +1192,11 @@ host js::PublicKeyCredentialRpEntity heir js::PublicKeyCredentialEntity
 
 host js::PublicKeyCredentialUserEntity heir js::PublicKeyCredentialEntity
   mut displayName: string
-  mut id: js::BufferSource
+  mut id: string
 
 host js::PublicKeyCredentialUserEntityJSON
   mut displayName: string
-  mut id: js::Base64URLString
+  mut id: string
   mut name: string
 
 host js::PushSubscriptionJSON
@@ -1210,7 +1210,7 @@ host js::PushSubscriptionOptionsInit
 
 host js::QueuingStrategy<T>
   mut highWaterMark?: double
-  mut size?: js::QueuingStrategySize<T>
+  mut size?: js::Any
 
 host js::QueuingStrategyInit
   mut highWaterMark: double
@@ -1219,11 +1219,11 @@ host js::RTCCertificateExpiration
   mut expires?: double
 
 host js::RTCConfiguration
-  mut bundlePolicy?: js::RTCBundlePolicy
+  mut bundlePolicy?: js::Any
   mut certificates?: js::Array<js::RTCCertificate>
   mut iceCandidatePoolSize?: double
   mut iceServers?: js::Array<js::RTCIceServer>
-  mut iceTransportPolicy?: js::RTCIceTransportPolicy
+  mut iceTransportPolicy?: js::Any
   mut rtcpMuxPolicy?: js::RTCRtcpMuxPolicy
 
 host js::RTCDTMFToneChangeEventInit heir js::EventInit
@@ -1233,7 +1233,7 @@ host js::RTCDataChannelEventInit heir js::EventInit
   mut channel: js::RTCDataChannel
 
 host js::RTCDataChannelInit
-  mut id?: double
+  mut id?: string
   mut maxPacketLifeTime?: double
   mut maxRetransmits?: double
   mut negotiated?: bool
@@ -1266,7 +1266,7 @@ host js::RTCErrorEventInit heir js::EventInit
   mut error: js::RTCError
 
 host js::RTCErrorInit
-  mut errorDetail: js::RTCErrorDetailType
+  mut errorDetail: js::Any
   mut httpRequestStatusCode?: double
   mut receivedAlert?: double
   mut sctpCauseCode?: double
@@ -1294,7 +1294,7 @@ host js::RTCIceCandidatePairStats heir js::RTCStats
   mut requestsSent?: double
   mut responsesReceived?: double
   mut responsesSent?: double
-  mut state: js::RTCStatsIceCandidatePairState
+  mut state: js::Any
   mut totalRoundTripTime?: double
   mut transportId: string
 
@@ -1344,9 +1344,9 @@ host js::RTCInboundRtpStreamStats heir js::RTCReceivedRtpStreamStats
 
 host js::RTCLocalSessionDescriptionInit
   mut sdp?: string
-  mut type?: js::RTCSdpType
+  mut type?: js::Any
 
-host js::RTCOfferOptions heir js::RTCOfferAnswerOptions
+host js::RTCOfferOptions
   mut iceRestart?: bool
   mut offerToReceiveAudio?: bool
   mut offerToReceiveVideo?: bool
@@ -1422,8 +1422,8 @@ host js::RTCRtpEncodingParameters heir js::RTCRtpCodingParameters
   mut active?: bool
   mut maxBitrate?: double
   mut maxFramerate?: double
-  mut networkPriority?: js::RTCPriorityType
-  mut priority?: js::RTCPriorityType
+  mut networkPriority?: js::Any
+  mut priority?: js::Any
   mut scaleResolutionDownBy?: double
 
 host js::RTCRtpHeaderExtensionCapability
@@ -1431,7 +1431,7 @@ host js::RTCRtpHeaderExtensionCapability
 
 host js::RTCRtpHeaderExtensionParameters
   mut encrypted?: bool
-  mut id: double
+  mut id: string
   mut uri: string
 
 host js::RTCRtpParameters
@@ -1440,7 +1440,7 @@ host js::RTCRtpParameters
   mut rtcp: js::RTCRtcpParameters
 
 host js::RTCRtpSendParameters heir js::RTCRtpParameters
-  mut degradationPreference?: js::RTCDegradationPreference
+  mut degradationPreference?: js::Any
   mut encodings: js::Array<js::RTCRtpEncodingParameters>
   mut transactionId: string
 
@@ -1451,7 +1451,7 @@ host js::RTCRtpStreamStats heir js::RTCStats
   mut transportId?: string
 
 host js::RTCRtpTransceiverInit
-  mut direction?: js::RTCRtpTransceiverDirection
+  mut direction?: js::Any
   mut sendEncodings?: js::Array<js::RTCRtpEncodingParameters>
   mut streams?: js::Array<js::MediaStream>
 
@@ -1461,12 +1461,12 @@ host js::RTCSentRtpStreamStats heir js::RTCRtpStreamStats
 
 host js::RTCSessionDescriptionInit
   mut sdp?: string
-  mut type: js::RTCSdpType
+  mut type: js::Any
 
 host js::RTCStats
   mut id: string
   mut timestamp: js::DOMHighResTimeStamp
-  mut type: js::RTCStatsType
+  mut type: js::Any
 
 host js::RTCTrackEventInit heir js::EventInit
   mut receiver: js::RTCRtpReceiver
@@ -1478,7 +1478,7 @@ host js::RTCTransportStats heir js::RTCStats
   mut bytesReceived?: double
   mut bytesSent?: double
   mut dtlsCipher?: string
-  mut dtlsState: js::RTCDtlsTransportState
+  mut dtlsState: js::Any
   mut localCertificateId?: string
   mut remoteCertificateId?: string
   mut selectedCandidatePairId?: string
@@ -1493,11 +1493,11 @@ host js::ReadableStreamIteratorOptions
 
 host js::ReadableStreamReadDoneResult<T>
   mut done: bool
-  mut value?: T
+  mut value?: string
 
 host js::ReadableStreamReadValueResult<T>
   mut done: bool
-  mut value: T
+  mut value: string
 
 host js::ReadableWritablePair<R, W>
   mut readable: js::ReadableStream<R>
@@ -1505,56 +1505,56 @@ host js::ReadableWritablePair<R, W>
 
 host js::RegistrationOptions
   mut scope?: string
-  mut type?: js::WorkerType
-  mut updateViaCache?: js::ServiceWorkerUpdateViaCache
+  mut type?: js::Any
+  mut updateViaCache?: js::Any
 
 host js::ReportingObserverOptions
   mut buffered?: bool
   mut types?: js::Array<string>
 
 host js::RequestInit
-  mut body?: js::BodyInit?
-  mut cache?: js::RequestCache
-  mut credentials?: js::RequestCredentials
-  mut headers?: js::HeadersInit
+  mut body?: js::Any?
+  mut cache?: js::Any
+  mut credentials?: js::Any
+  mut headers?: js::Any
   mut integrity?: string
   mut keepalive?: bool
   mut method?: string
-  mut mode?: js::RequestMode
-  mut priority?: js::RequestPriority
-  mut redirect?: js::RequestRedirect
+  mut mode?: js::Any
+  mut priority?: js::Any
+  mut redirect?: js::Any
   mut referrer?: string
-  mut referrerPolicy?: js::ReferrerPolicy
+  mut referrerPolicy?: js::Any
   mut signal?: js::AbortSignal?
   mut window?: js::Any
 
 host js::ResizeObserverOptions
-  mut box?: js::ResizeObserverBoxOptions
+  mut box?: js::Any
 
 host js::ResponseInit
-  mut headers?: js::HeadersInit
+  mut headers?: js::Any
   mut status?: double
   mut statusText?: string
 
 host js::RsaHashedImportParams heir js::Algorithm
-  mut hash: js::HashAlgorithmIdentifier
+  mut hash: js::Any
 
 host js::RsaHashedKeyAlgorithm heir js::RsaKeyAlgorithm
   mut hash: js::KeyAlgorithm
 
 host js::RsaHashedKeyGenParams heir js::RsaKeyGenParams
-  mut hash: js::HashAlgorithmIdentifier
+  mut hash: js::Any
 
 host js::RsaKeyAlgorithm heir js::KeyAlgorithm
   mut modulusLength: double
-  mut publicExponent: js::BigInteger
+  mut publicExponent: js::Any
 
 host js::RsaKeyGenParams heir js::Algorithm
   mut modulusLength: double
-  mut publicExponent: js::BigInteger
+  mut publicExponent: js::Any
 
 host js::RsaOaepParams heir js::Algorithm
-  mut label?: js::BufferSource
+  mut label?: js::Any
 
 host js::RsaOtherPrimesInfo
   mut d?: string
@@ -1571,11 +1571,11 @@ host js::SVGBoundingBoxOptions
   mut stroke?: bool
 
 host js::ScrollIntoViewOptions heir js::ScrollOptions
-  mut block?: js::ScrollLogicalPosition
-  mut inline?: js::ScrollLogicalPosition
+  mut block?: js::Any
+  mut inline?: js::Any
 
 host js::ScrollOptions
-  mut behavior?: js::ScrollBehavior
+  mut behavior?: js::Any
 
 host js::ScrollToOptions heir js::ScrollOptions
   mut left?: double
@@ -1584,7 +1584,7 @@ host js::ScrollToOptions heir js::ScrollOptions
 host js::SecurityPolicyViolationEventInit heir js::EventInit
   mut blockedURI?: string
   mut columnNumber?: int
-  mut disposition?: js::SecurityPolicyViolationEventDisposition
+  mut disposition?: js::Any
   mut documentURI?: string
   mut effectiveDirective?: string
   mut lineNumber?: int
@@ -1597,9 +1597,9 @@ host js::SecurityPolicyViolationEventInit heir js::EventInit
 
 host js::ShadowRootInit
   mut delegatesFocus?: bool
-  mut mode: js::ShadowRootMode
+  mut mode: js::Any
   mut serializable?: bool
-  mut slotAssignment?: js::SlotAssignmentMode
+  mut slotAssignment?: js::Any
 
 host js::ShareData
   mut files?: js::Array<js::File>
@@ -1608,7 +1608,7 @@ host js::ShareData
   mut url?: string
 
 host js::SpeechSynthesisErrorEventInit heir js::SpeechSynthesisEventInit
-  mut error: js::SpeechSynthesisErrorCode
+  mut error: js::Any
 
 host js::SpeechSynthesisEventInit heir js::EventInit
   mut charIndex?: double
@@ -1644,7 +1644,7 @@ host js::StreamPipeOptions
   mut signal?: js::AbortSignal
 
 host js::StructuredSerializeOptions
-  mut transfer?: js::Array<js::Transferable>
+  mut transfer?: js::Array<js::Any>
 
 host js::SubmitEventInit heir js::EventInit
   mut submitter?: js::HTMLElement?
@@ -1684,16 +1684,16 @@ host js::TouchInit
   mut screenX?: int
   mut screenY?: int
   mut target: js::EventTarget
-  mut touchType?: js::TouchType
+  mut touchType?: js::Any
 
 host js::TrackEventInit heir js::EventInit
   mut track?: js::TextTrack?
 
 host js::Transformer<I, O>
-  mut flush?: js::TransformerFlushCallback<O>
+  mut flush?: js::Any
   mut readableType?: js::Any
-  mut start?: js::TransformerStartCallback<O>
-  mut transform?: js::TransformerTransformCallback<I, O>
+  mut start?: js::Any
+  mut transform?: js::Any
   mut writableType?: js::Any
 
 host js::TransitionEventInit heir js::EventInit
@@ -1712,29 +1712,29 @@ host js::ULongRange
 
 host js::UnderlyingByteSource
   mut autoAllocateChunkSize?: double
-  mut cancel?: js::UnderlyingSourceCancelCallback
+  mut cancel?: js::Any
   pull: (controller: js::ReadableByteStreamController) -> js::Any
   start: (controller: js::ReadableByteStreamController) -> js::Any
   mut type: string
 
 host js::UnderlyingDefaultSource<R>
-  mut cancel?: js::UnderlyingSourceCancelCallback
+  mut cancel?: js::Any
   pull: (controller: js::ReadableStreamDefaultController<R>) -> js::Any
   start: (controller: js::ReadableStreamDefaultController<R>) -> js::Any
   mut type?: js::Any
 
 host js::UnderlyingSink<W>
-  mut abort?: js::UnderlyingSinkAbortCallback
-  mut close?: js::UnderlyingSinkCloseCallback
-  mut start?: js::UnderlyingSinkStartCallback
+  mut abort?: js::Any
+  mut close?: js::Any
+  mut start?: js::Any
   mut type?: js::Any
-  mut write?: js::UnderlyingSinkWriteCallback<W>
+  mut write?: js::Any
 
 host js::UnderlyingSource<R>
   mut autoAllocateChunkSize?: double
-  mut cancel?: js::UnderlyingSourceCancelCallback
-  mut pull?: js::UnderlyingSourcePullCallback<R>
-  mut start?: js::UnderlyingSourceStartCallback<R>
+  mut cancel?: js::Any
+  mut pull?: js::Any
+  mut start?: js::Any
   mut type?: js::ReadableStreamType
 
 host js::ValidityStateFlags
@@ -1751,20 +1751,20 @@ host js::ValidityStateFlags
 
 host js::VideoColorSpaceInit
   mut fullRange?: bool?
-  mut matrix?: js::VideoMatrixCoefficients?
-  mut primaries?: js::VideoColorPrimaries?
-  mut transfer?: js::VideoTransferCharacteristics?
+  mut matrix?: js::Any?
+  mut primaries?: js::Any?
+  mut transfer?: js::Any?
 
 host js::VideoConfiguration
   mut bitrate: double
-  mut colorGamut?: js::ColorGamut
+  mut colorGamut?: js::Any
   mut contentType: string
   mut framerate: double
   mut hasAlphaChannel?: bool
-  mut hdrMetadataType?: js::HdrMetadataType
+  mut hdrMetadataType?: js::Any
   mut height: int
   mut scalabilityMode?: string
-  mut transferFunction?: js::TransferFunction
+  mut transferFunction?: js::Any
   mut width: int
 
 host js::VideoDecoderConfig
@@ -1772,33 +1772,33 @@ host js::VideoDecoderConfig
   mut codedHeight?: double
   mut codedWidth?: double
   mut colorSpace?: js::VideoColorSpaceInit
-  mut description?: js::AllowSharedBufferSource
+  mut description?: js::Any
   mut displayAspectHeight?: double
   mut displayAspectWidth?: double
-  mut hardwareAcceleration?: js::HardwareAcceleration
+  mut hardwareAcceleration?: js::Any
   mut optimizeForLatency?: bool
 
 host js::VideoDecoderInit
-  mut error: js::WebCodecsErrorCallback
-  mut output: js::VideoFrameOutputCallback
+  mut error: js::Any
+  mut output: js::Any
 
 host js::VideoDecoderSupport
   mut config?: js::VideoDecoderConfig
   mut supported?: bool
 
 host js::VideoEncoderConfig
-  mut alpha?: js::AlphaOption
+  mut alpha?: js::Any
   mut avc?: js::AvcEncoderConfig
   mut bitrate?: double
-  mut bitrateMode?: js::VideoEncoderBitrateMode
+  mut bitrateMode?: js::Any
   mut codec: string
   mut contentHint?: string
   mut displayHeight?: double
   mut displayWidth?: double
   mut framerate?: double
-  mut hardwareAcceleration?: js::HardwareAcceleration
+  mut hardwareAcceleration?: js::Any
   mut height: int
-  mut latencyMode?: js::LatencyMode
+  mut latencyMode?: js::Any
   mut scalabilityMode?: string
   mut width: int
 
@@ -1810,8 +1810,8 @@ host js::VideoEncoderEncodeOptionsForAvc
   mut quantizer?: double?
 
 host js::VideoEncoderInit
-  mut error: js::WebCodecsErrorCallback
-  mut output: js::EncodedVideoChunkOutputCallback
+  mut error: js::Any
+  mut output: js::Any
 
 host js::VideoEncoderSupport
   mut config?: js::VideoEncoderConfig
@@ -1824,7 +1824,7 @@ host js::VideoFrameBufferInit
   mut displayHeight?: double
   mut displayWidth?: double
   mut duration?: double
-  mut format: js::VideoPixelFormat
+  mut format: js::Any
   mut layout?: js::Array<js::PlaneLayout>
   mut timestamp: double
   mut visibleRect?: js::DOMRectInit
@@ -1842,13 +1842,13 @@ host js::VideoFrameCallbackMetadata
   mut width: int
 
 host js::VideoFrameCopyToOptions
-  mut colorSpace?: js::PredefinedColorSpace
-  mut format?: js::VideoPixelFormat
+  mut colorSpace?: js::Any
+  mut format?: js::Any
   mut layout?: js::Array<js::PlaneLayout>
   mut rect?: js::DOMRectInit
 
 host js::VideoFrameInit
-  mut alpha?: js::AlphaOption
+  mut alpha?: js::Any
   mut displayHeight?: double
   mut displayWidth?: double
   mut duration?: double
@@ -1857,7 +1857,7 @@ host js::VideoFrameInit
 
 host js::WaveShaperOptions heir js::AudioNodeOptions
   mut curve?: js::Any
-  mut oversample?: js::OverSampleType
+  mut oversample?: js::Any
 
 host js::WebGLContextAttributes
   mut alpha?: bool
@@ -1865,7 +1865,7 @@ host js::WebGLContextAttributes
   mut depth?: bool
   mut desynchronized?: bool
   mut failIfMajorPerformanceCaveat?: bool
-  mut powerPreference?: js::WebGLPowerPreference
+  mut powerPreference?: js::Any
   mut premultipliedAlpha?: bool
   mut preserveDrawingBuffer?: bool
   mut stencil?: bool
@@ -1878,16 +1878,16 @@ host js::WebTransportCloseInfo
   mut reason?: string
 
 host js::WebTransportErrorOptions
-  mut source?: js::WebTransportErrorSource
+  mut source?: js::Any
   mut streamErrorCode?: double?
 
 host js::WebTransportHash
   mut algorithm?: string
-  mut value?: js::BufferSource
+  mut value?: string
 
 host js::WebTransportOptions
   mut allowPooling?: bool
-  mut congestionControl?: js::WebTransportCongestionControl
+  mut congestionControl?: js::Any
   mut requireUnreliable?: bool
   mut serverCertificateHashes?: js::Array<js::WebTransportHash>
 
@@ -1904,18 +1904,18 @@ host js::WindowPostMessageOptions heir js::StructuredSerializeOptions
   mut targetOrigin?: string
 
 host js::WorkerOptions
-  mut credentials?: js::RequestCredentials
+  mut credentials?: js::Any
   mut name?: string
-  mut type?: js::WorkerType
+  mut type?: js::Any
 
 host js::WorkletOptions
-  mut credentials?: js::RequestCredentials
+  mut credentials?: js::Any
 
 host js::WriteParams
   mut data?: js::Any
   mut position?: double?
   mut size?: int?
-  mut type: js::WriteCommandType
+  mut type: js::Any
 
 host js::ANGLE_instanced_arrays
   drawArraysInstancedANGLE: (mode: js::GLenum, first: js::GLint, count: js::GLsizei, primcount: js::GLsizei) -> void
@@ -1966,7 +1966,7 @@ host js::ARIAMixin
   mut ariaValueMin: string?
   mut ariaValueNow: string?
   mut ariaValueText: string?
-  mut role: string?
+  mut role: string
 
 host js::AbortController
   signal: js::AbortSignal
@@ -2006,8 +2006,8 @@ host js::AnalyserNode heir js::AudioNode
   mut smoothingTimeConstant: double
   getByteFrequencyData: (array: js::Uint8Array) -> void
   getByteTimeDomainData: (array: js::Uint8Array) -> void
-  getFloatFrequencyData: (array: js::Float32Array) -> void
-  getFloatTimeDomainData: (array: js::Float32Array) -> void
+  getFloatFrequencyData: (array: js::Any) -> void
+  getFloatTimeDomainData: (array: js::Any) -> void
 
 host js::Animatable
   animate: (keyframes: js::Any, options: js::Any?) -> js::Animation
@@ -2019,7 +2019,7 @@ host js::AnimationEventMap
   mut remove: js::AnimationPlaybackEvent
 
 host js::Animation heir js::EventTarget
-  mut currentTime: js::CSSNumberish?
+  mut currentTime: js::Any?
   mut effect: js::AnimationEffect?
   finished: js::Promise<js::Animation>
   mut id: string
@@ -2027,11 +2027,11 @@ host js::Animation heir js::EventTarget
   mut onfinish: function<(js::Animation, js::AnimationPlaybackEvent) -> js::Any>?
   mut onremove: function<(js::Animation, js::AnimationPlaybackEvent) -> js::Any>?
   pending: bool
-  playState: js::AnimationPlayState
+  playState: js::Any
   mut playbackRate: double
   ready: js::Promise<js::Animation>
-  replaceState: js::AnimationReplaceState
-  mut startTime: js::CSSNumberish?
+  replaceState: js::Any
+  mut startTime: js::Any?
   mut timeline: js::AnimationTimeline?
   cancel: () -> void
   commitStyles: () -> void
@@ -2056,18 +2056,18 @@ host js::AnimationEvent heir js::Event
 
 host js::AnimationFrameProvider
   cancelAnimationFrame: (handle: double) -> void
-  requestAnimationFrame: (callback_: js::FrameRequestCallback) -> double
+  requestAnimationFrame: (callback_: js::Any) -> double
 
 host js::AnimationPlaybackEvent heir js::Event
-  currentTime: js::CSSNumberish?
-  timelineTime: js::CSSNumberish?
+  currentTime: js::Any?
+  timelineTime: js::Any?
 
 host js::AnimationTimeline
-  currentTime: js::CSSNumberish?
+  currentTime: js::Any?
 
 host js::Attr heir js::Node
   localName: string
-  name: string
+  mut name: string
   namespaceURI: string?
   ownerDocument: js::Document
   ownerElement: js::Element?
@@ -2080,9 +2080,9 @@ host js::AudioBuffer
   length: int
   numberOfChannels: double
   sampleRate: double
-  copyFromChannel: (destination: js::Float32Array, channelNumber: double, bufferOffset: double?) -> void
-  copyToChannel: (source: js::Float32Array, channelNumber: double, bufferOffset: double?) -> void
-  getChannelData: (channel: double) -> js::Float32Array
+  copyFromChannel: (destination: js::Any, channelNumber: double, bufferOffset: double?) -> void
+  copyToChannel: (source: js::Any, channelNumber: double, bufferOffset: double?) -> void
+  getChannelData: (channel: double) -> js::Any
 
 host js::AudioBufferSourceNode heir js::AudioScheduledSourceNode
   mut buffer: js::AudioBuffer?
@@ -2110,7 +2110,7 @@ host js::AudioContext heir js::BaseAudioContext
 
 host js::AudioData
   duration: double
-  format: js::AudioSampleFormat?
+  format: js::Any?
   numberOfChannels: double
   numberOfFrames: double
   sampleRate: double
@@ -2118,7 +2118,7 @@ host js::AudioData
   allocationSize: (options: js::AudioDataCopyToOptions) -> double
   clone: () -> js::AudioData
   close: () -> void
-  copyTo: (destination: js::AllowSharedBufferSource, options: js::AudioDataCopyToOptions) -> void
+  copyTo: (destination: js::Any, options: js::AudioDataCopyToOptions) -> void
 
 host js::AudioDecoderEventMap
   mut dequeue: js::Event
@@ -2126,7 +2126,7 @@ host js::AudioDecoderEventMap
 host js::AudioDecoder heir js::EventTarget
   decodeQueueSize: double
   mut ondequeue: function<(js::AudioDecoder, js::Event) -> js::Any>?
-  state: js::CodecState
+  state: js::Any
   close: () -> void
   configure: (config: js::AudioDecoderConfig) -> void
   decode: (chunk: js::EncodedAudioChunk) -> void
@@ -2144,7 +2144,7 @@ host js::AudioEncoderEventMap
 host js::AudioEncoder heir js::EventTarget
   encodeQueueSize: double
   mut ondequeue: function<(js::AudioEncoder, js::Event) -> js::Any>?
-  state: js::CodecState
+  state: js::Any
   close: () -> void
   configure: (config: js::AudioEncoderConfig) -> void
   encode: (data: js::AudioData) -> void
@@ -2168,8 +2168,8 @@ host js::AudioListener
 
 host js::AudioNode heir js::EventTarget
   mut channelCount: double
-  mut channelCountMode: js::ChannelCountMode
-  mut channelInterpretation: js::ChannelInterpretation
+  mut channelCountMode: js::Any
+  mut channelInterpretation: js::Any
   context: js::BaseAudioContext
   numberOfInputs: double
   numberOfOutputs: double
@@ -2177,11 +2177,11 @@ host js::AudioNode heir js::EventTarget
   disconnect: () -> void
 
 host js::AudioParam
-  mut automationRate: js::AutomationRate
+  mut automationRate: js::Any
   defaultValue: double
   maxValue: double
   minValue: double
-  mut value: double
+  mut value: string
   cancelAndHoldAtTime: (cancelTime: double) -> js::AudioParam
   cancelScheduledValues: (cancelTime: double) -> js::AudioParam
   exponentialRampToValueAtTime: (value: double, endTime: double) -> js::AudioParam
@@ -2240,19 +2240,19 @@ host js::BaseAudioContextEventMap
   mut statechange: js::Event
 
 host js::BaseAudioContext heir js::EventTarget
-  audioWorklet: js::AudioWorklet
+  audioWorklet: js::Any
   currentTime: double
   destination: js::AudioDestinationNode
   listener: js::AudioListener
   mut onstatechange: function<(js::BaseAudioContext, js::Event) -> js::Any>?
   sampleRate: double
-  state: js::AudioContextState
+  state: js::Any
   createAnalyser: () -> js::AnalyserNode
   createBiquadFilter: () -> js::BiquadFilterNode
   createBuffer: (numberOfChannels: double, length: int, sampleRate: double) -> js::AudioBuffer
   createBufferSource: () -> js::AudioBufferSourceNode
-  createChannelMerger: (numberOfInputs: double?) -> js::ChannelMergerNode
-  createChannelSplitter: (numberOfOutputs: double?) -> js::ChannelSplitterNode
+  createChannelMerger: (numberOfInputs: double?) -> js::Any
+  createChannelSplitter: (numberOfOutputs: double?) -> js::Any
   createConstantSource: () -> js::ConstantSourceNode
   createConvolver: () -> js::ConvolverNode
   createDelay: (maxDelayTime: double?) -> js::DelayNode
@@ -2261,11 +2261,11 @@ host js::BaseAudioContext heir js::EventTarget
   createIIRFilter: (feedforward: js::Array<double>, feedback: js::Array<double>) -> js::IIRFilterNode
   createOscillator: () -> js::OscillatorNode
   createPanner: () -> js::PannerNode
-  createPeriodicWave: (real: js::Any, imag: js::Any, constraints: js::PeriodicWaveConstraints?) -> js::PeriodicWave
+  createPeriodicWave: (real: js::Any, imag: js::Any, constraints: js::PeriodicWaveConstraints?) -> js::Any
   createScriptProcessor: (bufferSize: double?, numberOfInputChannels: double?, numberOfOutputChannels: double?) -> js::ScriptProcessorNode
   createStereoPanner: () -> js::StereoPannerNode
   createWaveShaper: () -> js::WaveShaperNode
-  decodeAudioData: (audioData: js::ArrayBuffer, successCallback: js::DecodeSuccessCallback??, errorCallback: js::DecodeErrorCallback??) -> js::Promise<js::AudioBuffer>
+  decodeAudioData: (audioData: js::ArrayBuffer, successCallback: js::Any??, errorCallback: js::Any??) -> js::Promise<js::AudioBuffer>
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
@@ -2277,8 +2277,8 @@ host js::BiquadFilterNode heir js::AudioNode
   detune: js::AudioParam
   frequency: js::AudioParam
   gain: js::AudioParam
-  mut type: js::BiquadFilterType
-  getFrequencyResponse: (frequencyHz: js::Float32Array, magResponse: js::Float32Array, phaseResponse: js::Float32Array) -> void
+  mut type: js::Any
+  getFrequencyResponse: (frequencyHz: js::Any, magResponse: js::Any, phaseResponse: js::Any) -> void
 
 host js::Blob
   size: int
@@ -2308,7 +2308,7 @@ host js::BroadcastChannelEventMap
   mut messageerror: js::MessageEvent
 
 host js::BroadcastChannel heir js::EventTarget
-  name: string
+  mut name: string
   mut onmessage: function<(js::BroadcastChannel, js::MessageEvent) -> js::Any>?
   mut onmessageerror: function<(js::BroadcastChannel, js::MessageEvent) -> js::Any>?
   close: () -> void
@@ -2318,7 +2318,7 @@ host js::BroadcastChannel heir js::EventTarget
 
 host js::ByteLengthQueuingStrategy heir js::QueuingStrategy
   highWaterMark: double
-  size: js::QueuingStrategySize<js::ArrayBufferView>
+  size: js::Any
 
 host js::CSSAnimation heir js::Animation
   animationName: string
@@ -2354,7 +2354,7 @@ host js::CSSFontFeatureValuesRule heir js::CSSRule
 host js::CSSFontPaletteValuesRule heir js::CSSRule
   basePalette: string
   fontFamily: string
-  name: string
+  mut name: string
   overrideColors: string
 
 host js::CSSGroupingRule heir js::CSSRule
@@ -2363,7 +2363,7 @@ host js::CSSGroupingRule heir js::CSSRule
   insertRule: (rule: string, index: int?) -> double
 
 host js::CSSImportRule heir js::CSSRule
-  href: string
+  mut href: string
   layerName: string?
   media: js::MediaList
   styleSheet: js::CSSStyleSheet?
@@ -2386,7 +2386,7 @@ host js::CSSKeywordValue heir js::CSSStyleValue
   mut value: string
 
 host js::CSSLayerBlockRule heir js::CSSGroupingRule
-  name: string
+  mut name: string
 
 host js::CSSLayerStatementRule heir js::CSSRule
   nameList: js::Array<string>
@@ -2394,10 +2394,10 @@ host js::CSSLayerStatementRule heir js::CSSRule
 host js::CSSMathClamp heir js::CSSMathValue
   lower: js::CSSNumericValue
   upper: js::CSSNumericValue
-  value: js::CSSNumericValue
+  mut value: string
 
 host js::CSSMathInvert heir js::CSSMathValue
-  value: js::CSSNumericValue
+  mut value: string
 
 host js::CSSMathMax heir js::CSSMathValue
   values: js::CSSNumericArray
@@ -2406,7 +2406,7 @@ host js::CSSMathMin heir js::CSSMathValue
   values: js::CSSNumericArray
 
 host js::CSSMathNegate heir js::CSSMathValue
-  value: js::CSSNumericValue
+  mut value: string
 
 host js::CSSMathProduct heir js::CSSMathValue
   values: js::CSSNumericArray
@@ -2415,7 +2415,7 @@ host js::CSSMathSum heir js::CSSMathValue
   values: js::CSSNumericArray
 
 host js::CSSMathValue heir js::CSSNumericValue
-  operator : js::CSSMathOperator
+  operator : js::Any
 
 host js::CSSMatrixComponent heir js::CSSTransformComponent
   mut matrix: js::DOMMatrix
@@ -2433,13 +2433,13 @@ host js::CSSNumericArray
   mut[indice: int]: js::CSSNumericValue
 
 host js::CSSNumericValue heir js::CSSStyleValue
-  add: (...values: js::CSSNumberish) -> js::CSSNumericValue
-  div: (...values: js::CSSNumberish) -> js::CSSNumericValue
-  equals: (...value: js::CSSNumberish) -> bool
-  max: (...values: js::CSSNumberish) -> js::CSSNumericValue
-  min: (...values: js::CSSNumberish) -> js::CSSNumericValue
-  mul: (...values: js::CSSNumberish) -> js::CSSNumericValue
-  sub: (...values: js::CSSNumberish) -> js::CSSNumericValue
+  add: (...values: js::Any) -> js::CSSNumericValue
+  div: (...values: js::Any) -> js::CSSNumericValue
+  equals: (...value: js::Any) -> bool
+  max: (...values: js::Any) -> js::CSSNumericValue
+  min: (...values: js::Any) -> js::CSSNumericValue
+  mul: (...values: js::Any) -> js::CSSNumericValue
+  sub: (...values: js::Any) -> js::CSSNumericValue
   to: (unit: string) -> js::CSSUnitValue
   toSum: (...units: string) -> js::CSSMathSum
   type: () -> js::CSSNumericType
@@ -2449,19 +2449,19 @@ host js::CSSPageRule heir js::CSSGroupingRule
   style: js::CSSStyleDeclaration
 
 host js::CSSPerspective heir js::CSSTransformComponent
-  mut length: js::CSSPerspectiveValue
+  mut length: js::Any
 
 host js::CSSPropertyRule heir js::CSSRule
   inherits: bool
   initialValue: string?
-  name: string
+  mut name: string
   syntax: string
 
 host js::CSSRotate heir js::CSSTransformComponent
   mut angle: js::CSSNumericValue
-  mut x: js::CSSNumberish
-  mut y: js::CSSNumberish
-  mut z: js::CSSNumberish
+  mut x: js::Any
+  mut y: js::Any
+  mut z: js::Any
 
 host js::CSSRule
   mut cssText: string
@@ -2487,9 +2487,9 @@ host js::CSSRuleList
   mut[indice: int]: js::CSSRule
 
 host js::CSSScale heir js::CSSTransformComponent
-  mut x: js::CSSNumberish
-  mut y: js::CSSNumberish
-  mut z: js::CSSNumberish
+  mut x: js::Any
+  mut y: js::Any
+  mut z: js::Any
 
 host js::CSSScopeRule heir js::CSSGroupingRule
   end: string?
@@ -3057,12 +3057,12 @@ host js::CSSTranslate heir js::CSSTransformComponent
 
 host js::CSSUnitValue heir js::CSSNumericValue
   unit: string
-  mut value: double
+  mut value: string
 
 host js::CSSUnparsedValue heir js::CSSStyleValue
   length: int
-  forEach: (callbackfn: function<(js::CSSUnparsedSegment, double, js::CSSUnparsedValue) -> void>, thisArg: js::Any?) -> void
-  mut[indice: int]: js::CSSUnparsedSegment
+  forEach: (callbackfn: function<(js::Any, double, js::CSSUnparsedValue) -> void>, thisArg: js::Any?) -> void
+  mut[indice: int]: js::Any
 
 host js::CSSVariableReferenceValue
   fallback: js::CSSUnparsedValue?
@@ -3070,7 +3070,7 @@ host js::CSSVariableReferenceValue
 
 host js::Cache
   add: (request: js::Any) -> js::Promise<void>
-  addAll: (requests: js::Array<js::RequestInfo>) -> js::Promise<void>
+  addAll: (requests: js::Array<js::Any>) -> js::Promise<void>
   delete: (request: js::Any, options: js::CacheQueryOptions?) -> js::Promise<bool>
   keys: (request: js::Any?, options: js::CacheQueryOptions?) -> js::Promise<js::Array<js::Request>>
   match: (request: js::Any, options: js::CacheQueryOptions?) -> js::Promise<js::Response?>
@@ -3092,16 +3092,16 @@ host js::CanvasCaptureMediaStreamTrack heir js::MediaStreamTrack
 
 host js::CanvasCompositing
   mut globalAlpha: double
-  mut globalCompositeOperation: js::GlobalCompositeOperation
+  mut globalCompositeOperation: js::Any
 
 host js::CanvasDrawImage
-  drawImage: (image: js::CanvasImageSource, dx: double, dy: double) -> void
+  drawImage: (image: js::Any, dx: double, dy: double) -> void
 
 host js::CanvasDrawPath
   beginPath: () -> void
-  clip: (fillRule: js::CanvasFillRule?) -> void
-  fill: (fillRule: js::CanvasFillRule?) -> void
-  isPointInPath: (x: double, y: double, fillRule: js::CanvasFillRule?) -> bool
+  clip: (fillRule: js::Any?) -> void
+  fill: (fillRule: js::Any?) -> void
+  isPointInPath: (x: double, y: double, fillRule: js::Any?) -> bool
   isPointInStroke: (x: double, y: double) -> bool
   stroke: () -> void
 
@@ -3110,7 +3110,7 @@ host js::CanvasFillStrokeStyles
   mut strokeStyle: js::Any
   createConicGradient: (startAngle: double, x: double, y: double) -> js::CanvasGradient
   createLinearGradient: (x0: double, y0: double, x1: double, y1: double) -> js::CanvasGradient
-  createPattern: (image: js::CanvasImageSource, repetition: string?) -> js::CanvasPattern?
+  createPattern: (image: js::Any, repetition: string?) -> js::CanvasPattern?
   createRadialGradient: (x0: double, y0: double, r0: double, x1: double, y1: double, r1: double) -> js::CanvasGradient
 
 host js::CanvasFilters
@@ -3126,7 +3126,7 @@ host js::CanvasImageData
 
 host js::CanvasImageSmoothing
   mut imageSmoothingEnabled: bool
-  mut imageSmoothingQuality: js::ImageSmoothingQuality
+  mut imageSmoothingQuality: js::Any
 
 host js::CanvasPath
   arc: (x: double, y: double, radius: double, startAngle: double, endAngle: double, counterclockwise: bool?) -> void
@@ -3141,9 +3141,9 @@ host js::CanvasPath
   roundRect: (x: double, y: double, w: double, h: double, radii: js::Any?) -> void
 
 host js::CanvasPathDrawingStyles
-  mut lineCap: js::CanvasLineCap
+  mut lineCap: js::Any
   mut lineDashOffset: double
-  mut lineJoin: js::CanvasLineJoin
+  mut lineJoin: js::Any
   mut lineWidth: double
   mut miterLimit: double
   getLineDash: () -> js::Array<double>
@@ -3160,25 +3160,25 @@ host js::CanvasRect
 host js::CanvasRenderingContext2D heir js::CanvasCompositing
   canvas: js::HTMLCanvasElement
   getContextAttributes: () -> js::CanvasRenderingContext2DSettings
-  drawImage: (image: js::CanvasImageSource, dx: double, dy: double) -> void
+  drawImage: (image: js::Any, dx: double, dy: double) -> void
   beginPath: () -> void
-  clip: (fillRule: js::CanvasFillRule?) -> void
-  fill: (fillRule: js::CanvasFillRule?) -> void
-  isPointInPath: (x: double, y: double, fillRule: js::CanvasFillRule?) -> bool
+  clip: (fillRule: js::Any?) -> void
+  fill: (fillRule: js::Any?) -> void
+  isPointInPath: (x: double, y: double, fillRule: js::Any?) -> bool
   isPointInStroke: (x: double, y: double) -> bool
   stroke: () -> void
   mut fillStyle: js::Any
   mut strokeStyle: js::Any
   createConicGradient: (startAngle: double, x: double, y: double) -> js::CanvasGradient
   createLinearGradient: (x0: double, y0: double, x1: double, y1: double) -> js::CanvasGradient
-  createPattern: (image: js::CanvasImageSource, repetition: string?) -> js::CanvasPattern?
+  createPattern: (image: js::Any, repetition: string?) -> js::CanvasPattern?
   createRadialGradient: (x0: double, y0: double, r0: double, x1: double, y1: double, r1: double) -> js::CanvasGradient
   mut filter: string
   createImageData: (sw: double, sh: double, settings: js::ImageDataSettings?) -> js::ImageData
   getImageData: (sx: double, sy: double, sw: double, sh: double, settings: js::ImageDataSettings?) -> js::ImageData
   putImageData: (imagedata: js::ImageData, dx: double, dy: double) -> void
   mut imageSmoothingEnabled: bool
-  mut imageSmoothingQuality: js::ImageSmoothingQuality
+  mut imageSmoothingQuality: js::Any
   arc: (x: double, y: double, radius: double, startAngle: double, endAngle: double, counterclockwise: bool?) -> void
   arcTo: (x1: double, y1: double, x2: double, y2: double, radius: double) -> void
   bezierCurveTo: (cp1x: double, cp1y: double, cp2x: double, cp2y: double, x: double, y: double) -> void
@@ -3189,9 +3189,9 @@ host js::CanvasRenderingContext2D heir js::CanvasCompositing
   quadraticCurveTo: (cpx: double, cpy: double, x: double, y: double) -> void
   rect: (x: double, y: double, w: double, h: double) -> void
   roundRect: (x: double, y: double, w: double, h: double, radii: js::Any?) -> void
-  mut lineCap: js::CanvasLineCap
+  mut lineCap: js::Any
   mut lineDashOffset: double
-  mut lineJoin: js::CanvasLineJoin
+  mut lineJoin: js::Any
   mut lineWidth: double
   mut miterLimit: double
   getLineDash: () -> js::Array<double>
@@ -3210,15 +3210,15 @@ host js::CanvasRenderingContext2D heir js::CanvasCompositing
   fillText: (text: string, x: double, y: double, maxWidth: double?) -> void
   measureText: (text: string) -> js::TextMetrics
   strokeText: (text: string, x: double, y: double, maxWidth: double?) -> void
-  mut direction: js::CanvasDirection
+  mut direction: js::Any
   mut font: string
-  mut fontKerning: js::CanvasFontKerning
-  mut fontStretch: js::CanvasFontStretch
-  mut fontVariantCaps: js::CanvasFontVariantCaps
+  mut fontKerning: js::Any
+  mut fontStretch: js::Any
+  mut fontVariantCaps: js::Any
   mut letterSpacing: string
-  mut textAlign: js::CanvasTextAlign
-  mut textBaseline: js::CanvasTextBaseline
-  mut textRendering: js::CanvasTextRendering
+  mut textAlign: js::Any
+  mut textBaseline: js::Any
+  mut textRendering: js::Any
   mut wordSpacing: string
   getTransform: () -> js::DOMMatrix
   resetTransform: () -> void
@@ -3247,15 +3247,15 @@ host js::CanvasText
   strokeText: (text: string, x: double, y: double, maxWidth: double?) -> void
 
 host js::CanvasTextDrawingStyles
-  mut direction: js::CanvasDirection
+  mut direction: js::Any
   mut font: string
-  mut fontKerning: js::CanvasFontKerning
-  mut fontStretch: js::CanvasFontStretch
-  mut fontVariantCaps: js::CanvasFontVariantCaps
+  mut fontKerning: js::Any
+  mut fontStretch: js::Any
+  mut fontVariantCaps: js::Any
   mut letterSpacing: string
-  mut textAlign: js::CanvasTextAlign
-  mut textBaseline: js::CanvasTextBaseline
-  mut textRendering: js::CanvasTextRendering
+  mut textAlign: js::Any
+  mut textBaseline: js::Any
+  mut textRendering: js::Any
   mut wordSpacing: string
 
 host js::CanvasTransform
@@ -3298,16 +3298,16 @@ host js::ChildNode heir js::Node
   replaceWith: (...nodes: js::Any) -> void
 
 host js::Clipboard heir js::EventTarget
-  read: () -> js::Promise<js::ClipboardItems>
+  read: () -> js::Promise<js::Any>
   readText: () -> js::Promise<string>
-  write: (data: js::ClipboardItems) -> js::Promise<void>
+  write: (data: js::Any) -> js::Promise<void>
   writeText: (data: string) -> js::Promise<void>
 
 host js::ClipboardEvent heir js::Event
   clipboardData: js::DataTransfer?
 
 host js::ClipboardItem
-  presentationStyle: js::PresentationStyle
+  presentationStyle: js::Any
   types: js::Array<string>
   getType: (type: string) -> js::Promise<js::Blob>
 
@@ -3322,7 +3322,7 @@ host js::CompositionEvent heir js::UIEvent
 
 host js::CompressionStream heir js::GenericTransformStream
   readable: js::ReadableStream<js::Uint8Array>
-  writable: js::WritableStream<js::BufferSource>
+  writable: js::WritableStream<js::Any>
 
 host js::ConstantSourceNode heir js::AudioScheduledSourceNode
   offset: js::AudioParam
@@ -3338,10 +3338,10 @@ host js::ConvolverNode heir js::AudioNode
 
 host js::CountQueuingStrategy heir js::QueuingStrategy
   highWaterMark: double
-  size: js::QueuingStrategySize
+  size: js::Any
 
 host js::Credential
-  id: string
+  mut id: string
   type: string
 
 host js::CredentialsContainer
@@ -3358,8 +3358,8 @@ host js::Crypto
 host js::CryptoKey
   algorithm: js::KeyAlgorithm
   extractable: bool
-  type: js::KeyType
-  usages: js::Array<js::KeyUsage>
+  type: js::Any
+  usages: js::Array<js::Any>
 
 host js::CustomElementRegistry
   define: (name: string, constructor_: js::CustomElementConstructor, options: js::ElementDefinitionOptions?) -> void
@@ -3378,7 +3378,7 @@ host js::CustomStateSet
 host js::DOMException heir js::Error
   code: double
   message: string
-  name: string
+  mut name: string
   INDEX_SIZE_ERR: int
   DOMSTRING_SIZE_ERR: int
   HIERARCHY_REQUEST_ERR: int
@@ -3484,15 +3484,15 @@ host js::DOMMatrixReadOnly
   scaleNonUniform: (scaleX: double?, scaleY: double?) -> js::DOMMatrix
   skewX: (sx: double?) -> js::DOMMatrix
   skewY: (sy: double?) -> js::DOMMatrix
-  toFloat32Array: () -> js::Float32Array
-  toFloat64Array: () -> js::Float64Array
+  toFloat32Array: () -> js::Any
+  toFloat64Array: () -> js::Any
   toJSON: () -> js::Any
   transformPoint: (point: js::DOMPointInit?) -> js::DOMPoint
   translate: (tx: double?, ty: double?, tz: double?) -> js::DOMMatrix
   toString: () -> string
 
 host js::DOMParser
-  parseFromString: (string: string, type: js::DOMParserSupportedType) -> js::Document
+  parseFromString: (string: string, type: js::Any) -> js::Document
 
 host js::DOMPoint heir js::DOMPointReadOnly
   mut w: double
@@ -3576,7 +3576,7 @@ host js::DataTransferItem
   kind: string
   type: string
   getAsFile: () -> js::File?
-  getAsString: (callback_: js::FunctionStringCallback?) -> void
+  getAsString: (callback_: js::Any?) -> void
   webkitGetAsEntry: () -> js::FileSystemEntry?
 
 host js::DataTransferItemList
@@ -3588,7 +3588,7 @@ host js::DataTransferItemList
 
 host js::DecompressionStream heir js::GenericTransformStream
   readable: js::ReadableStream<js::Uint8Array>
-  writable: js::WritableStream<js::BufferSource>
+  writable: js::WritableStream<js::Any>
 
 host js::DelayNode heir js::AudioNode
   delayTime: js::AudioParam
@@ -3637,7 +3637,7 @@ host js::Document heir js::Node
   compatMode: string
   contentType: string
   mut cookie: string
-  currentScript: js::HTMLOrSVGScriptElement?
+  currentScript: js::Any?
   defaultView: js::WindowProxy?
   mut designMode: string
   mut dir: string
@@ -3648,11 +3648,11 @@ host js::Document heir js::Node
   embeds: js::HTMLCollectionOf<js::HTMLEmbedElement>
   mut fgColor: string
   forms: js::HTMLCollectionOf<js::HTMLFormElement>
-  fragmentDirective: js::FragmentDirective
+  fragmentDirective: js::Any
   fullscreen: bool
   fullscreenEnabled: bool
   head: js::HTMLHeadElement
-  hidden: bool
+  mut hidden: bool
   images: js::HTMLCollectionOf<js::HTMLImageElement>
   implementation: js::DOMImplementation
   inputEncoding: string
@@ -3668,14 +3668,14 @@ host js::Document heir js::Node
   ownerDocument: js::Any
   pictureInPictureEnabled: bool
   plugins: js::HTMLCollectionOf<js::HTMLEmbedElement>
-  readyState: js::DocumentReadyState
+  readyState: js::Any
   referrer: string
   rootElement: js::SVGSVGElement?
   scripts: js::HTMLCollectionOf<js::HTMLScriptElement>
   scrollingElement: js::Element?
-  timeline: js::DocumentTimeline
+  timeline: js::Any
   mut title: string
-  visibilityState: js::DocumentVisibilityState
+  visibilityState: js::Any
   mut vlinkColor: string
   adoptNode<T>: (node: T) -> T
   captureEvents: () -> void
@@ -3685,17 +3685,17 @@ host js::Document heir js::Node
   close: () -> void
   createAttribute: (localName: string) -> js::Attr
   createAttributeNS: (namespace: string?, qualifiedName: string) -> js::Attr
-  createCDATASection: (data: string) -> js::CDATASection
-  createComment: (data: string) -> js::Comment
+  createCDATASection: (data: string) -> js::Any
+  createComment: (data: string) -> js::Any
   createDocumentFragment: () -> js::DocumentFragment
   createElement: (tagName: string, options: js::Any?) -> js::HTMLElement
   createElementNS: (namespace: string, name: string, options: js::Any?) -> js::HTMLElement
   createEvent: (eventInterface: string) -> js::AnimationEvent
-  createNodeIterator: (root: js::Node, whatToShow: double?, filter: js::NodeFilter??) -> js::NodeIterator
+  createNodeIterator: (root: js::Node, whatToShow: double?, filter: js::Any??) -> js::NodeIterator
   createProcessingInstruction: (target: string, data: string) -> js::ProcessingInstruction
   createRange: () -> js::Range
   createTextNode: (data: string) -> js::Text
-  createTreeWalker: (root: js::Node, whatToShow: double?, filter: js::NodeFilter??) -> js::TreeWalker
+  createTreeWalker: (root: js::Node, whatToShow: double?, filter: js::Any??) -> js::TreeWalker
   execCommand: (commandId: string, showUI: bool?, value: string?) -> bool
   exitFullscreen: () -> js::Promise<void>
   exitPictureInPicture: () -> js::Promise<void>
@@ -3717,7 +3717,7 @@ host js::Document heir js::Node
   queryCommandValue: (commandId: string) -> string
   releaseEvents: () -> void
   requestStorageAccess: () -> js::Promise<void>
-  startViewTransition: (callbackOptions: js::ViewTransitionUpdateCallback?) -> js::ViewTransition
+  startViewTransition: (callbackOptions: js::Any?) -> js::ViewTransition
   write: (...text: string) -> void
   writeln: (...text: string) -> void
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
@@ -3765,7 +3765,7 @@ host js::Document heir js::Node
   mut ondurationchange: function<(js::GlobalEventHandlers, js::Event) -> js::Any>?
   mut onemptied: function<(js::GlobalEventHandlers, js::Event) -> js::Any>?
   mut onended: function<(js::GlobalEventHandlers, js::Event) -> js::Any>?
-  mut onerror: js::OnErrorEventHandler
+  mut onerror: js::Any
   mut onfocus: function<(js::GlobalEventHandlers, js::FocusEvent) -> js::Any>?
   mut onformdata: function<(js::GlobalEventHandlers, js::FormDataEvent) -> js::Any>?
   mut ongotpointercapture: function<(js::GlobalEventHandlers, js::PointerEvent) -> js::Any>?
@@ -3840,9 +3840,9 @@ host js::Document heir js::Node
   querySelector: (selector: string) -> js::Element?
   querySelectorAll: (selector: string) -> js::NodeList
   replaceChildren: (...nodes: js::Any) -> void
-  createExpression: (expression: string, resolver: js::XPathNSResolver??) -> js::XPathExpression
+  createExpression: (expression: string, resolver: js::Any??) -> js::XPathExpression
   createNSResolver: (nodeResolver: js::Node) -> js::Node
-  evaluate: (expression: string, contextNode: js::Node, resolver: js::XPathNSResolver??, type: double?, result: js::XPathResult??) -> js::XPathResult
+  evaluate: (expression: string, contextNode: js::Node, resolver: js::Any??, type: double?, result: js::XPathResult??) -> js::XPathResult
 
 host js::DocumentFragment heir js::Node
   ownerDocument: js::Document
@@ -3869,7 +3869,7 @@ host js::DocumentOrShadowRoot
   getAnimations: () -> js::Array<js::Animation>
 
 host js::DocumentType heir js::Node
-  name: string
+  mut name: string
   ownerDocument: js::Document
   publicId: string
   systemId: string
@@ -3980,9 +3980,9 @@ host js::Element heir js::Node
   hasAttributeNS: (namespace: string?, localName: string) -> bool
   hasAttributes: () -> bool
   hasPointerCapture: (pointerId: int) -> bool
-  insertAdjacentElement: (where: js::InsertPosition, element: js::Element) -> js::Element?
-  insertAdjacentHTML: (position: js::InsertPosition, string: string) -> void
-  insertAdjacentText: (where: js::InsertPosition, data: string) -> void
+  insertAdjacentElement: (where: js::Any, element: js::Element) -> js::Element?
+  insertAdjacentHTML: (position: js::Any, string: string) -> void
+  insertAdjacentText: (where: js::Any, data: string) -> void
   matches: (selectors: string) -> bool
   releasePointerCapture: (pointerId: int) -> void
   removeAttribute: (qualifiedName: string) -> void
@@ -4046,7 +4046,7 @@ host js::Element heir js::Node
   mut ariaValueMin: string?
   mut ariaValueNow: string?
   mut ariaValueText: string?
-  mut role: string?
+  mut role: string
   animate: (keyframes: js::Any, options: js::Any?) -> js::Animation
   getAnimations: (options: js::GetAnimationsOptions?) -> js::Array<js::Animation>
   after: (...nodes: js::Any) -> void
@@ -4093,15 +4093,15 @@ host js::EncodedAudioChunk
   byteLength: double
   duration: double?
   timestamp: double
-  type: js::EncodedAudioChunkType
-  copyTo: (destination: js::AllowSharedBufferSource) -> void
+  type: js::Any
+  copyTo: (destination: js::Any) -> void
 
 host js::EncodedVideoChunk
   byteLength: double
   duration: double?
   timestamp: double
-  type: js::EncodedVideoChunkType
-  copyTo: (destination: js::AllowSharedBufferSource) -> void
+  type: js::Any
+  copyTo: (destination: js::Any) -> void
 
 host js::ErrorEvent heir js::Event
   colno: double
@@ -4170,7 +4170,7 @@ host js::External
 
 host js::File heir js::Blob
   lastModified: double
-  name: string
+  mut name: string
   webkitRelativePath: string
 
 host js::FileList
@@ -4208,13 +4208,13 @@ host js::FileReader heir js::EventTarget
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::FileSystem
-  name: string
+  mut name: string
   root: js::FileSystemDirectoryEntry
 
 host js::FileSystemDirectoryEntry heir js::FileSystemEntry
   createReader: () -> js::FileSystemDirectoryReader
-  getDirectory: (path: string??, options: js::FileSystemFlags?, successCallback: js::FileSystemEntryCallback?, errorCallback: js::ErrorCallback?) -> void
-  getFile: (path: string??, options: js::FileSystemFlags?, successCallback: js::FileSystemEntryCallback?, errorCallback: js::ErrorCallback?) -> void
+  getDirectory: (path: string??, options: js::FileSystemFlags?, successCallback: js::Any?, errorCallback: js::Any?) -> void
+  getFile: (path: string??, options: js::FileSystemFlags?, successCallback: js::Any?, errorCallback: js::Any?) -> void
 
 host js::FileSystemDirectoryHandle heir js::FileSystemHandle
   kind: string
@@ -4224,18 +4224,18 @@ host js::FileSystemDirectoryHandle heir js::FileSystemHandle
   resolve: (possibleDescendant: js::FileSystemHandle) -> js::Promise<js::Array<string>?>
 
 host js::FileSystemDirectoryReader
-  readEntries: (successCallback: js::FileSystemEntriesCallback, errorCallback: js::ErrorCallback?) -> void
+  readEntries: (successCallback: js::Any, errorCallback: js::Any?) -> void
 
 host js::FileSystemEntry
   filesystem: js::FileSystem
   fullPath: string
   isDirectory: bool
   isFile: bool
-  name: string
-  getParent: (successCallback: js::FileSystemEntryCallback?, errorCallback: js::ErrorCallback?) -> void
+  mut name: string
+  getParent: (successCallback: js::Any?, errorCallback: js::Any?) -> void
 
 host js::FileSystemFileEntry heir js::FileSystemEntry
-  file: (successCallback: js::FileCallback, errorCallback: js::ErrorCallback?) -> void
+  file: (successCallback: js::Any, errorCallback: js::Any?) -> void
 
 host js::FileSystemFileHandle heir js::FileSystemHandle
   kind: string
@@ -4243,14 +4243,14 @@ host js::FileSystemFileHandle heir js::FileSystemHandle
   getFile: () -> js::Promise<js::File>
 
 host js::FileSystemHandle
-  kind: js::FileSystemHandleKind
-  name: string
+  kind: js::Any
+  mut name: string
   isSameEntry: (other: js::FileSystemHandle) -> js::Promise<bool>
 
 host js::FileSystemWritableFileStream heir js::WritableStream
   seek: (position: double) -> js::Promise<void>
   truncate: (size: int) -> js::Promise<void>
-  write: (data: js::FileSystemWriteChunkType) -> js::Promise<void>
+  write: (data: js::Any) -> js::Promise<void>
 
 host js::FocusEvent heir js::UIEvent
   relatedTarget: js::EventTarget?
@@ -4258,12 +4258,12 @@ host js::FocusEvent heir js::UIEvent
 host js::FontFace
   mut ascentOverride: string
   mut descentOverride: string
-  mut display: js::FontDisplay
+  mut display: js::Any
   mut family: string
   mut featureSettings: string
   mut lineGapOverride: string
   loaded: js::Promise<js::FontFace>
-  status: js::FontFaceLoadStatus
+  status: js::Any
   mut stretch: string
   mut style: string
   mut unicodeRange: string
@@ -4280,7 +4280,7 @@ host js::FontFaceSet heir js::EventTarget
   mut onloadingdone: function<(js::FontFaceSet, js::FontFaceSetLoadEvent) -> js::Any>?
   mut onloadingerror: function<(js::FontFaceSet, js::FontFaceSetLoadEvent) -> js::Any>?
   ready: js::Promise<js::FontFaceSet>
-  status: js::FontFaceSetLoadStatus
+  status: js::Any
   check: (font: string, text: string?) -> bool
   load: (font: string, text: string?) -> js::Promise<js::Array<js::FontFace>>
   forEach: (callbackfn: function<(js::FontFace, js::FontFace, js::FontFaceSet) -> void>, thisArg: js::Any?) -> void
@@ -4296,11 +4296,11 @@ host js::FontFaceSource
 host js::FormData
   append: (name: string, value: js::Any) -> void
   delete: (name: string) -> void
-  get: (name: string) -> js::FormDataEntryValue?
-  getAll: (name: string) -> js::Array<js::FormDataEntryValue>
+  get: (name: string) -> js::Any?
+  getAll: (name: string) -> js::Array<js::Any>
   has: (name: string) -> bool
   set: (name: string, value: js::Any) -> void
-  forEach: (callbackfn: function<(js::FormDataEntryValue, string, js::FormData) -> void>, thisArg: js::Any?) -> void
+  forEach: (callbackfn: function<(js::Any, string, js::FormData) -> void>, thisArg: js::Any?) -> void
 
 host js::FormDataEvent heir js::Event
   formData: js::FormData
@@ -4312,23 +4312,23 @@ host js::Gamepad
   axes: js::Array<double>
   buttons: js::Array<js::GamepadButton>
   connected: bool
-  id: string
+  mut id: string
   index: int
-  mapping: js::GamepadMappingType
+  mapping: js::Any
   timestamp: js::DOMHighResTimeStamp
   vibrationActuator: js::GamepadHapticActuator
 
 host js::GamepadButton
   pressed: bool
   touched: bool
-  value: double
+  mut value: string
 
 host js::GamepadEvent heir js::Event
   gamepad: js::Gamepad
 
 host js::GamepadHapticActuator
-  playEffect: (type: js::GamepadHapticEffectType, params: js::GamepadEffectParameters?) -> js::Promise<js::GamepadHapticsResult>
-  reset: () -> js::Promise<js::GamepadHapticsResult>
+  playEffect: (type: js::Any, params: js::GamepadEffectParameters?) -> js::Promise<js::Any>
+  reset: () -> js::Promise<js::Any>
 
 host js::GenericTransformStream
   readable: js::ReadableStream
@@ -4336,8 +4336,8 @@ host js::GenericTransformStream
 
 host js::Geolocation
   clearWatch: (watchId: double) -> void
-  getCurrentPosition: (successCallback: js::PositionCallback, errorCallback: js::PositionErrorCallback??, options: js::PositionOptions?) -> void
-  watchPosition: (successCallback: js::PositionCallback, errorCallback: js::PositionErrorCallback??, options: js::PositionOptions?) -> double
+  getCurrentPosition: (successCallback: js::Any, errorCallback: js::Any??, options: js::PositionOptions?) -> void
+  watchPosition: (successCallback: js::Any, errorCallback: js::Any??, options: js::PositionOptions?) -> double
 
 host js::GeolocationCoordinates
   accuracy: double
@@ -4499,7 +4499,7 @@ host js::GlobalEventHandlers
   mut ondurationchange: function<(js::GlobalEventHandlers, js::Event) -> js::Any>?
   mut onemptied: function<(js::GlobalEventHandlers, js::Event) -> js::Any>?
   mut onended: function<(js::GlobalEventHandlers, js::Event) -> js::Any>?
-  mut onerror: js::OnErrorEventHandler
+  mut onerror: js::Any
   mut onfocus: function<(js::GlobalEventHandlers, js::FocusEvent) -> js::Any>?
   mut onformdata: function<(js::GlobalEventHandlers, js::FormDataEvent) -> js::Any>?
   mut ongotpointercapture: function<(js::GlobalEventHandlers, js::PointerEvent) -> js::Any>?
@@ -4955,7 +4955,7 @@ host js::HTMLElement heir js::Element
   mut ondurationchange: function<(js::GlobalEventHandlers, js::Event) -> js::Any>?
   mut onemptied: function<(js::GlobalEventHandlers, js::Event) -> js::Any>?
   mut onended: function<(js::GlobalEventHandlers, js::Event) -> js::Any>?
-  mut onerror: js::OnErrorEventHandler
+  mut onerror: js::Any
   mut onfocus: function<(js::GlobalEventHandlers, js::FocusEvent) -> js::Any>?
   mut onformdata: function<(js::GlobalEventHandlers, js::FormDataEvent) -> js::Any>?
   mut ongotpointercapture: function<(js::GlobalEventHandlers, js::PointerEvent) -> js::Any>?
@@ -5067,7 +5067,7 @@ host js::HTMLFormControlsCollection heir js::HTMLCollectionBase
 host js::HTMLFormElement heir js::HTMLElement
   mut acceptCharset: string
   mut action: string
-  mut autocomplete: js::AutoFillBase
+  mut autocomplete: js::Any
   elements: js::HTMLFormControlsCollection
   mut encoding: string
   mut enctype: string
@@ -5195,7 +5195,7 @@ host js::HTMLIFrameElement heir js::HTMLElement
   mut marginHeight: string
   mut marginWidth: string
   mut name: string
-  mut referrerPolicy: js::ReferrerPolicy
+  mut referrerPolicy: js::Any
   sandbox: js::DOMTokenList
   mut scrolling: string
   mut src: string
@@ -5240,7 +5240,7 @@ host js::HTMLInputElement heir js::HTMLElement
   mut accept: string
   mut align: string
   mut alt: string
-  mut autocomplete: js::AutoFill
+  mut autocomplete: js::Any
   mut capture: string
   mut checked: bool
   mut defaultChecked: bool
@@ -5279,7 +5279,7 @@ host js::HTMLInputElement heir js::HTMLElement
   validationMessage: string
   validity: js::ValidityState
   mut value: string
-  mut valueAsDate: js::Date?
+  mut valueAsDate: js::Any?
   mut valueAsNumber: double
   webkitEntries: js::Array<js::FileSystemEntry>
   mut webkitdirectory: bool
@@ -5301,7 +5301,7 @@ host js::HTMLInputElement heir js::HTMLElement
 
 host js::HTMLLIElement heir js::HTMLElement
   mut type: string
-  mut value: double
+  mut value: string
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
@@ -5398,11 +5398,11 @@ host js::HTMLMediaElement heir js::HTMLElement
   seeking: bool
   sinkId: string
   mut src: string
-  mut srcObject: js::MediaProvider?
+  mut srcObject: js::Any?
   textTracks: js::TextTrackList
   mut volume: double
-  addTextTrack: (kind: js::TextTrackKind, label: string?, language: string?) -> js::TextTrack
-  canPlayType: (type: string) -> js::CanPlayTypeResult
+  addTextTrack: (kind: js::Any, label: string?, language: string?) -> js::TextTrack
+  canPlayType: (type: string) -> js::Any
   fastSeek: (time: double) -> void
   load: () -> void
   pause: () -> void
@@ -5442,7 +5442,7 @@ host js::HTMLMeterElement heir js::HTMLElement
   mut max: double
   mut min: double
   mut optimum: double
-  mut value: double
+  mut value: string
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
@@ -5565,7 +5565,7 @@ host js::HTMLProgressElement heir js::HTMLElement
   labels: js::NodeListOf<js::HTMLLabelElement>
   mut max: double
   position: double
-  mut value: double
+  mut value: string
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
@@ -5592,7 +5592,7 @@ host js::HTMLScriptElement heir js::HTMLElement
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLSelectElement heir js::HTMLElement
-  mut autocomplete: js::AutoFill
+  mut autocomplete: js::Any
   mut disabled: bool
   form: js::HTMLFormElement?
   labels: js::NodeListOf<js::HTMLLabelElement>
@@ -5756,7 +5756,7 @@ host js::HTMLTemplateElement heir js::HTMLElement
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLTextAreaElement heir js::HTMLElement
-  mut autocomplete: js::AutoFill
+  mut autocomplete: js::Any
   mut cols: int
   mut defaultValue: string
   mut dirName: string
@@ -5841,7 +5841,7 @@ host js::HTMLVideoElement heir js::HTMLMediaElement
   cancelVideoFrameCallback: (handle: double) -> void
   getVideoPlaybackQuality: () -> js::VideoPlaybackQuality
   requestPictureInPicture: () -> js::Promise<js::PictureInPictureWindow>
-  requestVideoFrameCallback: (callback_: js::VideoFrameRequestCallback) -> double
+  requestVideoFrameCallback: (callback_: js::Any) -> double
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
@@ -5860,7 +5860,7 @@ host js::Headers
 
 host js::Highlight
   mut priority: double
-  mut type: js::HighlightType
+  mut type: js::Any
   forEach: (callbackfn: function<(js::AbstractRange, js::AbstractRange, js::Highlight) -> void>, thisArg: js::Any?) -> void
 
 host js::HighlightRegistry
@@ -5868,7 +5868,7 @@ host js::HighlightRegistry
 
 host js::History
   length: int
-  mut scrollRestoration: js::ScrollRestoration
+  mut scrollRestoration: js::Any
   state: js::Any
   back: () -> void
   forward: () -> void
@@ -5877,19 +5877,19 @@ host js::History
   replaceState: (data: js::Any, unused: string, url: js::Any?) -> void
 
 host js::IDBCursor
-  direction: js::IDBCursorDirection
-  key: js::IDBValidKey
-  primaryKey: js::IDBValidKey
+  direction: js::Any
+  key: js::Any
+  primaryKey: js::Any
   request: js::IDBRequest
   source: js::Any
   advance: (count: int) -> void
-  continue: (key: js::IDBValidKey?) -> void
-  continuePrimaryKey: (key: js::IDBValidKey, primaryKey: js::IDBValidKey) -> void
+  continue: (key: js::Any?) -> void
+  continuePrimaryKey: (key: js::Any, primaryKey: js::Any) -> void
   delete: () -> js::IDBRequest<js::Any>
-  update: (value: js::Any) -> js::IDBRequest<js::IDBValidKey>
+  update: (value: js::Any) -> js::IDBRequest<js::Any>
 
 host js::IDBCursorWithValue heir js::IDBCursor
-  value: js::Any
+  mut value: string
 
 host js::IDBDatabaseEventMap
   mut abort: js::Event
@@ -5898,7 +5898,7 @@ host js::IDBDatabaseEventMap
   mut versionchange: js::IDBVersionChangeEvent
 
 host js::IDBDatabase heir js::EventTarget
-  name: string
+  mut name: string
   objectStoreNames: js::DOMStringList
   mut onabort: function<(js::IDBDatabase, js::Event) -> js::Any>?
   mut onclose: function<(js::IDBDatabase, js::Event) -> js::Any>?
@@ -5908,7 +5908,7 @@ host js::IDBDatabase heir js::EventTarget
   close: () -> void
   createObjectStore: (name: string, options: js::IDBObjectStoreParameters?) -> js::IDBObjectStore
   deleteObjectStore: (name: string) -> void
-  transaction: (storeNames: js::Any, mode: js::IDBTransactionMode?, options: js::IDBTransactionOptions?) -> js::IDBTransaction
+  transaction: (storeNames: js::Any, mode: js::Any?, options: js::IDBTransactionOptions?) -> js::IDBTransaction
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
@@ -5927,10 +5927,10 @@ host js::IDBIndex
   count: (query: js::Any?) -> js::IDBRequest<double>
   get: (query: js::Any) -> js::IDBRequest<js::Any>
   getAll: (query: js::Any?, count: int?) -> js::IDBRequest<js::Array<js::Any>>
-  getAllKeys: (query: js::Any?, count: int?) -> js::IDBRequest<js::Array<js::IDBValidKey>>
-  getKey: (query: js::Any) -> js::IDBRequest<js::IDBValidKey?>
-  openCursor: (query: js::Any?, direction: js::IDBCursorDirection?) -> js::IDBRequest<js::IDBCursorWithValue?>
-  openKeyCursor: (query: js::Any?, direction: js::IDBCursorDirection?) -> js::IDBRequest<js::IDBCursor?>
+  getAllKeys: (query: js::Any?, count: int?) -> js::IDBRequest<js::Array<js::Any>>
+  getKey: (query: js::Any) -> js::IDBRequest<js::Any?>
+  openCursor: (query: js::Any?, direction: js::Any?) -> js::IDBRequest<js::IDBCursorWithValue?>
+  openKeyCursor: (query: js::Any?, direction: js::Any?) -> js::IDBRequest<js::IDBCursor?>
 
 host js::IDBKeyRange
   lower: js::Any
@@ -5945,7 +5945,7 @@ host js::IDBObjectStore
   keyPath: js::Any
   mut name: string
   transaction: js::IDBTransaction
-  add: (value: js::Any, key: js::IDBValidKey?) -> js::IDBRequest<js::IDBValidKey>
+  add: (value: js::Any, key: js::Any?) -> js::IDBRequest<js::Any>
   clear: () -> js::IDBRequest<js::Any>
   count: (query: js::Any?) -> js::IDBRequest<double>
   createIndex: (name: string, keyPath: js::Any, options: js::IDBIndexParameters?) -> js::IDBIndex
@@ -5953,12 +5953,12 @@ host js::IDBObjectStore
   deleteIndex: (name: string) -> void
   get: (query: js::Any) -> js::IDBRequest<js::Any>
   getAll: (query: js::Any?, count: int?) -> js::IDBRequest<js::Array<js::Any>>
-  getAllKeys: (query: js::Any?, count: int?) -> js::IDBRequest<js::Array<js::IDBValidKey>>
-  getKey: (query: js::Any) -> js::IDBRequest<js::IDBValidKey?>
+  getAllKeys: (query: js::Any?, count: int?) -> js::IDBRequest<js::Array<js::Any>>
+  getKey: (query: js::Any) -> js::IDBRequest<js::Any?>
   index: (name: string) -> js::IDBIndex
-  openCursor: (query: js::Any?, direction: js::IDBCursorDirection?) -> js::IDBRequest<js::IDBCursorWithValue?>
-  openKeyCursor: (query: js::Any?, direction: js::IDBCursorDirection?) -> js::IDBRequest<js::IDBCursor?>
-  put: (value: js::Any, key: js::IDBValidKey?) -> js::IDBRequest<js::IDBValidKey>
+  openCursor: (query: js::Any?, direction: js::Any?) -> js::IDBRequest<js::IDBCursorWithValue?>
+  openKeyCursor: (query: js::Any?, direction: js::Any?) -> js::IDBRequest<js::IDBCursor?>
+  put: (value: js::Any, key: js::Any?) -> js::IDBRequest<js::Any>
 
 host js::IDBOpenDBRequestEventMap heir js::IDBRequestEventMap
   mut blocked: js::IDBVersionChangeEvent
@@ -5978,7 +5978,7 @@ host js::IDBRequest<T> heir js::EventTarget
   error: js::DOMException?
   mut onerror: function<(js::IDBRequest<T>, js::Event) -> js::Any>?
   mut onsuccess: function<(js::IDBRequest<T>, js::Event) -> js::Any>?
-  readyState: js::IDBRequestReadyState
+  readyState: js::Any
   result: T
   source: js::Any
   transaction: js::IDBTransaction?
@@ -5992,9 +5992,9 @@ host js::IDBTransactionEventMap
 
 host js::IDBTransaction heir js::EventTarget
   db: js::IDBDatabase
-  durability: js::IDBTransactionDurability
+  durability: js::Any
   error: js::DOMException?
-  mode: js::IDBTransactionMode
+  mode: js::Any
   objectStoreNames: js::DOMStringList
   mut onabort: function<(js::IDBTransaction, js::Event) -> js::Any>?
   mut oncomplete: function<(js::IDBTransaction, js::Event) -> js::Any>?
@@ -6010,7 +6010,7 @@ host js::IDBVersionChangeEvent heir js::Event
   oldVersion: double
 
 host js::IIRFilterNode heir js::AudioNode
-  getFrequencyResponse: (frequencyHz: js::Float32Array, magResponse: js::Float32Array, phaseResponse: js::Float32Array) -> void
+  getFrequencyResponse: (frequencyHz: js::Any, magResponse: js::Any, phaseResponse: js::Any) -> void
 
 host js::IdleDeadline
   didTimeout: bool
@@ -6026,8 +6026,8 @@ host js::ImageBitmapRenderingContext
   transferFromImageBitmap: (bitmap: js::ImageBitmap?) -> void
 
 host js::ImageData
-  colorSpace: js::PredefinedColorSpace
-  data: js::Uint8ClampedArray
+  colorSpace: js::Any
+  data: js::Any
   height: int
   width: int
 
@@ -6043,7 +6043,7 @@ host js::InputEvent heir js::UIEvent
   dataTransfer: js::DataTransfer?
   inputType: string
   isComposing: bool
-  getTargetRanges: () -> js::Array<js::StaticRange>
+  getTargetRanges: () -> js::Array<js::Any>
 
 host js::IntersectionObserver
   root: js::Any
@@ -6086,8 +6086,8 @@ host js::KeyboardEvent heir js::UIEvent
   DOM_KEY_LOCATION_NUMPAD: int
 
 host js::KeyframeEffect heir js::AnimationEffect
-  mut composite: js::CompositeOperation
-  mut iterationComposite: js::IterationCompositeOperation
+  mut composite: js::Any
+  mut iterationComposite: js::Any
   mut pseudoElement: string?
   mut target: js::Element?
   getKeyframes: () -> js::Array<js::ComputedKeyframe>
@@ -6095,7 +6095,7 @@ host js::KeyframeEffect heir js::AnimationEffect
 
 host js::LargestContentfulPaint heir js::PerformanceEntry
   element: js::Element?
-  id: string
+  mut id: string
   loadTime: js::DOMHighResTimeStamp
   renderTime: js::DOMHighResTimeStamp
   size: int
@@ -6122,12 +6122,12 @@ host js::Location
   replace: (url: js::Any) -> void
 
 host js::Lock
-  mode: js::LockMode
-  name: string
+  mode: js::Any
+  mut name: string
 
 host js::LockManager
   query: () -> js::Promise<js::LockManagerSnapshot>
-  request: (name: string, callback_: js::LockGrantedCallback) -> js::Promise<js::Any>
+  request: (name: string, callback_: js::Any) -> js::Promise<js::Any>
 
 host js::MIDIAccessEventMap
   mut statechange: js::MIDIConnectionEvent
@@ -6169,13 +6169,13 @@ host js::MIDIPortEventMap
   mut statechange: js::MIDIConnectionEvent
 
 host js::MIDIPort heir js::EventTarget
-  connection: js::MIDIPortConnectionState
-  id: string
+  connection: js::Any
+  mut id: string
   manufacturer: string?
-  name: string?
+  mut name: string
   mut onstatechange: function<(js::MIDIPort, js::MIDIConnectionEvent) -> js::Any>?
-  state: js::MIDIPortDeviceState
-  type: js::MIDIPortType
+  state: js::Any
+  type: js::Any
   version: string?
   close: () -> js::Promise<js::MIDIPort>
   open: () -> js::Promise<js::MIDIPort>
@@ -6324,7 +6324,7 @@ host js::MathMLElement heir js::Element
   mut ondurationchange: function<(js::GlobalEventHandlers, js::Event) -> js::Any>?
   mut onemptied: function<(js::GlobalEventHandlers, js::Event) -> js::Any>?
   mut onended: function<(js::GlobalEventHandlers, js::Event) -> js::Any>?
-  mut onerror: js::OnErrorEventHandler
+  mut onerror: js::Any
   mut onfocus: function<(js::GlobalEventHandlers, js::FocusEvent) -> js::Any>?
   mut onformdata: function<(js::GlobalEventHandlers, js::FormDataEvent) -> js::Any>?
   mut ongotpointercapture: function<(js::GlobalEventHandlers, js::PointerEvent) -> js::Any>?
@@ -6404,7 +6404,7 @@ host js::MediaCapabilities
 host js::MediaDeviceInfo
   deviceId: string
   groupId: string
-  kind: js::MediaDeviceKind
+  kind: js::Any
   label: string
   toJSON: () -> js::Any
 
@@ -6437,32 +6437,32 @@ host js::MediaError
 
 host js::MediaKeyMessageEvent heir js::Event
   message: js::ArrayBuffer
-  messageType: js::MediaKeyMessageType
+  messageType: js::Any
 
 host js::MediaKeySessionEventMap
   mut keystatuseschange: js::Event
   mut message: js::MediaKeyMessageEvent
 
 host js::MediaKeySession heir js::EventTarget
-  closed: js::Promise<js::MediaKeySessionClosedReason>
+  closed: js::Promise<js::Any>
   expiration: double
   keyStatuses: js::MediaKeyStatusMap
   mut onkeystatuseschange: function<(js::MediaKeySession, js::Event) -> js::Any>?
   mut onmessage: function<(js::MediaKeySession, js::MediaKeyMessageEvent) -> js::Any>?
   sessionId: string
   close: () -> js::Promise<void>
-  generateRequest: (initDataType: string, initData: js::BufferSource) -> js::Promise<void>
+  generateRequest: (initDataType: string, initData: js::Any) -> js::Promise<void>
   load: (sessionId: string) -> js::Promise<bool>
   remove: () -> js::Promise<void>
-  update: (response: js::BufferSource) -> js::Promise<void>
+  update: (response: js::Any) -> js::Promise<void>
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::MediaKeyStatusMap
   size: int
-  get: (keyId: js::BufferSource) -> js::MediaKeyStatus?
-  has: (keyId: js::BufferSource) -> bool
-  forEach: (callbackfn: function<(js::MediaKeyStatus, js::BufferSource, js::MediaKeyStatusMap) -> void>, thisArg: js::Any?) -> void
+  get: (keyId: js::Any) -> js::Any?
+  has: (keyId: js::Any) -> bool
+  forEach: (callbackfn: function<(js::Any, js::Any, js::MediaKeyStatusMap) -> void>, thisArg: js::Any?) -> void
 
 host js::MediaKeySystemAccess
   keySystem: string
@@ -6470,9 +6470,9 @@ host js::MediaKeySystemAccess
   getConfiguration: () -> js::MediaKeySystemConfiguration
 
 host js::MediaKeys
-  createSession: (sessionType: js::MediaKeySessionType?) -> js::MediaKeySession
-  getStatusForPolicy: (policy: js::MediaKeysPolicy?) -> js::Promise<js::MediaKeyStatus>
-  setServerCertificate: (serverCertificate: js::BufferSource) -> js::Promise<bool>
+  createSession: (sessionType: js::Any?) -> js::MediaKeySession
+  getStatusForPolicy: (policy: js::MediaKeysPolicy?) -> js::Promise<js::Any>
+  setServerCertificate: (serverCertificate: js::Any) -> js::Promise<bool>
 
 host js::MediaList
   length: int
@@ -6522,7 +6522,7 @@ host js::MediaRecorder heir js::EventTarget
   mut onresume: function<(js::MediaRecorder, js::Event) -> js::Any>?
   mut onstart: function<(js::MediaRecorder, js::Event) -> js::Any>?
   mut onstop: function<(js::MediaRecorder, js::Event) -> js::Any>?
-  state: js::RecordingState
+  state: js::Any
   stream: js::MediaStream
   videoBitsPerSecond: double
   pause: () -> void
@@ -6535,8 +6535,8 @@ host js::MediaRecorder heir js::EventTarget
 
 host js::MediaSession
   mut metadata: js::MediaMetadata?
-  mut playbackState: js::MediaSessionPlaybackState
-  setActionHandler: (action: js::MediaSessionAction, handler: js::MediaSessionActionHandler?) -> void
+  mut playbackState: js::Any
+  setActionHandler: (action: js::Any, handler: js::Any?) -> void
   setPositionState: (state: js::MediaPositionState?) -> void
 
 host js::MediaSourceEventMap
@@ -6550,11 +6550,11 @@ host js::MediaSource heir js::EventTarget
   mut onsourceclose: function<(js::MediaSource, js::Event) -> js::Any>?
   mut onsourceended: function<(js::MediaSource, js::Event) -> js::Any>?
   mut onsourceopen: function<(js::MediaSource, js::Event) -> js::Any>?
-  readyState: js::ReadyState
+  readyState: js::Any
   sourceBuffers: js::SourceBufferList
   addSourceBuffer: (type: string) -> js::SourceBuffer
   clearLiveSeekableRange: () -> void
-  endOfStream: (error: js::EndOfStreamError?) -> void
+  endOfStream: (error: js::Any?) -> void
   removeSourceBuffer: (sourceBuffer: js::SourceBuffer) -> void
   setLiveSeekableRange: (start: double, end: double) -> void
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
@@ -6566,7 +6566,7 @@ host js::MediaStreamEventMap
 
 host js::MediaStream heir js::EventTarget
   active: bool
-  id: string
+  mut id: string
   mut onaddtrack: function<(js::MediaStream, js::MediaStreamTrackEvent) -> js::Any>?
   mut onremovetrack: function<(js::MediaStream, js::MediaStreamTrackEvent) -> js::Any>?
   addTrack: (track: js::MediaStreamTrack) -> void
@@ -6593,14 +6593,14 @@ host js::MediaStreamTrackEventMap
 host js::MediaStreamTrack heir js::EventTarget
   mut contentHint: string
   mut enabled: bool
-  id: string
+  mut id: string
   kind: string
   label: string
   muted: bool
   mut onended: function<(js::MediaStreamTrack, js::Event) -> js::Any>?
   mut onmute: function<(js::MediaStreamTrack, js::Event) -> js::Any>?
   mut onunmute: function<(js::MediaStreamTrack, js::Event) -> js::Any>?
-  readyState: js::MediaStreamTrackState
+  readyState: js::Any
   applyConstraints: (constraints: js::MediaTrackConstraints?) -> js::Promise<void>
   clone: () -> js::MediaStreamTrack
   getCapabilities: () -> js::MediaTrackCapabilities
@@ -6622,8 +6622,8 @@ host js::MessageEvent<T> heir js::Event
   lastEventId: string
   origin: string
   ports: js::Array<js::MessagePort>
-  source: js::MessageEventSource?
-  initMessageEvent: (type: string, bubbles: bool?, cancelable: bool?, data: js::Any?, origin: string?, lastEventId: string?, source: js::MessageEventSource??, ports: js::Array<js::MessagePort>?) -> void
+  source: js::Any?
+  initMessageEvent: (type: string, bubbles: bool?, cancelable: bool?, data: js::Any?, origin: string?, lastEventId: string?, source: js::Any??, ports: js::Array<js::MessagePort>?) -> void
 
 host js::MessagePortEventMap
   mut message: js::MessageEvent
@@ -6633,7 +6633,7 @@ host js::MessagePort heir js::EventTarget
   mut onmessage: function<(js::MessagePort, js::MessageEvent) -> js::Any>?
   mut onmessageerror: function<(js::MessagePort, js::MessageEvent) -> js::Any>?
   close: () -> void
-  postMessage: (message: js::Any, transfer: js::Array<js::Transferable>) -> void
+  postMessage: (message: js::Any, transfer: js::Array<js::Any>) -> void
   start: () -> void
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
@@ -6689,7 +6689,7 @@ host js::MutationRecord
   previousSibling: js::Node?
   removedNodes: js::NodeList
   target: js::Node
-  type: js::MutationRecordType
+  type: js::Any
 
 host js::NamedNodeMap
   length: int
@@ -6725,9 +6725,9 @@ host js::Navigator heir js::NavigatorAutomationInformation
   getGamepads: () -> js::Array<js::Gamepad?>
   requestMIDIAccess: (options: js::MIDIOptions?) -> js::Promise<js::MIDIAccess>
   requestMediaKeySystemAccess: (keySystem: string, supportedConfigurations: js::Array<js::MediaKeySystemConfiguration>) -> js::Promise<js::MediaKeySystemAccess>
-  sendBeacon: (url: js::Any, data: js::BodyInit??) -> bool
+  sendBeacon: (url: js::Any, data: js::Any??) -> bool
   share: (data: js::ShareData?) -> js::Promise<void>
-  vibrate: (pattern: js::VibratePattern) -> bool
+  vibrate: (pattern: js::Any) -> bool
   clearAppBadge: () -> js::Promise<void>
   setAppBadge: (contents: double?) -> js::Promise<void>
   hardwareConcurrency: double
@@ -6848,7 +6848,7 @@ host js::Node heir js::EventTarget
   DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC: int
 
 host js::NodeIterator
-  filter: js::NodeFilter?
+  filter: js::Any?
   pointerBeforeReferenceNode: bool
   referenceNode: js::Node
   root: js::Node
@@ -6885,9 +6885,9 @@ host js::Notification heir js::EventTarget
   badge: string
   body: string
   data: js::Any
-  dir: js::NotificationDirection
+  mut dir: string
   icon: string
-  lang: string
+  mut lang: string
   mut onclick: function<(js::Notification, js::Event) -> js::Any>?
   mut onclose: function<(js::Notification, js::Event) -> js::Any>?
   mut onerror: function<(js::Notification, js::Event) -> js::Any>?
@@ -6895,7 +6895,7 @@ host js::Notification heir js::EventTarget
   requireInteraction: bool
   silent: bool?
   tag: string
-  title: string
+  mut title: string
   close: () -> void
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
@@ -6916,14 +6916,14 @@ host js::OES_texture_half_float
   HALF_FLOAT_OES: int
 
 host js::OES_vertex_array_object
-  bindVertexArrayOES: (arrayObject: js::WebGLVertexArrayObjectOES?) -> void
-  createVertexArrayOES: () -> js::WebGLVertexArrayObjectOES
-  deleteVertexArrayOES: (arrayObject: js::WebGLVertexArrayObjectOES?) -> void
-  isVertexArrayOES: (arrayObject: js::WebGLVertexArrayObjectOES?) -> js::GLboolean
+  bindVertexArrayOES: (arrayObject: js::Any?) -> void
+  createVertexArrayOES: () -> js::Any
+  deleteVertexArrayOES: (arrayObject: js::Any?) -> void
+  isVertexArrayOES: (arrayObject: js::Any?) -> js::GLboolean
   VERTEX_ARRAY_BINDING_OES: int
 
 host js::OVR_multiview2
-  framebufferTextureMultiviewOVR: (target: js::GLenum, attachment: js::GLenum, texture: js::WebGLTexture?, level: js::GLint, baseViewIndex: js::GLint, numViews: js::GLsizei) -> void
+  framebufferTextureMultiviewOVR: (target: js::GLenum, attachment: js::GLenum, texture: js::Any?, level: js::GLint, baseViewIndex: js::GLint, numViews: js::GLsizei) -> void
   FRAMEBUFFER_ATTACHMENT_TEXTURE_NUM_VIEWS_OVR: int
   FRAMEBUFFER_ATTACHMENT_TEXTURE_BASE_VIEW_INDEX_OVR: int
   MAX_VIEWS_OVR: int
@@ -6961,25 +6961,25 @@ host js::OffscreenCanvas heir js::EventTarget
 
 host js::OffscreenCanvasRenderingContext2D heir js::CanvasCompositing
   canvas: js::OffscreenCanvas
-  drawImage: (image: js::CanvasImageSource, dx: double, dy: double) -> void
+  drawImage: (image: js::Any, dx: double, dy: double) -> void
   beginPath: () -> void
-  clip: (fillRule: js::CanvasFillRule?) -> void
-  fill: (fillRule: js::CanvasFillRule?) -> void
-  isPointInPath: (x: double, y: double, fillRule: js::CanvasFillRule?) -> bool
+  clip: (fillRule: js::Any?) -> void
+  fill: (fillRule: js::Any?) -> void
+  isPointInPath: (x: double, y: double, fillRule: js::Any?) -> bool
   isPointInStroke: (x: double, y: double) -> bool
   stroke: () -> void
   mut fillStyle: js::Any
   mut strokeStyle: js::Any
   createConicGradient: (startAngle: double, x: double, y: double) -> js::CanvasGradient
   createLinearGradient: (x0: double, y0: double, x1: double, y1: double) -> js::CanvasGradient
-  createPattern: (image: js::CanvasImageSource, repetition: string?) -> js::CanvasPattern?
+  createPattern: (image: js::Any, repetition: string?) -> js::CanvasPattern?
   createRadialGradient: (x0: double, y0: double, r0: double, x1: double, y1: double, r1: double) -> js::CanvasGradient
   mut filter: string
   createImageData: (sw: double, sh: double, settings: js::ImageDataSettings?) -> js::ImageData
   getImageData: (sx: double, sy: double, sw: double, sh: double, settings: js::ImageDataSettings?) -> js::ImageData
   putImageData: (imagedata: js::ImageData, dx: double, dy: double) -> void
   mut imageSmoothingEnabled: bool
-  mut imageSmoothingQuality: js::ImageSmoothingQuality
+  mut imageSmoothingQuality: js::Any
   arc: (x: double, y: double, radius: double, startAngle: double, endAngle: double, counterclockwise: bool?) -> void
   arcTo: (x1: double, y1: double, x2: double, y2: double, radius: double) -> void
   bezierCurveTo: (cp1x: double, cp1y: double, cp2x: double, cp2y: double, x: double, y: double) -> void
@@ -6990,9 +6990,9 @@ host js::OffscreenCanvasRenderingContext2D heir js::CanvasCompositing
   quadraticCurveTo: (cpx: double, cpy: double, x: double, y: double) -> void
   rect: (x: double, y: double, w: double, h: double) -> void
   roundRect: (x: double, y: double, w: double, h: double, radii: js::Any?) -> void
-  mut lineCap: js::CanvasLineCap
+  mut lineCap: js::Any
   mut lineDashOffset: double
-  mut lineJoin: js::CanvasLineJoin
+  mut lineJoin: js::Any
   mut lineWidth: double
   mut miterLimit: double
   getLineDash: () -> js::Array<double>
@@ -7011,15 +7011,15 @@ host js::OffscreenCanvasRenderingContext2D heir js::CanvasCompositing
   fillText: (text: string, x: double, y: double, maxWidth: double?) -> void
   measureText: (text: string) -> js::TextMetrics
   strokeText: (text: string, x: double, y: double, maxWidth: double?) -> void
-  mut direction: js::CanvasDirection
+  mut direction: js::Any
   mut font: string
-  mut fontKerning: js::CanvasFontKerning
-  mut fontStretch: js::CanvasFontStretch
-  mut fontVariantCaps: js::CanvasFontVariantCaps
+  mut fontKerning: js::Any
+  mut fontStretch: js::Any
+  mut fontVariantCaps: js::Any
   mut letterSpacing: string
-  mut textAlign: js::CanvasTextAlign
-  mut textBaseline: js::CanvasTextBaseline
-  mut textRendering: js::CanvasTextRendering
+  mut textAlign: js::Any
+  mut textBaseline: js::Any
+  mut textRendering: js::Any
   mut wordSpacing: string
   getTransform: () -> js::DOMMatrix
   resetTransform: () -> void
@@ -7032,8 +7032,8 @@ host js::OffscreenCanvasRenderingContext2D heir js::CanvasCompositing
 host js::OscillatorNode heir js::AudioScheduledSourceNode
   detune: js::AudioParam
   frequency: js::AudioParam
-  mut type: js::OscillatorType
-  setPeriodicWave: (periodicWave: js::PeriodicWave) -> void
+  mut type: js::Any
+  setPeriodicWave: (periodicWave: js::Any) -> void
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
@@ -7047,12 +7047,12 @@ host js::PannerNode heir js::AudioNode
   mut coneInnerAngle: double
   mut coneOuterAngle: double
   mut coneOuterGain: double
-  mut distanceModel: js::DistanceModelType
+  mut distanceModel: js::Any
   mut maxDistance: double
   orientationX: js::AudioParam
   orientationY: js::AudioParam
   orientationZ: js::AudioParam
-  mut panningModel: js::PanningModelType
+  mut panningModel: js::Any
   positionX: js::AudioParam
   positionY: js::AudioParam
   positionZ: js::AudioParam
@@ -7098,13 +7098,13 @@ host js::PaymentRequestEventMap
   mut shippingoptionchange: js::PaymentRequestUpdateEvent
 
 host js::PaymentRequest heir js::EventTarget
-  id: string
+  mut id: string
   mut onpaymentmethodchange: function<(js::PaymentRequest, js::PaymentMethodChangeEvent) -> js::Any>?
   mut onshippingaddresschange: function<(js::PaymentRequest, js::PaymentRequestUpdateEvent) -> js::Any>?
   mut onshippingoptionchange: function<(js::PaymentRequest, js::PaymentRequestUpdateEvent) -> js::Any>?
   shippingAddress: js::PaymentAddress?
   shippingOption: string?
-  shippingType: js::PaymentShippingType?
+  shippingType: js::Any?
   abort: () -> js::Promise<void>
   canMakePayment: () -> js::Promise<bool>
   show: (detailsPromise: js::Any?) -> js::Promise<js::PaymentResponse>
@@ -7127,7 +7127,7 @@ host js::PaymentResponse heir js::EventTarget
   requestId: string
   shippingAddress: js::PaymentAddress?
   shippingOption: string?
-  complete: (result: js::PaymentComplete?) -> js::Promise<void>
+  complete: (result: js::Any?) -> js::Promise<void>
   retry: (errorFields: js::PaymentValidationErrors?) -> js::Promise<void>
   toJSON: () -> js::Any
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
@@ -7145,9 +7145,9 @@ host js::Performance heir js::EventTarget
   clearMarks: (markName: string?) -> void
   clearMeasures: (measureName: string?) -> void
   clearResourceTimings: () -> void
-  getEntries: () -> js::PerformanceEntryList
-  getEntriesByName: (name: string, type: string?) -> js::PerformanceEntryList
-  getEntriesByType: (type: string) -> js::PerformanceEntryList
+  getEntries: () -> js::Any
+  getEntriesByName: (name: string, type: string?) -> js::Any
+  getEntriesByType: (type: string) -> js::Any
   mark: (markName: string, markOptions: js::Any?) -> js::PerformanceMark
   measure: (measureName: string, startOrOptions: js::Any?, endMark: string?) -> js::PerformanceMeasure
   now: () -> double
@@ -7159,7 +7159,7 @@ host js::Performance heir js::EventTarget
 host js::PerformanceEntry
   duration: js::DOMHighResTimeStamp
   entryType: string
-  name: string
+  mut name: string
   startTime: js::DOMHighResTimeStamp
   toJSON: () -> js::Any
 
@@ -7193,7 +7193,7 @@ host js::PerformanceNavigationTiming heir js::PerformanceResourceTiming
   loadEventEnd: js::DOMHighResTimeStamp
   loadEventStart: js::DOMHighResTimeStamp
   redirectCount: double
-  type: js::NavigationTimingType
+  type: js::Any
   unloadEventEnd: js::DOMHighResTimeStamp
   unloadEventStart: js::DOMHighResTimeStamp
   toJSON: () -> js::Any
@@ -7201,12 +7201,12 @@ host js::PerformanceNavigationTiming heir js::PerformanceResourceTiming
 host js::PerformanceObserver
   disconnect: () -> void
   observe: (options: js::PerformanceObserverInit?) -> void
-  takeRecords: () -> js::PerformanceEntryList
+  takeRecords: () -> js::Any
 
 host js::PerformanceObserverEntryList
-  getEntries: () -> js::PerformanceEntryList
-  getEntriesByName: (name: string, type: string?) -> js::PerformanceEntryList
-  getEntriesByType: (type: string) -> js::PerformanceEntryList
+  getEntries: () -> js::Any
+  getEntriesByName: (name: string, type: string?) -> js::Any
+  getEntriesByType: (type: string) -> js::Any
 
 host js::PerformanceResourceTiming heir js::PerformanceEntry
   connectEnd: js::DOMHighResTimeStamp
@@ -7233,7 +7233,7 @@ host js::PerformanceResourceTiming heir js::PerformanceEntry
 host js::PerformanceServerTiming
   description: string
   duration: js::DOMHighResTimeStamp
-  name: string
+  mut name: string
   toJSON: () -> js::Any
 
 host js::PerformanceTiming
@@ -7264,9 +7264,9 @@ host js::PermissionStatusEventMap
   mut change: js::Event
 
 host js::PermissionStatus heir js::EventTarget
-  name: string
+  mut name: string
   mut onchange: function<(js::PermissionStatus, js::Event) -> js::Any>?
-  state: js::PermissionState
+  state: js::Any
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
@@ -7290,7 +7290,7 @@ host js::Plugin
   description: string
   filename: string
   length: int
-  name: string
+  mut name: string
   item: (index: int) -> js::MimeType?
   namedItem: (name: string) -> js::MimeType?
   mut[indice: int]: js::MimeType
@@ -7346,18 +7346,18 @@ host js::PublicKeyCredential heir js::Credential
   rawId: js::ArrayBuffer
   response: js::AuthenticatorResponse
   getClientExtensionResults: () -> js::AuthenticationExtensionsClientOutputs
-  toJSON: () -> js::PublicKeyCredentialJSON
+  toJSON: () -> js::Any
 
 host js::PushManager
   getSubscription: () -> js::Promise<js::PushSubscription?>
-  permissionState: (options: js::PushSubscriptionOptionsInit?) -> js::Promise<js::PermissionState>
+  permissionState: (options: js::PushSubscriptionOptionsInit?) -> js::Promise<js::Any>
   subscribe: (options: js::PushSubscriptionOptionsInit?) -> js::Promise<js::PushSubscription>
 
 host js::PushSubscription
   endpoint: string
   expirationTime: js::EpochTimeStamp?
   options: js::PushSubscriptionOptions
-  getKey: (name: js::PushEncryptionKeyName) -> js::ArrayBuffer?
+  getKey: (name: js::Any) -> js::ArrayBuffer?
   toJSON: () -> js::PushSubscriptionJSON
   unsubscribe: () -> js::Promise<bool>
 
@@ -7392,10 +7392,10 @@ host js::RTCDataChannelEventMap
   mut open: js::Event
 
 host js::RTCDataChannel heir js::EventTarget
-  mut binaryType: js::BinaryType
+  mut binaryType: js::Any
   bufferedAmount: double
   mut bufferedAmountLowThreshold: double
-  id: double?
+  mut id: string
   label: string
   maxPacketLifeTime: double?
   maxRetransmits: double?
@@ -7408,7 +7408,7 @@ host js::RTCDataChannel heir js::EventTarget
   mut onopen: function<(js::RTCDataChannel, js::Event) -> js::Any>?
   ordered: bool
   protocol: string
-  readyState: js::RTCDataChannelState
+  readyState: js::Any
   close: () -> void
   send: (data: string) -> void
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
@@ -7425,7 +7425,7 @@ host js::RTCDtlsTransport heir js::EventTarget
   iceTransport: js::RTCIceTransport
   mut onerror: function<(js::RTCDtlsTransport, js::RTCErrorEvent) -> js::Any>?
   mut onstatechange: function<(js::RTCDtlsTransport, js::Event) -> js::Any>?
-  state: js::RTCDtlsTransportState
+  state: js::Any
   getRemoteCertificates: () -> js::Array<js::ArrayBuffer>
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
@@ -7438,11 +7438,11 @@ host js::RTCEncodedAudioFrame
 host js::RTCEncodedVideoFrame
   mut data: js::ArrayBuffer
   timestamp: double
-  type: js::RTCEncodedVideoFrameType
+  type: js::Any
   getMetadata: () -> js::RTCEncodedVideoFrameMetadata
 
 host js::RTCError heir js::DOMException
-  errorDetail: js::RTCErrorDetailType
+  errorDetail: js::Any
   receivedAlert: double?
   sctpCauseCode: double?
   sdpLineNumber: double?
@@ -7454,17 +7454,17 @@ host js::RTCErrorEvent heir js::Event
 host js::RTCIceCandidate
   address: string?
   candidate: string
-  component: js::RTCIceComponent?
+  component: js::Any?
   foundation: string?
   port: double?
   priority: double?
-  protocol: js::RTCIceProtocol?
+  protocol: js::Any?
   relatedAddress: string?
   relatedPort: double?
   sdpMLineIndex: double?
   sdpMid: string?
-  tcpType: js::RTCIceTcpCandidateType?
-  type: js::RTCIceCandidateType?
+  tcpType: js::Any?
+  type: js::Any?
   usernameFragment: string?
   toJSON: () -> js::RTCIceCandidateInit
 
@@ -7478,11 +7478,11 @@ host js::RTCIceTransportEventMap
   mut statechange: js::Event
 
 host js::RTCIceTransport heir js::EventTarget
-  gatheringState: js::RTCIceGathererState
+  gatheringState: js::Any
   mut ongatheringstatechange: function<(js::RTCIceTransport, js::Event) -> js::Any>?
   mut onselectedcandidatepairchange: function<(js::RTCIceTransport, js::Event) -> js::Any>?
   mut onstatechange: function<(js::RTCIceTransport, js::Event) -> js::Any>?
-  state: js::RTCIceTransportState
+  state: js::Any
   getSelectedCandidatePair: () -> js::RTCIceCandidatePair?
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
@@ -7500,11 +7500,11 @@ host js::RTCPeerConnectionEventMap
 
 host js::RTCPeerConnection heir js::EventTarget
   canTrickleIceCandidates: bool?
-  connectionState: js::RTCPeerConnectionState
+  connectionState: js::Any
   currentLocalDescription: js::RTCSessionDescription?
   currentRemoteDescription: js::RTCSessionDescription?
-  iceConnectionState: js::RTCIceConnectionState
-  iceGatheringState: js::RTCIceGatheringState
+  iceConnectionState: js::Any
+  iceGatheringState: js::Any
   localDescription: js::RTCSessionDescription?
   mut onconnectionstatechange: function<(js::RTCPeerConnection, js::Event) -> js::Any>?
   mut ondatachannel: function<(js::RTCPeerConnection, js::RTCDataChannelEvent) -> js::Any>?
@@ -7519,12 +7519,12 @@ host js::RTCPeerConnection heir js::EventTarget
   pendingRemoteDescription: js::RTCSessionDescription?
   remoteDescription: js::RTCSessionDescription?
   sctp: js::RTCSctpTransport?
-  signalingState: js::RTCSignalingState
+  signalingState: js::Any
   addIceCandidate: (candidate: js::RTCIceCandidateInit??) -> js::Promise<void>
   addTrack: (track: js::MediaStreamTrack, ...streams: js::MediaStream) -> js::RTCRtpSender
   addTransceiver: (trackOrKind: js::Any, init: js::RTCRtpTransceiverInit?) -> js::RTCRtpTransceiver
   close: () -> void
-  createAnswer: (options: js::RTCAnswerOptions?) -> js::Promise<js::RTCSessionDescriptionInit>
+  createAnswer: (options: js::Any?) -> js::Promise<js::RTCSessionDescriptionInit>
   createDataChannel: (label: string, dataChannelDict: js::RTCDataChannelInit?) -> js::RTCDataChannel
   createOffer: (options: js::RTCOfferOptions?) -> js::Promise<js::RTCSessionDescriptionInit>
   getConfiguration: () -> js::RTCConfiguration
@@ -7553,27 +7553,27 @@ host js::RTCPeerConnectionIceEvent heir js::Event
 host js::RTCRtpReceiver
   mut jitterBufferTarget: js::DOMHighResTimeStamp?
   track: js::MediaStreamTrack
-  mut transform: js::RTCRtpTransform?
+  mut transform: js::Any?
   transport: js::RTCDtlsTransport?
   getContributingSources: () -> js::Array<js::RTCRtpContributingSource>
-  getParameters: () -> js::RTCRtpReceiveParameters
+  getParameters: () -> js::Any
   getStats: () -> js::Promise<js::RTCStatsReport>
-  getSynchronizationSources: () -> js::Array<js::RTCRtpSynchronizationSource>
+  getSynchronizationSources: () -> js::Array<js::Any>
 
 host js::RTCRtpSender
   dtmf: js::RTCDTMFSender?
   track: js::MediaStreamTrack?
-  mut transform: js::RTCRtpTransform?
+  mut transform: js::Any?
   transport: js::RTCDtlsTransport?
   getParameters: () -> js::RTCRtpSendParameters
   getStats: () -> js::Promise<js::RTCStatsReport>
   replaceTrack: (withTrack: js::MediaStreamTrack?) -> js::Promise<void>
-  setParameters: (parameters: js::RTCRtpSendParameters, setParameterOptions: js::RTCSetParameterOptions?) -> js::Promise<void>
+  setParameters: (parameters: js::RTCRtpSendParameters, setParameterOptions: js::Any?) -> js::Promise<void>
   setStreams: (...streams: js::MediaStream) -> void
 
 host js::RTCRtpTransceiver
-  currentDirection: js::RTCRtpTransceiverDirection?
-  mut direction: js::RTCRtpTransceiverDirection
+  currentDirection: js::Any?
+  mut direction: js::Any
   mid: string?
   receiver: js::RTCRtpReceiver
   sender: js::RTCRtpSender
@@ -7587,14 +7587,14 @@ host js::RTCSctpTransport heir js::EventTarget
   maxChannels: double?
   maxMessageSize: double
   mut onstatechange: function<(js::RTCSctpTransport, js::Event) -> js::Any>?
-  state: js::RTCSctpTransportState
+  state: js::Any
   transport: js::RTCDtlsTransport
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::RTCSessionDescription
   sdp: string
-  type: js::RTCSdpType
+  type: js::Any
   toJSON: () -> js::RTCSessionDescriptionInit
 
 host js::RTCStatsReport
@@ -7644,7 +7644,7 @@ host js::ReadableByteStreamController
   byobRequest: js::ReadableStreamBYOBRequest?
   desiredSize: double?
   close: () -> void
-  enqueue: (chunk: js::ArrayBufferView) -> void
+  enqueue: (chunk: js::Any) -> void
   error: (e: js::Any?) -> void
 
 host js::ReadableStream<R>
@@ -7656,13 +7656,13 @@ host js::ReadableStream<R>
   tee: () -> js::Any
 
 host js::ReadableStreamBYOBReader heir js::ReadableStreamGenericReader
-  read<T>: (view: T) -> js::Promise<js::ReadableStreamReadResult<T>>
+  read<T>: (view: T) -> js::Promise<js::Any>
   releaseLock: () -> void
 
 host js::ReadableStreamBYOBRequest
-  view: js::ArrayBufferView?
+  view: js::Any?
   respond: (bytesWritten: double) -> void
-  respondWithNewView: (view: js::ArrayBufferView) -> void
+  respondWithNewView: (view: js::Any) -> void
 
 host js::ReadableStreamDefaultController<R>
   desiredSize: double?
@@ -7671,7 +7671,7 @@ host js::ReadableStreamDefaultController<R>
   error: (e: js::Any?) -> void
 
 host js::ReadableStreamDefaultReader<R> heir js::ReadableStreamGenericReader
-  read: () -> js::Promise<js::ReadableStreamReadResult<R>>
+  read: () -> js::Promise<js::Any>
   releaseLock: () -> void
 
 host js::ReadableStreamGenericReader
@@ -7687,10 +7687,10 @@ host js::RemotePlayback heir js::EventTarget
   mut onconnect: function<(js::RemotePlayback, js::Event) -> js::Any>?
   mut onconnecting: function<(js::RemotePlayback, js::Event) -> js::Any>?
   mut ondisconnect: function<(js::RemotePlayback, js::Event) -> js::Any>?
-  state: js::RemotePlaybackState
+  state: js::Any
   cancelWatchAvailability: (id: double?) -> js::Promise<void>
   prompt: () -> js::Promise<void>
-  watchAvailability: (callback_: js::RemotePlaybackAvailabilityCallback) -> js::Promise<double>
+  watchAvailability: (callback_: js::Any) -> js::Promise<double>
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
@@ -7706,20 +7706,20 @@ host js::ReportBody
 host js::ReportingObserver
   disconnect: () -> void
   observe: () -> void
-  takeRecords: () -> js::ReportList
+  takeRecords: () -> js::Any
 
 host js::Request heir js::Body
-  cache: js::RequestCache
-  credentials: js::RequestCredentials
-  destination: js::RequestDestination
+  cache: js::Any
+  credentials: js::Any
+  destination: js::Any
   headers: js::Headers
   integrity: string
   keepalive: bool
   method: string
-  mode: js::RequestMode
-  redirect: js::RequestRedirect
+  mode: js::Any
+  redirect: js::Any
   referrer: string
-  referrerPolicy: js::ReferrerPolicy
+  referrerPolicy: js::Any
   signal: js::AbortSignal
   url: string
   clone: () -> js::Request
@@ -7746,7 +7746,7 @@ host js::Response heir js::Body
   redirected: bool
   status: double
   statusText: string
-  type: js::ResponseType
+  type: js::Any
   url: string
   clone: () -> js::Response
 
@@ -7756,11 +7756,11 @@ host js::SVGAElement heir js::SVGGraphicsElement
   target: js::SVGAnimatedString
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
-  href: js::SVGAnimatedString
+  mut href: string
 
 host js::SVGAngle
   unitType: double
-  mut value: double
+  mut value: string
   mut valueAsString: string
   mut valueInSpecifiedUnits: double
   convertToSpecifiedUnits: (unitType: double) -> void
@@ -7993,7 +7993,7 @@ host js::SVGElementEventMap heir js::ElementEventMap
   mut wheel: js::WheelEvent
 
 host js::SVGElement heir js::Element
-  className: js::Any
+  mut className: string
   ownerSVGElement: js::SVGSVGElement?
   viewportElement: js::SVGElement?
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
@@ -8032,7 +8032,7 @@ host js::SVGElement heir js::Element
   mut ondurationchange: function<(js::GlobalEventHandlers, js::Event) -> js::Any>?
   mut onemptied: function<(js::GlobalEventHandlers, js::Event) -> js::Any>?
   mut onended: function<(js::GlobalEventHandlers, js::Event) -> js::Any>?
-  mut onerror: js::OnErrorEventHandler
+  mut onerror: js::Any
   mut onfocus: function<(js::GlobalEventHandlers, js::FocusEvent) -> js::Any>?
   mut onformdata: function<(js::GlobalEventHandlers, js::FormDataEvent) -> js::Any>?
   mut ongotpointercapture: function<(js::GlobalEventHandlers, js::PointerEvent) -> js::Any>?
@@ -8318,7 +8318,7 @@ host js::SVGFEImageElement heir js::SVGElement
   width: js::SVGAnimatedLength
   x: js::SVGAnimatedLength
   y: js::SVGAnimatedLength
-  href: js::SVGAnimatedString
+  mut href: string
 
 host js::SVGFEMergeElement heir js::SVGElement
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
@@ -8436,7 +8436,7 @@ host js::SVGFilterElement heir js::SVGElement
   y: js::SVGAnimatedLength
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
-  href: js::SVGAnimatedString
+  mut href: string
 
 host js::SVGFilterPrimitiveStandardAttributes
   height: js::SVGAnimatedLength
@@ -8480,7 +8480,7 @@ host js::SVGGradientElement heir js::SVGElement
   SVG_SPREADMETHOD_REPEAT: int
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
-  href: js::SVGAnimatedString
+  mut href: string
 
 host js::SVGGraphicsElement heir js::SVGElement
   transform: js::SVGAnimatedTransformList
@@ -8501,11 +8501,11 @@ host js::SVGImageElement heir js::SVGGraphicsElement
   y: js::SVGAnimatedLength
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
-  href: js::SVGAnimatedString
+  mut href: string
 
 host js::SVGLength
   unitType: double
-  mut value: double
+  mut value: string
   mut valueAsString: string
   mut valueInSpecifiedUnits: double
   convertToSpecifiedUnits: (unitType: double) -> void
@@ -8553,7 +8553,7 @@ host js::SVGLinearGradientElement heir js::SVGGradientElement
 host js::SVGMPathElement heir js::SVGElement
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
-  href: js::SVGAnimatedString
+  mut href: string
 
 host js::SVGMarkerElement heir js::SVGElement
   markerHeight: js::SVGAnimatedLength
@@ -8591,7 +8591,7 @@ host js::SVGMetadataElement heir js::SVGElement
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGNumber
-  mut value: double
+  mut value: string
 
 host js::SVGNumberList
   length: int
@@ -8621,7 +8621,7 @@ host js::SVGPatternElement heir js::SVGElement
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   preserveAspectRatio: js::SVGAnimatedPreserveAspectRatio
   viewBox: js::SVGAnimatedRect
-  href: js::SVGAnimatedString
+  mut href: string
 
 host js::SVGPointList
   length: int
@@ -8762,7 +8762,7 @@ host js::SVGScriptElement heir js::SVGElement
   mut type: string
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
-  href: js::SVGAnimatedString
+  mut href: string
 
 host js::SVGSetElement heir js::SVGAnimationElement
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
@@ -8846,7 +8846,7 @@ host js::SVGTextPathElement heir js::SVGTextContentElement
   TEXTPATH_SPACINGTYPE_EXACT: int
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
-  href: js::SVGAnimatedString
+  mut href: string
 
 host js::SVGTextPositioningElement heir js::SVGTextContentElement
   dx: js::SVGAnimatedLengthList
@@ -8894,7 +8894,7 @@ host js::SVGTransformList
   mut[indice: int]: js::SVGTransform
 
 host js::SVGURIReference
-  href: js::SVGAnimatedString
+  mut href: string
 
 host js::SVGUnitTypes
   SVG_UNIT_TYPE_UNKNOWN: int
@@ -8908,7 +8908,7 @@ host js::SVGUseElement heir js::SVGGraphicsElement
   y: js::SVGAnimatedLength
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
-  href: js::SVGAnimatedString
+  mut href: string
 
 host js::SVGViewElement heir js::SVGElement
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
@@ -8931,7 +8931,7 @@ host js::ScreenOrientationEventMap
 host js::ScreenOrientation heir js::EventTarget
   angle: double
   mut onchange: function<(js::ScreenOrientation, js::Event) -> js::Any>?
-  type: js::OrientationType
+  type: js::Any
   unlock: () -> void
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
@@ -8948,7 +8948,7 @@ host js::ScriptProcessorNode heir js::AudioNode
 host js::SecurityPolicyViolationEvent heir js::Event
   blockedURI: string
   columnNumber: int
-  disposition: js::SecurityPolicyViolationEventDisposition
+  disposition: js::Any
   documentURI: string
   effectiveDirective: string
   lineNumber: int
@@ -8991,8 +8991,8 @@ host js::ServiceWorkerEventMap heir js::AbstractWorkerEventMap
 host js::ServiceWorker heir js::EventTarget
   mut onstatechange: function<(js::ServiceWorker, js::Event) -> js::Any>?
   scriptURL: string
-  state: js::ServiceWorkerState
-  postMessage: (message: js::Any, transfer: js::Array<js::Transferable>) -> void
+  state: js::Any
+  postMessage: (message: js::Any, transfer: js::Array<js::Any>) -> void
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   mut onerror: function<(js::AbstractWorker, js::ErrorEvent) -> js::Any>?
@@ -9025,7 +9025,7 @@ host js::ServiceWorkerRegistration heir js::EventTarget
   mut onupdatefound: function<(js::ServiceWorkerRegistration, js::Event) -> js::Any>?
   pushManager: js::PushManager
   scope: string
-  updateViaCache: js::ServiceWorkerUpdateViaCache
+  updateViaCache: js::Any
   waiting: js::ServiceWorker?
   getNotifications: (filter: js::GetNotificationOptions?) -> js::Promise<js::Array<js::Notification>>
   showNotification: (title: string, options: js::NotificationOptions?) -> js::Promise<void>
@@ -9042,10 +9042,10 @@ host js::ShadowRoot heir js::DocumentFragment
   delegatesFocus: bool
   host: js::Element
   mut innerHTML: string
-  mode: js::ShadowRootMode
+  mode: js::Any
   mut onslotchange: function<(js::ShadowRoot, js::Event) -> js::Any>?
   serializable: bool
-  slotAssignment: js::SlotAssignmentMode
+  slotAssignment: js::Any
   getHTML: (options: js::GetHTMLOptions?) -> string
   setHTMLUnsafe: (html: string) -> void
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
@@ -9080,7 +9080,7 @@ host js::SourceBuffer heir js::EventTarget
   mut appendWindowEnd: double
   mut appendWindowStart: double
   buffered: js::TimeRanges
-  mut mode: js::AppendMode
+  mut mode: js::Any
   mut onabort: function<(js::SourceBuffer, js::Event) -> js::Any>?
   mut onerror: function<(js::SourceBuffer, js::Event) -> js::Any>?
   mut onupdate: function<(js::SourceBuffer, js::Event) -> js::Any>?
@@ -9089,7 +9089,7 @@ host js::SourceBuffer heir js::EventTarget
   mut timestampOffset: double
   updating: bool
   abort: () -> void
-  appendBuffer: (data: js::BufferSource) -> void
+  appendBuffer: (data: js::Any) -> void
   changeType: (type: string) -> void
   remove: (start: double, end: double) -> void
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
@@ -9139,13 +9139,13 @@ host js::SpeechSynthesis heir js::EventTarget
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SpeechSynthesisErrorEvent heir js::SpeechSynthesisEvent
-  error: js::SpeechSynthesisErrorCode
+  error: js::Any
 
 host js::SpeechSynthesisEvent heir js::Event
   charIndex: double
   charLength: double
   elapsedTime: double
-  name: string
+  mut name: string
   utterance: js::SpeechSynthesisUtterance
 
 host js::SpeechSynthesisUtteranceEventMap
@@ -9176,9 +9176,9 @@ host js::SpeechSynthesisUtterance heir js::EventTarget
 
 host js::SpeechSynthesisVoice
   default: bool
-  lang: string
+  mut lang: string
   localService: bool
-  name: string
+  mut name: string
   voiceURI: string
 
 host js::StereoPannerNode heir js::AudioNode
@@ -9226,11 +9226,11 @@ host js::StylePropertyMapReadOnly
 
 host js::StyleSheet
   mut disabled: bool
-  href: string?
+  mut href: string
   media: js::MediaList
   ownerNode: js::Any
   parentStyleSheet: js::CSSStyleSheet?
-  title: string?
+  mut title: string
   type: string
 
 host js::StyleSheetList
@@ -9242,18 +9242,18 @@ host js::SubmitEvent heir js::Event
   submitter: js::HTMLElement?
 
 host js::SubtleCrypto
-  decrypt: (algorithm: js::Any, key: js::CryptoKey, data: js::BufferSource) -> js::Promise<js::ArrayBuffer>
+  decrypt: (algorithm: js::Any, key: js::CryptoKey, data: js::Any) -> js::Promise<js::ArrayBuffer>
   deriveBits: (algorithm: js::Any, baseKey: js::CryptoKey, length: int??) -> js::Promise<js::ArrayBuffer>
-  deriveKey: (algorithm: js::Any, baseKey: js::CryptoKey, derivedKeyType: js::Any, extractable: bool, keyUsages: js::Array<js::KeyUsage>) -> js::Promise<js::CryptoKey>
-  digest: (algorithm: js::AlgorithmIdentifier, data: js::BufferSource) -> js::Promise<js::ArrayBuffer>
-  encrypt: (algorithm: js::Any, key: js::CryptoKey, data: js::BufferSource) -> js::Promise<js::ArrayBuffer>
+  deriveKey: (algorithm: js::Any, baseKey: js::CryptoKey, derivedKeyType: js::Any, extractable: bool, keyUsages: js::Array<js::Any>) -> js::Promise<js::CryptoKey>
+  digest: (algorithm: js::Any, data: js::Any) -> js::Promise<js::ArrayBuffer>
+  encrypt: (algorithm: js::Any, key: js::CryptoKey, data: js::Any) -> js::Promise<js::ArrayBuffer>
   exportKey: (format: string, key: js::CryptoKey) -> js::Promise<js::JsonWebKey>
   generateKey: (algorithm: string, extractable: bool, keyUsages: js::Array<string>) -> js::Promise<js::CryptoKeyPair>
-  importKey: (format: string, keyData: js::JsonWebKey, algorithm: js::Any, extractable: bool, keyUsages: js::Array<js::KeyUsage>) -> js::Promise<js::CryptoKey>
-  sign: (algorithm: js::Any, key: js::CryptoKey, data: js::BufferSource) -> js::Promise<js::ArrayBuffer>
-  unwrapKey: (format: js::KeyFormat, wrappedKey: js::BufferSource, unwrappingKey: js::CryptoKey, unwrapAlgorithm: js::Any, unwrappedKeyAlgorithm: js::Any, extractable: bool, keyUsages: js::Array<js::KeyUsage>) -> js::Promise<js::CryptoKey>
-  verify: (algorithm: js::Any, key: js::CryptoKey, signature: js::BufferSource, data: js::BufferSource) -> js::Promise<bool>
-  wrapKey: (format: js::KeyFormat, key: js::CryptoKey, wrappingKey: js::CryptoKey, wrapAlgorithm: js::Any) -> js::Promise<js::ArrayBuffer>
+  importKey: (format: string, keyData: js::JsonWebKey, algorithm: js::Any, extractable: bool, keyUsages: js::Array<js::Any>) -> js::Promise<js::CryptoKey>
+  sign: (algorithm: js::Any, key: js::CryptoKey, data: js::Any) -> js::Promise<js::ArrayBuffer>
+  unwrapKey: (format: js::Any, wrappedKey: js::Any, unwrappingKey: js::CryptoKey, unwrapAlgorithm: js::Any, unwrappedKeyAlgorithm: js::Any, extractable: bool, keyUsages: js::Array<js::Any>) -> js::Promise<js::CryptoKey>
+  verify: (algorithm: js::Any, key: js::CryptoKey, signature: js::Any, data: js::Any) -> js::Promise<bool>
+  wrapKey: (format: js::Any, key: js::CryptoKey, wrappingKey: js::CryptoKey, wrapAlgorithm: js::Any) -> js::Promise<js::ArrayBuffer>
 
 host js::Text heir js::CharacterData
   wholeText: string
@@ -9261,7 +9261,7 @@ host js::Text heir js::CharacterData
   assignedSlot: js::HTMLSlotElement?
 
 host js::TextDecoder heir js::TextDecoderCommon
-  decode: (input: js::AllowSharedBufferSource?, options: js::TextDecodeOptions?) -> string
+  decode: (input: js::Any?, options: js::TextDecodeOptions?) -> string
 
 host js::TextDecoderCommon
   encoding: string
@@ -9270,7 +9270,7 @@ host js::TextDecoderCommon
 
 host js::TextDecoderStream heir js::GenericTransformStream
   readable: js::ReadableStream<string>
-  writable: js::WritableStream<js::BufferSource>
+  writable: js::WritableStream<js::Any>
   encoding: string
   fatal: bool
   ignoreBOM: bool
@@ -9311,12 +9311,12 @@ host js::TextTrackEventMap
 host js::TextTrack heir js::EventTarget
   activeCues: js::TextTrackCueList?
   cues: js::TextTrackCueList?
-  id: string
+  mut id: string
   inBandMetadataTrackDispatchType: string
-  kind: js::TextTrackKind
+  kind: js::Any
   label: string
   language: string
-  mut mode: js::TextTrackMode
+  mut mode: js::Any
   mut oncuechange: function<(js::TextTrack, js::Event) -> js::Any>?
   addCue: (cue: js::TextTrackCue) -> void
   removeCue: (cue: js::TextTrackCue) -> void
@@ -9415,7 +9415,7 @@ host js::TransitionEvent heir js::Event
 
 host js::TreeWalker
   mut currentNode: js::Node
-  filter: js::NodeFilter?
+  filter: js::Any?
   root: js::Node
   whatToShow: double
   firstChild: () -> js::Node?
@@ -9465,16 +9465,16 @@ host js::UserActivation
   isActive: bool
 
 host js::VTTCue heir js::TextTrackCue
-  mut align: js::AlignSetting
-  mut line: js::LineAndPositionSetting
-  mut lineAlign: js::LineAlignSetting
-  mut position: js::LineAndPositionSetting
-  mut positionAlign: js::PositionAlignSetting
+  mut align: js::Any
+  mut line: js::Any
+  mut lineAlign: js::Any
+  mut position: js::Any
+  mut positionAlign: js::Any
   mut region: js::VTTRegion?
   mut size: int
   mut snapToLines: bool
   mut text: string
-  mut vertical: js::DirectionSetting
+  mut vertical: js::Any
   getCueAsHTML: () -> js::DocumentFragment
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
@@ -9484,7 +9484,7 @@ host js::VTTRegion
   mut lines: double
   mut regionAnchorX: double
   mut regionAnchorY: double
-  mut scroll: js::ScrollSetting
+  mut scroll: js::Any
   mut viewportAnchorX: double
   mut viewportAnchorY: double
   mut width: int
@@ -9504,9 +9504,9 @@ host js::ValidityState
 
 host js::VideoColorSpace
   fullRange: bool?
-  matrix: js::VideoMatrixCoefficients?
-  primaries: js::VideoColorPrimaries?
-  transfer: js::VideoTransferCharacteristics?
+  matrix: js::Any?
+  primaries: js::Any?
+  transfer: js::Any?
   toJSON: () -> js::VideoColorSpaceInit
 
 host js::VideoDecoderEventMap
@@ -9515,7 +9515,7 @@ host js::VideoDecoderEventMap
 host js::VideoDecoder heir js::EventTarget
   decodeQueueSize: double
   mut ondequeue: function<(js::VideoDecoder, js::Event) -> js::Any>?
-  state: js::CodecState
+  state: js::Any
   close: () -> void
   configure: (config: js::VideoDecoderConfig) -> void
   decode: (chunk: js::EncodedVideoChunk) -> void
@@ -9530,7 +9530,7 @@ host js::VideoEncoderEventMap
 host js::VideoEncoder heir js::EventTarget
   encodeQueueSize: double
   mut ondequeue: function<(js::VideoEncoder, js::Event) -> js::Any>?
-  state: js::CodecState
+  state: js::Any
   close: () -> void
   configure: (config: js::VideoEncoderConfig) -> void
   encode: (frame: js::VideoFrame, options: js::VideoEncoderEncodeOptions?) -> void
@@ -9547,13 +9547,13 @@ host js::VideoFrame
   displayHeight: double
   displayWidth: double
   duration: double?
-  format: js::VideoPixelFormat?
+  format: js::Any?
   timestamp: double
   visibleRect: js::DOMRectReadOnly?
   allocationSize: (options: js::VideoFrameCopyToOptions?) -> double
   clone: () -> js::VideoFrame
   close: () -> void
-  copyTo: (destination: js::AllowSharedBufferSource, options: js::VideoFrameCopyToOptions?) -> js::Promise<js::Array<js::PlaneLayout>>
+  copyTo: (destination: js::Any, options: js::VideoFrameCopyToOptions?) -> js::Promise<js::Array<js::PlaneLayout>>
 
 host js::VideoPlaybackQuality
   corruptedVideoFrames: double
@@ -9658,7 +9658,7 @@ host js::WEBGL_debug_renderer_info
   UNMASKED_RENDERER_WEBGL: int
 
 host js::WEBGL_debug_shaders
-  getTranslatedShaderSource: (shader: js::WebGLShader) -> string
+  getTranslatedShaderSource: (shader: js::Any) -> string
 
 host js::WEBGL_depth_texture
   UNSIGNED_INT_24_8_WEBGL: int
@@ -9725,39 +9725,39 @@ host js::WakeLockSentinel heir js::EventTarget
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::WaveShaperNode heir js::AudioNode
-  mut curve: js::Float32Array?
-  mut oversample: js::OverSampleType
+  mut curve: js::Any?
+  mut oversample: js::Any
 
 host js::WebGL2RenderingContext heir js::WebGL2RenderingContextBase
   bufferData: (target: js::GLenum, size: js::GLsizeiptr, usage: js::GLenum) -> void
-  bufferSubData: (target: js::GLenum, dstByteOffset: js::GLintptr, srcData: js::AllowSharedBufferSource) -> void
+  bufferSubData: (target: js::GLenum, dstByteOffset: js::GLintptr, srcData: js::Any) -> void
   compressedTexImage2D: (target: js::GLenum, level: js::GLint, internalformat: js::GLenum, width: js::GLsizei, height: js::GLsizei, border: js::GLint, imageSize: js::GLsizei, offset: js::GLintptr) -> void
   compressedTexSubImage2D: (target: js::GLenum, level: js::GLint, xoffset: js::GLint, yoffset: js::GLint, width: js::GLsizei, height: js::GLsizei, format: js::GLenum, imageSize: js::GLsizei, offset: js::GLintptr) -> void
-  readPixels: (x: js::GLint, y: js::GLint, width: js::GLsizei, height: js::GLsizei, format: js::GLenum, type: js::GLenum, dstData: js::ArrayBufferView?) -> void
-  texImage2D: (target: js::GLenum, level: js::GLint, internalformat: js::GLint, width: js::GLsizei, height: js::GLsizei, border: js::GLint, format: js::GLenum, type: js::GLenum, pixels: js::ArrayBufferView?) -> void
-  texSubImage2D: (target: js::GLenum, level: js::GLint, xoffset: js::GLint, yoffset: js::GLint, width: js::GLsizei, height: js::GLsizei, format: js::GLenum, type: js::GLenum, pixels: js::ArrayBufferView?) -> void
-  uniform1fv: (location: js::WebGLUniformLocation?, data: js::Float32List, srcOffset: double?, srcLength: js::GLuint?) -> void
-  uniform1iv: (location: js::WebGLUniformLocation?, data: js::Int32List, srcOffset: double?, srcLength: js::GLuint?) -> void
-  uniform2fv: (location: js::WebGLUniformLocation?, data: js::Float32List, srcOffset: double?, srcLength: js::GLuint?) -> void
-  uniform2iv: (location: js::WebGLUniformLocation?, data: js::Int32List, srcOffset: double?, srcLength: js::GLuint?) -> void
-  uniform3fv: (location: js::WebGLUniformLocation?, data: js::Float32List, srcOffset: double?, srcLength: js::GLuint?) -> void
-  uniform3iv: (location: js::WebGLUniformLocation?, data: js::Int32List, srcOffset: double?, srcLength: js::GLuint?) -> void
-  uniform4fv: (location: js::WebGLUniformLocation?, data: js::Float32List, srcOffset: double?, srcLength: js::GLuint?) -> void
-  uniform4iv: (location: js::WebGLUniformLocation?, data: js::Int32List, srcOffset: double?, srcLength: js::GLuint?) -> void
-  uniformMatrix2fv: (location: js::WebGLUniformLocation?, transpose: js::GLboolean, data: js::Float32List, srcOffset: double?, srcLength: js::GLuint?) -> void
-  uniformMatrix3fv: (location: js::WebGLUniformLocation?, transpose: js::GLboolean, data: js::Float32List, srcOffset: double?, srcLength: js::GLuint?) -> void
-  uniformMatrix4fv: (location: js::WebGLUniformLocation?, transpose: js::GLboolean, data: js::Float32List, srcOffset: double?, srcLength: js::GLuint?) -> void
+  readPixels: (x: js::GLint, y: js::GLint, width: js::GLsizei, height: js::GLsizei, format: js::GLenum, type: js::GLenum, dstData: js::Any?) -> void
+  texImage2D: (target: js::GLenum, level: js::GLint, internalformat: js::GLint, width: js::GLsizei, height: js::GLsizei, border: js::GLint, format: js::GLenum, type: js::GLenum, pixels: js::Any?) -> void
+  texSubImage2D: (target: js::GLenum, level: js::GLint, xoffset: js::GLint, yoffset: js::GLint, width: js::GLsizei, height: js::GLsizei, format: js::GLenum, type: js::GLenum, pixels: js::Any?) -> void
+  uniform1fv: (location: js::Any?, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
+  uniform1iv: (location: js::Any?, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
+  uniform2fv: (location: js::Any?, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
+  uniform2iv: (location: js::Any?, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
+  uniform3fv: (location: js::Any?, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
+  uniform3iv: (location: js::Any?, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
+  uniform4fv: (location: js::Any?, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
+  uniform4iv: (location: js::Any?, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
+  uniformMatrix2fv: (location: js::Any?, transpose: js::GLboolean, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
+  uniformMatrix3fv: (location: js::Any?, transpose: js::GLboolean, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
+  uniformMatrix4fv: (location: js::Any?, transpose: js::GLboolean, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
   canvas: js::Any
-  mut drawingBufferColorSpace: js::PredefinedColorSpace
+  mut drawingBufferColorSpace: js::Any
   drawingBufferHeight: js::GLsizei
   drawingBufferWidth: js::GLsizei
   activeTexture: (texture: js::GLenum) -> void
-  attachShader: (program: js::WebGLProgram, shader: js::WebGLShader) -> void
-  bindAttribLocation: (program: js::WebGLProgram, index: js::GLuint, name: string) -> void
-  bindBuffer: (target: js::GLenum, buffer: js::WebGLBuffer?) -> void
-  bindFramebuffer: (target: js::GLenum, framebuffer: js::WebGLFramebuffer?) -> void
-  bindRenderbuffer: (target: js::GLenum, renderbuffer: js::WebGLRenderbuffer?) -> void
-  bindTexture: (target: js::GLenum, texture: js::WebGLTexture?) -> void
+  attachShader: (program: js::Any, shader: js::Any) -> void
+  bindAttribLocation: (program: js::Any, index: js::GLuint, name: string) -> void
+  bindBuffer: (target: js::GLenum, buffer: js::Any?) -> void
+  bindFramebuffer: (target: js::GLenum, framebuffer: js::Any?) -> void
+  bindRenderbuffer: (target: js::GLenum, renderbuffer: js::Any?) -> void
+  bindTexture: (target: js::GLenum, texture: js::Any?) -> void
   blendColor: (red: js::GLclampf, green: js::GLclampf, blue: js::GLclampf, alpha: js::GLclampf) -> void
   blendEquation: (mode: js::GLenum) -> void
   blendEquationSeparate: (modeRGB: js::GLenum, modeAlpha: js::GLenum) -> void
@@ -9769,26 +9769,26 @@ host js::WebGL2RenderingContext heir js::WebGL2RenderingContextBase
   clearDepth: (depth: js::GLclampf) -> void
   clearStencil: (s: js::GLint) -> void
   colorMask: (red: js::GLboolean, green: js::GLboolean, blue: js::GLboolean, alpha: js::GLboolean) -> void
-  compileShader: (shader: js::WebGLShader) -> void
+  compileShader: (shader: js::Any) -> void
   copyTexImage2D: (target: js::GLenum, level: js::GLint, internalformat: js::GLenum, x: js::GLint, y: js::GLint, width: js::GLsizei, height: js::GLsizei, border: js::GLint) -> void
   copyTexSubImage2D: (target: js::GLenum, level: js::GLint, xoffset: js::GLint, yoffset: js::GLint, x: js::GLint, y: js::GLint, width: js::GLsizei, height: js::GLsizei) -> void
-  createBuffer: () -> js::WebGLBuffer
-  createFramebuffer: () -> js::WebGLFramebuffer
-  createProgram: () -> js::WebGLProgram
-  createRenderbuffer: () -> js::WebGLRenderbuffer
-  createShader: (type: js::GLenum) -> js::WebGLShader?
-  createTexture: () -> js::WebGLTexture
+  createBuffer: () -> js::Any
+  createFramebuffer: () -> js::Any
+  createProgram: () -> js::Any
+  createRenderbuffer: () -> js::Any
+  createShader: (type: js::GLenum) -> js::Any?
+  createTexture: () -> js::Any
   cullFace: (mode: js::GLenum) -> void
-  deleteBuffer: (buffer: js::WebGLBuffer?) -> void
-  deleteFramebuffer: (framebuffer: js::WebGLFramebuffer?) -> void
-  deleteProgram: (program: js::WebGLProgram?) -> void
-  deleteRenderbuffer: (renderbuffer: js::WebGLRenderbuffer?) -> void
-  deleteShader: (shader: js::WebGLShader?) -> void
-  deleteTexture: (texture: js::WebGLTexture?) -> void
+  deleteBuffer: (buffer: js::Any?) -> void
+  deleteFramebuffer: (framebuffer: js::Any?) -> void
+  deleteProgram: (program: js::Any?) -> void
+  deleteRenderbuffer: (renderbuffer: js::Any?) -> void
+  deleteShader: (shader: js::Any?) -> void
+  deleteTexture: (texture: js::Any?) -> void
   depthFunc: (func: js::GLenum) -> void
   depthMask: (flag: js::GLboolean) -> void
   depthRange: (zNear: js::GLclampf, zFar: js::GLclampf) -> void
-  detachShader: (program: js::WebGLProgram, shader: js::WebGLShader) -> void
+  detachShader: (program: js::Any, shader: js::Any) -> void
   disable: (cap: js::GLenum) -> void
   disableVertexAttribArray: (index: js::GLuint) -> void
   drawArrays: (mode: js::GLenum, first: js::GLint, count: js::GLsizei) -> void
@@ -9797,50 +9797,50 @@ host js::WebGL2RenderingContext heir js::WebGL2RenderingContextBase
   enableVertexAttribArray: (index: js::GLuint) -> void
   finish: () -> void
   flush: () -> void
-  framebufferRenderbuffer: (target: js::GLenum, attachment: js::GLenum, renderbuffertarget: js::GLenum, renderbuffer: js::WebGLRenderbuffer?) -> void
-  framebufferTexture2D: (target: js::GLenum, attachment: js::GLenum, textarget: js::GLenum, texture: js::WebGLTexture?, level: js::GLint) -> void
+  framebufferRenderbuffer: (target: js::GLenum, attachment: js::GLenum, renderbuffertarget: js::GLenum, renderbuffer: js::Any?) -> void
+  framebufferTexture2D: (target: js::GLenum, attachment: js::GLenum, textarget: js::GLenum, texture: js::Any?, level: js::GLint) -> void
   frontFace: (mode: js::GLenum) -> void
   generateMipmap: (target: js::GLenum) -> void
-  getActiveAttrib: (program: js::WebGLProgram, index: js::GLuint) -> js::WebGLActiveInfo?
-  getActiveUniform: (program: js::WebGLProgram, index: js::GLuint) -> js::WebGLActiveInfo?
-  getAttachedShaders: (program: js::WebGLProgram) -> js::Array<js::WebGLShader>?
-  getAttribLocation: (program: js::WebGLProgram, name: string) -> js::GLint
+  getActiveAttrib: (program: js::Any, index: js::GLuint) -> js::WebGLActiveInfo?
+  getActiveUniform: (program: js::Any, index: js::GLuint) -> js::WebGLActiveInfo?
+  getAttachedShaders: (program: js::Any) -> js::Array<js::Any>?
+  getAttribLocation: (program: js::Any, name: string) -> js::GLint
   getBufferParameter: (target: js::GLenum, pname: js::GLenum) -> js::Any
   getContextAttributes: () -> js::WebGLContextAttributes?
   getError: () -> js::GLenum
   getExtension: (extensionName: string) -> js::ANGLE_instanced_arrays?
   getFramebufferAttachmentParameter: (target: js::GLenum, attachment: js::GLenum, pname: js::GLenum) -> js::Any
   getParameter: (pname: js::GLenum) -> js::Any
-  getProgramInfoLog: (program: js::WebGLProgram) -> string?
-  getProgramParameter: (program: js::WebGLProgram, pname: js::GLenum) -> js::Any
+  getProgramInfoLog: (program: js::Any) -> string?
+  getProgramParameter: (program: js::Any, pname: js::GLenum) -> js::Any
   getRenderbufferParameter: (target: js::GLenum, pname: js::GLenum) -> js::Any
-  getShaderInfoLog: (shader: js::WebGLShader) -> string?
-  getShaderParameter: (shader: js::WebGLShader, pname: js::GLenum) -> js::Any
+  getShaderInfoLog: (shader: js::Any) -> string?
+  getShaderParameter: (shader: js::Any, pname: js::GLenum) -> js::Any
   getShaderPrecisionFormat: (shadertype: js::GLenum, precisiontype: js::GLenum) -> js::WebGLShaderPrecisionFormat?
-  getShaderSource: (shader: js::WebGLShader) -> string?
+  getShaderSource: (shader: js::Any) -> string?
   getSupportedExtensions: () -> js::Array<string>?
   getTexParameter: (target: js::GLenum, pname: js::GLenum) -> js::Any
-  getUniform: (program: js::WebGLProgram, location: js::WebGLUniformLocation) -> js::Any
-  getUniformLocation: (program: js::WebGLProgram, name: string) -> js::WebGLUniformLocation?
+  getUniform: (program: js::Any, location: js::Any) -> js::Any
+  getUniformLocation: (program: js::Any, name: string) -> js::Any?
   getVertexAttrib: (index: js::GLuint, pname: js::GLenum) -> js::Any
   getVertexAttribOffset: (index: js::GLuint, pname: js::GLenum) -> js::GLintptr
   hint: (target: js::GLenum, mode: js::GLenum) -> void
-  isBuffer: (buffer: js::WebGLBuffer?) -> js::GLboolean
+  isBuffer: (buffer: js::Any?) -> js::GLboolean
   isContextLost: () -> bool
   isEnabled: (cap: js::GLenum) -> js::GLboolean
-  isFramebuffer: (framebuffer: js::WebGLFramebuffer?) -> js::GLboolean
-  isProgram: (program: js::WebGLProgram?) -> js::GLboolean
-  isRenderbuffer: (renderbuffer: js::WebGLRenderbuffer?) -> js::GLboolean
-  isShader: (shader: js::WebGLShader?) -> js::GLboolean
-  isTexture: (texture: js::WebGLTexture?) -> js::GLboolean
+  isFramebuffer: (framebuffer: js::Any?) -> js::GLboolean
+  isProgram: (program: js::Any?) -> js::GLboolean
+  isRenderbuffer: (renderbuffer: js::Any?) -> js::GLboolean
+  isShader: (shader: js::Any?) -> js::GLboolean
+  isTexture: (texture: js::Any?) -> js::GLboolean
   lineWidth: (width: js::GLfloat) -> void
-  linkProgram: (program: js::WebGLProgram) -> void
+  linkProgram: (program: js::Any) -> void
   pixelStorei: (pname: js::GLenum, param: js::Any) -> void
   polygonOffset: (factor: js::GLfloat, units: js::GLfloat) -> void
   renderbufferStorage: (target: js::GLenum, internalformat: js::GLenum, width: js::GLsizei, height: js::GLsizei) -> void
   sampleCoverage: (value: js::GLclampf, invert: js::GLboolean) -> void
   scissor: (x: js::GLint, y: js::GLint, width: js::GLsizei, height: js::GLsizei) -> void
-  shaderSource: (shader: js::WebGLShader, source: string) -> void
+  shaderSource: (shader: js::Any, source: string) -> void
   stencilFunc: (func: js::GLenum, ref: js::GLint, mask: js::GLuint) -> void
   stencilFuncSeparate: (face: js::GLenum, func: js::GLenum, ref: js::GLint, mask: js::GLuint) -> void
   stencilMask: (mask: js::GLuint) -> void
@@ -9849,24 +9849,24 @@ host js::WebGL2RenderingContext heir js::WebGL2RenderingContextBase
   stencilOpSeparate: (face: js::GLenum, fail: js::GLenum, zfail: js::GLenum, zpass: js::GLenum) -> void
   texParameterf: (target: js::GLenum, pname: js::GLenum, param: js::GLfloat) -> void
   texParameteri: (target: js::GLenum, pname: js::GLenum, param: js::GLint) -> void
-  uniform1f: (location: js::WebGLUniformLocation?, x: js::GLfloat) -> void
-  uniform1i: (location: js::WebGLUniformLocation?, x: js::GLint) -> void
-  uniform2f: (location: js::WebGLUniformLocation?, x: js::GLfloat, y: js::GLfloat) -> void
-  uniform2i: (location: js::WebGLUniformLocation?, x: js::GLint, y: js::GLint) -> void
-  uniform3f: (location: js::WebGLUniformLocation?, x: js::GLfloat, y: js::GLfloat, z: js::GLfloat) -> void
-  uniform3i: (location: js::WebGLUniformLocation?, x: js::GLint, y: js::GLint, z: js::GLint) -> void
-  uniform4f: (location: js::WebGLUniformLocation?, x: js::GLfloat, y: js::GLfloat, z: js::GLfloat, w: js::GLfloat) -> void
-  uniform4i: (location: js::WebGLUniformLocation?, x: js::GLint, y: js::GLint, z: js::GLint, w: js::GLint) -> void
-  useProgram: (program: js::WebGLProgram?) -> void
-  validateProgram: (program: js::WebGLProgram) -> void
+  uniform1f: (location: js::Any?, x: js::GLfloat) -> void
+  uniform1i: (location: js::Any?, x: js::GLint) -> void
+  uniform2f: (location: js::Any?, x: js::GLfloat, y: js::GLfloat) -> void
+  uniform2i: (location: js::Any?, x: js::GLint, y: js::GLint) -> void
+  uniform3f: (location: js::Any?, x: js::GLfloat, y: js::GLfloat, z: js::GLfloat) -> void
+  uniform3i: (location: js::Any?, x: js::GLint, y: js::GLint, z: js::GLint) -> void
+  uniform4f: (location: js::Any?, x: js::GLfloat, y: js::GLfloat, z: js::GLfloat, w: js::GLfloat) -> void
+  uniform4i: (location: js::Any?, x: js::GLint, y: js::GLint, z: js::GLint, w: js::GLint) -> void
+  useProgram: (program: js::Any?) -> void
+  validateProgram: (program: js::Any) -> void
   vertexAttrib1f: (index: js::GLuint, x: js::GLfloat) -> void
-  vertexAttrib1fv: (index: js::GLuint, values: js::Float32List) -> void
+  vertexAttrib1fv: (index: js::GLuint, values: js::Any) -> void
   vertexAttrib2f: (index: js::GLuint, x: js::GLfloat, y: js::GLfloat) -> void
-  vertexAttrib2fv: (index: js::GLuint, values: js::Float32List) -> void
+  vertexAttrib2fv: (index: js::GLuint, values: js::Any) -> void
   vertexAttrib3f: (index: js::GLuint, x: js::GLfloat, y: js::GLfloat, z: js::GLfloat) -> void
-  vertexAttrib3fv: (index: js::GLuint, values: js::Float32List) -> void
+  vertexAttrib3fv: (index: js::GLuint, values: js::Any) -> void
   vertexAttrib4f: (index: js::GLuint, x: js::GLfloat, y: js::GLfloat, z: js::GLfloat, w: js::GLfloat) -> void
-  vertexAttrib4fv: (index: js::GLuint, values: js::Float32List) -> void
+  vertexAttrib4fv: (index: js::GLuint, values: js::Any) -> void
   vertexAttribPointer: (index: js::GLuint, size: js::GLint, type: js::GLenum, normalized: js::GLboolean, stride: js::GLsizei, offset: js::GLintptr) -> void
   viewport: (x: js::GLint, y: js::GLint, width: js::GLsizei, height: js::GLsizei) -> void
   DEPTH_BUFFER_BIT: int
@@ -10168,94 +10168,94 @@ host js::WebGL2RenderingContext heir js::WebGL2RenderingContextBase
   BROWSER_DEFAULT_WEBGL: int
 
 host js::WebGL2RenderingContextBase
-  beginQuery: (target: js::GLenum, query: js::WebGLQuery) -> void
+  beginQuery: (target: js::GLenum, query: js::Any) -> void
   beginTransformFeedback: (primitiveMode: js::GLenum) -> void
-  bindBufferBase: (target: js::GLenum, index: js::GLuint, buffer: js::WebGLBuffer?) -> void
-  bindBufferRange: (target: js::GLenum, index: js::GLuint, buffer: js::WebGLBuffer?, offset: js::GLintptr, size: js::GLsizeiptr) -> void
-  bindSampler: (unit: js::GLuint, sampler: js::WebGLSampler?) -> void
-  bindTransformFeedback: (target: js::GLenum, tf: js::WebGLTransformFeedback?) -> void
-  bindVertexArray: (array: js::WebGLVertexArrayObject?) -> void
+  bindBufferBase: (target: js::GLenum, index: js::GLuint, buffer: js::Any?) -> void
+  bindBufferRange: (target: js::GLenum, index: js::GLuint, buffer: js::Any?, offset: js::GLintptr, size: js::GLsizeiptr) -> void
+  bindSampler: (unit: js::GLuint, sampler: js::Any?) -> void
+  bindTransformFeedback: (target: js::GLenum, tf: js::Any?) -> void
+  bindVertexArray: (array: js::Any?) -> void
   blitFramebuffer: (srcX0: js::GLint, srcY0: js::GLint, srcX1: js::GLint, srcY1: js::GLint, dstX0: js::GLint, dstY0: js::GLint, dstX1: js::GLint, dstY1: js::GLint, mask: js::GLbitfield, filter: js::GLenum) -> void
   clearBufferfi: (buffer: js::GLenum, drawbuffer: js::GLint, depth: js::GLfloat, stencil: js::GLint) -> void
-  clearBufferfv: (buffer: js::GLenum, drawbuffer: js::GLint, values: js::Float32List, srcOffset: double?) -> void
-  clearBufferiv: (buffer: js::GLenum, drawbuffer: js::GLint, values: js::Int32List, srcOffset: double?) -> void
-  clearBufferuiv: (buffer: js::GLenum, drawbuffer: js::GLint, values: js::Uint32List, srcOffset: double?) -> void
-  clientWaitSync: (sync: js::WebGLSync, flags_: js::GLbitfield, timeout: js::GLuint64) -> js::GLenum
+  clearBufferfv: (buffer: js::GLenum, drawbuffer: js::GLint, values: js::Any, srcOffset: double?) -> void
+  clearBufferiv: (buffer: js::GLenum, drawbuffer: js::GLint, values: js::Any, srcOffset: double?) -> void
+  clearBufferuiv: (buffer: js::GLenum, drawbuffer: js::GLint, values: js::Any, srcOffset: double?) -> void
+  clientWaitSync: (sync: js::Any, flags_: js::GLbitfield, timeout: js::GLuint64) -> js::GLenum
   compressedTexImage3D: (target: js::GLenum, level: js::GLint, internalformat: js::GLenum, width: js::GLsizei, height: js::GLsizei, depth: js::GLsizei, border: js::GLint, imageSize: js::GLsizei, offset: js::GLintptr) -> void
   compressedTexSubImage3D: (target: js::GLenum, level: js::GLint, xoffset: js::GLint, yoffset: js::GLint, zoffset: js::GLint, width: js::GLsizei, height: js::GLsizei, depth: js::GLsizei, format: js::GLenum, imageSize: js::GLsizei, offset: js::GLintptr) -> void
   copyBufferSubData: (readTarget: js::GLenum, writeTarget: js::GLenum, readOffset: js::GLintptr, writeOffset: js::GLintptr, size: js::GLsizeiptr) -> void
   copyTexSubImage3D: (target: js::GLenum, level: js::GLint, xoffset: js::GLint, yoffset: js::GLint, zoffset: js::GLint, x: js::GLint, y: js::GLint, width: js::GLsizei, height: js::GLsizei) -> void
-  createQuery: () -> js::WebGLQuery
-  createSampler: () -> js::WebGLSampler
-  createTransformFeedback: () -> js::WebGLTransformFeedback
-  createVertexArray: () -> js::WebGLVertexArrayObject
-  deleteQuery: (query: js::WebGLQuery?) -> void
-  deleteSampler: (sampler: js::WebGLSampler?) -> void
-  deleteSync: (sync: js::WebGLSync?) -> void
-  deleteTransformFeedback: (tf: js::WebGLTransformFeedback?) -> void
-  deleteVertexArray: (vertexArray: js::WebGLVertexArrayObject?) -> void
+  createQuery: () -> js::Any
+  createSampler: () -> js::Any
+  createTransformFeedback: () -> js::Any
+  createVertexArray: () -> js::Any
+  deleteQuery: (query: js::Any?) -> void
+  deleteSampler: (sampler: js::Any?) -> void
+  deleteSync: (sync: js::Any?) -> void
+  deleteTransformFeedback: (tf: js::Any?) -> void
+  deleteVertexArray: (vertexArray: js::Any?) -> void
   drawArraysInstanced: (mode: js::GLenum, first: js::GLint, count: js::GLsizei, instanceCount: js::GLsizei) -> void
   drawBuffers: (buffers: js::Array<js::GLenum>) -> void
   drawElementsInstanced: (mode: js::GLenum, count: js::GLsizei, type: js::GLenum, offset: js::GLintptr, instanceCount: js::GLsizei) -> void
   drawRangeElements: (mode: js::GLenum, start: js::GLuint, end: js::GLuint, count: js::GLsizei, type: js::GLenum, offset: js::GLintptr) -> void
   endQuery: (target: js::GLenum) -> void
   endTransformFeedback: () -> void
-  fenceSync: (condition: js::GLenum, flags_: js::GLbitfield) -> js::WebGLSync?
-  framebufferTextureLayer: (target: js::GLenum, attachment: js::GLenum, texture: js::WebGLTexture?, level: js::GLint, layer: js::GLint) -> void
-  getActiveUniformBlockName: (program: js::WebGLProgram, uniformBlockIndex: js::GLuint) -> string?
-  getActiveUniformBlockParameter: (program: js::WebGLProgram, uniformBlockIndex: js::GLuint, pname: js::GLenum) -> js::Any
-  getActiveUniforms: (program: js::WebGLProgram, uniformIndices: js::Array<js::GLuint>, pname: js::GLenum) -> js::Any
-  getBufferSubData: (target: js::GLenum, srcByteOffset: js::GLintptr, dstBuffer: js::ArrayBufferView, dstOffset: double?, length: js::GLuint?) -> void
-  getFragDataLocation: (program: js::WebGLProgram, name: string) -> js::GLint
+  fenceSync: (condition: js::GLenum, flags_: js::GLbitfield) -> js::Any?
+  framebufferTextureLayer: (target: js::GLenum, attachment: js::GLenum, texture: js::Any?, level: js::GLint, layer: js::GLint) -> void
+  getActiveUniformBlockName: (program: js::Any, uniformBlockIndex: js::GLuint) -> string?
+  getActiveUniformBlockParameter: (program: js::Any, uniformBlockIndex: js::GLuint, pname: js::GLenum) -> js::Any
+  getActiveUniforms: (program: js::Any, uniformIndices: js::Array<js::GLuint>, pname: js::GLenum) -> js::Any
+  getBufferSubData: (target: js::GLenum, srcByteOffset: js::GLintptr, dstBuffer: js::Any, dstOffset: double?, length: js::GLuint?) -> void
+  getFragDataLocation: (program: js::Any, name: string) -> js::GLint
   getIndexedParameter: (target: js::GLenum, index: js::GLuint) -> js::Any
   getInternalformatParameter: (target: js::GLenum, internalformat: js::GLenum, pname: js::GLenum) -> js::Any
-  getQuery: (target: js::GLenum, pname: js::GLenum) -> js::WebGLQuery?
-  getQueryParameter: (query: js::WebGLQuery, pname: js::GLenum) -> js::Any
-  getSamplerParameter: (sampler: js::WebGLSampler, pname: js::GLenum) -> js::Any
-  getSyncParameter: (sync: js::WebGLSync, pname: js::GLenum) -> js::Any
-  getTransformFeedbackVarying: (program: js::WebGLProgram, index: js::GLuint) -> js::WebGLActiveInfo?
-  getUniformBlockIndex: (program: js::WebGLProgram, uniformBlockName: string) -> js::GLuint
-  getUniformIndices: (program: js::WebGLProgram, uniformNames: js::Array<string>) -> js::Array<js::GLuint>?
+  getQuery: (target: js::GLenum, pname: js::GLenum) -> js::Any?
+  getQueryParameter: (query: js::Any, pname: js::GLenum) -> js::Any
+  getSamplerParameter: (sampler: js::Any, pname: js::GLenum) -> js::Any
+  getSyncParameter: (sync: js::Any, pname: js::GLenum) -> js::Any
+  getTransformFeedbackVarying: (program: js::Any, index: js::GLuint) -> js::WebGLActiveInfo?
+  getUniformBlockIndex: (program: js::Any, uniformBlockName: string) -> js::GLuint
+  getUniformIndices: (program: js::Any, uniformNames: js::Array<string>) -> js::Array<js::GLuint>?
   invalidateFramebuffer: (target: js::GLenum, attachments: js::Array<js::GLenum>) -> void
   invalidateSubFramebuffer: (target: js::GLenum, attachments: js::Array<js::GLenum>, x: js::GLint, y: js::GLint, width: js::GLsizei, height: js::GLsizei) -> void
-  isQuery: (query: js::WebGLQuery?) -> js::GLboolean
-  isSampler: (sampler: js::WebGLSampler?) -> js::GLboolean
-  isSync: (sync: js::WebGLSync?) -> js::GLboolean
-  isTransformFeedback: (tf: js::WebGLTransformFeedback?) -> js::GLboolean
-  isVertexArray: (vertexArray: js::WebGLVertexArrayObject?) -> js::GLboolean
+  isQuery: (query: js::Any?) -> js::GLboolean
+  isSampler: (sampler: js::Any?) -> js::GLboolean
+  isSync: (sync: js::Any?) -> js::GLboolean
+  isTransformFeedback: (tf: js::Any?) -> js::GLboolean
+  isVertexArray: (vertexArray: js::Any?) -> js::GLboolean
   pauseTransformFeedback: () -> void
   readBuffer: (src: js::GLenum) -> void
   renderbufferStorageMultisample: (target: js::GLenum, samples: js::GLsizei, internalformat: js::GLenum, width: js::GLsizei, height: js::GLsizei) -> void
   resumeTransformFeedback: () -> void
-  samplerParameterf: (sampler: js::WebGLSampler, pname: js::GLenum, param: js::GLfloat) -> void
-  samplerParameteri: (sampler: js::WebGLSampler, pname: js::GLenum, param: js::GLint) -> void
+  samplerParameterf: (sampler: js::Any, pname: js::GLenum, param: js::GLfloat) -> void
+  samplerParameteri: (sampler: js::Any, pname: js::GLenum, param: js::GLint) -> void
   texImage3D: (target: js::GLenum, level: js::GLint, internalformat: js::GLint, width: js::GLsizei, height: js::GLsizei, depth: js::GLsizei, border: js::GLint, format: js::GLenum, type: js::GLenum, pboOffset: js::GLintptr) -> void
   texStorage2D: (target: js::GLenum, levels: js::GLsizei, internalformat: js::GLenum, width: js::GLsizei, height: js::GLsizei) -> void
   texStorage3D: (target: js::GLenum, levels: js::GLsizei, internalformat: js::GLenum, width: js::GLsizei, height: js::GLsizei, depth: js::GLsizei) -> void
   texSubImage3D: (target: js::GLenum, level: js::GLint, xoffset: js::GLint, yoffset: js::GLint, zoffset: js::GLint, width: js::GLsizei, height: js::GLsizei, depth: js::GLsizei, format: js::GLenum, type: js::GLenum, pboOffset: js::GLintptr) -> void
-  transformFeedbackVaryings: (program: js::WebGLProgram, varyings: js::Array<string>, bufferMode: js::GLenum) -> void
-  uniform1ui: (location: js::WebGLUniformLocation?, v0: js::GLuint) -> void
-  uniform1uiv: (location: js::WebGLUniformLocation?, data: js::Uint32List, srcOffset: double?, srcLength: js::GLuint?) -> void
-  uniform2ui: (location: js::WebGLUniformLocation?, v0: js::GLuint, v1: js::GLuint) -> void
-  uniform2uiv: (location: js::WebGLUniformLocation?, data: js::Uint32List, srcOffset: double?, srcLength: js::GLuint?) -> void
-  uniform3ui: (location: js::WebGLUniformLocation?, v0: js::GLuint, v1: js::GLuint, v2: js::GLuint) -> void
-  uniform3uiv: (location: js::WebGLUniformLocation?, data: js::Uint32List, srcOffset: double?, srcLength: js::GLuint?) -> void
-  uniform4ui: (location: js::WebGLUniformLocation?, v0: js::GLuint, v1: js::GLuint, v2: js::GLuint, v3: js::GLuint) -> void
-  uniform4uiv: (location: js::WebGLUniformLocation?, data: js::Uint32List, srcOffset: double?, srcLength: js::GLuint?) -> void
-  uniformBlockBinding: (program: js::WebGLProgram, uniformBlockIndex: js::GLuint, uniformBlockBinding: js::GLuint) -> void
-  uniformMatrix2x3fv: (location: js::WebGLUniformLocation?, transpose: js::GLboolean, data: js::Float32List, srcOffset: double?, srcLength: js::GLuint?) -> void
-  uniformMatrix2x4fv: (location: js::WebGLUniformLocation?, transpose: js::GLboolean, data: js::Float32List, srcOffset: double?, srcLength: js::GLuint?) -> void
-  uniformMatrix3x2fv: (location: js::WebGLUniformLocation?, transpose: js::GLboolean, data: js::Float32List, srcOffset: double?, srcLength: js::GLuint?) -> void
-  uniformMatrix3x4fv: (location: js::WebGLUniformLocation?, transpose: js::GLboolean, data: js::Float32List, srcOffset: double?, srcLength: js::GLuint?) -> void
-  uniformMatrix4x2fv: (location: js::WebGLUniformLocation?, transpose: js::GLboolean, data: js::Float32List, srcOffset: double?, srcLength: js::GLuint?) -> void
-  uniformMatrix4x3fv: (location: js::WebGLUniformLocation?, transpose: js::GLboolean, data: js::Float32List, srcOffset: double?, srcLength: js::GLuint?) -> void
+  transformFeedbackVaryings: (program: js::Any, varyings: js::Array<string>, bufferMode: js::GLenum) -> void
+  uniform1ui: (location: js::Any?, v0: js::GLuint) -> void
+  uniform1uiv: (location: js::Any?, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
+  uniform2ui: (location: js::Any?, v0: js::GLuint, v1: js::GLuint) -> void
+  uniform2uiv: (location: js::Any?, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
+  uniform3ui: (location: js::Any?, v0: js::GLuint, v1: js::GLuint, v2: js::GLuint) -> void
+  uniform3uiv: (location: js::Any?, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
+  uniform4ui: (location: js::Any?, v0: js::GLuint, v1: js::GLuint, v2: js::GLuint, v3: js::GLuint) -> void
+  uniform4uiv: (location: js::Any?, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
+  uniformBlockBinding: (program: js::Any, uniformBlockIndex: js::GLuint, uniformBlockBinding: js::GLuint) -> void
+  uniformMatrix2x3fv: (location: js::Any?, transpose: js::GLboolean, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
+  uniformMatrix2x4fv: (location: js::Any?, transpose: js::GLboolean, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
+  uniformMatrix3x2fv: (location: js::Any?, transpose: js::GLboolean, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
+  uniformMatrix3x4fv: (location: js::Any?, transpose: js::GLboolean, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
+  uniformMatrix4x2fv: (location: js::Any?, transpose: js::GLboolean, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
+  uniformMatrix4x3fv: (location: js::Any?, transpose: js::GLboolean, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
   vertexAttribDivisor: (index: js::GLuint, divisor: js::GLuint) -> void
   vertexAttribI4i: (index: js::GLuint, x: js::GLint, y: js::GLint, z: js::GLint, w: js::GLint) -> void
-  vertexAttribI4iv: (index: js::GLuint, values: js::Int32List) -> void
+  vertexAttribI4iv: (index: js::GLuint, values: js::Any) -> void
   vertexAttribI4ui: (index: js::GLuint, x: js::GLuint, y: js::GLuint, z: js::GLuint, w: js::GLuint) -> void
-  vertexAttribI4uiv: (index: js::GLuint, values: js::Uint32List) -> void
+  vertexAttribI4uiv: (index: js::GLuint, values: js::Any) -> void
   vertexAttribIPointer: (index: js::GLuint, size: js::GLint, type: js::GLenum, stride: js::GLsizei, offset: js::GLintptr) -> void
-  waitSync: (sync: js::WebGLSync, flags_: js::GLbitfield, timeout: js::GLint64) -> void
+  waitSync: (sync: js::Any, flags_: js::GLbitfield, timeout: js::GLint64) -> void
   READ_BUFFER: int
   UNPACK_ROW_LENGTH: int
   UNPACK_SKIP_ROWS: int
@@ -10521,26 +10521,26 @@ host js::WebGL2RenderingContextBase
 
 host js::WebGL2RenderingContextOverloads
   bufferData: (target: js::GLenum, size: js::GLsizeiptr, usage: js::GLenum) -> void
-  bufferSubData: (target: js::GLenum, dstByteOffset: js::GLintptr, srcData: js::AllowSharedBufferSource) -> void
+  bufferSubData: (target: js::GLenum, dstByteOffset: js::GLintptr, srcData: js::Any) -> void
   compressedTexImage2D: (target: js::GLenum, level: js::GLint, internalformat: js::GLenum, width: js::GLsizei, height: js::GLsizei, border: js::GLint, imageSize: js::GLsizei, offset: js::GLintptr) -> void
   compressedTexSubImage2D: (target: js::GLenum, level: js::GLint, xoffset: js::GLint, yoffset: js::GLint, width: js::GLsizei, height: js::GLsizei, format: js::GLenum, imageSize: js::GLsizei, offset: js::GLintptr) -> void
-  readPixels: (x: js::GLint, y: js::GLint, width: js::GLsizei, height: js::GLsizei, format: js::GLenum, type: js::GLenum, dstData: js::ArrayBufferView?) -> void
-  texImage2D: (target: js::GLenum, level: js::GLint, internalformat: js::GLint, width: js::GLsizei, height: js::GLsizei, border: js::GLint, format: js::GLenum, type: js::GLenum, pixels: js::ArrayBufferView?) -> void
-  texSubImage2D: (target: js::GLenum, level: js::GLint, xoffset: js::GLint, yoffset: js::GLint, width: js::GLsizei, height: js::GLsizei, format: js::GLenum, type: js::GLenum, pixels: js::ArrayBufferView?) -> void
-  uniform1fv: (location: js::WebGLUniformLocation?, data: js::Float32List, srcOffset: double?, srcLength: js::GLuint?) -> void
-  uniform1iv: (location: js::WebGLUniformLocation?, data: js::Int32List, srcOffset: double?, srcLength: js::GLuint?) -> void
-  uniform2fv: (location: js::WebGLUniformLocation?, data: js::Float32List, srcOffset: double?, srcLength: js::GLuint?) -> void
-  uniform2iv: (location: js::WebGLUniformLocation?, data: js::Int32List, srcOffset: double?, srcLength: js::GLuint?) -> void
-  uniform3fv: (location: js::WebGLUniformLocation?, data: js::Float32List, srcOffset: double?, srcLength: js::GLuint?) -> void
-  uniform3iv: (location: js::WebGLUniformLocation?, data: js::Int32List, srcOffset: double?, srcLength: js::GLuint?) -> void
-  uniform4fv: (location: js::WebGLUniformLocation?, data: js::Float32List, srcOffset: double?, srcLength: js::GLuint?) -> void
-  uniform4iv: (location: js::WebGLUniformLocation?, data: js::Int32List, srcOffset: double?, srcLength: js::GLuint?) -> void
-  uniformMatrix2fv: (location: js::WebGLUniformLocation?, transpose: js::GLboolean, data: js::Float32List, srcOffset: double?, srcLength: js::GLuint?) -> void
-  uniformMatrix3fv: (location: js::WebGLUniformLocation?, transpose: js::GLboolean, data: js::Float32List, srcOffset: double?, srcLength: js::GLuint?) -> void
-  uniformMatrix4fv: (location: js::WebGLUniformLocation?, transpose: js::GLboolean, data: js::Float32List, srcOffset: double?, srcLength: js::GLuint?) -> void
+  readPixels: (x: js::GLint, y: js::GLint, width: js::GLsizei, height: js::GLsizei, format: js::GLenum, type: js::GLenum, dstData: js::Any?) -> void
+  texImage2D: (target: js::GLenum, level: js::GLint, internalformat: js::GLint, width: js::GLsizei, height: js::GLsizei, border: js::GLint, format: js::GLenum, type: js::GLenum, pixels: js::Any?) -> void
+  texSubImage2D: (target: js::GLenum, level: js::GLint, xoffset: js::GLint, yoffset: js::GLint, width: js::GLsizei, height: js::GLsizei, format: js::GLenum, type: js::GLenum, pixels: js::Any?) -> void
+  uniform1fv: (location: js::Any?, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
+  uniform1iv: (location: js::Any?, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
+  uniform2fv: (location: js::Any?, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
+  uniform2iv: (location: js::Any?, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
+  uniform3fv: (location: js::Any?, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
+  uniform3iv: (location: js::Any?, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
+  uniform4fv: (location: js::Any?, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
+  uniform4iv: (location: js::Any?, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
+  uniformMatrix2fv: (location: js::Any?, transpose: js::GLboolean, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
+  uniformMatrix3fv: (location: js::Any?, transpose: js::GLboolean, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
+  uniformMatrix4fv: (location: js::Any?, transpose: js::GLboolean, data: js::Any, srcOffset: double?, srcLength: js::GLuint?) -> void
 
 host js::WebGLActiveInfo
-  name: string
+  mut name: string
   size: js::GLint
   type: js::GLenum
 
@@ -10549,36 +10549,36 @@ host js::WebGLContextEvent heir js::Event
 
 host js::WebGLRenderingContext heir js::WebGLRenderingContextBase
   bufferData: (target: js::GLenum, size: js::GLsizeiptr, usage: js::GLenum) -> void
-  bufferSubData: (target: js::GLenum, offset: js::GLintptr, data: js::AllowSharedBufferSource) -> void
-  compressedTexImage2D: (target: js::GLenum, level: js::GLint, internalformat: js::GLenum, width: js::GLsizei, height: js::GLsizei, border: js::GLint, data: js::ArrayBufferView) -> void
-  compressedTexSubImage2D: (target: js::GLenum, level: js::GLint, xoffset: js::GLint, yoffset: js::GLint, width: js::GLsizei, height: js::GLsizei, format: js::GLenum, data: js::ArrayBufferView) -> void
-  readPixels: (x: js::GLint, y: js::GLint, width: js::GLsizei, height: js::GLsizei, format: js::GLenum, type: js::GLenum, pixels: js::ArrayBufferView?) -> void
-  texImage2D: (target: js::GLenum, level: js::GLint, internalformat: js::GLint, width: js::GLsizei, height: js::GLsizei, border: js::GLint, format: js::GLenum, type: js::GLenum, pixels: js::ArrayBufferView?) -> void
-  texSubImage2D: (target: js::GLenum, level: js::GLint, xoffset: js::GLint, yoffset: js::GLint, width: js::GLsizei, height: js::GLsizei, format: js::GLenum, type: js::GLenum, pixels: js::ArrayBufferView?) -> void
-  uniform1fv: (location: js::WebGLUniformLocation?, v: js::Float32List) -> void
-  uniform1iv: (location: js::WebGLUniformLocation?, v: js::Int32List) -> void
-  uniform2fv: (location: js::WebGLUniformLocation?, v: js::Float32List) -> void
-  uniform2iv: (location: js::WebGLUniformLocation?, v: js::Int32List) -> void
-  uniform3fv: (location: js::WebGLUniformLocation?, v: js::Float32List) -> void
-  uniform3iv: (location: js::WebGLUniformLocation?, v: js::Int32List) -> void
-  uniform4fv: (location: js::WebGLUniformLocation?, v: js::Float32List) -> void
-  uniform4iv: (location: js::WebGLUniformLocation?, v: js::Int32List) -> void
-  uniformMatrix2fv: (location: js::WebGLUniformLocation?, transpose: js::GLboolean, value: js::Float32List) -> void
-  uniformMatrix3fv: (location: js::WebGLUniformLocation?, transpose: js::GLboolean, value: js::Float32List) -> void
-  uniformMatrix4fv: (location: js::WebGLUniformLocation?, transpose: js::GLboolean, value: js::Float32List) -> void
+  bufferSubData: (target: js::GLenum, offset: js::GLintptr, data: js::Any) -> void
+  compressedTexImage2D: (target: js::GLenum, level: js::GLint, internalformat: js::GLenum, width: js::GLsizei, height: js::GLsizei, border: js::GLint, data: js::Any) -> void
+  compressedTexSubImage2D: (target: js::GLenum, level: js::GLint, xoffset: js::GLint, yoffset: js::GLint, width: js::GLsizei, height: js::GLsizei, format: js::GLenum, data: js::Any) -> void
+  readPixels: (x: js::GLint, y: js::GLint, width: js::GLsizei, height: js::GLsizei, format: js::GLenum, type: js::GLenum, pixels: js::Any?) -> void
+  texImage2D: (target: js::GLenum, level: js::GLint, internalformat: js::GLint, width: js::GLsizei, height: js::GLsizei, border: js::GLint, format: js::GLenum, type: js::GLenum, pixels: js::Any?) -> void
+  texSubImage2D: (target: js::GLenum, level: js::GLint, xoffset: js::GLint, yoffset: js::GLint, width: js::GLsizei, height: js::GLsizei, format: js::GLenum, type: js::GLenum, pixels: js::Any?) -> void
+  uniform1fv: (location: js::Any?, v: js::Any) -> void
+  uniform1iv: (location: js::Any?, v: js::Any) -> void
+  uniform2fv: (location: js::Any?, v: js::Any) -> void
+  uniform2iv: (location: js::Any?, v: js::Any) -> void
+  uniform3fv: (location: js::Any?, v: js::Any) -> void
+  uniform3iv: (location: js::Any?, v: js::Any) -> void
+  uniform4fv: (location: js::Any?, v: js::Any) -> void
+  uniform4iv: (location: js::Any?, v: js::Any) -> void
+  uniformMatrix2fv: (location: js::Any?, transpose: js::GLboolean, value: js::Any) -> void
+  uniformMatrix3fv: (location: js::Any?, transpose: js::GLboolean, value: js::Any) -> void
+  uniformMatrix4fv: (location: js::Any?, transpose: js::GLboolean, value: js::Any) -> void
 
 host js::WebGLRenderingContextBase
   canvas: js::Any
-  mut drawingBufferColorSpace: js::PredefinedColorSpace
+  mut drawingBufferColorSpace: js::Any
   drawingBufferHeight: js::GLsizei
   drawingBufferWidth: js::GLsizei
   activeTexture: (texture: js::GLenum) -> void
-  attachShader: (program: js::WebGLProgram, shader: js::WebGLShader) -> void
-  bindAttribLocation: (program: js::WebGLProgram, index: js::GLuint, name: string) -> void
-  bindBuffer: (target: js::GLenum, buffer: js::WebGLBuffer?) -> void
-  bindFramebuffer: (target: js::GLenum, framebuffer: js::WebGLFramebuffer?) -> void
-  bindRenderbuffer: (target: js::GLenum, renderbuffer: js::WebGLRenderbuffer?) -> void
-  bindTexture: (target: js::GLenum, texture: js::WebGLTexture?) -> void
+  attachShader: (program: js::Any, shader: js::Any) -> void
+  bindAttribLocation: (program: js::Any, index: js::GLuint, name: string) -> void
+  bindBuffer: (target: js::GLenum, buffer: js::Any?) -> void
+  bindFramebuffer: (target: js::GLenum, framebuffer: js::Any?) -> void
+  bindRenderbuffer: (target: js::GLenum, renderbuffer: js::Any?) -> void
+  bindTexture: (target: js::GLenum, texture: js::Any?) -> void
   blendColor: (red: js::GLclampf, green: js::GLclampf, blue: js::GLclampf, alpha: js::GLclampf) -> void
   blendEquation: (mode: js::GLenum) -> void
   blendEquationSeparate: (modeRGB: js::GLenum, modeAlpha: js::GLenum) -> void
@@ -10590,26 +10590,26 @@ host js::WebGLRenderingContextBase
   clearDepth: (depth: js::GLclampf) -> void
   clearStencil: (s: js::GLint) -> void
   colorMask: (red: js::GLboolean, green: js::GLboolean, blue: js::GLboolean, alpha: js::GLboolean) -> void
-  compileShader: (shader: js::WebGLShader) -> void
+  compileShader: (shader: js::Any) -> void
   copyTexImage2D: (target: js::GLenum, level: js::GLint, internalformat: js::GLenum, x: js::GLint, y: js::GLint, width: js::GLsizei, height: js::GLsizei, border: js::GLint) -> void
   copyTexSubImage2D: (target: js::GLenum, level: js::GLint, xoffset: js::GLint, yoffset: js::GLint, x: js::GLint, y: js::GLint, width: js::GLsizei, height: js::GLsizei) -> void
-  createBuffer: () -> js::WebGLBuffer
-  createFramebuffer: () -> js::WebGLFramebuffer
-  createProgram: () -> js::WebGLProgram
-  createRenderbuffer: () -> js::WebGLRenderbuffer
-  createShader: (type: js::GLenum) -> js::WebGLShader?
-  createTexture: () -> js::WebGLTexture
+  createBuffer: () -> js::Any
+  createFramebuffer: () -> js::Any
+  createProgram: () -> js::Any
+  createRenderbuffer: () -> js::Any
+  createShader: (type: js::GLenum) -> js::Any?
+  createTexture: () -> js::Any
   cullFace: (mode: js::GLenum) -> void
-  deleteBuffer: (buffer: js::WebGLBuffer?) -> void
-  deleteFramebuffer: (framebuffer: js::WebGLFramebuffer?) -> void
-  deleteProgram: (program: js::WebGLProgram?) -> void
-  deleteRenderbuffer: (renderbuffer: js::WebGLRenderbuffer?) -> void
-  deleteShader: (shader: js::WebGLShader?) -> void
-  deleteTexture: (texture: js::WebGLTexture?) -> void
+  deleteBuffer: (buffer: js::Any?) -> void
+  deleteFramebuffer: (framebuffer: js::Any?) -> void
+  deleteProgram: (program: js::Any?) -> void
+  deleteRenderbuffer: (renderbuffer: js::Any?) -> void
+  deleteShader: (shader: js::Any?) -> void
+  deleteTexture: (texture: js::Any?) -> void
   depthFunc: (func: js::GLenum) -> void
   depthMask: (flag: js::GLboolean) -> void
   depthRange: (zNear: js::GLclampf, zFar: js::GLclampf) -> void
-  detachShader: (program: js::WebGLProgram, shader: js::WebGLShader) -> void
+  detachShader: (program: js::Any, shader: js::Any) -> void
   disable: (cap: js::GLenum) -> void
   disableVertexAttribArray: (index: js::GLuint) -> void
   drawArrays: (mode: js::GLenum, first: js::GLint, count: js::GLsizei) -> void
@@ -10618,50 +10618,50 @@ host js::WebGLRenderingContextBase
   enableVertexAttribArray: (index: js::GLuint) -> void
   finish: () -> void
   flush: () -> void
-  framebufferRenderbuffer: (target: js::GLenum, attachment: js::GLenum, renderbuffertarget: js::GLenum, renderbuffer: js::WebGLRenderbuffer?) -> void
-  framebufferTexture2D: (target: js::GLenum, attachment: js::GLenum, textarget: js::GLenum, texture: js::WebGLTexture?, level: js::GLint) -> void
+  framebufferRenderbuffer: (target: js::GLenum, attachment: js::GLenum, renderbuffertarget: js::GLenum, renderbuffer: js::Any?) -> void
+  framebufferTexture2D: (target: js::GLenum, attachment: js::GLenum, textarget: js::GLenum, texture: js::Any?, level: js::GLint) -> void
   frontFace: (mode: js::GLenum) -> void
   generateMipmap: (target: js::GLenum) -> void
-  getActiveAttrib: (program: js::WebGLProgram, index: js::GLuint) -> js::WebGLActiveInfo?
-  getActiveUniform: (program: js::WebGLProgram, index: js::GLuint) -> js::WebGLActiveInfo?
-  getAttachedShaders: (program: js::WebGLProgram) -> js::Array<js::WebGLShader>?
-  getAttribLocation: (program: js::WebGLProgram, name: string) -> js::GLint
+  getActiveAttrib: (program: js::Any, index: js::GLuint) -> js::WebGLActiveInfo?
+  getActiveUniform: (program: js::Any, index: js::GLuint) -> js::WebGLActiveInfo?
+  getAttachedShaders: (program: js::Any) -> js::Array<js::Any>?
+  getAttribLocation: (program: js::Any, name: string) -> js::GLint
   getBufferParameter: (target: js::GLenum, pname: js::GLenum) -> js::Any
   getContextAttributes: () -> js::WebGLContextAttributes?
   getError: () -> js::GLenum
   getExtension: (extensionName: string) -> js::ANGLE_instanced_arrays?
   getFramebufferAttachmentParameter: (target: js::GLenum, attachment: js::GLenum, pname: js::GLenum) -> js::Any
   getParameter: (pname: js::GLenum) -> js::Any
-  getProgramInfoLog: (program: js::WebGLProgram) -> string?
-  getProgramParameter: (program: js::WebGLProgram, pname: js::GLenum) -> js::Any
+  getProgramInfoLog: (program: js::Any) -> string?
+  getProgramParameter: (program: js::Any, pname: js::GLenum) -> js::Any
   getRenderbufferParameter: (target: js::GLenum, pname: js::GLenum) -> js::Any
-  getShaderInfoLog: (shader: js::WebGLShader) -> string?
-  getShaderParameter: (shader: js::WebGLShader, pname: js::GLenum) -> js::Any
+  getShaderInfoLog: (shader: js::Any) -> string?
+  getShaderParameter: (shader: js::Any, pname: js::GLenum) -> js::Any
   getShaderPrecisionFormat: (shadertype: js::GLenum, precisiontype: js::GLenum) -> js::WebGLShaderPrecisionFormat?
-  getShaderSource: (shader: js::WebGLShader) -> string?
+  getShaderSource: (shader: js::Any) -> string?
   getSupportedExtensions: () -> js::Array<string>?
   getTexParameter: (target: js::GLenum, pname: js::GLenum) -> js::Any
-  getUniform: (program: js::WebGLProgram, location: js::WebGLUniformLocation) -> js::Any
-  getUniformLocation: (program: js::WebGLProgram, name: string) -> js::WebGLUniformLocation?
+  getUniform: (program: js::Any, location: js::Any) -> js::Any
+  getUniformLocation: (program: js::Any, name: string) -> js::Any?
   getVertexAttrib: (index: js::GLuint, pname: js::GLenum) -> js::Any
   getVertexAttribOffset: (index: js::GLuint, pname: js::GLenum) -> js::GLintptr
   hint: (target: js::GLenum, mode: js::GLenum) -> void
-  isBuffer: (buffer: js::WebGLBuffer?) -> js::GLboolean
+  isBuffer: (buffer: js::Any?) -> js::GLboolean
   isContextLost: () -> bool
   isEnabled: (cap: js::GLenum) -> js::GLboolean
-  isFramebuffer: (framebuffer: js::WebGLFramebuffer?) -> js::GLboolean
-  isProgram: (program: js::WebGLProgram?) -> js::GLboolean
-  isRenderbuffer: (renderbuffer: js::WebGLRenderbuffer?) -> js::GLboolean
-  isShader: (shader: js::WebGLShader?) -> js::GLboolean
-  isTexture: (texture: js::WebGLTexture?) -> js::GLboolean
+  isFramebuffer: (framebuffer: js::Any?) -> js::GLboolean
+  isProgram: (program: js::Any?) -> js::GLboolean
+  isRenderbuffer: (renderbuffer: js::Any?) -> js::GLboolean
+  isShader: (shader: js::Any?) -> js::GLboolean
+  isTexture: (texture: js::Any?) -> js::GLboolean
   lineWidth: (width: js::GLfloat) -> void
-  linkProgram: (program: js::WebGLProgram) -> void
+  linkProgram: (program: js::Any) -> void
   pixelStorei: (pname: js::GLenum, param: js::Any) -> void
   polygonOffset: (factor: js::GLfloat, units: js::GLfloat) -> void
   renderbufferStorage: (target: js::GLenum, internalformat: js::GLenum, width: js::GLsizei, height: js::GLsizei) -> void
   sampleCoverage: (value: js::GLclampf, invert: js::GLboolean) -> void
   scissor: (x: js::GLint, y: js::GLint, width: js::GLsizei, height: js::GLsizei) -> void
-  shaderSource: (shader: js::WebGLShader, source: string) -> void
+  shaderSource: (shader: js::Any, source: string) -> void
   stencilFunc: (func: js::GLenum, ref: js::GLint, mask: js::GLuint) -> void
   stencilFuncSeparate: (face: js::GLenum, func: js::GLenum, ref: js::GLint, mask: js::GLuint) -> void
   stencilMask: (mask: js::GLuint) -> void
@@ -10670,24 +10670,24 @@ host js::WebGLRenderingContextBase
   stencilOpSeparate: (face: js::GLenum, fail: js::GLenum, zfail: js::GLenum, zpass: js::GLenum) -> void
   texParameterf: (target: js::GLenum, pname: js::GLenum, param: js::GLfloat) -> void
   texParameteri: (target: js::GLenum, pname: js::GLenum, param: js::GLint) -> void
-  uniform1f: (location: js::WebGLUniformLocation?, x: js::GLfloat) -> void
-  uniform1i: (location: js::WebGLUniformLocation?, x: js::GLint) -> void
-  uniform2f: (location: js::WebGLUniformLocation?, x: js::GLfloat, y: js::GLfloat) -> void
-  uniform2i: (location: js::WebGLUniformLocation?, x: js::GLint, y: js::GLint) -> void
-  uniform3f: (location: js::WebGLUniformLocation?, x: js::GLfloat, y: js::GLfloat, z: js::GLfloat) -> void
-  uniform3i: (location: js::WebGLUniformLocation?, x: js::GLint, y: js::GLint, z: js::GLint) -> void
-  uniform4f: (location: js::WebGLUniformLocation?, x: js::GLfloat, y: js::GLfloat, z: js::GLfloat, w: js::GLfloat) -> void
-  uniform4i: (location: js::WebGLUniformLocation?, x: js::GLint, y: js::GLint, z: js::GLint, w: js::GLint) -> void
-  useProgram: (program: js::WebGLProgram?) -> void
-  validateProgram: (program: js::WebGLProgram) -> void
+  uniform1f: (location: js::Any?, x: js::GLfloat) -> void
+  uniform1i: (location: js::Any?, x: js::GLint) -> void
+  uniform2f: (location: js::Any?, x: js::GLfloat, y: js::GLfloat) -> void
+  uniform2i: (location: js::Any?, x: js::GLint, y: js::GLint) -> void
+  uniform3f: (location: js::Any?, x: js::GLfloat, y: js::GLfloat, z: js::GLfloat) -> void
+  uniform3i: (location: js::Any?, x: js::GLint, y: js::GLint, z: js::GLint) -> void
+  uniform4f: (location: js::Any?, x: js::GLfloat, y: js::GLfloat, z: js::GLfloat, w: js::GLfloat) -> void
+  uniform4i: (location: js::Any?, x: js::GLint, y: js::GLint, z: js::GLint, w: js::GLint) -> void
+  useProgram: (program: js::Any?) -> void
+  validateProgram: (program: js::Any) -> void
   vertexAttrib1f: (index: js::GLuint, x: js::GLfloat) -> void
-  vertexAttrib1fv: (index: js::GLuint, values: js::Float32List) -> void
+  vertexAttrib1fv: (index: js::GLuint, values: js::Any) -> void
   vertexAttrib2f: (index: js::GLuint, x: js::GLfloat, y: js::GLfloat) -> void
-  vertexAttrib2fv: (index: js::GLuint, values: js::Float32List) -> void
+  vertexAttrib2fv: (index: js::GLuint, values: js::Any) -> void
   vertexAttrib3f: (index: js::GLuint, x: js::GLfloat, y: js::GLfloat, z: js::GLfloat) -> void
-  vertexAttrib3fv: (index: js::GLuint, values: js::Float32List) -> void
+  vertexAttrib3fv: (index: js::GLuint, values: js::Any) -> void
   vertexAttrib4f: (index: js::GLuint, x: js::GLfloat, y: js::GLfloat, z: js::GLfloat, w: js::GLfloat) -> void
-  vertexAttrib4fv: (index: js::GLuint, values: js::Float32List) -> void
+  vertexAttrib4fv: (index: js::GLuint, values: js::Any) -> void
   vertexAttribPointer: (index: js::GLuint, size: js::GLint, type: js::GLenum, normalized: js::GLboolean, stride: js::GLsizei, offset: js::GLintptr) -> void
   viewport: (x: js::GLint, y: js::GLint, width: js::GLsizei, height: js::GLsizei) -> void
   DEPTH_BUFFER_BIT: int
@@ -10990,23 +10990,23 @@ host js::WebGLRenderingContextBase
 
 host js::WebGLRenderingContextOverloads
   bufferData: (target: js::GLenum, size: js::GLsizeiptr, usage: js::GLenum) -> void
-  bufferSubData: (target: js::GLenum, offset: js::GLintptr, data: js::AllowSharedBufferSource) -> void
-  compressedTexImage2D: (target: js::GLenum, level: js::GLint, internalformat: js::GLenum, width: js::GLsizei, height: js::GLsizei, border: js::GLint, data: js::ArrayBufferView) -> void
-  compressedTexSubImage2D: (target: js::GLenum, level: js::GLint, xoffset: js::GLint, yoffset: js::GLint, width: js::GLsizei, height: js::GLsizei, format: js::GLenum, data: js::ArrayBufferView) -> void
-  readPixels: (x: js::GLint, y: js::GLint, width: js::GLsizei, height: js::GLsizei, format: js::GLenum, type: js::GLenum, pixels: js::ArrayBufferView?) -> void
-  texImage2D: (target: js::GLenum, level: js::GLint, internalformat: js::GLint, width: js::GLsizei, height: js::GLsizei, border: js::GLint, format: js::GLenum, type: js::GLenum, pixels: js::ArrayBufferView?) -> void
-  texSubImage2D: (target: js::GLenum, level: js::GLint, xoffset: js::GLint, yoffset: js::GLint, width: js::GLsizei, height: js::GLsizei, format: js::GLenum, type: js::GLenum, pixels: js::ArrayBufferView?) -> void
-  uniform1fv: (location: js::WebGLUniformLocation?, v: js::Float32List) -> void
-  uniform1iv: (location: js::WebGLUniformLocation?, v: js::Int32List) -> void
-  uniform2fv: (location: js::WebGLUniformLocation?, v: js::Float32List) -> void
-  uniform2iv: (location: js::WebGLUniformLocation?, v: js::Int32List) -> void
-  uniform3fv: (location: js::WebGLUniformLocation?, v: js::Float32List) -> void
-  uniform3iv: (location: js::WebGLUniformLocation?, v: js::Int32List) -> void
-  uniform4fv: (location: js::WebGLUniformLocation?, v: js::Float32List) -> void
-  uniform4iv: (location: js::WebGLUniformLocation?, v: js::Int32List) -> void
-  uniformMatrix2fv: (location: js::WebGLUniformLocation?, transpose: js::GLboolean, value: js::Float32List) -> void
-  uniformMatrix3fv: (location: js::WebGLUniformLocation?, transpose: js::GLboolean, value: js::Float32List) -> void
-  uniformMatrix4fv: (location: js::WebGLUniformLocation?, transpose: js::GLboolean, value: js::Float32List) -> void
+  bufferSubData: (target: js::GLenum, offset: js::GLintptr, data: js::Any) -> void
+  compressedTexImage2D: (target: js::GLenum, level: js::GLint, internalformat: js::GLenum, width: js::GLsizei, height: js::GLsizei, border: js::GLint, data: js::Any) -> void
+  compressedTexSubImage2D: (target: js::GLenum, level: js::GLint, xoffset: js::GLint, yoffset: js::GLint, width: js::GLsizei, height: js::GLsizei, format: js::GLenum, data: js::Any) -> void
+  readPixels: (x: js::GLint, y: js::GLint, width: js::GLsizei, height: js::GLsizei, format: js::GLenum, type: js::GLenum, pixels: js::Any?) -> void
+  texImage2D: (target: js::GLenum, level: js::GLint, internalformat: js::GLint, width: js::GLsizei, height: js::GLsizei, border: js::GLint, format: js::GLenum, type: js::GLenum, pixels: js::Any?) -> void
+  texSubImage2D: (target: js::GLenum, level: js::GLint, xoffset: js::GLint, yoffset: js::GLint, width: js::GLsizei, height: js::GLsizei, format: js::GLenum, type: js::GLenum, pixels: js::Any?) -> void
+  uniform1fv: (location: js::Any?, v: js::Any) -> void
+  uniform1iv: (location: js::Any?, v: js::Any) -> void
+  uniform2fv: (location: js::Any?, v: js::Any) -> void
+  uniform2iv: (location: js::Any?, v: js::Any) -> void
+  uniform3fv: (location: js::Any?, v: js::Any) -> void
+  uniform3iv: (location: js::Any?, v: js::Any) -> void
+  uniform4fv: (location: js::Any?, v: js::Any) -> void
+  uniform4iv: (location: js::Any?, v: js::Any) -> void
+  uniformMatrix2fv: (location: js::Any?, transpose: js::GLboolean, value: js::Any) -> void
+  uniformMatrix3fv: (location: js::Any?, transpose: js::GLboolean, value: js::Any) -> void
+  uniformMatrix4fv: (location: js::Any?, transpose: js::GLboolean, value: js::Any) -> void
 
 host js::WebGLShaderPrecisionFormat
   precision: js::GLint
@@ -11020,7 +11020,7 @@ host js::WebSocketEventMap
   mut open: js::Event
 
 host js::WebSocket heir js::EventTarget
-  mut binaryType: js::BinaryType
+  mut binaryType: js::Any
   bufferedAmount: double
   extensions: string
   mut onclose: function<(js::WebSocket, js::CloseEvent) -> js::Any>?
@@ -11063,7 +11063,7 @@ host js::WebTransportDatagramDuplexStream
   writable: js::WritableStream
 
 host js::WebTransportError heir js::DOMException
-  source: js::WebTransportErrorSource
+  source: js::Any
   streamErrorCode: double?
 
 host js::WheelEvent heir js::MouseEvent
@@ -11159,11 +11159,11 @@ host js::Window heir js::EventTarget
   moveBy: (x: double, y: double) -> void
   moveTo: (x: double, y: double) -> void
   open: (url: js::Any?, target: string?, features: string?) -> js::WindowProxy?
-  postMessage: (message: js::Any, targetOrigin: string, transfer: js::Array<js::Transferable>?) -> void
+  postMessage: (message: js::Any, targetOrigin: string, transfer: js::Array<js::Any>?) -> void
   print: () -> void
   prompt: (message: string?, _default: string?) -> string?
   releaseEvents: () -> void
-  requestIdleCallback: (callback_: js::IdleRequestCallback, options: js::IdleRequestOptions?) -> double
+  requestIdleCallback: (callback_: js::Any, options: js::IdleRequestOptions?) -> double
   resizeBy: (x: double, y: double) -> void
   resizeTo: (width: int, height: int) -> void
   scroll: (options: js::ScrollToOptions?) -> void
@@ -11175,7 +11175,7 @@ host js::Window heir js::EventTarget
   mut[indice: int]: js::Window
   mut location: js::Location
   cancelAnimationFrame: (handle: double) -> void
-  requestAnimationFrame: (callback_: js::FrameRequestCallback) -> double
+  requestAnimationFrame: (callback_: js::Any) -> double
   mut onabort: function<(js::GlobalEventHandlers, js::UIEvent) -> js::Any>?
   mut onanimationcancel: function<(js::GlobalEventHandlers, js::AnimationEvent) -> js::Any>?
   mut onanimationend: function<(js::GlobalEventHandlers, js::AnimationEvent) -> js::Any>?
@@ -11208,7 +11208,7 @@ host js::Window heir js::EventTarget
   mut ondurationchange: function<(js::GlobalEventHandlers, js::Event) -> js::Any>?
   mut onemptied: function<(js::GlobalEventHandlers, js::Event) -> js::Any>?
   mut onended: function<(js::GlobalEventHandlers, js::Event) -> js::Any>?
-  mut onerror: js::OnErrorEventHandler
+  mut onerror: js::Any
   mut onfocus: function<(js::GlobalEventHandlers, js::FocusEvent) -> js::Any>?
   mut onformdata: function<(js::GlobalEventHandlers, js::FormDataEvent) -> js::Any>?
   mut ongotpointercapture: function<(js::GlobalEventHandlers, js::PointerEvent) -> js::Any>?
@@ -11304,12 +11304,12 @@ host js::Window heir js::EventTarget
   btoa: (data: string) -> string
   clearInterval: (id: double?) -> void
   clearTimeout: (id: double?) -> void
-  createImageBitmap: (image: js::ImageBitmapSource, options: js::ImageBitmapOptions?) -> js::Promise<js::ImageBitmap>
+  createImageBitmap: (image: js::Any, options: js::ImageBitmapOptions?) -> js::Promise<js::ImageBitmap>
   fetch: (input: js::Any, init: js::RequestInit?) -> js::Promise<js::Response>
-  queueMicrotask: (callback_: js::VoidFunction) -> void
+  queueMicrotask: (callback_: js::Any) -> void
   reportError: (e: js::Any) -> void
-  setInterval: (handler: js::TimerHandler, timeout: double?, ...arguments: js::Any) -> double
-  setTimeout: (handler: js::TimerHandler, timeout: double?, ...arguments: js::Any) -> double
+  setInterval: (handler: js::Any, timeout: double?, ...arguments: js::Any) -> double
+  setTimeout: (handler: js::Any, timeout: double?, ...arguments: js::Any) -> double
   structuredClone<T>: (value: T, options: js::StructuredSerializeOptions?) -> T
   sessionStorage: js::Storage
 
@@ -11370,12 +11370,12 @@ host js::WindowOrWorkerGlobalScope
   btoa: (data: string) -> string
   clearInterval: (id: double?) -> void
   clearTimeout: (id: double?) -> void
-  createImageBitmap: (image: js::ImageBitmapSource, options: js::ImageBitmapOptions?) -> js::Promise<js::ImageBitmap>
+  createImageBitmap: (image: js::Any, options: js::ImageBitmapOptions?) -> js::Promise<js::ImageBitmap>
   fetch: (input: js::Any, init: js::RequestInit?) -> js::Promise<js::Response>
-  queueMicrotask: (callback_: js::VoidFunction) -> void
+  queueMicrotask: (callback_: js::Any) -> void
   reportError: (e: js::Any) -> void
-  setInterval: (handler: js::TimerHandler, timeout: double?, ...arguments: js::Any) -> double
-  setTimeout: (handler: js::TimerHandler, timeout: double?, ...arguments: js::Any) -> double
+  setInterval: (handler: js::Any, timeout: double?, ...arguments: js::Any) -> double
+  setTimeout: (handler: js::Any, timeout: double?, ...arguments: js::Any) -> double
   structuredClone<T>: (value: T, options: js::StructuredSerializeOptions?) -> T
 
 host js::WindowSessionStorage
@@ -11388,7 +11388,7 @@ host js::WorkerEventMap heir js::AbstractWorkerEventMap
 host js::Worker heir js::EventTarget
   mut onmessage: function<(js::Worker, js::MessageEvent) -> js::Any>?
   mut onmessageerror: function<(js::Worker, js::MessageEvent) -> js::Any>?
-  postMessage: (message: js::Any, transfer: js::Array<js::Transferable>) -> void
+  postMessage: (message: js::Any, transfer: js::Array<js::Any>) -> void
   terminate: () -> void
   addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
@@ -11428,7 +11428,7 @@ host js::XMLHttpRequest heir js::XMLHttpRequestEventTarget
   readyState: double
   response: js::Any
   responseText: string
-  mut responseType: js::XMLHttpRequestResponseType
+  mut responseType: js::Any
   responseURL: string
   responseXML: js::Document?
   status: double
@@ -11479,9 +11479,9 @@ host js::XMLSerializer
   serializeToString: (root: js::Node) -> string
 
 host js::XPathEvaluatorBase
-  createExpression: (expression: string, resolver: js::XPathNSResolver??) -> js::XPathExpression
+  createExpression: (expression: string, resolver: js::Any??) -> js::XPathExpression
   createNSResolver: (nodeResolver: js::Node) -> js::Node
-  evaluate: (expression: string, contextNode: js::Node, resolver: js::XPathNSResolver??, type: double?, result: js::XPathResult??) -> js::XPathResult
+  evaluate: (expression: string, contextNode: js::Node, resolver: js::Any??, type: double?, result: js::XPathResult??) -> js::XPathResult
 
 host js::XPathExpression
   evaluate: (contextNode: js::Node, type: double?, result: js::XPathResult??) -> js::XPathResult
@@ -11629,7 +11629,7 @@ host js::HTMLElementTagNameMap
   mut search: js::HTMLElement
   mut section: js::HTMLElement
   mut select: js::HTMLSelectElement
-  mut slot: js::HTMLSlotElement
+  mut slot: string
   mut small: js::HTMLElement
   mut source: js::HTMLSourceElement
   mut span: js::HTMLSpanElement
@@ -11647,7 +11647,7 @@ host js::HTMLElementTagNameMap
   mut th: js::HTMLTableCellElement
   mut thead: js::HTMLTableSectionElement
   mut time: js::HTMLTimeElement
-  mut title: js::HTMLTitleElement
+  mut title: string
   mut tr: js::HTMLTableRowElement
   mut track: js::HTMLTrackElement
   mut u: js::HTMLElement
@@ -11664,7 +11664,7 @@ host js::HTMLElementDeprecatedTagNameMap
   mut big: js::HTMLElement
   mut blink: js::HTMLUnknownElement
   mut center: js::HTMLElement
-  mut dir: js::HTMLDirectoryElement
+  mut dir: string
   mut font: js::HTMLFontElement
   mut frame: js::HTMLFrameElement
   mut frameset: js::HTMLFrameSetElement
@@ -11747,7 +11747,7 @@ host js::SVGElementTagNameMap
   mut symbol: js::SVGSymbolElement
   mut text: js::SVGTextElement
   mut textPath: js::SVGTextPathElement
-  mut title: js::SVGTitleElement
+  mut title: string
   mut tspan: js::SVGTSpanElement
   mut use: js::SVGUseElement
   mut view: js::SVGViewElement
@@ -12007,7 +12007,7 @@ host global ondrop: function<(js::Window, js::DragEvent) -> js::Any>?
 host global ondurationchange: function<(js::Window, js::Event) -> js::Any>?
 host global onemptied: function<(js::Window, js::Event) -> js::Any>?
 host global onended: function<(js::Window, js::Event) -> js::Any>?
-host global onerror: js::OnErrorEventHandler
+host global onerror: js::Any
 host global onfocus: function<(js::Window, js::FocusEvent) -> js::Any>?
 host global onformdata: function<(js::Window, js::FormDataEvent) -> js::Any>?
 host global ongotpointercapture: function<(js::Window, js::PointerEvent) -> js::Any>?

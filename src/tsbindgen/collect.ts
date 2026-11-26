@@ -1,7 +1,7 @@
 // Orquestación de `pengu ts-bindgen`: del `.d.ts` al texto `.d.pengu` y al
 // informe de lo que quedó fuera.
 
-import { partition_module } from "./partition.ts";
+import { CORE_HOST_TYPES, partition_module } from "./partition.ts";
 import { binding_summary, emit_binding_module } from "./emit_dts.ts";
 import { empty_report } from "./report.ts";
 import type { TsBindingReport } from "./report.ts";
@@ -57,7 +57,9 @@ function report_of(module: PenguBindingModule, text: string, source: string): Ts
 
 export function bind_dts_text(text: string, file: string, options: BindOptions): BindResult {
   const dts = narrowed(read_dts_text(file, text), options.only);
-  const module = partition_module(dts);
+  const module = partition_module(dts, {
+    declared: (options.invokes ?? []).includes("std/js/types") ? CORE_HOST_TYPES : [],
+  });
   const emitted = emit_binding_module(module, options);
   return {
     module,
@@ -70,7 +72,9 @@ export function bind_dts_text(text: string, file: string, options: BindOptions):
 
 export function bind_dts_file(path: string, options: BindOptions): BindResult {
   const dts = narrowed(read_dts_file(path), options.only);
-  const module = partition_module(dts);
+  const module = partition_module(dts, {
+    declared: (options.invokes ?? []).includes("std/js/types") ? CORE_HOST_TYPES : [],
+  });
   const emit: EmitOptions = options;
   const emitted = emit_binding_module(module, emit);
   return {

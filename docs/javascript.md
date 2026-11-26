@@ -161,6 +161,32 @@ main = ->
   console.log("listo")
 ```
 
+### WebGL, WebAudio y WebGPU
+
+`std/js/dom_generated.d.pengu` incluye también `WebGLRenderingContext` (y sus
+tipos: shaders, programas, buffers), `AudioContext` y compañía: el cierre de
+dependencias de esos dominios es 757 y 790 de los 1 123 tipos, así que generar
+archivos propios solo duplicaría el catálogo. Un programa con shaders se
+escribe y se ejecuta tal cual:
+
+```pengu
+mut gl = lienzo.getContext("webgl").value() as js::WebGLRenderingContext
+const programa = gl.createProgram()
+const vertice = gl.createShader(gl.VERTEX_SHADER)
+gl.shaderSource(vertice, VERTICE)
+gl.compileShader(vertice)
+gl.attachShader(programa, vertice)
+gl.linkProgram(programa)
+gl.useProgram(programa)
+gl.viewport(0, 0, 320, 240)
+gl.drawArrays(gl.TRIANGLES, 0, 3)
+```
+
+**WebGPU no está en `lib.dom.d.ts` (TypeScript 5.7)**: su dominio existe en
+`src/tsbindgen/domain.ts`, pero genera 0 tipos y lo informa en las omisiones.
+Para tenerlo hará falta un `.d.ts` externo (`@webgpu/types`) en
+`third_party/dts`; es la única pieza del navegador que queda fuera del catálogo.
+
 Los parches declarativos de `src/tsbindgen/overrides.ts` corrigen lo que el
 `.d.ts` no puede expresar (uniones que acaban en `js::Any`, `getElementById`
 devolviendo `js::HTMLElement?`, `setTimeout` devolviendo `int`, etc.); el

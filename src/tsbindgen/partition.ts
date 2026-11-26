@@ -11,7 +11,7 @@ import type { DtsMember, DtsParam, DtsType } from "./dts_type.ts";
 import type { DtsClass, DtsEnum, DtsFunction, DtsNamespace, DtsTypeAlias, DtsVar } from "./dts_ast.ts";
 import { map_param, map_result, map_type, param_name } from "./ts_type.ts";
 import { is_keyword } from "../frontend/token.ts";
-import { added_of, override_of } from "./overrides.ts";
+import { added_of, override_of, wildcard_property } from "./overrides.ts";
 
 export interface PenguMember {
   readonly kind: "property" | "method" | "index" | "constructor";
@@ -99,7 +99,37 @@ function writable_global(name: string): boolean {
   return IDENT.test(name) && !is_keyword(name);
 }
 
-export function partition_module(module: DtsModule): PenguBindingModule {
+// Tipos que aporta `std/js/types` (el catálogo base). Un archivo generado que
+// invoca ese módulo puede referenciarlos aunque no los declare: son parte del
+// contrato, igual que los tipos del lenguaje.
+export const CORE_HOST_TYPES: readonly string[] = [
+  "Any",
+  "String",
+  "Number",
+  "Boolean",
+  "Promise",
+  "Array",
+  "Object",
+  "Map",
+  "Set",
+  "WeakMap",
+  "WeakSet",
+  "Function",
+  "Error",
+  "ArrayBuffer",
+  "Uint8Array",
+  "Iterable",
+  "IterableIterator",
+  "Iterator",
+  "Symbol",
+];
+
+export interface PartitionOptions {
+  // Nombres que ya existen en los módulos invocados (`std/js/types`).
+  readonly declared?: readonly string[];
+}
+
+export function partition_module(module: DtsModule, options: PartitionOptions = {}): PenguBindingModule {
   const by_name = new Map<string, DtsNode>();
   for (const node of module.nodes) {
     if (node.kind !== "namespace" && node.kind !== "global") by_name.set(node.name, node);
@@ -169,12 +199,31 @@ export function partition_module(module: DtsModule): PenguBindingModule {
     }
   }
 
+  // Los miembros del catálogo pueden referenciar tipos que no se emitieron
+  // (alias a uniones, interfaces omitidas, tuplas…). Un `.d.pengu` con una
+  // referencia colgando no compila, así que se sustituyen por `js::Any` y cada
+  // sustitución se informa: el catálogo es autoconsistente y honesto.
+  const declared = new Set<string>([
+    ...options.declared ?? [],
+    ...host_types.map((host) => host.name),
+    ...aliases.map((alias) => alias.name),
+    ...enums.map((item) => item.name),
+    ...namespaces.map((item) => item.name),
+  ]);
+  const relaxed = relax_unknown_types(host_types, globals, declares, declared);
+  if (relaxed.replaced > 0) {
+    skipped.push({
+      name: "tipos no emitidos",
+      reason: `${relaxed.replaced} referencia(s) sustituidas por js::Any`,
+    });
+  }
+
   return {
     source: module.file,
-    host_types,
+    host_types: relaxed.host_types,
     namespaces,
-    globals,
-    declares,
+    globals: relaxed.globals,
+    declares: relaxed.declares,
     aliases,
     enums,
     skipped,
@@ -182,6 +231,64 @@ export function partition_module(module: DtsModule): PenguBindingModule {
     overrides,
     members,
   };
+}
+
+
+// Sustituye por `js::Any` las referencias a tipos del host que el catálogo no
+// declara. Se aplica al final, cuando ya se sabe qué se emitió.
+function relax_unknown_types(
+  host_types: readonly PenguHostType[],
+  globals: readonly PenguGlobal[],
+  declares: readonly PenguDeclare[],
+  declared: ReadonlySet<string>,
+): { host_types: PenguHostType[]; globals: PenguGlobal[]; declares: PenguDeclare[]; replaced: number } {
+  let replaced = 0;
+  const fix = (text: string): string => {
+    const renamed = text.replace(/js::([A-Za-z0-9_]+)/g, (whole: string, name: string) => {
+      if (declared.has(name)) return whole;
+      replaced += 1;
+      return "js::Any";
+    });
+    // Un tipo sustituido pierde sus argumentos: `js::Record<string>` deja de
+    // ser genérico al convertirse en `js::Any`.
+    return drop_arguments(renamed);
+  };
+  const fixed_types = host_types.map((host) => {
+    const members = host.members.map((member) => ({ ...member, text: fix(member.text) }));
+    const parent = host.parent !== undefined && declared.has(host.parent) ? host.parent : undefined;
+    return { ...host, members, parent };
+  });
+  const fixed_globals = globals.map((global) =>
+    global.type === undefined ? global : { ...global, type: fix(global.type) },
+  );
+  const fixed_declares = declares.map((item) => ({ ...item, text: fix(item.text) }));
+  return { host_types: fixed_types, globals: fixed_globals, declares: fixed_declares, replaced };
+}
+
+
+// `js::Any<A, B>` → `js::Any` (colapsa los argumentos de un tipo sustituido).
+function drop_arguments(text: string): string {
+  let result = text;
+  for (let guard = 0; guard < 8; guard += 1) {
+    const start = result.lastIndexOf("js::Any<");
+    if (start < 0) return result;
+    let depth = 0;
+    let end = -1;
+    for (let index = start + "js::Any".length; index < result.length; index += 1) {
+      const char = result[index];
+      if (char === "<") depth += 1;
+      else if (char === ">") {
+        depth -= 1;
+        if (depth === 0) {
+          end = index;
+          break;
+        }
+      }
+    }
+    if (end < 0) return result;
+    result = result.slice(0, start) + "js::Any" + result.slice(end + 1);
+  }
+  return result;
 }
 
 function host_type_of(
@@ -269,7 +376,12 @@ function members_of(
       skipped.push({ name: `${owner}.${member.name}`, reason: "nombre no escribible en PenguScript" });
       continue;
     }
-    const patched = named ? override_of(owner, member.name) : undefined;
+    const wildcard = named ? wildcard_property(member.name) : undefined;
+    const patched =
+      (named ? override_of(owner, member.name) : undefined) ??
+      (wildcard !== undefined && member.kind === "property"
+        ? { text: wildcard, mutable: true, optional: member.optional, why: "propiedad escribible" }
+        : undefined);
     if (patched !== undefined && named) {
       overrides.push(`${owner}.${member.name}`);
       // Un parche con `(` es un método; sin él, el tipo de una propiedad.
@@ -409,6 +521,9 @@ function alias_of(
   local_hosts: ReadonlySet<string>,
 ): void {
   const mapped = map_type(node.type);
+  // Un alias a una unión (`CanvasFillRule = "evenodd" | "nonzero"`) no se puede
+  // escribir como `echo`, pero los miembros del catálogo lo referencian: se
+  // declara como `js::Any` para que el archivo sea autoconsistente.
   if (!mapped.exact) {
     skipped.push({ name: node.name, reason: mapped.reason ?? "tipo" });
     return;

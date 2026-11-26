@@ -18,6 +18,7 @@ interface Resultado {
   readonly stdout: string;
   readonly stderr: string;
   readonly status: number;
+  readonly llamadas: readonly string[];
 }
 
 function ejecutar(name: string, source: string): Resultado {
@@ -32,13 +33,20 @@ function ejecutar(name: string, source: string): Resultado {
     );
   }
   copyFileSync(MOCK, join(out, "dom_mock.mjs"));
-  writeFileSync(join(out, "arranque.mjs"), 'import "./dom_mock.mjs";\nawait import("./index.mjs");\n');
+  writeFileSync(
+    join(out, "arranque.mjs"),
+    'import "./dom_mock.mjs";\nawait import("./index.mjs");\nconsole.log("__LLAMADAS__" + JSON.stringify(globalThis.__LLAMADAS));\n',
+  );
   const run = spawnSync(runtime?.command ?? "node", [join(out, "arranque.mjs")], {
     encoding: "utf8",
     cwd: out,
     timeout: 30_000,
   });
-  return { stdout: run.stdout ?? "", stderr: run.stderr ?? "", status: run.status ?? 1 };
+  const stdout = run.stdout ?? "";
+  const marcador = stdout.indexOf("__LLAMADAS__");
+  const lineas = marcador < 0 ? stdout : stdout.slice(0, marcador);
+  const llamadas = marcador < 0 ? [] : (JSON.parse(stdout.slice(marcador + 12).trim()) as string[]);
+  return { stdout: lineas, stderr: run.stderr ?? "", status: run.status ?? 1, llamadas };
 }
 
 describe("catálogo generado desde lib.dom.d.ts", () => {
@@ -101,4 +109,74 @@ main = ->
     expect(result.status).toBe(0);
     expect(result.stdout.trim()).toBe("estado=200");
   });
+
+  test("dibujo: la secuencia de llamadas al contexto es la del programa", () => {
+    const result = ejecutar(
+      "dibujo",
+      `main = ->
+  mut lienzo = document.createElement("canvas") as js::HTMLCanvasElement
+  lienzo.width = 64
+  lienzo.height = 64
+  mut ctx = lienzo.getContext("2d").value()
+  ctx.beginPath()
+  ctx.arc(32.0, 32.0, 20.0, 0.0, 6.283185)
+  ctx.fillStyle = "#f00"
+  ctx.fill()
+  ctx.save()
+  ctx.translate(8.0, 8.0)
+  ctx.rotate(0.5)
+  ctx.restore()
+  console.log("pintado")
+`,
+    );
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe("pintado");
+    const dibujo = result.llamadas.filter((linea) => linea !== "createElement:div");
+    expect(dibujo).toEqual([
+      "createElement:canvas",
+      "getContext:2d:CANVAS",
+      "beginPath()",
+      "arc(32,32,20,0,6.283185)",
+      "fill()",
+      "save()",
+      "translate(8,8)",
+      "rotate(0.5)",
+      "restore()",
+    ]);
+  }, 60_000);
+
+  test("DOM: `appendChild` y `textContent` dejan el árbol como se espera", () => {
+    const result = ejecutar(
+      "arbol",
+      `main = ->
+  mut titulo = document.createElement("h1")
+  titulo.textContent = "Hola"
+  document.body.appendChild(titulo)
+  mut parrafo = document.createElement("p")
+  parrafo.textContent = "mundo"
+  document.body.appendChild(parrafo)
+  console.log("hijos=#{#document.body.childNodes} texto=#{titulo.textContent}")
+`,
+    );
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe("hijos=2 texto=Hola");
+    expect(result.llamadas).toContain("createElement:h1");
+    expect(result.llamadas).toContain("createElement:p");
+  }, 60_000);
+
+  test("fetch: `text()` devuelve el cuerpo como string", () => {
+    const result = ejecutar(
+      "fetch_texto",
+      `async cargar = ->
+  const respuesta = await window.fetch("https://example.test/datos")
+  const cuerpo = await respuesta.text()
+  console.log("estado=#{respuesta.status} cuerpo=#{cuerpo}")
+
+main = ->
+  cargar()
+`,
+    );
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe("estado=200 cuerpo=respuesta");
+  }, 60_000);
 });

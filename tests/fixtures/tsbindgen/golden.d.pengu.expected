@@ -35,7 +35,7 @@ host js::Document
   mut body: js::HTMLElement
   createElement: (tagName: string, options: js::Any?) -> js::HTMLElement
   getElementById: (elementId: string) -> js::HTMLElement?
-  querySelectorAll: (selector: string) -> js::NodeList
+  querySelectorAll: (selector: string) -> js::Any
 
 host js::Blob
   size: int

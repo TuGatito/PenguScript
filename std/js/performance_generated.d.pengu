@@ -85,9 +85,9 @@ host js::Performance heir js::EventTarget
   clearMarks: (markName: string?) -> void
   clearMeasures: (measureName: string?) -> void
   clearResourceTimings: () -> void
-  getEntries: () -> js::PerformanceEntryList
-  getEntriesByName: (name: string, type: string?) -> js::PerformanceEntryList
-  getEntriesByType: (type: string) -> js::PerformanceEntryList
+  getEntries: () -> js::Any
+  getEntriesByName: (name: string, type: string?) -> js::Any
+  getEntriesByType: (type: string) -> js::Any
   mark: (markName: string, markOptions: js::Any?) -> js::PerformanceMark
   measure: (measureName: string, startOrOptions: js::Any?, endMark: string?) -> js::PerformanceMeasure
   now: () -> double
@@ -99,7 +99,7 @@ host js::Performance heir js::EventTarget
 host js::PerformanceEntry
   duration: js::DOMHighResTimeStamp
   entryType: string
-  name: string
+  mut name: string
   startTime: js::DOMHighResTimeStamp
   toJSON: () -> js::Any
 
@@ -126,7 +126,7 @@ host js::PerformanceNavigationTiming heir js::PerformanceResourceTiming
   loadEventEnd: js::DOMHighResTimeStamp
   loadEventStart: js::DOMHighResTimeStamp
   redirectCount: double
-  type: js::NavigationTimingType
+  type: js::Any
   unloadEventEnd: js::DOMHighResTimeStamp
   unloadEventStart: js::DOMHighResTimeStamp
   toJSON: () -> js::Any
@@ -134,12 +134,12 @@ host js::PerformanceNavigationTiming heir js::PerformanceResourceTiming
 host js::PerformanceObserver
   disconnect: () -> void
   observe: (options: js::PerformanceObserverInit?) -> void
-  takeRecords: () -> js::PerformanceEntryList
+  takeRecords: () -> js::Any
 
 host js::PerformanceObserverEntryList
-  getEntries: () -> js::PerformanceEntryList
-  getEntriesByName: (name: string, type: string?) -> js::PerformanceEntryList
-  getEntriesByType: (type: string) -> js::PerformanceEntryList
+  getEntries: () -> js::Any
+  getEntriesByName: (name: string, type: string?) -> js::Any
+  getEntriesByType: (type: string) -> js::Any
 
 host js::PerformanceResourceTiming heir js::PerformanceEntry
   connectEnd: js::DOMHighResTimeStamp
@@ -166,7 +166,7 @@ host js::PerformanceResourceTiming heir js::PerformanceEntry
 host js::PerformanceServerTiming
   description: string
   duration: js::DOMHighResTimeStamp
-  name: string
+  mut name: string
   toJSON: () -> js::Any
 
 host js::PerformanceTiming

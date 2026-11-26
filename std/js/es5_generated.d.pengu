@@ -11,31 +11,31 @@ host js::Symbol
 host js::PropertyDescriptor
   mut configurable?: bool
   mut enumerable?: bool
-  mut value?: js::Any
+  mut value?: string
   mut writable?: bool
   get: () -> js::Any
   set: (v: js::Any) -> void
 
 host js::PropertyDescriptorMap
-  mut[indice: js::PropertyKey]: js::PropertyDescriptor
+  mut[indice: js::Any]: js::PropertyDescriptor
 
 host js::Object
   mut constructor: js::Function
   toString: () -> string
   toLocaleString: () -> string
   valueOf: () -> js::Object
-  hasOwnProperty: (v: js::PropertyKey) -> bool
+  hasOwnProperty: (v: js::Any) -> bool
   isPrototypeOf: (v: js::Object) -> bool
-  propertyIsEnumerable: (v: js::PropertyKey) -> bool
+  propertyIsEnumerable: (v: js::Any) -> bool
 
 host js::ObjectConstructor
   constructor(value: js::Any?)
   prototype: js::Object
   getPrototypeOf: (o: js::Any) -> js::Any
-  getOwnPropertyDescriptor: (o: js::Any, p: js::PropertyKey) -> js::PropertyDescriptor?
+  getOwnPropertyDescriptor: (o: js::Any, p: js::Any) -> js::PropertyDescriptor?
   getOwnPropertyNames: (o: js::Any) -> js::Array<string>
   create: (o: js::Any?) -> js::Any
-  defineProperty<T>: (o: T, p: js::PropertyKey, attributes: js::PropertyDescriptor) -> T
+  defineProperty<T>: (o: T, p: js::Any, attributes: js::PropertyDescriptor) -> T
   defineProperties<T>: (o: T, properties: js::PropertyDescriptorMap) -> T
   seal<T>: (o: T) -> T
   freeze<T>: (f: T) -> T
@@ -62,7 +62,7 @@ host js::FunctionConstructor
 host js::CallableFunction heir js::Function
   apply<T, R>: (this: function<(T) -> R>, thisArg: T) -> R
   call<T, A, R>: (this: function<(T, A) -> R>, thisArg: T, ...args: A) -> R
-  bind<T>: (this: T, thisArg: js::ThisParameterType<T>) -> js::OmitThisParameter<T>
+  bind<T>: (this: T, thisArg: js::Any) -> js::Any
 
 host js::NewableFunction heir js::Function
   apply<T>: (this: function<() -> T>, thisArg: T) -> void
@@ -257,27 +257,27 @@ host js::ErrorConstructor
 
 host js::EvalErrorConstructor heir js::ErrorConstructor
   constructor(message: string?)
-  prototype: js::EvalError
+  prototype: js::Any
 
 host js::RangeErrorConstructor heir js::ErrorConstructor
   constructor(message: string?)
-  prototype: js::RangeError
+  prototype: js::Any
 
 host js::ReferenceErrorConstructor heir js::ErrorConstructor
   constructor(message: string?)
-  prototype: js::ReferenceError
+  prototype: js::Any
 
 host js::SyntaxErrorConstructor heir js::ErrorConstructor
   constructor(message: string?)
-  prototype: js::SyntaxError
+  prototype: js::Any
 
 host js::TypeErrorConstructor heir js::ErrorConstructor
   constructor(message: string?)
-  prototype: js::TypeError
+  prototype: js::Any
 
 host js::URIErrorConstructor heir js::ErrorConstructor
   constructor(message: string?)
-  prototype: js::URIError
+  prototype: js::Any
 
 host js::JSON
   parse: (text: string, reviver: function<(js::Any, string, js::Any) -> js::Any>?) -> js::Any
@@ -341,7 +341,7 @@ host js::TypedPropertyDescriptor<T>
   mut enumerable?: bool
   mut configurable?: bool
   mut writable?: bool
-  mut value?: T
+  mut value?: string
   get: () -> T
   set: (value: T) -> void
 
@@ -398,8 +398,8 @@ host js::DataView<TArrayBuffer>
   setUint32: (byteOffset: double, value: double, littleEndian: bool?) -> void
 
 host js::DataViewConstructor
-  prototype: js::DataView<js::ArrayBufferLike>
-  constructor(buffer: js::TArrayBuffer, byteOffset: double?, byteLength: double?)
+  prototype: js::DataView<js::Any>
+  constructor(buffer: js::Any, byteOffset: double?, byteLength: double?)
 
 host js::Int8Array<TArrayBuffer>
   BYTES_PER_ELEMENT: double
@@ -432,7 +432,7 @@ host js::Int8Array<TArrayBuffer>
   mut[indice: int]: double
 
 host js::Int8ArrayConstructor
-  prototype: js::Int8Array<js::ArrayBufferLike>
+  prototype: js::Int8Array<js::Any>
   constructor(length: int)
   BYTES_PER_ELEMENT: double
   of: (...items: double) -> js::Int8Array<js::ArrayBuffer>
@@ -469,7 +469,7 @@ host js::Uint8Array<TArrayBuffer>
   mut[indice: int]: double
 
 host js::Uint8ArrayConstructor
-  prototype: js::Uint8Array<js::ArrayBufferLike>
+  prototype: js::Uint8Array<js::Any>
   constructor(length: int)
   BYTES_PER_ELEMENT: double
   of: (...items: double) -> js::Uint8Array<js::ArrayBuffer>
@@ -506,7 +506,7 @@ host js::Uint8ClampedArray<TArrayBuffer>
   mut[indice: int]: double
 
 host js::Uint8ClampedArrayConstructor
-  prototype: js::Uint8ClampedArray<js::ArrayBufferLike>
+  prototype: js::Uint8ClampedArray<js::Any>
   constructor(length: int)
   BYTES_PER_ELEMENT: double
   of: (...items: double) -> js::Uint8ClampedArray<js::ArrayBuffer>
@@ -543,7 +543,7 @@ host js::Int16Array<TArrayBuffer>
   mut[indice: int]: double
 
 host js::Int16ArrayConstructor
-  prototype: js::Int16Array<js::ArrayBufferLike>
+  prototype: js::Int16Array<js::Any>
   constructor(length: int)
   BYTES_PER_ELEMENT: double
   of: (...items: double) -> js::Int16Array<js::ArrayBuffer>
@@ -580,7 +580,7 @@ host js::Uint16Array<TArrayBuffer>
   mut[indice: int]: double
 
 host js::Uint16ArrayConstructor
-  prototype: js::Uint16Array<js::ArrayBufferLike>
+  prototype: js::Uint16Array<js::Any>
   constructor(length: int)
   BYTES_PER_ELEMENT: double
   of: (...items: double) -> js::Uint16Array<js::ArrayBuffer>
@@ -617,7 +617,7 @@ host js::Int32Array<TArrayBuffer>
   mut[indice: int]: double
 
 host js::Int32ArrayConstructor
-  prototype: js::Int32Array<js::ArrayBufferLike>
+  prototype: js::Int32Array<js::Any>
   constructor(length: int)
   BYTES_PER_ELEMENT: double
   of: (...items: double) -> js::Int32Array<js::ArrayBuffer>
@@ -654,7 +654,7 @@ host js::Uint32Array<TArrayBuffer>
   mut[indice: int]: double
 
 host js::Uint32ArrayConstructor
-  prototype: js::Uint32Array<js::ArrayBufferLike>
+  prototype: js::Uint32Array<js::Any>
   constructor(length: int)
   BYTES_PER_ELEMENT: double
   of: (...items: double) -> js::Uint32Array<js::ArrayBuffer>
@@ -691,7 +691,7 @@ host js::Float32Array<TArrayBuffer>
   mut[indice: int]: double
 
 host js::Float32ArrayConstructor
-  prototype: js::Float32Array<js::ArrayBufferLike>
+  prototype: js::Float32Array<js::Any>
   constructor(length: int)
   BYTES_PER_ELEMENT: double
   of: (...items: double) -> js::Float32Array<js::ArrayBuffer>
@@ -728,22 +728,22 @@ host js::Float64Array<TArrayBuffer>
   mut[indice: int]: double
 
 host js::Float64ArrayConstructor
-  prototype: js::Float64Array<js::ArrayBufferLike>
+  prototype: js::Float64Array<js::Any>
   constructor(length: int)
   BYTES_PER_ELEMENT: double
   of: (...items: double) -> js::Float64Array<js::ArrayBuffer>
   from: (arrayLike: js::Array<double>) -> js::Float64Array<js::ArrayBuffer>
 
 host js::String
-  localeCompare: (that: string, locales: js::Any?, options: js::CollatorOptions?) -> double
+  localeCompare: (that: string, locales: js::Any?, options: js::Any?) -> double
 
 host js::Number
-  toLocaleString: (locales: js::Any?, options: js::NumberFormatOptions?) -> string
+  toLocaleString: (locales: js::Any?, options: js::Any?) -> string
 
 host js::Date
-  toLocaleString: (locales: js::Any?, options: js::DateTimeFormatOptions?) -> string
-  toLocaleDateString: (locales: js::Any?, options: js::DateTimeFormatOptions?) -> string
-  toLocaleTimeString: (locales: js::Any?, options: js::DateTimeFormatOptions?) -> string
+  toLocaleString: (locales: js::Any?, options: js::Any?) -> string
+  toLocaleDateString: (locales: js::Any?, options: js::Any?) -> string
+  toLocaleTimeString: (locales: js::Any?, options: js::Any?) -> string
 
 host namespace Intl
   Collator: any

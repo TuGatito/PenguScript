@@ -4,6 +4,36 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+## ts-bindgen T5: WebGL, WebAudio y E2E de navegador
+
+- **Catálogo autoconsistente**: el generador sustituye por `js::Any` cualquier
+  tipo que un miembro referencie y que el archivo no declare (alias a uniones
+  como `CanvasFillRule`, interfaces omitidas, tuplas) y lo informa en las
+  omisiones; los argumentos de tipo de lo sustituido se colapsan
+  (`js::Record<string>` → `js::Any`). Sin esto el `.d.pengu` generado no
+  compilaba (`E0502 no existe el tipo del host «js::CanvasFillRule»`).
+- **Tipos que aporta `std/js/types`**: `Promise`, `Any`, `Array`, `Map`… se
+  consideran declarados cuando el archivo invoca ese módulo (`CORE_HOST_TYPES`),
+  así que `fetch` vuelve a devolver `js::Promise<js::Response>` en vez de
+  `js::Any`.
+- **Propiedades escribibles por nombre** (`WILDCARD_PROPERTIES`):
+  `textContent`, `innerHTML`, `value`, `id`, `className`… se emiten `mut`
+  aunque el `.d.ts` no lo diga; `size` se dejó fuera a propósito (`Blob.size` es
+  de solo lectura).
+- **Prototipo de `Object`**: buscar un miembro llamado `constructor` en las
+  tablas de parches devolvía `Object.prototype.constructor` y rompía el
+  generador con `patched.text.includes is not a function`; ahora todas las
+  búsquedas usan `Object.hasOwn`.
+- **Dominios grandes**: se midió el cierre de `webgl` (757 tipos) y `webaudio`
+  (790) — se sirven de `dom_generated`; `webgpu` no existe en `lib.dom.d.ts`
+  5.7 y el generador lo reporta (0 tipos, todas omitidas).
+- **Tests**: `tests/e2e/js_webgl.test.ts` (5: shaders/programa/`drawArrays`
+  contra un mock de WebGL que registra cada llamada, constantes con su valor,
+  los dominios existen, `webgpu` vacío y honesto, `webgl` con sus tipos) y tres
+  casos nuevos en `tests/e2e/js_browser.test.ts` (secuencia exacta de dibujo en
+  el contexto 2D, árbol del DOM con `appendChild`/`textContent` y `fetch` con
+  `text()`).
+
 ## ts-bindgen T4: el catálogo del navegador generado desde `lib.dom.d.ts`
 
 - **`std/js/dom_generated.d.pengu`**: 1 123 tipos y 9 534 miembros salidos de

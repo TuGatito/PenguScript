@@ -25,34 +25,34 @@ host js::ReadableStreamGetReaderOptions
 
 host js::ReadableStreamReadDoneResult<T>
   mut done: bool
-  mut value?: T
+  mut value?: string
 
 host js::ReadableStreamReadValueResult<T>
   mut done: bool
-  mut value: T
+  mut value: string
 
 host js::ReadableWritablePair<R, W>
   mut readable: js::ReadableStream<R>
   mut writable: js::WritableStream<W>
 
 host js::RequestInit
-  mut body?: js::BodyInit?
-  mut cache?: js::RequestCache
-  mut credentials?: js::RequestCredentials
-  mut headers?: js::HeadersInit
+  mut body?: js::Any?
+  mut cache?: js::Any
+  mut credentials?: js::Any
+  mut headers?: js::Any
   mut integrity?: string
   mut keepalive?: bool
   mut method?: string
-  mut mode?: js::RequestMode
-  mut priority?: js::RequestPriority
-  mut redirect?: js::RequestRedirect
+  mut mode?: js::Any
+  mut priority?: js::Any
+  mut redirect?: js::Any
   mut referrer?: string
-  mut referrerPolicy?: js::ReferrerPolicy
+  mut referrerPolicy?: js::Any
   mut signal?: js::AbortSignal?
   mut window?: js::Any
 
 host js::ResponseInit
-  mut headers?: js::HeadersInit
+  mut headers?: js::Any
   mut status?: double
   mut statusText?: string
 
@@ -98,7 +98,7 @@ host js::Body
 
 host js::Cache
   add: (request: js::Any) -> js::Promise<void>
-  addAll: (requests: js::Array<js::RequestInfo>) -> js::Promise<void>
+  addAll: (requests: js::Array<js::Any>) -> js::Promise<void>
   delete: (request: js::Any, options: js::CacheQueryOptions?) -> js::Promise<bool>
   keys: (request: js::Any?, options: js::CacheQueryOptions?) -> js::Promise<js::Array<js::Request>>
   match: (request: js::Any, options: js::CacheQueryOptions?) -> js::Promise<js::Response?>
@@ -146,17 +146,17 @@ host js::EventTarget
 
 host js::File heir js::Blob
   lastModified: double
-  name: string
+  mut name: string
   webkitRelativePath: string
 
 host js::FormData
   append: (name: string, value: js::Any) -> void
   delete: (name: string) -> void
-  get: (name: string) -> js::FormDataEntryValue?
-  getAll: (name: string) -> js::Array<js::FormDataEntryValue>
+  get: (name: string) -> js::Any?
+  getAll: (name: string) -> js::Array<js::Any>
   has: (name: string) -> bool
   set: (name: string, value: js::Any) -> void
-  forEach: (callbackfn: function<(js::FormDataEntryValue, string, js::FormData) -> void>, thisArg: js::Any?) -> void
+  forEach: (callbackfn: function<(js::Any, string, js::FormData) -> void>, thisArg: js::Any?) -> void
 
 host js::Headers
   append: (name: string, value: string) -> void
@@ -176,11 +176,11 @@ host js::ReadableStream<R>
   tee: () -> js::Any
 
 host js::ReadableStreamBYOBReader heir js::ReadableStreamGenericReader
-  read<T>: (view: T) -> js::Promise<js::ReadableStreamReadResult<T>>
+  read<T>: (view: T) -> js::Promise<js::Any>
   releaseLock: () -> void
 
 host js::ReadableStreamDefaultReader<R> heir js::ReadableStreamGenericReader
-  read: () -> js::Promise<js::ReadableStreamReadResult<R>>
+  read: () -> js::Promise<js::Any>
   releaseLock: () -> void
 
 host js::ReadableStreamGenericReader
@@ -188,17 +188,17 @@ host js::ReadableStreamGenericReader
   cancel: (reason: js::Any?) -> js::Promise<void>
 
 host js::Request heir js::Body
-  cache: js::RequestCache
-  credentials: js::RequestCredentials
-  destination: js::RequestDestination
+  cache: js::Any
+  credentials: js::Any
+  destination: js::Any
   headers: js::Headers
   integrity: string
   keepalive: bool
   method: string
-  mode: js::RequestMode
-  redirect: js::RequestRedirect
+  mode: js::Any
+  redirect: js::Any
   referrer: string
-  referrerPolicy: js::ReferrerPolicy
+  referrerPolicy: js::Any
   signal: js::AbortSignal
   url: string
   clone: () -> js::Request
@@ -209,7 +209,7 @@ host js::Response heir js::Body
   redirected: bool
   status: double
   statusText: string
-  type: js::ResponseType
+  type: js::Any
   url: string
   clone: () -> js::Response
 

@@ -171,19 +171,67 @@ export const OVERRIDES: Readonly<Record<string, TypeOverride>> = {
   },
 };
 
+// Propiedades que son escribibles en el navegador pero que `lib.dom.d.ts`
+// declara como campos normales de muchos tipos distintos. Se marcan `mut` por
+// nombre, con su tipo limpio (el del `.d.ts` es a menudo una unión con `null`).
+export const WILDCARD_PROPERTIES: Readonly<Record<string, string>> = {
+  textContent: "string?",
+  innerHTML: "string",
+  innerText: "string",
+  outerHTML: "string",
+  outerText: "string",
+  id: "string",
+  className: "string",
+  value: "string",
+  placeholder: "string",
+  src: "string",
+  alt: "string",
+  href: "string",
+  title: "string",
+  lang: "string",
+  dir: "string",
+  slot: "string",
+  disabled: "bool",
+  checked: "bool",
+  readOnly: "bool",
+  required: "bool",
+  multiple: "bool",
+  hidden: "bool",
+  name: "string",
+  role: "string",
+  tabIndex: "int",
+  color: "string",
+  bgColor: "string",
+};
+
 // Parches de `*` que valen para cualquier tipo que declare ese miembro (el
 // `addEventListener` genérico aparece mezclado en decenas de interfaces).
 const WILDCARD: readonly string[] = ["addEventListener", "removeEventListener", "dispatchEvent", "querySelector", "querySelectorAll"];
 
+// `members[name]` a secas devolvería `Object.prototype.constructor` para un
+// miembro llamado `constructor`: siempre se comprueba que la clave sea propia.
+export function own_member(
+  members: Readonly<Record<string, MemberOverride>> | undefined,
+  name: string,
+): MemberOverride | undefined {
+  if (members === undefined || !Object.hasOwn(members, name)) return undefined;
+  return members[name];
+}
+
 export function override_of(type: string, member: string): MemberOverride | undefined {
-  const own = OVERRIDES[type]?.members?.[member];
+  const own = own_member(OVERRIDES[type]?.members, member);
   if (own !== undefined) return own;
   if (!WILDCARD.includes(member)) return undefined;
   for (const patch of Object.values(OVERRIDES)) {
-    const found = patch.members?.[member];
+    const found = own_member(patch.members, member);
     if (found !== undefined) return found;
   }
   return undefined;
+}
+
+/** `-- mut size: int` solo si el nombre está en la tabla, no en el prototipo. */
+export function wildcard_property(name: string): string | undefined {
+  return Object.hasOwn(WILDCARD_PROPERTIES, name) ? WILDCARD_PROPERTIES[name] : undefined;
 }
 
 export function added_of(type: string): readonly [string, MemberOverride][] {
