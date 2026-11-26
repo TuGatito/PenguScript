@@ -1,0 +1,350 @@
+-- Enlaces generados por «pengu ts-bindgen» desde lib.dom.d.ts.
+-- No edites este archivo a mano: vuelve a ejecutar el generador.
+
+realm js_fetch_generated
+invoke "std/js/types"
+
+host js::AddEventListenerOptions heir js::EventListenerOptions
+  mut once?: bool
+  mut passive?: bool
+  mut signal?: js::AbortSignal
+
+host js::CacheQueryOptions
+  mut ignoreMethod?: bool
+  mut ignoreSearch?: bool
+  mut ignoreVary?: bool
+
+host js::EventListenerOptions
+  mut capture?: bool
+
+host js::MultiCacheQueryOptions heir js::CacheQueryOptions
+  mut cacheName?: string
+
+host js::ReadableStreamGetReaderOptions
+  mut mode?: js::ReadableStreamReaderMode
+
+host js::ReadableStreamReadDoneResult<T>
+  mut done: bool
+  mut value?: T
+
+host js::ReadableStreamReadValueResult<T>
+  mut done: bool
+  mut value: T
+
+host js::ReadableWritablePair<R, W>
+  mut readable: js::ReadableStream<R>
+  mut writable: js::WritableStream<W>
+
+host js::RequestInit
+  mut body?: js::BodyInit?
+  mut cache?: js::RequestCache
+  mut credentials?: js::RequestCredentials
+  mut headers?: js::HeadersInit
+  mut integrity?: string
+  mut keepalive?: bool
+  mut method?: string
+  mut mode?: js::RequestMode
+  mut priority?: js::RequestPriority
+  mut redirect?: js::RequestRedirect
+  mut referrer?: string
+  mut referrerPolicy?: js::ReferrerPolicy
+  mut signal?: js::AbortSignal?
+  mut window?: js::Any
+
+host js::ResponseInit
+  mut headers?: js::HeadersInit
+  mut status?: double
+  mut statusText?: string
+
+host js::StreamPipeOptions
+  mut preventAbort?: bool
+  mut preventCancel?: bool
+  mut preventClose?: bool
+  mut signal?: js::AbortSignal
+
+host js::AbortController
+  signal: js::AbortSignal
+  abort: (reason: js::Any?) -> void
+
+host js::AbortSignalEventMap
+  mut abort: js::Event
+
+host js::AbortSignal heir js::EventTarget
+  aborted: bool
+  mut onabort: function<(js::AbortSignal, js::Event) -> js::Any>?
+  reason: js::Any
+  throwIfAborted: () -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+
+host js::Blob
+  size: int
+  type: string
+  arrayBuffer: () -> js::Promise<js::ArrayBuffer>
+  bytes: () -> js::Promise<js::Uint8Array>
+  slice: (start: double?, end: double?, contentType: string?) -> js::Blob
+  stream: () -> js::ReadableStream<js::Uint8Array>
+  text: () -> js::Promise<string>
+
+host js::Body
+  body: js::ReadableStream<js::Uint8Array>?
+  bodyUsed: bool
+  arrayBuffer: () -> js::Promise<js::ArrayBuffer>
+  blob: () -> js::Promise<js::Blob>
+  bytes: () -> js::Promise<js::Uint8Array>
+  formData: () -> js::Promise<js::FormData>
+  json: () -> js::Promise<js::Any>
+  text: () -> js::Promise<string>
+
+host js::Cache
+  add: (request: js::Any) -> js::Promise<void>
+  addAll: (requests: js::Array<js::RequestInfo>) -> js::Promise<void>
+  delete: (request: js::Any, options: js::CacheQueryOptions?) -> js::Promise<bool>
+  keys: (request: js::Any?, options: js::CacheQueryOptions?) -> js::Promise<js::Array<js::Request>>
+  match: (request: js::Any, options: js::CacheQueryOptions?) -> js::Promise<js::Response?>
+  matchAll: (request: js::Any?, options: js::CacheQueryOptions?) -> js::Promise<js::Array<js::Response>>
+  put: (request: js::Any, response: js::Response) -> js::Promise<void>
+
+host js::CacheStorage
+  delete: (cacheName: string) -> js::Promise<bool>
+  has: (cacheName: string) -> js::Promise<bool>
+  keys: () -> js::Promise<js::Array<string>>
+  match: (request: js::Any, options: js::MultiCacheQueryOptions?) -> js::Promise<js::Response?>
+  open: (cacheName: string) -> js::Promise<js::Cache>
+
+host js::Event
+  bubbles: bool
+  mut cancelBubble: bool
+  cancelable: bool
+  composed: bool
+  currentTarget: js::EventTarget?
+  defaultPrevented: bool
+  eventPhase: double
+  isTrusted: bool
+  mut returnValue: bool
+  srcElement: js::EventTarget?
+  target: js::EventTarget?
+  timeStamp: js::DOMHighResTimeStamp
+  type: string
+  composedPath: () -> js::Array<js::EventTarget>
+  initEvent: (type: string, bubbles: bool?, cancelable: bool?) -> void
+  preventDefault: () -> void
+  stopImmediatePropagation: () -> void
+  stopPropagation: () -> void
+  NONE: int
+  CAPTURING_PHASE: int
+  AT_TARGET: int
+  BUBBLING_PHASE: int
+
+host js::EventListenerObject
+  handleEvent: (object: js::Event) -> void
+
+host js::EventTarget
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  dispatchEvent: (event: js::Event) -> bool
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+
+host js::File heir js::Blob
+  lastModified: double
+  name: string
+  webkitRelativePath: string
+
+host js::FormData
+  append: (name: string, value: js::Any) -> void
+  delete: (name: string) -> void
+  get: (name: string) -> js::FormDataEntryValue?
+  getAll: (name: string) -> js::Array<js::FormDataEntryValue>
+  has: (name: string) -> bool
+  set: (name: string, value: js::Any) -> void
+  forEach: (callbackfn: function<(js::FormDataEntryValue, string, js::FormData) -> void>, thisArg: js::Any?) -> void
+
+host js::Headers
+  append: (name: string, value: string) -> void
+  delete: (name: string) -> void
+  get: (name: string) -> string?
+  getSetCookie: () -> js::Array<string>
+  has: (name: string) -> bool
+  set: (name: string, value: string) -> void
+  forEach: (callbackfn: function<(string, string, js::Headers) -> void>, thisArg: js::Any?) -> void
+
+host js::ReadableStream<R>
+  locked: bool
+  cancel: (reason: js::Any?) -> js::Promise<void>
+  getReader: (options: js::Any) -> js::ReadableStreamBYOBReader
+  pipeThrough<T>: (transform: js::ReadableWritablePair<T, R>, options: js::StreamPipeOptions?) -> js::ReadableStream<T>
+  pipeTo: (destination: js::WritableStream<R>, options: js::StreamPipeOptions?) -> js::Promise<void>
+  tee: () -> js::Any
+
+host js::ReadableStreamBYOBReader heir js::ReadableStreamGenericReader
+  read<T>: (view: T) -> js::Promise<js::ReadableStreamReadResult<T>>
+  releaseLock: () -> void
+
+host js::ReadableStreamDefaultReader<R> heir js::ReadableStreamGenericReader
+  read: () -> js::Promise<js::ReadableStreamReadResult<R>>
+  releaseLock: () -> void
+
+host js::ReadableStreamGenericReader
+  closed: js::Promise<js::Any>
+  cancel: (reason: js::Any?) -> js::Promise<void>
+
+host js::Request heir js::Body
+  cache: js::RequestCache
+  credentials: js::RequestCredentials
+  destination: js::RequestDestination
+  headers: js::Headers
+  integrity: string
+  keepalive: bool
+  method: string
+  mode: js::RequestMode
+  redirect: js::RequestRedirect
+  referrer: string
+  referrerPolicy: js::ReferrerPolicy
+  signal: js::AbortSignal
+  url: string
+  clone: () -> js::Request
+
+host js::Response heir js::Body
+  headers: js::Headers
+  ok: bool
+  redirected: bool
+  status: double
+  statusText: string
+  type: js::ResponseType
+  url: string
+  clone: () -> js::Response
+
+host js::URL
+  mut hash: string
+  mut host: string
+  mut hostname: string
+  mut href: string
+  toString: () -> string
+  origin: string
+  mut password: string
+  mut pathname: string
+  mut port: string
+  mut protocol: string
+  mut search: string
+  searchParams: js::URLSearchParams
+  mut username: string
+  toJSON: () -> string
+
+host js::URLSearchParams
+  size: int
+  append: (name: string, value: string) -> void
+  delete: (name: string, value: string?) -> void
+  get: (name: string) -> string?
+  getAll: (name: string) -> js::Array<string>
+  has: (name: string, value: string?) -> bool
+  set: (name: string, value: string) -> void
+  sort: () -> void
+  toString: () -> string
+  forEach: (callbackfn: function<(string, string, js::URLSearchParams) -> void>, thisArg: js::Any?) -> void
+
+host js::WritableStream<W>
+  locked: bool
+  abort: (reason: js::Any?) -> js::Promise<void>
+  close: () -> js::Promise<void>
+  getWriter: () -> js::WritableStreamDefaultWriter<W>
+
+host js::WritableStreamDefaultWriter<W>
+  closed: js::Promise<js::Any>
+  desiredSize: double?
+  ready: js::Promise<js::Any>
+  abort: (reason: js::Any?) -> js::Promise<void>
+  close: () -> js::Promise<void>
+  releaseLock: () -> void
+  write: (chunk: W?) -> js::Promise<void>
+
+host namespace CSS
+  highlights: any
+  Hz: (value: double) -> js::CSSUnitValue
+  Q: (value: double) -> js::CSSUnitValue
+  cap: (value: double) -> js::CSSUnitValue
+  ch: (value: double) -> js::CSSUnitValue
+  cm: (value: double) -> js::CSSUnitValue
+  cqb: (value: double) -> js::CSSUnitValue
+  cqh: (value: double) -> js::CSSUnitValue
+  cqi: (value: double) -> js::CSSUnitValue
+  cqmax: (value: double) -> js::CSSUnitValue
+  cqmin: (value: double) -> js::CSSUnitValue
+  cqw: (value: double) -> js::CSSUnitValue
+  deg: (value: double) -> js::CSSUnitValue
+  dpcm: (value: double) -> js::CSSUnitValue
+  dpi: (value: double) -> js::CSSUnitValue
+  dppx: (value: double) -> js::CSSUnitValue
+  dvb: (value: double) -> js::CSSUnitValue
+  dvh: (value: double) -> js::CSSUnitValue
+  dvi: (value: double) -> js::CSSUnitValue
+  dvmax: (value: double) -> js::CSSUnitValue
+  dvmin: (value: double) -> js::CSSUnitValue
+  dvw: (value: double) -> js::CSSUnitValue
+  em: (value: double) -> js::CSSUnitValue
+  escape: (ident: string) -> string
+  ex: (value: double) -> js::CSSUnitValue
+  fr: (value: double) -> js::CSSUnitValue
+  grad: (value: double) -> js::CSSUnitValue
+  ic: (value: double) -> js::CSSUnitValue
+  kHz: (value: double) -> js::CSSUnitValue
+  lh: (value: double) -> js::CSSUnitValue
+  lvb: (value: double) -> js::CSSUnitValue
+  lvh: (value: double) -> js::CSSUnitValue
+  lvi: (value: double) -> js::CSSUnitValue
+  lvmax: (value: double) -> js::CSSUnitValue
+  lvmin: (value: double) -> js::CSSUnitValue
+  lvw: (value: double) -> js::CSSUnitValue
+  mm: (value: double) -> js::CSSUnitValue
+  ms: (value: double) -> js::CSSUnitValue
+  number: (value: double) -> js::CSSUnitValue
+  pc: (value: double) -> js::CSSUnitValue
+  percent: (value: double) -> js::CSSUnitValue
+  pt: (value: double) -> js::CSSUnitValue
+  px: (value: double) -> js::CSSUnitValue
+  rad: (value: double) -> js::CSSUnitValue
+  rcap: (value: double) -> js::CSSUnitValue
+  rch: (value: double) -> js::CSSUnitValue
+  registerProperty: (definition: any) -> void
+  rem: (value: double) -> js::CSSUnitValue
+  rex: (value: double) -> js::CSSUnitValue
+  ric: (value: double) -> js::CSSUnitValue
+  rlh: (value: double) -> js::CSSUnitValue
+  s: (value: double) -> js::CSSUnitValue
+  supports: (property: string, value: string) -> bool
+  supports: (conditionText: string) -> bool
+  svb: (value: double) -> js::CSSUnitValue
+  svh: (value: double) -> js::CSSUnitValue
+  svi: (value: double) -> js::CSSUnitValue
+  svmax: (value: double) -> js::CSSUnitValue
+  svmin: (value: double) -> js::CSSUnitValue
+  svw: (value: double) -> js::CSSUnitValue
+  turn: (value: double) -> js::CSSUnitValue
+  vb: (value: double) -> js::CSSUnitValue
+  vh: (value: double) -> js::CSSUnitValue
+  vi: (value: double) -> js::CSSUnitValue
+  vmax: (value: double) -> js::CSSUnitValue
+  vmin: (value: double) -> js::CSSUnitValue
+  vw: (value: double) -> js::CSSUnitValue
+
+host namespace WebAssembly
+  CompileError: any
+  Global: any
+  Instance: any
+  LinkError: any
+  Memory: any
+  Module: any
+  RuntimeError: any
+  Table: any
+  compile: (bytes: any) -> js::Promise<js::Module>
+  compileStreaming: (source: any) -> js::Promise<js::Module>
+  instantiate: (bytes: any, importObject: any?) -> js::Promise<js::WebAssemblyInstantiatedSource>
+  instantiate: (moduleObject: any, importObject: any?) -> js::Promise<js::Instance>
+  instantiateStreaming: (source: any, importObject: any?) -> js::Promise<js::WebAssemblyInstantiatedSource>
+  validate: (bytes: any) -> bool
+
+echo js::DOMHighResTimeStamp = double
+
+echo js::ReadableStreamReaderMode = string
+host global caches: js::CacheStorage
+
+declare
+  fetch = (input: any, init: js::RequestInit?) -> any<js::Response>

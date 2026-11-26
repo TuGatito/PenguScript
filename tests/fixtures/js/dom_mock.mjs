@@ -238,8 +238,18 @@ documento.porId.set("app", conocido);
 
 globalThis.document = documento;
 globalThis.window = globalThis;
-globalThis.navigator = { userAgent: "pengu-test", language: "es-ES" };
-globalThis.location = { href: "https://example.test/", hash: "", pathname: "/" };
+// `navigator` y `location` son de solo lectura en Node 26: se definen como
+// propiedades configurables para que el mock funcione igual en bun y en node.
+Object.defineProperty(globalThis, "navigator", {
+  value: { userAgent: "pengu-test", language: "es-ES" },
+  configurable: true,
+  writable: true,
+});
+Object.defineProperty(globalThis, "location", {
+  value: { href: "https://example.test/", hash: "", pathname: "/" },
+  configurable: true,
+  writable: true,
+});
 globalThis.devicePixelRatio = 1;
 globalThis.localStorage = {
   datos: new Map(),

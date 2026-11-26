@@ -8,6 +8,7 @@ import type { TsBindingReport } from "./report.ts";
 import type { EmitOptions } from "./emit_dts.ts";
 import type { PenguBindingModule } from "./partition.ts";
 import { read_dts_file, read_dts_text } from "./dts_reader.ts";
+import { domain_names, filter_module } from "./domain.ts";
 import type { DtsModule } from "./dts_ast.ts";
 
 export interface BindOptions {
@@ -16,6 +17,8 @@ export interface BindOptions {
   // Nombre del `.d.ts` tal cual aparece en la cabecera (`lib.dom.d.ts`).
   readonly source: string;
   readonly invokes?: readonly string[];
+  // Dominio del catálogo (`dom`, `canvas`…): recorta el módulo a ese dominio.
+  readonly only?: string;
 }
 
 export interface BindResult {
@@ -26,6 +29,11 @@ export interface BindResult {
   readonly report: TsBindingReport;
 }
 
+function narrowed(dts: DtsModule, only: string | undefined): DtsModule {
+  if (only === undefined) return dts;
+  return filter_module(dts, domain_names(only));
+}
+
 function report_of(module: PenguBindingModule, text: string, source: string): TsBindingReport {
   const base = empty_report();
   return {
@@ -34,6 +42,8 @@ function report_of(module: PenguBindingModule, text: string, source: string): Ts
     types: module.host_types.length,
     members: module.members,
     skipped: module.skipped.map((item) => `${item.name}: ${item.reason}`),
+    collapsed: module.collapsed,
+    overrides: module.overrides,
     coverage: {
       [source]: {
         types: module.host_types.length,
@@ -46,7 +56,7 @@ function report_of(module: PenguBindingModule, text: string, source: string): Ts
 }
 
 export function bind_dts_text(text: string, file: string, options: BindOptions): BindResult {
-  const dts = read_dts_text(file, text);
+  const dts = narrowed(read_dts_text(file, text), options.only);
   const module = partition_module(dts);
   const emitted = emit_binding_module(module, options);
   return {
@@ -59,7 +69,7 @@ export function bind_dts_text(text: string, file: string, options: BindOptions):
 }
 
 export function bind_dts_file(path: string, options: BindOptions): BindResult {
-  const dts = read_dts_file(path);
+  const dts = narrowed(read_dts_file(path), options.only);
   const module = partition_module(dts);
   const emit: EmitOptions = options;
   const emitted = emit_binding_module(module, emit);

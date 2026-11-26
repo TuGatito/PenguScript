@@ -11,7 +11,7 @@ host js::Element
   mut childElementCount: int
   mut width: int
   appendChild: (child: js::Node) -> js::Node
-  querySelector: (selectors: string) -> js::Element?
+  querySelector: (selector: string) -> js::Element?
   getAttribute: (name: string) -> string?
   setAttribute: (name: string, value: string) -> void
   remove: () -> void
@@ -33,9 +33,9 @@ host js::HTMLElement heir js::Element
 host js::Document
   mut title: string
   mut body: js::HTMLElement
-  createElement: (tagName: string, options: js::ElementCreationOptions?) -> js::HTMLElement
-  getElementById: (id: string) -> js::HTMLElement?
-  querySelectorAll: (selectors: string) -> js::NodeList
+  createElement: (tagName: string, options: js::Any?) -> js::HTMLElement
+  getElementById: (elementId: string) -> js::HTMLElement?
+  querySelectorAll: (selector: string) -> js::NodeList
 
 host js::Blob
   size: int

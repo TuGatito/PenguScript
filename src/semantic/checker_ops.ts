@@ -413,6 +413,8 @@ export function is_safe_cast(source: PenguType, target: PenguType, env?: TypeEnv
 
 export function is_display(ctx: CheckContext, type: PenguType): boolean {
   if (type.kind === "named" && type.generic === true) return true;
+  // `js::Any` es un valor del navegador: se muestra con la misma regla que `any`.
+  if (type.kind === "named" && type.name === "js::Any") return true;
   switch (type.kind) {
     case "any":
     case "primitive":

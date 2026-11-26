@@ -10,6 +10,7 @@ import type { ParsedArgs } from "./args.ts";
 import { flag_bool, flag_string } from "./args.ts";
 import { CODES } from "../diagnostics/codes.ts";
 import { bind_dts_file, domain_of } from "../tsbindgen/collect.ts";
+import { DOMAINS, is_domain } from "../tsbindgen/domain.ts";
 import { format_report, render_report_json } from "../tsbindgen/report.ts";
 
 export interface CommandResult {
@@ -37,7 +38,14 @@ export function run_ts_bindgen(args: ParsedArgs): CommandResult {
     return { exit_code: 1, output: `no existe «${source_arg}» (${CODES.file_not_found})` };
   }
 
-  const domain = flag_string(args, "only") ?? domain_of(source);
+  const only = flag_string(args, "only");
+  if (only !== undefined && !is_domain(only)) {
+    return {
+      exit_code: 2,
+      output: `--only «${only}» no es un dominio conocido; los disponibles son ${Object.keys(DOMAINS).join(", ")} (${CODES.ts_bindgen_failed})`,
+    };
+  }
+  const domain = only ?? domain_of(source);
   const realm = sanitize_realm(flag_string(args, "realm") ?? `js_${domain}`);
   let result;
   try {
@@ -45,6 +53,7 @@ export function run_ts_bindgen(args: ParsedArgs): CommandResult {
       realm,
       source: basename(source),
       invokes: DEFAULT_INVOKES,
+      only,
     });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);

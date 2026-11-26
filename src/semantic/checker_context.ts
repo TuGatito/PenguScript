@@ -264,12 +264,18 @@ function float_assignable(target_rank: number, source_int: boolean, source_rank:
   return source_rank <= target_rank;
 }
 
+function is_host_any(type: PenguType): boolean {
+  return type.kind === "named" && type.name === "js::Any";
+}
+
 export function can_assign(
   target: PenguType,
   source: PenguType,
   env?: TypeEnv,
 ): boolean {
   if (is_any(target) || is_any(source)) return true;
+  // `js::Any` del catálogo del navegador: entra y sale de cualquier sitio.
+  if (is_host_any(target) || is_host_any(source)) return true;
   if (type_equals(target, source)) return true;
 
   if (

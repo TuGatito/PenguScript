@@ -452,19 +452,28 @@ export function infer_await(ctx: CheckContext, node: AwaitNode): PenguType {
     return UNKNOWN;
   }
 
-  const inner = future_inner(operand);
+  const inner = future_inner(operand) ?? host_promise_inner(operand);
   if (inner !== undefined) return inner;
   if (is_any(operand)) return UNKNOWN;
 
   ctx.sink.add(
     make_error(
       CODES.type_mismatch,
-      `«await» necesita un «future<T>» y recibió «${type_display(operand)}»`,
+      `«await» necesita un «future<T>» o un «js::Promise<T>» y recibió «${type_display(operand)}»`,
       node.span,
       "usa «await» solo con llamadas a funciones «async»",
     ),
   );
   return UNKNOWN;
+}
+
+// `js::Promise<T>` del catálogo del navegador es la promesa del host: se puede
+// esperar con `await` igual que un `future<T>`.
+function host_promise_inner(type: PenguType): PenguType | undefined {
+  if (type.kind !== "named") return undefined;
+  const base = type.name.startsWith("js::") ? type.name.slice(4) : type.name;
+  if (base !== "Promise") return undefined;
+  return type.args[0];
 }
 
 export function infer_lambda(ctx: CheckContext, node: LambdaNode): PenguType {

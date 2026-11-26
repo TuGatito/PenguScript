@@ -13,7 +13,7 @@ echo js::Number = double
 echo js::Boolean = bool
 
 -- Cualquier valor de JavaScript (`JSON.parse`, `localStorage.getItem`…).
-echo js::Any = any
+host js::Any
 
 -- Objetos del host sin miembros declarados: la identidad la pone el runtime.
 host js::Array<T>

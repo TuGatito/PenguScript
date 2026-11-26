@@ -16,6 +16,7 @@ export interface TsBindingReport {
   readonly members: number;
   readonly skipped: readonly string[];
   readonly collapsed: readonly string[];
+  readonly overrides: readonly string[];
   readonly coverage: Readonly<Record<string, ModuleCoverage>>;
 }
 
@@ -26,6 +27,7 @@ export function empty_report(): TsBindingReport {
     members: 0,
     skipped: [],
     collapsed: [],
+    overrides: [],
     coverage: {},
   };
 }
@@ -53,6 +55,10 @@ export function format_report(report: TsBindingReport): string {
       );
     }
   }
+  if (report.overrides.length > 0) {
+    lines.push(`Parches de overrides: ${report.overrides.length}`);
+    for (const item of report.overrides) lines.push(`  ${item}`);
+  }
   if (report.collapsed.length > 0) {
     lines.push(`Colapsos: ${report.collapsed.length}`);
     for (const item of report.collapsed) lines.push(`  ${item}`);
@@ -70,6 +76,7 @@ export interface ReportJson {
   readonly members: number;
   readonly skipped: readonly string[];
   readonly collapsed: readonly string[];
+  readonly overrides: readonly string[];
   readonly coverage: Readonly<Record<string, ModuleCoverage & { readonly percent: number }>>;
 }
 
@@ -84,6 +91,7 @@ export function report_to_json(report: TsBindingReport): ReportJson {
     members: report.members,
     skipped: report.skipped,
     collapsed: report.collapsed,
+    overrides: report.overrides,
     coverage,
   };
 }

@@ -1,0 +1,202 @@
+-- Enlaces generados por «pengu ts-bindgen» desde lib.dom.d.ts.
+-- No edites este archivo a mano: vuelve a ejecutar el generador.
+
+realm js_storage_generated
+invoke "std/js/types"
+
+host js::AddEventListenerOptions heir js::EventListenerOptions
+  mut once?: bool
+  mut passive?: bool
+  mut signal?: js::AbortSignal
+
+host js::EventInit
+  mut bubbles?: bool
+  mut cancelable?: bool
+  mut composed?: bool
+
+host js::EventListenerOptions
+  mut capture?: bool
+
+host js::StorageEventInit heir js::EventInit
+  mut key?: string?
+  mut newValue?: string?
+  mut oldValue?: string?
+  mut storageArea?: js::Storage?
+  mut url?: string
+
+host js::AbortSignalEventMap
+  mut abort: js::Event
+
+host js::AbortSignal heir js::EventTarget
+  aborted: bool
+  mut onabort: function<(js::AbortSignal, js::Event) -> js::Any>?
+  reason: js::Any
+  throwIfAborted: () -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+
+host js::Event
+  bubbles: bool
+  mut cancelBubble: bool
+  cancelable: bool
+  composed: bool
+  currentTarget: js::EventTarget?
+  defaultPrevented: bool
+  eventPhase: double
+  isTrusted: bool
+  mut returnValue: bool
+  srcElement: js::EventTarget?
+  target: js::EventTarget?
+  timeStamp: js::DOMHighResTimeStamp
+  type: string
+  composedPath: () -> js::Array<js::EventTarget>
+  initEvent: (type: string, bubbles: bool?, cancelable: bool?) -> void
+  preventDefault: () -> void
+  stopImmediatePropagation: () -> void
+  stopPropagation: () -> void
+  NONE: int
+  CAPTURING_PHASE: int
+  AT_TARGET: int
+  BUBBLING_PHASE: int
+
+host js::EventListenerObject
+  handleEvent: (object: js::Event) -> void
+
+host js::EventTarget
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  dispatchEvent: (event: js::Event) -> bool
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+
+host js::Storage
+  length: int
+  clear: () -> void
+  getItem: (key: string) -> string?
+  key: (index: int) -> string?
+  removeItem: (key: string) -> void
+  setItem: (key: string, value: string) -> void
+  mut[indice: string]: js::Any
+
+host js::StorageEvent heir js::Event
+  key: string?
+  newValue: string?
+  oldValue: string?
+  storageArea: js::Storage?
+  url: string
+  initStorageEvent: (type: string, bubbles: bool?, cancelable: bool?, key: string??, oldValue: string??, newValue: string??, url: js::Any?, storageArea: js::Storage??) -> void
+
+host js::URL
+  mut hash: string
+  mut host: string
+  mut hostname: string
+  mut href: string
+  toString: () -> string
+  origin: string
+  mut password: string
+  mut pathname: string
+  mut port: string
+  mut protocol: string
+  mut search: string
+  searchParams: js::URLSearchParams
+  mut username: string
+  toJSON: () -> string
+
+host js::URLSearchParams
+  size: int
+  append: (name: string, value: string) -> void
+  delete: (name: string, value: string?) -> void
+  get: (name: string) -> string?
+  getAll: (name: string) -> js::Array<string>
+  has: (name: string, value: string?) -> bool
+  set: (name: string, value: string) -> void
+  sort: () -> void
+  toString: () -> string
+  forEach: (callbackfn: function<(string, string, js::URLSearchParams) -> void>, thisArg: js::Any?) -> void
+
+host namespace CSS
+  highlights: any
+  Hz: (value: double) -> js::CSSUnitValue
+  Q: (value: double) -> js::CSSUnitValue
+  cap: (value: double) -> js::CSSUnitValue
+  ch: (value: double) -> js::CSSUnitValue
+  cm: (value: double) -> js::CSSUnitValue
+  cqb: (value: double) -> js::CSSUnitValue
+  cqh: (value: double) -> js::CSSUnitValue
+  cqi: (value: double) -> js::CSSUnitValue
+  cqmax: (value: double) -> js::CSSUnitValue
+  cqmin: (value: double) -> js::CSSUnitValue
+  cqw: (value: double) -> js::CSSUnitValue
+  deg: (value: double) -> js::CSSUnitValue
+  dpcm: (value: double) -> js::CSSUnitValue
+  dpi: (value: double) -> js::CSSUnitValue
+  dppx: (value: double) -> js::CSSUnitValue
+  dvb: (value: double) -> js::CSSUnitValue
+  dvh: (value: double) -> js::CSSUnitValue
+  dvi: (value: double) -> js::CSSUnitValue
+  dvmax: (value: double) -> js::CSSUnitValue
+  dvmin: (value: double) -> js::CSSUnitValue
+  dvw: (value: double) -> js::CSSUnitValue
+  em: (value: double) -> js::CSSUnitValue
+  escape: (ident: string) -> string
+  ex: (value: double) -> js::CSSUnitValue
+  fr: (value: double) -> js::CSSUnitValue
+  grad: (value: double) -> js::CSSUnitValue
+  ic: (value: double) -> js::CSSUnitValue
+  kHz: (value: double) -> js::CSSUnitValue
+  lh: (value: double) -> js::CSSUnitValue
+  lvb: (value: double) -> js::CSSUnitValue
+  lvh: (value: double) -> js::CSSUnitValue
+  lvi: (value: double) -> js::CSSUnitValue
+  lvmax: (value: double) -> js::CSSUnitValue
+  lvmin: (value: double) -> js::CSSUnitValue
+  lvw: (value: double) -> js::CSSUnitValue
+  mm: (value: double) -> js::CSSUnitValue
+  ms: (value: double) -> js::CSSUnitValue
+  number: (value: double) -> js::CSSUnitValue
+  pc: (value: double) -> js::CSSUnitValue
+  percent: (value: double) -> js::CSSUnitValue
+  pt: (value: double) -> js::CSSUnitValue
+  px: (value: double) -> js::CSSUnitValue
+  rad: (value: double) -> js::CSSUnitValue
+  rcap: (value: double) -> js::CSSUnitValue
+  rch: (value: double) -> js::CSSUnitValue
+  registerProperty: (definition: any) -> void
+  rem: (value: double) -> js::CSSUnitValue
+  rex: (value: double) -> js::CSSUnitValue
+  ric: (value: double) -> js::CSSUnitValue
+  rlh: (value: double) -> js::CSSUnitValue
+  s: (value: double) -> js::CSSUnitValue
+  supports: (property: string, value: string) -> bool
+  supports: (conditionText: string) -> bool
+  svb: (value: double) -> js::CSSUnitValue
+  svh: (value: double) -> js::CSSUnitValue
+  svi: (value: double) -> js::CSSUnitValue
+  svmax: (value: double) -> js::CSSUnitValue
+  svmin: (value: double) -> js::CSSUnitValue
+  svw: (value: double) -> js::CSSUnitValue
+  turn: (value: double) -> js::CSSUnitValue
+  vb: (value: double) -> js::CSSUnitValue
+  vh: (value: double) -> js::CSSUnitValue
+  vi: (value: double) -> js::CSSUnitValue
+  vmax: (value: double) -> js::CSSUnitValue
+  vmin: (value: double) -> js::CSSUnitValue
+  vw: (value: double) -> js::CSSUnitValue
+
+host namespace WebAssembly
+  CompileError: any
+  Global: any
+  Instance: any
+  LinkError: any
+  Memory: any
+  Module: any
+  RuntimeError: any
+  Table: any
+  compile: (bytes: any) -> js::Promise<js::Module>
+  compileStreaming: (source: any) -> js::Promise<js::Module>
+  instantiate: (bytes: any, importObject: any?) -> js::Promise<js::WebAssemblyInstantiatedSource>
+  instantiate: (moduleObject: any, importObject: any?) -> js::Promise<js::Instance>
+  instantiateStreaming: (source: any, importObject: any?) -> js::Promise<js::WebAssemblyInstantiatedSource>
+  validate: (bytes: any) -> bool
+
+echo js::DOMHighResTimeStamp = double
+host global localStorage: js::Storage
+host global sessionStorage: js::Storage

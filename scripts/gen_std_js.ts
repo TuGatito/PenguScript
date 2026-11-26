@@ -16,6 +16,8 @@ interface Target {
   readonly lib: string;
   readonly out: string;
   readonly realm: string;
+  /** Dominio de `src/tsbindgen/domain.ts`; estrecha el archivo a ese dominio. */
+  readonly only?: string;
   readonly invokes: readonly string[];
 }
 
@@ -25,6 +27,32 @@ export const TARGETS: readonly Target[] = [
     lib: "lib.dom.d.ts",
     out: "std/js/dom_generated.d.pengu",
     realm: "js_dom_generated",
+    invokes: ["std/js/types"],
+  },
+  // Dominios pequeños y autoconsistentes: su cierre de dependencias no arrastra
+  // `Document`/`Window`, así que se generan recortados (`--only`). `dom`,
+  // `events` y `canvas` no aparecen aquí porque su cierre es prácticamente
+  // `lib.dom.d.ts` entero (760/758/757 de 1123 tipos) y ya están en
+  // `dom_generated`.
+  {
+    lib: "lib.dom.d.ts",
+    out: "std/js/fetch_generated.d.pengu",
+    realm: "js_fetch_generated",
+    only: "fetch",
+    invokes: ["std/js/types"],
+  },
+  {
+    lib: "lib.dom.d.ts",
+    out: "std/js/storage_generated.d.pengu",
+    realm: "js_storage_generated",
+    only: "storage",
+    invokes: ["std/js/types"],
+  },
+  {
+    lib: "lib.dom.d.ts",
+    out: "std/js/performance_generated.d.pengu",
+    realm: "js_performance_generated",
+    only: "performance",
     invokes: ["std/js/types"],
   },
   {
@@ -48,6 +76,7 @@ export function main(argv: readonly string[]): number {
       continue;
     }
     const args = ["run", "src/main.ts", "ts-bindgen", source, "--realm", target.realm, "--out", join(ROOT, target.out)];
+    if (target.only !== undefined) args.push("--only", target.only);
     if (check) args.push("--check");
     const run = spawnSync("bun", args, { cwd: ROOT, encoding: "utf8" });
     if (run.status !== 0) {

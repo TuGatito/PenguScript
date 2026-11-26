@@ -4,6 +4,38 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+## ts-bindgen T4: el catálogo del navegador generado desde `lib.dom.d.ts`
+
+- **`std/js/dom_generated.d.pengu`**: 1 123 tipos y 9 534 miembros salidos de
+  `lib.dom.d.ts` (462 KB), con `document`, `window`, `navigator`, `localStorage`
+  y `performance` como globales. Se genera con `bun run gen:std-js` y la suite
+  comprueba que no se queda viejo (`tests/tsbindgen/committed.test.ts`).
+- **Módulos por dominio**: `fetch_generated` (34 tipos), `storage_generated`
+  (13) y `performance_generated` (23) se generan recortados con
+  `--only <dominio>`. Se midió el cierre de dependencias de cada dominio: `dom`,
+  `events` y `canvas` arrastran 760/758/757 de los 1 123 tipos (casi el archivo
+  entero), así que no se duplican y se sirven del módulo completo.
+- **`src/tsbindgen/domain.ts`**: semillas por dominio, globales de cada dominio,
+  `filter_module` (cierre de dependencias sobre los tipos referenciados) y
+  `coverage_of`. El CLI valida `--only` y lista los dominios disponibles.
+- **`src/tsbindgen/overrides.ts`**: parches declarativos por tipo y miembro con
+  su motivo, más una lista comodín (`addEventListener`, `querySelector`…) que
+  se aplica a cualquier tipo que declare ese miembro. El informe cuenta cuántos
+  miembros se parchearon.
+- **Arreglos que salieron al generar**: un `break` en el bucle de miembros
+  abortaba el resto de la lista en cuanto un miembro tenía parche (`Storage`
+  perdía `key`, `removeItem` y `setItem`); los parámetros llamados `callback`
+  chocaban con la palabra clave; los índices se emiten `mut[indice: int]: T` y
+  solo `operator` se separa del `:` para que `pengu fmt` no cambie el archivo.
+- **`js::Any` como tipo del host**: era `echo js::Any = any` y heredaba las
+  reglas de las variádicas `any` (un callback no podía pasarse a
+  `addEventListener`); ahora es un `host` propio que encaja en cualquier sitio,
+  se interpola y no se caja. `await` también acepta `js::Promise<T>`.
+- **Tests**: `tests/tsbindgen/committed.test.ts` (4: catálogo al día, parsea sin
+  diagnósticos, cubre el DOM, los dominios traen sus globales) y
+  `tests/e2e/js_browser.test.ts` (4 programas que se ejecutan de verdad con el
+  mock: canvas, `localStorage`, eventos y `fetch`).
+
 ## ts-bindgen T3: el generador `.d.ts` → `.d.pengu`
 
 - **`pengu ts-bindgen`**: lee un `.d.ts` con la Compiler API de TypeScript y

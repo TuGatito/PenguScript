@@ -90,7 +90,11 @@ ejecuta con `bun` o `node`. Cubre el lenguaje completo y la stdlib de
 
 Los módulos `std/js/*` describen objetos del navegador (DOM, Canvas,
 `localStorage`, `fetch`…) y solo existen con `--target js`: compilar con
-`--target cpp` un programa que los invoque informa `E0518`.
+`--target cpp` un programa que los invoque informa `E0518`. Junto al catálogo
+escrito a mano hay archivos **generados** desde los `.d.ts` del navegador con
+`pengu ts-bindgen` (`std/js/dom_generated.d.pengu` trae 1 123 tipos y 9 534
+miembros de `lib.dom.d.ts`); se regeneran con `bun run gen:std-js` y la suite
+falla si se quedan viejos.
 
 ## Si el LSP marca errores que `pengu check` no ve
 

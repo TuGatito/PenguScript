@@ -11,6 +11,7 @@ import type { DtsMember, DtsParam, DtsType } from "./dts_type.ts";
 import type { DtsClass, DtsEnum, DtsFunction, DtsNamespace, DtsTypeAlias, DtsVar } from "./dts_ast.ts";
 import { map_param, map_result, map_type, param_name } from "./ts_type.ts";
 import { is_keyword } from "../frontend/token.ts";
+import { added_of, override_of } from "./overrides.ts";
 
 export interface PenguMember {
   readonly kind: "property" | "method" | "index" | "constructor";
@@ -77,6 +78,8 @@ export interface PenguBindingModule {
   readonly skipped: readonly Skipped[];
   /** Nombres cuyas sobrecargas se han colapsado en la primera firma. */
   readonly collapsed: readonly string[];
+  /** Miembros reescritos por `overrides.ts` (`Tipo.miembro`). */
+  readonly overrides: readonly string[];
   readonly members: number;
 }
 
@@ -108,6 +111,7 @@ export function partition_module(module: DtsModule): PenguBindingModule {
   const enums: PenguEnum[] = [];
   const skipped: Skipped[] = [];
   const collapsed: string[] = [];
+  const overrides: string[] = [];
   const declare_names = new Set<string>();
   const host_types: PenguHostType[] = [];
   let members = 0;
@@ -118,7 +122,7 @@ export function partition_module(module: DtsModule): PenguBindingModule {
   // que sí se resuelven de forma perezosa).
   for (const node of module.nodes) {
     if (node.kind !== "interface" && node.kind !== "class") continue;
-    const host = host_type_of(node, by_name, skipped);
+    const host = host_type_of(node, by_name, skipped, overrides);
     if (host === undefined) {
       skipped.push({ name: node.name, reason: "interfaz sin miembros representables" });
       continue;
@@ -175,6 +179,7 @@ export function partition_module(module: DtsModule): PenguBindingModule {
     enums,
     skipped,
     collapsed,
+    overrides,
     members,
   };
 }
@@ -183,11 +188,25 @@ function host_type_of(
   node: DtsInterface | DtsClass,
   by_name: ReadonlyMap<string, DtsNode>,
   skipped: Skipped[],
+  overrides: string[] = [],
 ): PenguHostType | undefined {
   const params = new Set(node.type_params);
-  const members = members_of(node.members, node.name, skipped, params);
+  const members = members_of(node.members, node.name, skipped, params, overrides);
   const inherited = inherited_members(node.heritage, by_name, skipped, 0, params);
   const parent = node.heritage[0]?.name;
+  // Los parches también pueden añadir miembros que el `.d.ts` no declara.
+  for (const [name, patch] of added_of(node.name)) {
+    overrides.push(`${node.name}.${name}`);
+    members.push({
+      kind: patch.text.includes("->") ? "method" : "property",
+      name,
+      sigils: patch.sigils ?? [],
+      text: patch.text,
+      mutable: patch.mutable ?? false,
+      optional: patch.optional ?? false,
+      static: false,
+    });
+  }
   const all = merge_members(members, inherited);
   if (all.length === 0) return undefined;
   return {
@@ -241,12 +260,40 @@ function members_of(
   owner: string,
   skipped: Skipped[],
   scope: ReadonlySet<string> = new Set(),
+  overrides: string[] = [],
 ): PenguMember[] {
   const result: PenguMember[] = [];
   for (const member of members) {
     const named = member.kind === "property" || member.kind === "method";
     if (named && !writable_member(member.name)) {
       skipped.push({ name: `${owner}.${member.name}`, reason: "nombre no escribible en PenguScript" });
+      continue;
+    }
+    const patched = named ? override_of(owner, member.name) : undefined;
+    if (patched !== undefined && named) {
+      overrides.push(`${owner}.${member.name}`);
+      // Un parche con `(` es un método; sin él, el tipo de una propiedad.
+      result.push(
+        patched.text.includes("->")
+          ? {
+              kind: "method",
+              name: member.name,
+              sigils: patched.sigils ?? [],
+              text: patched.text,
+              mutable: false,
+              optional: patched.optional ?? false,
+              static: false,
+            }
+          : {
+              kind: "property",
+              name: member.name,
+              sigils: [],
+              text: patched.text,
+              mutable: patched.mutable ?? false,
+              optional: patched.optional ?? false,
+              static: false,
+            },
+      );
       continue;
     }
     switch (member.kind) {

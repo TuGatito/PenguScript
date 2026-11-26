@@ -1980,8 +1980,8 @@ host js::AbortSignal heir js::EventTarget
   mut onabort: function<(js::AbortSignal, js::Event) -> js::Any>?
   reason: js::Any
   throwIfAborted: () -> void
-  addEventListener<K>: (type: K, listener: function<(js::AbortSignal, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::AbortSignal, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::AbstractRange
   collapsed: bool
@@ -1995,8 +1995,8 @@ host js::AbstractWorkerEventMap
 
 host js::AbstractWorker
   mut onerror: function<(js::AbstractWorker, js::ErrorEvent) -> js::Any>?
-  addEventListener<K>: (type: K, listener: function<(js::AbstractWorker, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::AbstractWorker, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::AnalyserNode heir js::AudioNode
   mut fftSize: double
@@ -2041,8 +2041,8 @@ host js::Animation heir js::EventTarget
   play: () -> void
   reverse: () -> void
   updatePlaybackRate: (playbackRate: double) -> void
-  addEventListener<K>: (type: K, listener: function<(js::Animation, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::Animation, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::AnimationEffect
   getComputedTiming: () -> js::ComputedEffectTiming
@@ -2092,8 +2092,8 @@ host js::AudioBufferSourceNode heir js::AudioScheduledSourceNode
   mut loopStart: double
   playbackRate: js::AudioParam
   start: (when_: double?, offset: int?, duration: double?) -> void
-  addEventListener<K>: (type: K, listener: function<(js::AudioBufferSourceNode, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::AudioBufferSourceNode, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::AudioContext heir js::BaseAudioContext
   baseLatency: double
@@ -2105,8 +2105,8 @@ host js::AudioContext heir js::BaseAudioContext
   getOutputTimestamp: () -> js::AudioTimestamp
   resume: () -> js::Promise<void>
   suspend: () -> js::Promise<void>
-  addEventListener<K>: (type: K, listener: function<(js::AudioContext, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::AudioContext, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::AudioData
   duration: double
@@ -2132,8 +2132,8 @@ host js::AudioDecoder heir js::EventTarget
   decode: (chunk: js::EncodedAudioChunk) -> void
   flush: () -> js::Promise<void>
   reset: () -> void
-  addEventListener<K>: (type: K, listener: function<(js::AudioDecoder, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::AudioDecoder, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::AudioDestinationNode heir js::AudioNode
   maxChannelCount: double
@@ -2150,8 +2150,8 @@ host js::AudioEncoder heir js::EventTarget
   encode: (data: js::AudioData) -> void
   flush: () -> js::Promise<void>
   reset: () -> void
-  addEventListener<K>: (type: K, listener: function<(js::AudioEncoder, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::AudioEncoder, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::AudioListener
   forwardX: js::AudioParam
@@ -2205,8 +2205,8 @@ host js::AudioScheduledSourceNode heir js::AudioNode
   mut onended: function<(js::AudioScheduledSourceNode, js::Event) -> js::Any>?
   start: (when_: double?) -> void
   stop: (when_: double?) -> void
-  addEventListener<K>: (type: K, listener: function<(js::AudioScheduledSourceNode, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::AudioScheduledSourceNode, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::AudioWorkletNodeEventMap
   mut processorerror: js::ErrorEvent
@@ -2215,8 +2215,8 @@ host js::AudioWorkletNode heir js::AudioNode
   mut onprocessorerror: function<(js::AudioWorkletNode, js::ErrorEvent) -> js::Any>?
   parameters: js::AudioParamMap
   port: js::MessagePort
-  addEventListener<K>: (type: K, listener: function<(js::AudioWorkletNode, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::AudioWorkletNode, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::AuthenticatorAssertionResponse heir js::AuthenticatorResponse
   authenticatorData: js::ArrayBuffer
@@ -2266,8 +2266,8 @@ host js::BaseAudioContext heir js::EventTarget
   createStereoPanner: () -> js::StereoPannerNode
   createWaveShaper: () -> js::WaveShaperNode
   decodeAudioData: (audioData: js::ArrayBuffer, successCallback: js::DecodeSuccessCallback??, errorCallback: js::DecodeErrorCallback??) -> js::Promise<js::AudioBuffer>
-  addEventListener<K>: (type: K, listener: function<(js::BaseAudioContext, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::BaseAudioContext, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::BeforeUnloadEvent heir js::Event
   mut returnValue: js::Any
@@ -2313,8 +2313,8 @@ host js::BroadcastChannel heir js::EventTarget
   mut onmessageerror: function<(js::BroadcastChannel, js::MessageEvent) -> js::Any>?
   close: () -> void
   postMessage: (message: js::Any) -> void
-  addEventListener<K>: (type: K, listener: function<(js::BroadcastChannel, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::BroadcastChannel, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::ByteLengthQueuingStrategy heir js::QueuingStrategy
   highWaterMark: double
@@ -2322,8 +2322,8 @@ host js::ByteLengthQueuingStrategy heir js::QueuingStrategy
 
 host js::CSSAnimation heir js::Animation
   animationName: string
-  addEventListener<K>: (type: K, listener: function<(js::CSSAnimation, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::CSSAnimation, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::CSSConditionRule heir js::CSSGroupingRule
   conditionText: string
@@ -3047,8 +3047,8 @@ host js::CSSTransformValue heir js::CSSStyleValue
 
 host js::CSSTransition heir js::Animation
   transitionProperty: string
-  addEventListener<K>: (type: K, listener: function<(js::CSSTransition, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::CSSTransition, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::CSSTranslate heir js::CSSTransformComponent
   mut x: js::CSSNumericValue
@@ -3087,8 +3087,8 @@ host js::CacheStorage
 host js::CanvasCaptureMediaStreamTrack heir js::MediaStreamTrack
   canvas: js::HTMLCanvasElement
   requestFrame: () -> void
-  addEventListener<K>: (type: K, listener: function<(js::CanvasCaptureMediaStreamTrack, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::CanvasCaptureMediaStreamTrack, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::CanvasCompositing
   mut globalAlpha: double
@@ -3326,8 +3326,8 @@ host js::CompressionStream heir js::GenericTransformStream
 
 host js::ConstantSourceNode heir js::AudioScheduledSourceNode
   offset: js::AudioParam
-  addEventListener<K>: (type: K, listener: function<(js::ConstantSourceNode, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::ConstantSourceNode, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::ContentVisibilityAutoStateChangeEvent heir js::Event
   skipped: bool
@@ -3688,8 +3688,8 @@ host js::Document heir js::Node
   createCDATASection: (data: string) -> js::CDATASection
   createComment: (data: string) -> js::Comment
   createDocumentFragment: () -> js::DocumentFragment
-  createElement<K>: (tagName: K, options: js::ElementCreationOptions?) -> js::Any
-  createElementNS: (namespaceURI: string, qualifiedName: string) -> js::HTMLElement
+  createElement: (tagName: string, options: js::Any?) -> js::HTMLElement
+  createElementNS: (namespace: string, name: string, options: js::Any?) -> js::HTMLElement
   createEvent: (eventInterface: string) -> js::AnimationEvent
   createNodeIterator: (root: js::Node, whatToShow: double?, filter: js::NodeFilter??) -> js::NodeIterator
   createProcessingInstruction: (target: string, data: string) -> js::ProcessingInstruction
@@ -3720,8 +3720,8 @@ host js::Document heir js::Node
   startViewTransition: (callbackOptions: js::ViewTransitionUpdateCallback?) -> js::ViewTransition
   write: (...text: string) -> void
   writeln: (...text: string) -> void
-  addEventListener<K>: (type: K, listener: function<(js::Document, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::Document, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   mut location: js::Location
   activeElement: js::Element?
   mut adoptedStyleSheets: js::Array<js::CSSStyleSheet>
@@ -3837,8 +3837,8 @@ host js::Document heir js::Node
   lastElementChild: js::Element?
   append: (...nodes: js::Any) -> void
   prepend: (...nodes: js::Any) -> void
-  querySelector<K>: (selectors: K) -> js::Any?
-  querySelectorAll<K>: (selectors: K) -> js::NodeListOf<js::Any>
+  querySelector: (selector: string) -> js::Element?
+  querySelectorAll: (selector: string) -> js::NodeList
   replaceChildren: (...nodes: js::Any) -> void
   createExpression: (expression: string, resolver: js::XPathNSResolver??) -> js::XPathExpression
   createNSResolver: (nodeResolver: js::Node) -> js::Node
@@ -3853,8 +3853,8 @@ host js::DocumentFragment heir js::Node
   lastElementChild: js::Element?
   append: (...nodes: js::Any) -> void
   prepend: (...nodes: js::Any) -> void
-  querySelector<K>: (selectors: K) -> js::Any?
-  querySelectorAll<K>: (selectors: K) -> js::NodeListOf<js::Any>
+  querySelector: (selector: string) -> js::Element?
+  querySelectorAll: (selector: string) -> js::NodeList
   replaceChildren: (...nodes: js::Any) -> void
 
 host js::DocumentOrShadowRoot
@@ -4002,8 +4002,8 @@ host js::Element heir js::Node
   setPointerCapture: (pointerId: int) -> void
   toggleAttribute: (qualifiedName: string, force: bool?) -> bool
   webkitMatchesSelector: (selectors: string) -> bool
-  addEventListener<K>: (type: K, listener: function<(js::Element, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::Element, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   mut ariaAtomic: string?
   mut ariaAutoComplete: string?
   mut ariaBrailleLabel: string?
@@ -4061,8 +4061,8 @@ host js::Element heir js::Node
   lastElementChild: js::Element?
   append: (...nodes: js::Any) -> void
   prepend: (...nodes: js::Any) -> void
-  querySelector<K>: (selectors: K) -> js::Any?
-  querySelectorAll<K>: (selectors: K) -> js::NodeListOf<js::Any>
+  querySelector: (selector: string) -> js::Element?
+  querySelectorAll: (selector: string) -> js::NodeList
   replaceChildren: (...nodes: js::Any) -> void
   assignedSlot: js::HTMLSlotElement?
 
@@ -4156,13 +4156,13 @@ host js::EventSource heir js::EventTarget
   CONNECTING: int
   OPEN: int
   CLOSED: int
-  addEventListener<K>: (type: K, listener: function<(js::EventSource, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::EventSource, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::EventTarget
-  addEventListener: (type: string, callback_: js::EventListenerOrEventListenerObject?, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   dispatchEvent: (event: js::Event) -> bool
-  removeEventListener: (type: string, callback_: js::EventListenerOrEventListenerObject?, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::External
   AddSearchProvider: () -> void
@@ -4204,8 +4204,8 @@ host js::FileReader heir js::EventTarget
   EMPTY: int
   LOADING: int
   DONE: int
-  addEventListener<K>: (type: K, listener: function<(js::FileReader, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::FileReader, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::FileSystem
   name: string
@@ -4284,8 +4284,8 @@ host js::FontFaceSet heir js::EventTarget
   check: (font: string, text: string?) -> bool
   load: (font: string, text: string?) -> js::Promise<js::Array<js::FontFace>>
   forEach: (callbackfn: function<(js::FontFace, js::FontFace, js::FontFaceSet) -> void>, thisArg: js::Any?) -> void
-  addEventListener<K>: (type: K, listener: function<(js::FontFaceSet, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::FontFaceSet, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::FontFaceSetLoadEvent heir js::Event
   fontfaces: js::Array<js::FontFace>
@@ -4565,8 +4565,8 @@ host js::GlobalEventHandlers
   mut onwebkitanimationstart: function<(js::GlobalEventHandlers, js::Event) -> js::Any>?
   mut onwebkittransitionend: function<(js::GlobalEventHandlers, js::Event) -> js::Any>?
   mut onwheel: function<(js::GlobalEventHandlers, js::WheelEvent) -> js::Any>?
-  addEventListener<K>: (type: K, listener: function<(js::GlobalEventHandlers, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::GlobalEventHandlers, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLAllCollection
   length: int
@@ -4589,8 +4589,8 @@ host js::HTMLAnchorElement heir js::HTMLElement
   mut target: string
   mut text: string
   mut type: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLAnchorElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLAnchorElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   mut hash: string
   mut host: string
   mut hostname: string
@@ -4615,8 +4615,8 @@ host js::HTMLAreaElement heir js::HTMLElement
   relList: js::DOMTokenList
   mut shape: string
   mut target: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLAreaElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLAreaElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   mut hash: string
   mut host: string
   mut hostname: string
@@ -4631,19 +4631,19 @@ host js::HTMLAreaElement heir js::HTMLElement
   mut username: string
 
 host js::HTMLAudioElement heir js::HTMLMediaElement
-  addEventListener<K>: (type: K, listener: function<(js::HTMLAudioElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLAudioElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLBRElement heir js::HTMLElement
   mut clear: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLBRElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLBRElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLBaseElement heir js::HTMLElement
   mut href: string
   mut target: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLBaseElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLBaseElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLBodyElementEventMap heir js::HTMLElementEventMap
   mut afterprint: js::Event
@@ -4672,8 +4672,8 @@ host js::HTMLBodyElement heir js::HTMLElement
   mut link: string
   mut text: string
   mut vLink: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLBodyElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLBodyElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   mut onafterprint: function<(js::WindowEventHandlers, js::Event) -> js::Any>?
   mut onbeforeprint: function<(js::WindowEventHandlers, js::Event) -> js::Any>?
   mut onbeforeunload: function<(js::WindowEventHandlers, js::BeforeUnloadEvent) -> js::Any>?
@@ -4711,8 +4711,8 @@ host js::HTMLButtonElement heir js::HTMLElement
   checkValidity: () -> bool
   reportValidity: () -> bool
   setCustomValidity: (error: string) -> void
-  addEventListener<K>: (type: K, listener: function<(js::HTMLButtonElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLButtonElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   mut popoverTargetAction: string
   mut popoverTargetElement: js::Element?
 
@@ -4720,12 +4720,12 @@ host js::HTMLCanvasElement heir js::HTMLElement
   mut height: int
   mut width: int
   captureStream: (frameRequestRate: double?) -> js::MediaStream
-  getContext: (contextId: string, options: js::CanvasRenderingContext2DSettings?) -> js::CanvasRenderingContext2D?
-  toBlob: (callback_: js::BlobCallback, type: string?, quality: js::Any?) -> void
-  toDataURL: (type: string?, quality: js::Any?) -> string
+  getContext: (contextId: string, options: js::Any?) -> js::CanvasRenderingContext2D?
+  toBlob: (funcion: js::Any, type: string?, quality: double?) -> void
+  toDataURL: (type: string?, quality: double?) -> string
   transferControlToOffscreen: () -> js::OffscreenCanvas
-  addEventListener<K>: (type: K, listener: function<(js::HTMLCanvasElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLCanvasElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLCollectionBase
   length: int
@@ -4742,24 +4742,24 @@ host js::HTMLCollectionOf<T> heir js::HTMLCollectionBase
 
 host js::HTMLDListElement heir js::HTMLElement
   mut compact: bool
-  addEventListener<K>: (type: K, listener: function<(js::HTMLDListElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLDListElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLDataElement heir js::HTMLElement
   mut value: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLDataElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLDataElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLDataListElement heir js::HTMLElement
   options: js::HTMLCollectionOf<js::HTMLOptionElement>
-  addEventListener<K>: (type: K, listener: function<(js::HTMLDataListElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLDataListElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLDetailsElement heir js::HTMLElement
   mut name: string
   mut open: bool
-  addEventListener<K>: (type: K, listener: function<(js::HTMLDetailsElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLDetailsElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLDialogElement heir js::HTMLElement
   mut open: bool
@@ -4767,22 +4767,22 @@ host js::HTMLDialogElement heir js::HTMLElement
   close: (returnValue: string?) -> void
   show: () -> void
   showModal: () -> void
-  addEventListener<K>: (type: K, listener: function<(js::HTMLDialogElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLDialogElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLDirectoryElement heir js::HTMLElement
   mut compact: bool
-  addEventListener<K>: (type: K, listener: function<(js::HTMLDirectoryElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLDirectoryElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLDivElement heir js::HTMLElement
   mut align: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLDivElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLDivElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLDocument heir js::Document
-  addEventListener<K>: (type: K, listener: function<(js::HTMLDocument, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLDocument, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLElementEventMap heir js::ElementEventMap
   mut abort: js::UIEvent
@@ -4915,8 +4915,8 @@ host js::HTMLElement heir js::Element
   hidePopover: () -> void
   showPopover: () -> void
   togglePopover: (force: bool?) -> bool
-  addEventListener<K>: (type: K, listener: function<(js::HTMLElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   attributeStyleMap: js::StylePropertyMap
   style: js::CSSStyleDeclaration
   mut contentEditable: string
@@ -5036,8 +5036,8 @@ host js::HTMLEmbedElement heir js::HTMLElement
   mut type: string
   mut width: string
   getSVGDocument: () -> js::Document?
-  addEventListener<K>: (type: K, listener: function<(js::HTMLEmbedElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLEmbedElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLFieldSetElement heir js::HTMLElement
   mut disabled: bool
@@ -5051,15 +5051,15 @@ host js::HTMLFieldSetElement heir js::HTMLElement
   checkValidity: () -> bool
   reportValidity: () -> bool
   setCustomValidity: (error: string) -> void
-  addEventListener<K>: (type: K, listener: function<(js::HTMLFieldSetElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLFieldSetElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLFontElement heir js::HTMLElement
   mut color: string
   mut face: string
   mut size: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLFontElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLFontElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLFormControlsCollection heir js::HTMLCollectionBase
   namedItem: (name: string) -> js::Any
@@ -5083,8 +5083,8 @@ host js::HTMLFormElement heir js::HTMLElement
   requestSubmit: (submitter: js::HTMLElement??) -> void
   reset: () -> void
   submit: () -> void
-  addEventListener<K>: (type: K, listener: function<(js::HTMLFormElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLFormElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   mut[indice: int]: js::Element
 
 host js::HTMLFrameElement heir js::HTMLElement
@@ -5098,8 +5098,8 @@ host js::HTMLFrameElement heir js::HTMLElement
   mut noResize: bool
   mut scrolling: string
   mut src: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLFrameElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLFrameElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLFrameSetElementEventMap heir js::HTMLElementEventMap
   mut afterprint: js::Event
@@ -5124,8 +5124,8 @@ host js::HTMLFrameSetElementEventMap heir js::HTMLElementEventMap
 host js::HTMLFrameSetElement heir js::HTMLElement
   mut cols: string
   mut rows: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLFrameSetElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLFrameSetElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   mut onafterprint: function<(js::WindowEventHandlers, js::Event) -> js::Any>?
   mut onbeforeprint: function<(js::WindowEventHandlers, js::Event) -> js::Any>?
   mut onbeforeunload: function<(js::WindowEventHandlers, js::BeforeUnloadEvent) -> js::Any>?
@@ -5151,22 +5151,22 @@ host js::HTMLHRElement heir js::HTMLElement
   mut noShade: bool
   mut size: string
   mut width: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLHRElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLHRElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLHeadElement heir js::HTMLElement
-  addEventListener<K>: (type: K, listener: function<(js::HTMLHeadElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLHeadElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLHeadingElement heir js::HTMLElement
   mut align: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLHeadingElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLHeadingElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLHtmlElement heir js::HTMLElement
   mut version: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLHtmlElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLHtmlElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLHyperlinkElementUtils
   mut hash: string
@@ -5202,8 +5202,8 @@ host js::HTMLIFrameElement heir js::HTMLElement
   mut srcdoc: string
   mut width: string
   getSVGDocument: () -> js::Document?
-  addEventListener<K>: (type: K, listener: function<(js::HTMLIFrameElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLIFrameElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLImageElement heir js::HTMLElement
   mut align: string
@@ -5233,8 +5233,8 @@ host js::HTMLImageElement heir js::HTMLElement
   x: double
   y: double
   decode: () -> js::Promise<void>
-  addEventListener<K>: (type: K, listener: function<(js::HTMLImageElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLImageElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLInputElement heir js::HTMLElement
   mut accept: string
@@ -5294,29 +5294,29 @@ host js::HTMLInputElement heir js::HTMLElement
   showPicker: () -> void
   stepDown: (n: double?) -> void
   stepUp: (n: double?) -> void
-  addEventListener<K>: (type: K, listener: function<(js::HTMLInputElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLInputElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   mut popoverTargetAction: string
   mut popoverTargetElement: js::Element?
 
 host js::HTMLLIElement heir js::HTMLElement
   mut type: string
   mut value: double
-  addEventListener<K>: (type: K, listener: function<(js::HTMLLIElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLLIElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLLabelElement heir js::HTMLElement
   control: js::HTMLElement?
   form: js::HTMLFormElement?
   mut htmlFor: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLLabelElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLLabelElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLLegendElement heir js::HTMLElement
   mut align: string
   form: js::HTMLFormElement?
-  addEventListener<K>: (type: K, listener: function<(js::HTMLLegendElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLLegendElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLLinkElement heir js::HTMLElement
   mut as: string
@@ -5337,15 +5337,15 @@ host js::HTMLLinkElement heir js::HTMLElement
   sizes: js::DOMTokenList
   mut target: string
   mut type: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLLinkElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLLinkElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   sheet: js::CSSStyleSheet?
 
 host js::HTMLMapElement heir js::HTMLElement
   areas: js::HTMLCollection
   mut name: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLMapElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLMapElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLMarqueeElement heir js::HTMLElement
   mut behavior: string
@@ -5361,8 +5361,8 @@ host js::HTMLMarqueeElement heir js::HTMLElement
   mut width: string
   start: () -> void
   stop: () -> void
-  addEventListener<K>: (type: K, listener: function<(js::HTMLMarqueeElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLMarqueeElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLMediaElementEventMap heir js::HTMLElementEventMap
   mut encrypted: js::MediaEncryptedEvent
@@ -5418,13 +5418,13 @@ host js::HTMLMediaElement heir js::HTMLElement
   HAVE_CURRENT_DATA: int
   HAVE_FUTURE_DATA: int
   HAVE_ENOUGH_DATA: int
-  addEventListener<K>: (type: K, listener: function<(js::HTMLMediaElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLMediaElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLMenuElement heir js::HTMLElement
   mut compact: bool
-  addEventListener<K>: (type: K, listener: function<(js::HTMLMenuElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLMenuElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLMetaElement heir js::HTMLElement
   mut content: string
@@ -5432,8 +5432,8 @@ host js::HTMLMetaElement heir js::HTMLElement
   mut media: string
   mut name: string
   mut scheme: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLMetaElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLMetaElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLMeterElement heir js::HTMLElement
   mut high: double
@@ -5443,22 +5443,22 @@ host js::HTMLMeterElement heir js::HTMLElement
   mut min: double
   mut optimum: double
   mut value: double
-  addEventListener<K>: (type: K, listener: function<(js::HTMLMeterElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLMeterElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLModElement heir js::HTMLElement
   mut cite: string
   mut dateTime: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLModElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLModElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLOListElement heir js::HTMLElement
   mut compact: bool
   mut reversed: bool
   mut start: double
   mut type: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLOListElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLOListElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLObjectElement heir js::HTMLElement
   mut align: string
@@ -5487,14 +5487,14 @@ host js::HTMLObjectElement heir js::HTMLElement
   getSVGDocument: () -> js::Document?
   reportValidity: () -> bool
   setCustomValidity: (error: string) -> void
-  addEventListener<K>: (type: K, listener: function<(js::HTMLObjectElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLObjectElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLOptGroupElement heir js::HTMLElement
   mut disabled: bool
   mut label: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLOptGroupElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLOptGroupElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLOptionElement heir js::HTMLElement
   mut defaultSelected: bool
@@ -5505,8 +5505,8 @@ host js::HTMLOptionElement heir js::HTMLElement
   mut selected: bool
   mut text: string
   mut value: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLOptionElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLOptionElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLOptionsCollection heir js::HTMLCollectionOf
   mut length: int
@@ -5536,43 +5536,43 @@ host js::HTMLOutputElement heir js::HTMLElement
   checkValidity: () -> bool
   reportValidity: () -> bool
   setCustomValidity: (error: string) -> void
-  addEventListener<K>: (type: K, listener: function<(js::HTMLOutputElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLOutputElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLParagraphElement heir js::HTMLElement
   mut align: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLParagraphElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLParagraphElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLParamElement heir js::HTMLElement
   mut name: string
   mut type: string
   mut value: string
   mut valueType: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLParamElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLParamElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLPictureElement heir js::HTMLElement
-  addEventListener<K>: (type: K, listener: function<(js::HTMLPictureElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLPictureElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLPreElement heir js::HTMLElement
   mut width: int
-  addEventListener<K>: (type: K, listener: function<(js::HTMLPreElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLPreElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLProgressElement heir js::HTMLElement
   labels: js::NodeListOf<js::HTMLLabelElement>
   mut max: double
   position: double
   mut value: double
-  addEventListener<K>: (type: K, listener: function<(js::HTMLProgressElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLProgressElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLQuoteElement heir js::HTMLElement
   mut cite: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLQuoteElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLQuoteElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLScriptElement heir js::HTMLElement
   mut async: bool
@@ -5588,8 +5588,8 @@ host js::HTMLScriptElement heir js::HTMLElement
   mut src: string
   mut text: string
   mut type: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLScriptElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLScriptElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLSelectElement heir js::HTMLElement
   mut autocomplete: js::AutoFill
@@ -5617,8 +5617,8 @@ host js::HTMLSelectElement heir js::HTMLElement
   reportValidity: () -> bool
   setCustomValidity: (error: string) -> void
   showPicker: () -> void
-  addEventListener<K>: (type: K, listener: function<(js::HTMLSelectElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLSelectElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   mut[indice: int]: js::Any
 
 host js::HTMLSlotElement heir js::HTMLElement
@@ -5626,8 +5626,8 @@ host js::HTMLSlotElement heir js::HTMLElement
   assign: (...nodes: js::Any) -> void
   assignedElements: (options: js::AssignedNodesOptions?) -> js::Array<js::Element>
   assignedNodes: (options: js::AssignedNodesOptions?) -> js::Array<js::Node>
-  addEventListener<K>: (type: K, listener: function<(js::HTMLSlotElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLSlotElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLSourceElement heir js::HTMLElement
   mut height: int
@@ -5637,25 +5637,25 @@ host js::HTMLSourceElement heir js::HTMLElement
   mut srcset: string
   mut type: string
   mut width: int
-  addEventListener<K>: (type: K, listener: function<(js::HTMLSourceElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLSourceElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLSpanElement heir js::HTMLElement
-  addEventListener<K>: (type: K, listener: function<(js::HTMLSpanElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLSpanElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLStyleElement heir js::HTMLElement
   mut disabled: bool
   mut media: string
   mut type: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLStyleElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLStyleElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   sheet: js::CSSStyleSheet?
 
 host js::HTMLTableCaptionElement heir js::HTMLElement
   mut align: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLTableCaptionElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLTableCaptionElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLTableCellElement heir js::HTMLElement
   mut abbr: string
@@ -5673,8 +5673,8 @@ host js::HTMLTableCellElement heir js::HTMLElement
   mut scope: string
   mut vAlign: string
   mut width: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLTableCellElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLTableCellElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLTableColElement heir js::HTMLElement
   mut align: string
@@ -5683,12 +5683,12 @@ host js::HTMLTableColElement heir js::HTMLElement
   mut span: double
   mut vAlign: string
   mut width: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLTableColElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLTableColElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLTableDataCellElement heir js::HTMLTableCellElement
-  addEventListener<K>: (type: K, listener: function<(js::HTMLTableDataCellElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLTableDataCellElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLTableElement heir js::HTMLElement
   mut align: string
@@ -5714,12 +5714,12 @@ host js::HTMLTableElement heir js::HTMLElement
   deleteTFoot: () -> void
   deleteTHead: () -> void
   insertRow: (index: int?) -> js::HTMLTableRowElement
-  addEventListener<K>: (type: K, listener: function<(js::HTMLTableElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLTableElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLTableHeaderCellElement heir js::HTMLTableCellElement
-  addEventListener<K>: (type: K, listener: function<(js::HTMLTableHeaderCellElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLTableHeaderCellElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLTableRowElement heir js::HTMLElement
   mut align: string
@@ -5732,8 +5732,8 @@ host js::HTMLTableRowElement heir js::HTMLElement
   mut vAlign: string
   deleteCell: (index: int) -> void
   insertCell: (index: int?) -> js::HTMLTableCellElement
-  addEventListener<K>: (type: K, listener: function<(js::HTMLTableRowElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLTableRowElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLTableSectionElement heir js::HTMLElement
   mut align: string
@@ -5743,8 +5743,8 @@ host js::HTMLTableSectionElement heir js::HTMLElement
   mut vAlign: string
   deleteRow: (index: int) -> void
   insertRow: (index: int?) -> js::HTMLTableRowElement
-  addEventListener<K>: (type: K, listener: function<(js::HTMLTableSectionElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLTableSectionElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLTemplateElement heir js::HTMLElement
   content: js::DocumentFragment
@@ -5752,8 +5752,8 @@ host js::HTMLTemplateElement heir js::HTMLElement
   mut shadowRootDelegatesFocus: bool
   mut shadowRootMode: string
   mut shadowRootSerializable: bool
-  addEventListener<K>: (type: K, listener: function<(js::HTMLTemplateElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLTemplateElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLTextAreaElement heir js::HTMLElement
   mut autocomplete: js::AutoFill
@@ -5786,18 +5786,18 @@ host js::HTMLTextAreaElement heir js::HTMLElement
   setCustomValidity: (error: string) -> void
   setRangeText: (replacement: string) -> void
   setSelectionRange: (start: double?, end: double?, direction: string?) -> void
-  addEventListener<K>: (type: K, listener: function<(js::HTMLTextAreaElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLTextAreaElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLTimeElement heir js::HTMLElement
   mut dateTime: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLTimeElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLTimeElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLTitleElement heir js::HTMLElement
   mut text: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLTitleElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLTitleElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLTrackElement heir js::HTMLElement
   mut default: bool
@@ -5811,18 +5811,18 @@ host js::HTMLTrackElement heir js::HTMLElement
   LOADING: int
   LOADED: int
   ERROR: int
-  addEventListener<K>: (type: K, listener: function<(js::HTMLTrackElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLTrackElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLUListElement heir js::HTMLElement
   mut compact: bool
   mut type: string
-  addEventListener<K>: (type: K, listener: function<(js::HTMLUListElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLUListElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLUnknownElement heir js::HTMLElement
-  addEventListener<K>: (type: K, listener: function<(js::HTMLUnknownElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLUnknownElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HTMLVideoElementEventMap heir js::HTMLMediaElementEventMap
   mut enterpictureinpicture: js::PictureInPictureEvent
@@ -5842,8 +5842,8 @@ host js::HTMLVideoElement heir js::HTMLMediaElement
   getVideoPlaybackQuality: () -> js::VideoPlaybackQuality
   requestPictureInPicture: () -> js::Promise<js::PictureInPictureWindow>
   requestVideoFrameCallback: (callback_: js::VideoFrameRequestCallback) -> double
-  addEventListener<K>: (type: K, listener: function<(js::HTMLVideoElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::HTMLVideoElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::HashChangeEvent heir js::Event
   newURL: string
@@ -5909,8 +5909,8 @@ host js::IDBDatabase heir js::EventTarget
   createObjectStore: (name: string, options: js::IDBObjectStoreParameters?) -> js::IDBObjectStore
   deleteObjectStore: (name: string) -> void
   transaction: (storeNames: js::Any, mode: js::IDBTransactionMode?, options: js::IDBTransactionOptions?) -> js::IDBTransaction
-  addEventListener<K>: (type: K, listener: function<(js::IDBDatabase, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::IDBDatabase, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::IDBFactory
   cmp: (first: js::Any, second: js::Any) -> double
@@ -5967,8 +5967,8 @@ host js::IDBOpenDBRequestEventMap heir js::IDBRequestEventMap
 host js::IDBOpenDBRequest heir js::IDBRequest
   mut onblocked: function<(js::IDBOpenDBRequest, js::IDBVersionChangeEvent) -> js::Any>?
   mut onupgradeneeded: function<(js::IDBOpenDBRequest, js::IDBVersionChangeEvent) -> js::Any>?
-  addEventListener<K>: (type: K, listener: function<(js::IDBOpenDBRequest, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::IDBOpenDBRequest, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::IDBRequestEventMap
   mut error: js::Event
@@ -5982,8 +5982,8 @@ host js::IDBRequest<T> heir js::EventTarget
   result: T
   source: js::Any
   transaction: js::IDBTransaction?
-  addEventListener<K>: (type: K, listener: function<(js::IDBRequest<T>, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::IDBRequest<T>, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::IDBTransactionEventMap
   mut abort: js::Event
@@ -6002,8 +6002,8 @@ host js::IDBTransaction heir js::EventTarget
   abort: () -> void
   commit: () -> void
   objectStore: (name: string) -> js::IDBObjectStore
-  addEventListener<K>: (type: K, listener: function<(js::IDBTransaction, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::IDBTransaction, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::IDBVersionChangeEvent heir js::Event
   newVersion: double?
@@ -6137,8 +6137,8 @@ host js::MIDIAccess heir js::EventTarget
   mut onstatechange: function<(js::MIDIAccess, js::MIDIConnectionEvent) -> js::Any>?
   outputs: js::MIDIOutputMap
   sysexEnabled: bool
-  addEventListener<K>: (type: K, listener: function<(js::MIDIAccess, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::MIDIAccess, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::MIDIConnectionEvent heir js::Event
   port: js::MIDIPort?
@@ -6148,8 +6148,8 @@ host js::MIDIInputEventMap heir js::MIDIPortEventMap
 
 host js::MIDIInput heir js::MIDIPort
   mut onmidimessage: function<(js::MIDIInput, js::MIDIMessageEvent) -> js::Any>?
-  addEventListener<K>: (type: K, listener: function<(js::MIDIInput, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::MIDIInput, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::MIDIInputMap
   forEach: (callbackfn: function<(js::MIDIInput, string, js::MIDIInputMap) -> void>, thisArg: js::Any?) -> void
@@ -6159,8 +6159,8 @@ host js::MIDIMessageEvent heir js::Event
 
 host js::MIDIOutput heir js::MIDIPort
   send: (data: js::Array<double>, timestamp: js::DOMHighResTimeStamp?) -> void
-  addEventListener<K>: (type: K, listener: function<(js::MIDIOutput, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::MIDIOutput, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::MIDIOutputMap
   forEach: (callbackfn: function<(js::MIDIOutput, string, js::MIDIOutputMap) -> void>, thisArg: js::Any?) -> void
@@ -6179,8 +6179,8 @@ host js::MIDIPort heir js::EventTarget
   version: string?
   close: () -> js::Promise<js::MIDIPort>
   open: () -> js::Promise<js::MIDIPort>
-  addEventListener<K>: (type: K, listener: function<(js::MIDIPort, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::MIDIPort, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::MathMLElementEventMap heir js::ElementEventMap
   mut abort: js::UIEvent
@@ -6288,8 +6288,8 @@ host js::MathMLElementEventMap heir js::ElementEventMap
   mut wheel: js::WheelEvent
 
 host js::MathMLElement heir js::Element
-  addEventListener<K>: (type: K, listener: function<(js::MathMLElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::MathMLElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   attributeStyleMap: js::StylePropertyMap
   style: js::CSSStyleDeclaration
   mut onabort: function<(js::GlobalEventHandlers, js::UIEvent) -> js::Any>?
@@ -6417,8 +6417,8 @@ host js::MediaDevices heir js::EventTarget
   getDisplayMedia: (options: js::DisplayMediaStreamOptions?) -> js::Promise<js::MediaStream>
   getSupportedConstraints: () -> js::MediaTrackSupportedConstraints
   getUserMedia: (constraints: js::MediaStreamConstraints?) -> js::Promise<js::MediaStream>
-  addEventListener<K>: (type: K, listener: function<(js::MediaDevices, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::MediaDevices, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::MediaElementAudioSourceNode heir js::AudioNode
   mediaElement: js::HTMLMediaElement
@@ -6455,8 +6455,8 @@ host js::MediaKeySession heir js::EventTarget
   load: (sessionId: string) -> js::Promise<bool>
   remove: () -> js::Promise<void>
   update: (response: js::BufferSource) -> js::Promise<void>
-  addEventListener<K>: (type: K, listener: function<(js::MediaKeySession, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::MediaKeySession, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::MediaKeyStatusMap
   size: int
@@ -6498,8 +6498,8 @@ host js::MediaQueryList heir js::EventTarget
   mut onchange: function<(js::MediaQueryList, js::MediaQueryListEvent) -> js::Any>?
   addListener: (callback_: function<(js::MediaQueryList, js::MediaQueryListEvent) -> js::Any>?) -> void
   removeListener: (callback_: function<(js::MediaQueryList, js::MediaQueryListEvent) -> js::Any>?) -> void
-  addEventListener<K>: (type: K, listener: function<(js::MediaQueryList, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::MediaQueryList, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::MediaQueryListEvent heir js::Event
   matches: bool
@@ -6530,8 +6530,8 @@ host js::MediaRecorder heir js::EventTarget
   resume: () -> void
   start: (timeslice: double?) -> void
   stop: () -> void
-  addEventListener<K>: (type: K, listener: function<(js::MediaRecorder, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::MediaRecorder, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::MediaSession
   mut metadata: js::MediaMetadata?
@@ -6557,8 +6557,8 @@ host js::MediaSource heir js::EventTarget
   endOfStream: (error: js::EndOfStreamError?) -> void
   removeSourceBuffer: (sourceBuffer: js::SourceBuffer) -> void
   setLiveSeekableRange: (start: double, end: double) -> void
-  addEventListener<K>: (type: K, listener: function<(js::MediaSource, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::MediaSource, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::MediaStreamEventMap
   mut addtrack: js::MediaStreamTrackEvent
@@ -6576,8 +6576,8 @@ host js::MediaStream heir js::EventTarget
   getTracks: () -> js::Array<js::MediaStreamTrack>
   getVideoTracks: () -> js::Array<js::MediaStreamTrack>
   removeTrack: (track: js::MediaStreamTrack) -> void
-  addEventListener<K>: (type: K, listener: function<(js::MediaStream, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::MediaStream, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::MediaStreamAudioDestinationNode heir js::AudioNode
   stream: js::MediaStream
@@ -6607,8 +6607,8 @@ host js::MediaStreamTrack heir js::EventTarget
   getConstraints: () -> js::MediaTrackConstraints
   getSettings: () -> js::MediaTrackSettings
   stop: () -> void
-  addEventListener<K>: (type: K, listener: function<(js::MediaStreamTrack, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::MediaStreamTrack, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::MediaStreamTrackEvent heir js::Event
   track: js::MediaStreamTrack
@@ -6635,8 +6635,8 @@ host js::MessagePort heir js::EventTarget
   close: () -> void
   postMessage: (message: js::Any, transfer: js::Array<js::Transferable>) -> void
   start: () -> void
-  addEventListener<K>: (type: K, listener: function<(js::MessagePort, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::MessagePort, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::MimeType
   description: string
@@ -6813,7 +6813,7 @@ host js::Node heir js::EventTarget
   parentNode: js::ParentNode?
   previousSibling: js::ChildNode?
   mut textContent: string?
-  appendChild<T>: (node: T) -> T
+  appendChild: (node: js::Node) -> js::Node
   cloneNode: (deep: bool?) -> js::Node
   compareDocumentPosition: (other: js::Node) -> double
   contains: (other: js::Node?) -> bool
@@ -6897,8 +6897,8 @@ host js::Notification heir js::EventTarget
   tag: string
   title: string
   close: () -> void
-  addEventListener<K>: (type: K, listener: function<(js::Notification, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::Notification, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::OES_draw_buffers_indexed
   blendEquationSeparateiOES: (buf: js::GLuint, modeRGB: js::GLenum, modeAlpha: js::GLenum) -> void
@@ -6941,8 +6941,8 @@ host js::OfflineAudioContext heir js::BaseAudioContext
   resume: () -> js::Promise<void>
   startRendering: () -> js::Promise<js::AudioBuffer>
   suspend: (suspendTime: double) -> js::Promise<void>
-  addEventListener<K>: (type: K, listener: function<(js::OfflineAudioContext, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::OfflineAudioContext, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::OffscreenCanvasEventMap
   mut contextlost: js::Event
@@ -6956,8 +6956,8 @@ host js::OffscreenCanvas heir js::EventTarget
   convertToBlob: (options: js::ImageEncodeOptions?) -> js::Promise<js::Blob>
   getContext: (contextId: string, options: js::Any?) -> js::OffscreenCanvasRenderingContext2D?
   transferToImageBitmap: () -> js::ImageBitmap
-  addEventListener<K>: (type: K, listener: function<(js::OffscreenCanvas, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::OffscreenCanvas, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::OffscreenCanvasRenderingContext2D heir js::CanvasCompositing
   canvas: js::OffscreenCanvas
@@ -7034,8 +7034,8 @@ host js::OscillatorNode heir js::AudioScheduledSourceNode
   frequency: js::AudioParam
   mut type: js::OscillatorType
   setPeriodicWave: (periodicWave: js::PeriodicWave) -> void
-  addEventListener<K>: (type: K, listener: function<(js::OscillatorNode, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::OscillatorNode, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::OverconstrainedError heir js::DOMException
   constraint: string
@@ -7068,8 +7068,8 @@ host js::ParentNode heir js::Node
   lastElementChild: js::Element?
   append: (...nodes: js::Any) -> void
   prepend: (...nodes: js::Any) -> void
-  querySelector<K>: (selectors: K) -> js::Any?
-  querySelectorAll<K>: (selectors: K) -> js::NodeListOf<js::Any>
+  querySelector: (selector: string) -> js::Element?
+  querySelectorAll: (selector: string) -> js::NodeList
   replaceChildren: (...nodes: js::Any) -> void
 
 host js::Path2D heir js::CanvasPath
@@ -7108,8 +7108,8 @@ host js::PaymentRequest heir js::EventTarget
   abort: () -> js::Promise<void>
   canMakePayment: () -> js::Promise<bool>
   show: (detailsPromise: js::Any?) -> js::Promise<js::PaymentResponse>
-  addEventListener<K>: (type: K, listener: function<(js::PaymentRequest, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::PaymentRequest, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::PaymentRequestUpdateEvent heir js::Event
   updateWith: (detailsPromise: js::Any) -> void
@@ -7130,8 +7130,8 @@ host js::PaymentResponse heir js::EventTarget
   complete: (result: js::PaymentComplete?) -> js::Promise<void>
   retry: (errorFields: js::PaymentValidationErrors?) -> js::Promise<void>
   toJSON: () -> js::Any
-  addEventListener<K>: (type: K, listener: function<(js::PaymentResponse, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::PaymentResponse, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::PerformanceEventMap
   mut resourcetimingbufferfull: js::Event
@@ -7148,13 +7148,13 @@ host js::Performance heir js::EventTarget
   getEntries: () -> js::PerformanceEntryList
   getEntriesByName: (name: string, type: string?) -> js::PerformanceEntryList
   getEntriesByType: (type: string) -> js::PerformanceEntryList
-  mark: (markName: string, markOptions: js::PerformanceMarkOptions?) -> js::PerformanceMark
-  measure: (measureName: string, startOrMeasureOptions: js::Any?, endMark: string?) -> js::PerformanceMeasure
-  now: () -> js::DOMHighResTimeStamp
+  mark: (markName: string, markOptions: js::Any?) -> js::PerformanceMark
+  measure: (measureName: string, startOrOptions: js::Any?, endMark: string?) -> js::PerformanceMeasure
+  now: () -> double
   setResourceTimingBufferSize: (maxSize: double) -> void
   toJSON: () -> js::Any
-  addEventListener<K>: (type: K, listener: function<(js::Performance, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::Performance, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::PerformanceEntry
   duration: js::DOMHighResTimeStamp
@@ -7267,8 +7267,8 @@ host js::PermissionStatus heir js::EventTarget
   name: string
   mut onchange: function<(js::PermissionStatus, js::Event) -> js::Any>?
   state: js::PermissionState
-  addEventListener<K>: (type: K, listener: function<(js::PermissionStatus, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::PermissionStatus, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::Permissions
   query: (permissionDesc: js::PermissionDescriptor) -> js::Promise<js::PermissionStatus>
@@ -7283,8 +7283,8 @@ host js::PictureInPictureWindow heir js::EventTarget
   height: int
   mut onresize: function<(js::PictureInPictureWindow, js::Event) -> js::Any>?
   width: int
-  addEventListener<K>: (type: K, listener: function<(js::PictureInPictureWindow, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::PictureInPictureWindow, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::Plugin
   description: string
@@ -7377,8 +7377,8 @@ host js::RTCDTMFSender heir js::EventTarget
   mut ontonechange: function<(js::RTCDTMFSender, js::RTCDTMFToneChangeEvent) -> js::Any>?
   toneBuffer: string
   insertDTMF: (tones: string, duration: double?, interToneGap: double?) -> void
-  addEventListener<K>: (type: K, listener: function<(js::RTCDTMFSender, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::RTCDTMFSender, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::RTCDTMFToneChangeEvent heir js::Event
   tone: string
@@ -7411,8 +7411,8 @@ host js::RTCDataChannel heir js::EventTarget
   readyState: js::RTCDataChannelState
   close: () -> void
   send: (data: string) -> void
-  addEventListener<K>: (type: K, listener: function<(js::RTCDataChannel, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::RTCDataChannel, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::RTCDataChannelEvent heir js::Event
   channel: js::RTCDataChannel
@@ -7427,8 +7427,8 @@ host js::RTCDtlsTransport heir js::EventTarget
   mut onstatechange: function<(js::RTCDtlsTransport, js::Event) -> js::Any>?
   state: js::RTCDtlsTransportState
   getRemoteCertificates: () -> js::Array<js::ArrayBuffer>
-  addEventListener<K>: (type: K, listener: function<(js::RTCDtlsTransport, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::RTCDtlsTransport, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::RTCEncodedAudioFrame
   mut data: js::ArrayBuffer
@@ -7484,8 +7484,8 @@ host js::RTCIceTransport heir js::EventTarget
   mut onstatechange: function<(js::RTCIceTransport, js::Event) -> js::Any>?
   state: js::RTCIceTransportState
   getSelectedCandidatePair: () -> js::RTCIceCandidatePair?
-  addEventListener<K>: (type: K, listener: function<(js::RTCIceTransport, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::RTCIceTransport, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::RTCPeerConnectionEventMap
   mut connectionstatechange: js::Event
@@ -7537,8 +7537,8 @@ host js::RTCPeerConnection heir js::EventTarget
   setConfiguration: (configuration: js::RTCConfiguration?) -> void
   setLocalDescription: (description: js::RTCLocalSessionDescriptionInit?) -> js::Promise<void>
   setRemoteDescription: (description: js::RTCSessionDescriptionInit) -> js::Promise<void>
-  addEventListener<K>: (type: K, listener: function<(js::RTCPeerConnection, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::RTCPeerConnection, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::RTCPeerConnectionIceErrorEvent heir js::Event
   address: string?
@@ -7589,8 +7589,8 @@ host js::RTCSctpTransport heir js::EventTarget
   mut onstatechange: function<(js::RTCSctpTransport, js::Event) -> js::Any>?
   state: js::RTCSctpTransportState
   transport: js::RTCDtlsTransport
-  addEventListener<K>: (type: K, listener: function<(js::RTCSctpTransport, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::RTCSctpTransport, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::RTCSessionDescription
   sdp: string
@@ -7691,8 +7691,8 @@ host js::RemotePlayback heir js::EventTarget
   cancelWatchAvailability: (id: double?) -> js::Promise<void>
   prompt: () -> js::Promise<void>
   watchAvailability: (callback_: js::RemotePlaybackAvailabilityCallback) -> js::Promise<double>
-  addEventListener<K>: (type: K, listener: function<(js::RemotePlayback, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::RemotePlayback, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::Report
   body: js::ReportBody?
@@ -7754,8 +7754,8 @@ host js::SVGAElement heir js::SVGGraphicsElement
   mut rel: string
   relList: js::DOMTokenList
   target: js::SVGAnimatedString
-  addEventListener<K>: (type: K, listener: function<(js::SVGAElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGAElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   href: js::SVGAnimatedString
 
 host js::SVGAngle
@@ -7772,16 +7772,16 @@ host js::SVGAngle
   SVG_ANGLETYPE_GRAD: int
 
 host js::SVGAnimateElement heir js::SVGAnimationElement
-  addEventListener<K>: (type: K, listener: function<(js::SVGAnimateElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGAnimateElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGAnimateMotionElement heir js::SVGAnimationElement
-  addEventListener<K>: (type: K, listener: function<(js::SVGAnimateMotionElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGAnimateMotionElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGAnimateTransformElement heir js::SVGAnimationElement
-  addEventListener<K>: (type: K, listener: function<(js::SVGAnimateTransformElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGAnimateTransformElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGAnimatedAngle
   animVal: js::SVGAngle
@@ -7844,8 +7844,8 @@ host js::SVGAnimationElement heir js::SVGElement
   getCurrentTime: () -> double
   getSimpleDuration: () -> double
   getStartTime: () -> double
-  addEventListener<K>: (type: K, listener: function<(js::SVGAnimationElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGAnimationElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   requiredExtensions: js::SVGStringList
   systemLanguage: js::SVGStringList
 
@@ -7853,14 +7853,14 @@ host js::SVGCircleElement heir js::SVGGeometryElement
   cx: js::SVGAnimatedLength
   cy: js::SVGAnimatedLength
   r: js::SVGAnimatedLength
-  addEventListener<K>: (type: K, listener: function<(js::SVGCircleElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGCircleElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGClipPathElement heir js::SVGElement
   clipPathUnits: js::SVGAnimatedEnumeration
   transform: js::SVGAnimatedTransformList
-  addEventListener<K>: (type: K, listener: function<(js::SVGClipPathElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGClipPathElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGComponentTransferFunctionElement heir js::SVGElement
   amplitude: js::SVGAnimatedNumber
@@ -7876,16 +7876,16 @@ host js::SVGComponentTransferFunctionElement heir js::SVGElement
   SVG_FECOMPONENTTRANSFER_TYPE_DISCRETE: int
   SVG_FECOMPONENTTRANSFER_TYPE_LINEAR: int
   SVG_FECOMPONENTTRANSFER_TYPE_GAMMA: int
-  addEventListener<K>: (type: K, listener: function<(js::SVGComponentTransferFunctionElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGComponentTransferFunctionElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGDefsElement heir js::SVGGraphicsElement
-  addEventListener<K>: (type: K, listener: function<(js::SVGDefsElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGDefsElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGDescElement heir js::SVGElement
-  addEventListener<K>: (type: K, listener: function<(js::SVGDescElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGDescElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGElementEventMap heir js::ElementEventMap
   mut abort: js::UIEvent
@@ -7996,8 +7996,8 @@ host js::SVGElement heir js::Element
   className: js::Any
   ownerSVGElement: js::SVGSVGElement?
   viewportElement: js::SVGElement?
-  addEventListener<K>: (type: K, listener: function<(js::SVGElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   attributeStyleMap: js::StylePropertyMap
   style: js::CSSStyleDeclaration
   mut onabort: function<(js::GlobalEventHandlers, js::UIEvent) -> js::Any>?
@@ -8110,8 +8110,8 @@ host js::SVGEllipseElement heir js::SVGGeometryElement
   cy: js::SVGAnimatedLength
   rx: js::SVGAnimatedLength
   ry: js::SVGAnimatedLength
-  addEventListener<K>: (type: K, listener: function<(js::SVGEllipseElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGEllipseElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGFEBlendElement heir js::SVGElement
   in1: js::SVGAnimatedString
@@ -8134,8 +8134,8 @@ host js::SVGFEBlendElement heir js::SVGElement
   SVG_FEBLEND_MODE_SATURATION: int
   SVG_FEBLEND_MODE_COLOR: int
   SVG_FEBLEND_MODE_LUMINOSITY: int
-  addEventListener<K>: (type: K, listener: function<(js::SVGFEBlendElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGFEBlendElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   height: js::SVGAnimatedLength
   result: js::SVGAnimatedString
   width: js::SVGAnimatedLength
@@ -8151,8 +8151,8 @@ host js::SVGFEColorMatrixElement heir js::SVGElement
   SVG_FECOLORMATRIX_TYPE_SATURATE: int
   SVG_FECOLORMATRIX_TYPE_HUEROTATE: int
   SVG_FECOLORMATRIX_TYPE_LUMINANCETOALPHA: int
-  addEventListener<K>: (type: K, listener: function<(js::SVGFEColorMatrixElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGFEColorMatrixElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   height: js::SVGAnimatedLength
   result: js::SVGAnimatedString
   width: js::SVGAnimatedLength
@@ -8161,8 +8161,8 @@ host js::SVGFEColorMatrixElement heir js::SVGElement
 
 host js::SVGFEComponentTransferElement heir js::SVGElement
   in1: js::SVGAnimatedString
-  addEventListener<K>: (type: K, listener: function<(js::SVGFEComponentTransferElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGFEComponentTransferElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   height: js::SVGAnimatedLength
   result: js::SVGAnimatedString
   width: js::SVGAnimatedLength
@@ -8184,8 +8184,8 @@ host js::SVGFECompositeElement heir js::SVGElement
   SVG_FECOMPOSITE_OPERATOR_ATOP: int
   SVG_FECOMPOSITE_OPERATOR_XOR: int
   SVG_FECOMPOSITE_OPERATOR_ARITHMETIC: int
-  addEventListener<K>: (type: K, listener: function<(js::SVGFECompositeElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGFECompositeElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   height: js::SVGAnimatedLength
   result: js::SVGAnimatedString
   width: js::SVGAnimatedLength
@@ -8209,8 +8209,8 @@ host js::SVGFEConvolveMatrixElement heir js::SVGElement
   SVG_EDGEMODE_DUPLICATE: int
   SVG_EDGEMODE_WRAP: int
   SVG_EDGEMODE_NONE: int
-  addEventListener<K>: (type: K, listener: function<(js::SVGFEConvolveMatrixElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGFEConvolveMatrixElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   height: js::SVGAnimatedLength
   result: js::SVGAnimatedString
   width: js::SVGAnimatedLength
@@ -8223,8 +8223,8 @@ host js::SVGFEDiffuseLightingElement heir js::SVGElement
   kernelUnitLengthX: js::SVGAnimatedNumber
   kernelUnitLengthY: js::SVGAnimatedNumber
   surfaceScale: js::SVGAnimatedNumber
-  addEventListener<K>: (type: K, listener: function<(js::SVGFEDiffuseLightingElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGFEDiffuseLightingElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   height: js::SVGAnimatedLength
   result: js::SVGAnimatedString
   width: js::SVGAnimatedLength
@@ -8242,8 +8242,8 @@ host js::SVGFEDisplacementMapElement heir js::SVGElement
   SVG_CHANNEL_G: int
   SVG_CHANNEL_B: int
   SVG_CHANNEL_A: int
-  addEventListener<K>: (type: K, listener: function<(js::SVGFEDisplacementMapElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGFEDisplacementMapElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   height: js::SVGAnimatedLength
   result: js::SVGAnimatedString
   width: js::SVGAnimatedLength
@@ -8253,8 +8253,8 @@ host js::SVGFEDisplacementMapElement heir js::SVGElement
 host js::SVGFEDistantLightElement heir js::SVGElement
   azimuth: js::SVGAnimatedNumber
   elevation: js::SVGAnimatedNumber
-  addEventListener<K>: (type: K, listener: function<(js::SVGFEDistantLightElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGFEDistantLightElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGFEDropShadowElement heir js::SVGElement
   dx: js::SVGAnimatedNumber
@@ -8263,8 +8263,8 @@ host js::SVGFEDropShadowElement heir js::SVGElement
   stdDeviationX: js::SVGAnimatedNumber
   stdDeviationY: js::SVGAnimatedNumber
   setStdDeviation: (stdDeviationX: double, stdDeviationY: double) -> void
-  addEventListener<K>: (type: K, listener: function<(js::SVGFEDropShadowElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGFEDropShadowElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   height: js::SVGAnimatedLength
   result: js::SVGAnimatedString
   width: js::SVGAnimatedLength
@@ -8272,8 +8272,8 @@ host js::SVGFEDropShadowElement heir js::SVGElement
   y: js::SVGAnimatedLength
 
 host js::SVGFEFloodElement heir js::SVGElement
-  addEventListener<K>: (type: K, listener: function<(js::SVGFEFloodElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGFEFloodElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   height: js::SVGAnimatedLength
   result: js::SVGAnimatedString
   width: js::SVGAnimatedLength
@@ -8281,28 +8281,28 @@ host js::SVGFEFloodElement heir js::SVGElement
   y: js::SVGAnimatedLength
 
 host js::SVGFEFuncAElement heir js::SVGComponentTransferFunctionElement
-  addEventListener<K>: (type: K, listener: function<(js::SVGFEFuncAElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGFEFuncAElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGFEFuncBElement heir js::SVGComponentTransferFunctionElement
-  addEventListener<K>: (type: K, listener: function<(js::SVGFEFuncBElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGFEFuncBElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGFEFuncGElement heir js::SVGComponentTransferFunctionElement
-  addEventListener<K>: (type: K, listener: function<(js::SVGFEFuncGElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGFEFuncGElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGFEFuncRElement heir js::SVGComponentTransferFunctionElement
-  addEventListener<K>: (type: K, listener: function<(js::SVGFEFuncRElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGFEFuncRElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGFEGaussianBlurElement heir js::SVGElement
   in1: js::SVGAnimatedString
   stdDeviationX: js::SVGAnimatedNumber
   stdDeviationY: js::SVGAnimatedNumber
   setStdDeviation: (stdDeviationX: double, stdDeviationY: double) -> void
-  addEventListener<K>: (type: K, listener: function<(js::SVGFEGaussianBlurElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGFEGaussianBlurElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   height: js::SVGAnimatedLength
   result: js::SVGAnimatedString
   width: js::SVGAnimatedLength
@@ -8311,8 +8311,8 @@ host js::SVGFEGaussianBlurElement heir js::SVGElement
 
 host js::SVGFEImageElement heir js::SVGElement
   preserveAspectRatio: js::SVGAnimatedPreserveAspectRatio
-  addEventListener<K>: (type: K, listener: function<(js::SVGFEImageElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGFEImageElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   height: js::SVGAnimatedLength
   result: js::SVGAnimatedString
   width: js::SVGAnimatedLength
@@ -8321,8 +8321,8 @@ host js::SVGFEImageElement heir js::SVGElement
   href: js::SVGAnimatedString
 
 host js::SVGFEMergeElement heir js::SVGElement
-  addEventListener<K>: (type: K, listener: function<(js::SVGFEMergeElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGFEMergeElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   height: js::SVGAnimatedLength
   result: js::SVGAnimatedString
   width: js::SVGAnimatedLength
@@ -8331,8 +8331,8 @@ host js::SVGFEMergeElement heir js::SVGElement
 
 host js::SVGFEMergeNodeElement heir js::SVGElement
   in1: js::SVGAnimatedString
-  addEventListener<K>: (type: K, listener: function<(js::SVGFEMergeNodeElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGFEMergeNodeElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGFEMorphologyElement heir js::SVGElement
   in1: js::SVGAnimatedString
@@ -8342,8 +8342,8 @@ host js::SVGFEMorphologyElement heir js::SVGElement
   SVG_MORPHOLOGY_OPERATOR_UNKNOWN: int
   SVG_MORPHOLOGY_OPERATOR_ERODE: int
   SVG_MORPHOLOGY_OPERATOR_DILATE: int
-  addEventListener<K>: (type: K, listener: function<(js::SVGFEMorphologyElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGFEMorphologyElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   height: js::SVGAnimatedLength
   result: js::SVGAnimatedString
   width: js::SVGAnimatedLength
@@ -8354,8 +8354,8 @@ host js::SVGFEOffsetElement heir js::SVGElement
   dx: js::SVGAnimatedNumber
   dy: js::SVGAnimatedNumber
   in1: js::SVGAnimatedString
-  addEventListener<K>: (type: K, listener: function<(js::SVGFEOffsetElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGFEOffsetElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   height: js::SVGAnimatedLength
   result: js::SVGAnimatedString
   width: js::SVGAnimatedLength
@@ -8366,8 +8366,8 @@ host js::SVGFEPointLightElement heir js::SVGElement
   x: js::SVGAnimatedNumber
   y: js::SVGAnimatedNumber
   z: js::SVGAnimatedNumber
-  addEventListener<K>: (type: K, listener: function<(js::SVGFEPointLightElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGFEPointLightElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGFESpecularLightingElement heir js::SVGElement
   in1: js::SVGAnimatedString
@@ -8376,8 +8376,8 @@ host js::SVGFESpecularLightingElement heir js::SVGElement
   specularConstant: js::SVGAnimatedNumber
   specularExponent: js::SVGAnimatedNumber
   surfaceScale: js::SVGAnimatedNumber
-  addEventListener<K>: (type: K, listener: function<(js::SVGFESpecularLightingElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGFESpecularLightingElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   height: js::SVGAnimatedLength
   result: js::SVGAnimatedString
   width: js::SVGAnimatedLength
@@ -8393,13 +8393,13 @@ host js::SVGFESpotLightElement heir js::SVGElement
   x: js::SVGAnimatedNumber
   y: js::SVGAnimatedNumber
   z: js::SVGAnimatedNumber
-  addEventListener<K>: (type: K, listener: function<(js::SVGFESpotLightElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGFESpotLightElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGFETileElement heir js::SVGElement
   in1: js::SVGAnimatedString
-  addEventListener<K>: (type: K, listener: function<(js::SVGFETileElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGFETileElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   height: js::SVGAnimatedLength
   result: js::SVGAnimatedString
   width: js::SVGAnimatedLength
@@ -8419,8 +8419,8 @@ host js::SVGFETurbulenceElement heir js::SVGElement
   SVG_STITCHTYPE_UNKNOWN: int
   SVG_STITCHTYPE_STITCH: int
   SVG_STITCHTYPE_NOSTITCH: int
-  addEventListener<K>: (type: K, listener: function<(js::SVGFETurbulenceElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGFETurbulenceElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   height: js::SVGAnimatedLength
   result: js::SVGAnimatedString
   width: js::SVGAnimatedLength
@@ -8434,8 +8434,8 @@ host js::SVGFilterElement heir js::SVGElement
   width: js::SVGAnimatedLength
   x: js::SVGAnimatedLength
   y: js::SVGAnimatedLength
-  addEventListener<K>: (type: K, listener: function<(js::SVGFilterElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGFilterElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   href: js::SVGAnimatedString
 
 host js::SVGFilterPrimitiveStandardAttributes
@@ -8454,12 +8454,12 @@ host js::SVGForeignObjectElement heir js::SVGGraphicsElement
   width: js::SVGAnimatedLength
   x: js::SVGAnimatedLength
   y: js::SVGAnimatedLength
-  addEventListener<K>: (type: K, listener: function<(js::SVGForeignObjectElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGForeignObjectElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGGElement heir js::SVGGraphicsElement
-  addEventListener<K>: (type: K, listener: function<(js::SVGGElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGGElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGGeometryElement heir js::SVGGraphicsElement
   pathLength: js::SVGAnimatedNumber
@@ -8467,8 +8467,8 @@ host js::SVGGeometryElement heir js::SVGGraphicsElement
   getTotalLength: () -> double
   isPointInFill: (point: js::DOMPointInit?) -> bool
   isPointInStroke: (point: js::DOMPointInit?) -> bool
-  addEventListener<K>: (type: K, listener: function<(js::SVGGeometryElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGGeometryElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGGradientElement heir js::SVGElement
   gradientTransform: js::SVGAnimatedTransformList
@@ -8478,8 +8478,8 @@ host js::SVGGradientElement heir js::SVGElement
   SVG_SPREADMETHOD_PAD: int
   SVG_SPREADMETHOD_REFLECT: int
   SVG_SPREADMETHOD_REPEAT: int
-  addEventListener<K>: (type: K, listener: function<(js::SVGGradientElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGGradientElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   href: js::SVGAnimatedString
 
 host js::SVGGraphicsElement heir js::SVGElement
@@ -8487,8 +8487,8 @@ host js::SVGGraphicsElement heir js::SVGElement
   getBBox: (options: js::SVGBoundingBoxOptions?) -> js::DOMRect
   getCTM: () -> js::DOMMatrix?
   getScreenCTM: () -> js::DOMMatrix?
-  addEventListener<K>: (type: K, listener: function<(js::SVGGraphicsElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGGraphicsElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   requiredExtensions: js::SVGStringList
   systemLanguage: js::SVGStringList
 
@@ -8499,8 +8499,8 @@ host js::SVGImageElement heir js::SVGGraphicsElement
   width: js::SVGAnimatedLength
   x: js::SVGAnimatedLength
   y: js::SVGAnimatedLength
-  addEventListener<K>: (type: K, listener: function<(js::SVGImageElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGImageElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   href: js::SVGAnimatedString
 
 host js::SVGLength
@@ -8539,20 +8539,20 @@ host js::SVGLineElement heir js::SVGGeometryElement
   x2: js::SVGAnimatedLength
   y1: js::SVGAnimatedLength
   y2: js::SVGAnimatedLength
-  addEventListener<K>: (type: K, listener: function<(js::SVGLineElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGLineElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGLinearGradientElement heir js::SVGGradientElement
   x1: js::SVGAnimatedLength
   x2: js::SVGAnimatedLength
   y1: js::SVGAnimatedLength
   y2: js::SVGAnimatedLength
-  addEventListener<K>: (type: K, listener: function<(js::SVGLinearGradientElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGLinearGradientElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGMPathElement heir js::SVGElement
-  addEventListener<K>: (type: K, listener: function<(js::SVGMPathElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGMPathElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   href: js::SVGAnimatedString
 
 host js::SVGMarkerElement heir js::SVGElement
@@ -8571,8 +8571,8 @@ host js::SVGMarkerElement heir js::SVGElement
   SVG_MARKER_ORIENT_UNKNOWN: int
   SVG_MARKER_ORIENT_AUTO: int
   SVG_MARKER_ORIENT_ANGLE: int
-  addEventListener<K>: (type: K, listener: function<(js::SVGMarkerElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGMarkerElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   preserveAspectRatio: js::SVGAnimatedPreserveAspectRatio
   viewBox: js::SVGAnimatedRect
 
@@ -8583,12 +8583,12 @@ host js::SVGMaskElement heir js::SVGElement
   width: js::SVGAnimatedLength
   x: js::SVGAnimatedLength
   y: js::SVGAnimatedLength
-  addEventListener<K>: (type: K, listener: function<(js::SVGMaskElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGMaskElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGMetadataElement heir js::SVGElement
-  addEventListener<K>: (type: K, listener: function<(js::SVGMetadataElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGMetadataElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGNumber
   mut value: double
@@ -8606,8 +8606,8 @@ host js::SVGNumberList
   mut[indice: int]: js::SVGNumber
 
 host js::SVGPathElement heir js::SVGGeometryElement
-  addEventListener<K>: (type: K, listener: function<(js::SVGPathElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGPathElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGPatternElement heir js::SVGElement
   height: js::SVGAnimatedLength
@@ -8617,8 +8617,8 @@ host js::SVGPatternElement heir js::SVGElement
   width: js::SVGAnimatedLength
   x: js::SVGAnimatedLength
   y: js::SVGAnimatedLength
-  addEventListener<K>: (type: K, listener: function<(js::SVGPatternElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGPatternElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   preserveAspectRatio: js::SVGAnimatedPreserveAspectRatio
   viewBox: js::SVGAnimatedRect
   href: js::SVGAnimatedString
@@ -8636,14 +8636,14 @@ host js::SVGPointList
   mut[indice: int]: js::DOMPoint
 
 host js::SVGPolygonElement heir js::SVGGeometryElement
-  addEventListener<K>: (type: K, listener: function<(js::SVGPolygonElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGPolygonElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   animatedPoints: js::SVGPointList
   points: js::SVGPointList
 
 host js::SVGPolylineElement heir js::SVGGeometryElement
-  addEventListener<K>: (type: K, listener: function<(js::SVGPolylineElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGPolylineElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   animatedPoints: js::SVGPointList
   points: js::SVGPointList
 
@@ -8672,8 +8672,8 @@ host js::SVGRadialGradientElement heir js::SVGGradientElement
   fx: js::SVGAnimatedLength
   fy: js::SVGAnimatedLength
   r: js::SVGAnimatedLength
-  addEventListener<K>: (type: K, listener: function<(js::SVGRadialGradientElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGRadialGradientElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGRectElement heir js::SVGGeometryElement
   height: js::SVGAnimatedLength
@@ -8682,8 +8682,8 @@ host js::SVGRectElement heir js::SVGGeometryElement
   width: js::SVGAnimatedLength
   x: js::SVGAnimatedLength
   y: js::SVGAnimatedLength
-  addEventListener<K>: (type: K, listener: function<(js::SVGRectElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGRectElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGSVGElementEventMap heir js::SVGElementEventMap
   mut afterprint: js::Event
@@ -8735,8 +8735,8 @@ host js::SVGSVGElement heir js::SVGGraphicsElement
   unpauseAnimations: () -> void
   unsuspendRedraw: (suspendHandleID: double) -> void
   unsuspendRedrawAll: () -> void
-  addEventListener<K>: (type: K, listener: function<(js::SVGSVGElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGSVGElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   preserveAspectRatio: js::SVGAnimatedPreserveAspectRatio
   viewBox: js::SVGAnimatedRect
   mut onafterprint: function<(js::WindowEventHandlers, js::Event) -> js::Any>?
@@ -8760,18 +8760,18 @@ host js::SVGSVGElement heir js::SVGGraphicsElement
 
 host js::SVGScriptElement heir js::SVGElement
   mut type: string
-  addEventListener<K>: (type: K, listener: function<(js::SVGScriptElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGScriptElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   href: js::SVGAnimatedString
 
 host js::SVGSetElement heir js::SVGAnimationElement
-  addEventListener<K>: (type: K, listener: function<(js::SVGSetElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGSetElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGStopElement heir js::SVGElement
   offset: js::SVGAnimatedNumber
-  addEventListener<K>: (type: K, listener: function<(js::SVGStopElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGStopElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGStringList
   length: int
@@ -8790,23 +8790,23 @@ host js::SVGStyleElement heir js::SVGElement
   mut media: string
   mut title: string
   mut type: string
-  addEventListener<K>: (type: K, listener: function<(js::SVGStyleElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGStyleElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   sheet: js::CSSStyleSheet?
 
 host js::SVGSwitchElement heir js::SVGGraphicsElement
-  addEventListener<K>: (type: K, listener: function<(js::SVGSwitchElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGSwitchElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGSymbolElement heir js::SVGElement
-  addEventListener<K>: (type: K, listener: function<(js::SVGSymbolElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGSymbolElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   preserveAspectRatio: js::SVGAnimatedPreserveAspectRatio
   viewBox: js::SVGAnimatedRect
 
 host js::SVGTSpanElement heir js::SVGTextPositioningElement
-  addEventListener<K>: (type: K, listener: function<(js::SVGTSpanElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGTSpanElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGTests
   requiredExtensions: js::SVGStringList
@@ -8827,12 +8827,12 @@ host js::SVGTextContentElement heir js::SVGGraphicsElement
   LENGTHADJUST_UNKNOWN: int
   LENGTHADJUST_SPACING: int
   LENGTHADJUST_SPACINGANDGLYPHS: int
-  addEventListener<K>: (type: K, listener: function<(js::SVGTextContentElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGTextContentElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGTextElement heir js::SVGTextPositioningElement
-  addEventListener<K>: (type: K, listener: function<(js::SVGTextElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGTextElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGTextPathElement heir js::SVGTextContentElement
   method: js::SVGAnimatedEnumeration
@@ -8844,8 +8844,8 @@ host js::SVGTextPathElement heir js::SVGTextContentElement
   TEXTPATH_SPACINGTYPE_UNKNOWN: int
   TEXTPATH_SPACINGTYPE_AUTO: int
   TEXTPATH_SPACINGTYPE_EXACT: int
-  addEventListener<K>: (type: K, listener: function<(js::SVGTextPathElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGTextPathElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   href: js::SVGAnimatedString
 
 host js::SVGTextPositioningElement heir js::SVGTextContentElement
@@ -8854,12 +8854,12 @@ host js::SVGTextPositioningElement heir js::SVGTextContentElement
   rotate: js::SVGAnimatedNumberList
   x: js::SVGAnimatedLengthList
   y: js::SVGAnimatedLengthList
-  addEventListener<K>: (type: K, listener: function<(js::SVGTextPositioningElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGTextPositioningElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGTitleElement heir js::SVGElement
-  addEventListener<K>: (type: K, listener: function<(js::SVGTitleElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGTitleElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SVGTransform
   angle: double
@@ -8906,13 +8906,13 @@ host js::SVGUseElement heir js::SVGGraphicsElement
   width: js::SVGAnimatedLength
   x: js::SVGAnimatedLength
   y: js::SVGAnimatedLength
-  addEventListener<K>: (type: K, listener: function<(js::SVGUseElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGUseElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   href: js::SVGAnimatedString
 
 host js::SVGViewElement heir js::SVGElement
-  addEventListener<K>: (type: K, listener: function<(js::SVGViewElement, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SVGViewElement, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   preserveAspectRatio: js::SVGAnimatedPreserveAspectRatio
   viewBox: js::SVGAnimatedRect
 
@@ -8933,8 +8933,8 @@ host js::ScreenOrientation heir js::EventTarget
   mut onchange: function<(js::ScreenOrientation, js::Event) -> js::Any>?
   type: js::OrientationType
   unlock: () -> void
-  addEventListener<K>: (type: K, listener: function<(js::ScreenOrientation, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::ScreenOrientation, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::ScriptProcessorNodeEventMap
   mut audioprocess: js::AudioProcessingEvent
@@ -8942,8 +8942,8 @@ host js::ScriptProcessorNodeEventMap
 host js::ScriptProcessorNode heir js::AudioNode
   bufferSize: double
   mut onaudioprocess: function<(js::ScriptProcessorNode, js::AudioProcessingEvent) -> js::Any>?
-  addEventListener<K>: (type: K, listener: function<(js::ScriptProcessorNode, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::ScriptProcessorNode, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SecurityPolicyViolationEvent heir js::Event
   blockedURI: string
@@ -8993,8 +8993,8 @@ host js::ServiceWorker heir js::EventTarget
   scriptURL: string
   state: js::ServiceWorkerState
   postMessage: (message: js::Any, transfer: js::Array<js::Transferable>) -> void
-  addEventListener<K>: (type: K, listener: function<(js::ServiceWorker, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::ServiceWorker, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   mut onerror: function<(js::AbstractWorker, js::ErrorEvent) -> js::Any>?
 
 host js::ServiceWorkerContainerEventMap
@@ -9012,8 +9012,8 @@ host js::ServiceWorkerContainer heir js::EventTarget
   getRegistrations: () -> js::Promise<js::Array<js::ServiceWorkerRegistration>>
   register: (scriptURL: js::Any, options: js::RegistrationOptions?) -> js::Promise<js::ServiceWorkerRegistration>
   startMessages: () -> void
-  addEventListener<K>: (type: K, listener: function<(js::ServiceWorkerContainer, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::ServiceWorkerContainer, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::ServiceWorkerRegistrationEventMap
   mut updatefound: js::Event
@@ -9031,8 +9031,8 @@ host js::ServiceWorkerRegistration heir js::EventTarget
   showNotification: (title: string, options: js::NotificationOptions?) -> js::Promise<void>
   unregister: () -> js::Promise<bool>
   update: () -> js::Promise<void>
-  addEventListener<K>: (type: K, listener: function<(js::ServiceWorkerRegistration, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::ServiceWorkerRegistration, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::ShadowRootEventMap
   mut slotchange: js::Event
@@ -9048,8 +9048,8 @@ host js::ShadowRoot heir js::DocumentFragment
   slotAssignment: js::SlotAssignmentMode
   getHTML: (options: js::GetHTMLOptions?) -> string
   setHTMLUnsafe: (html: string) -> void
-  addEventListener<K>: (type: K, listener: function<(js::ShadowRoot, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::ShadowRoot, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   activeElement: js::Element?
   mut adoptedStyleSheets: js::Array<js::CSSStyleSheet>
   fullscreenElement: js::Element?
@@ -9062,8 +9062,8 @@ host js::ShadowRoot heir js::DocumentFragment
 
 host js::SharedWorker heir js::EventTarget
   port: js::MessagePort
-  addEventListener<K>: (type: K, listener: function<(js::SharedWorker, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SharedWorker, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   mut onerror: function<(js::AbstractWorker, js::ErrorEvent) -> js::Any>?
 
 host js::Slottable
@@ -9092,8 +9092,8 @@ host js::SourceBuffer heir js::EventTarget
   appendBuffer: (data: js::BufferSource) -> void
   changeType: (type: string) -> void
   remove: (start: double, end: double) -> void
-  addEventListener<K>: (type: K, listener: function<(js::SourceBuffer, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SourceBuffer, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SourceBufferListEventMap
   mut addsourcebuffer: js::Event
@@ -9103,8 +9103,8 @@ host js::SourceBufferList heir js::EventTarget
   length: int
   mut onaddsourcebuffer: function<(js::SourceBufferList, js::Event) -> js::Any>?
   mut onremovesourcebuffer: function<(js::SourceBufferList, js::Event) -> js::Any>?
-  addEventListener<K>: (type: K, listener: function<(js::SourceBufferList, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SourceBufferList, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   mut[indice: int]: js::SourceBuffer
 
 host js::SpeechRecognitionAlternative
@@ -9135,8 +9135,8 @@ host js::SpeechSynthesis heir js::EventTarget
   pause: () -> void
   resume: () -> void
   speak: (utterance: js::SpeechSynthesisUtterance) -> void
-  addEventListener<K>: (type: K, listener: function<(js::SpeechSynthesis, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SpeechSynthesis, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SpeechSynthesisErrorEvent heir js::SpeechSynthesisEvent
   error: js::SpeechSynthesisErrorCode
@@ -9171,8 +9171,8 @@ host js::SpeechSynthesisUtterance heir js::EventTarget
   mut text: string
   mut voice: js::SpeechSynthesisVoice?
   mut volume: double
-  addEventListener<K>: (type: K, listener: function<(js::SpeechSynthesisUtterance, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::SpeechSynthesisUtterance, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::SpeechSynthesisVoice
   default: bool
@@ -9320,8 +9320,8 @@ host js::TextTrack heir js::EventTarget
   mut oncuechange: function<(js::TextTrack, js::Event) -> js::Any>?
   addCue: (cue: js::TextTrackCue) -> void
   removeCue: (cue: js::TextTrackCue) -> void
-  addEventListener<K>: (type: K, listener: function<(js::TextTrack, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::TextTrack, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::TextTrackCueEventMap
   mut enter: js::Event
@@ -9335,8 +9335,8 @@ host js::TextTrackCue heir js::EventTarget
   mut pauseOnExit: bool
   mut startTime: double
   track: js::TextTrack?
-  addEventListener<K>: (type: K, listener: function<(js::TextTrackCue, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::TextTrackCue, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::TextTrackCueList
   length: int
@@ -9354,8 +9354,8 @@ host js::TextTrackList heir js::EventTarget
   mut onchange: function<(js::TextTrackList, js::Event) -> js::Any>?
   mut onremovetrack: function<(js::TextTrackList, js::TrackEvent) -> js::Any>?
   getTrackById: (id: string) -> js::TextTrack?
-  addEventListener<K>: (type: K, listener: function<(js::TextTrackList, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::TextTrackList, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   mut[indice: int]: js::TextTrack
 
 host js::TimeRanges
@@ -9476,8 +9476,8 @@ host js::VTTCue heir js::TextTrackCue
   mut text: string
   mut vertical: js::DirectionSetting
   getCueAsHTML: () -> js::DocumentFragment
-  addEventListener<K>: (type: K, listener: function<(js::VTTCue, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::VTTCue, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::VTTRegion
   mut id: string
@@ -9521,8 +9521,8 @@ host js::VideoDecoder heir js::EventTarget
   decode: (chunk: js::EncodedVideoChunk) -> void
   flush: () -> js::Promise<void>
   reset: () -> void
-  addEventListener<K>: (type: K, listener: function<(js::VideoDecoder, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::VideoDecoder, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::VideoEncoderEventMap
   mut dequeue: js::Event
@@ -9536,8 +9536,8 @@ host js::VideoEncoder heir js::EventTarget
   encode: (frame: js::VideoFrame, options: js::VideoEncoderEncodeOptions?) -> void
   flush: () -> js::Promise<void>
   reset: () -> void
-  addEventListener<K>: (type: K, listener: function<(js::VideoEncoder, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::VideoEncoder, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::VideoFrame
   codedHeight: double
@@ -9581,8 +9581,8 @@ host js::VisualViewport heir js::EventTarget
   pageTop: double
   scale: double
   width: int
-  addEventListener<K>: (type: K, listener: function<(js::VisualViewport, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::VisualViewport, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::WEBGL_color_buffer_float
   RGBA32F_EXT: int
@@ -9721,8 +9721,8 @@ host js::WakeLockSentinel heir js::EventTarget
   released: bool
   type: js::WakeLockType
   release: () -> js::Promise<void>
-  addEventListener<K>: (type: K, listener: function<(js::WakeLockSentinel, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::WakeLockSentinel, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::WaveShaperNode heir js::AudioNode
   mut curve: js::Float32Array?
@@ -11036,8 +11036,8 @@ host js::WebSocket heir js::EventTarget
   OPEN: int
   CLOSING: int
   CLOSED: int
-  addEventListener<K>: (type: K, listener: function<(js::WebSocket, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::WebSocket, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::WebTransport
   closed: js::Promise<js::WebTransportCloseInfo>
@@ -11170,8 +11170,8 @@ host js::Window heir js::EventTarget
   scrollBy: (options: js::ScrollToOptions?) -> void
   scrollTo: (options: js::ScrollToOptions?) -> void
   stop: () -> void
-  addEventListener<K>: (type: K, listener: function<(js::Window, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::Window, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   mut[indice: int]: js::Window
   mut location: js::Location
   cancelAnimationFrame: (handle: double) -> void
@@ -11352,8 +11352,8 @@ host js::WindowEventHandlers
   mut onstorage: function<(js::WindowEventHandlers, js::StorageEvent) -> js::Any>?
   mut onunhandledrejection: function<(js::WindowEventHandlers, js::PromiseRejectionEvent) -> js::Any>?
   mut onunload: function<(js::WindowEventHandlers, js::Event) -> js::Any>?
-  addEventListener<K>: (type: K, listener: function<(js::WindowEventHandlers, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::WindowEventHandlers, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::WindowLocalStorage
   localStorage: js::Storage
@@ -11390,8 +11390,8 @@ host js::Worker heir js::EventTarget
   mut onmessageerror: function<(js::Worker, js::MessageEvent) -> js::Any>?
   postMessage: (message: js::Any, transfer: js::Array<js::Transferable>) -> void
   terminate: () -> void
-  addEventListener<K>: (type: K, listener: function<(js::Worker, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::Worker, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
   mut onerror: function<(js::AbstractWorker, js::ErrorEvent) -> js::Any>?
 
 host js::Worklet
@@ -11417,8 +11417,8 @@ host js::WritableStreamDefaultWriter<W>
   write: (chunk: W?) -> js::Promise<void>
 
 host js::XMLDocument heir js::Document
-  addEventListener<K>: (type: K, listener: function<(js::XMLDocument, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::XMLDocument, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::XMLHttpRequestEventMap heir js::XMLHttpRequestEventTargetEventMap
   mut readystatechange: js::Event
@@ -11448,8 +11448,8 @@ host js::XMLHttpRequest heir js::XMLHttpRequestEventTarget
   HEADERS_RECEIVED: int
   LOADING: int
   DONE: int
-  addEventListener<K>: (type: K, listener: function<(js::XMLHttpRequest, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::XMLHttpRequest, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::XMLHttpRequestEventTargetEventMap
   mut abort: js::ProgressEvent<js::XMLHttpRequestEventTarget>
@@ -11468,12 +11468,12 @@ host js::XMLHttpRequestEventTarget heir js::EventTarget
   mut onloadstart: function<(js::XMLHttpRequest, js::ProgressEvent) -> js::Any>?
   mut onprogress: function<(js::XMLHttpRequest, js::ProgressEvent) -> js::Any>?
   mut ontimeout: function<(js::XMLHttpRequest, js::ProgressEvent) -> js::Any>?
-  addEventListener<K>: (type: K, listener: function<(js::XMLHttpRequestEventTarget, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::XMLHttpRequestEventTarget, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::XMLHttpRequestUpload heir js::XMLHttpRequestEventTarget
-  addEventListener<K>: (type: K, listener: function<(js::XMLHttpRequestUpload, js::Any) -> js::Any>, options: js::Any?) -> void
-  removeEventListener<K>: (type: K, listener: function<(js::XMLHttpRequestUpload, js::Any) -> js::Any>, options: js::Any?) -> void
+  addEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
+  removeEventListener: (type: string, listener: js::Any, options: js::Any?) -> void
 
 host js::XMLSerializer
   serializeToString: (root: js::Node) -> string

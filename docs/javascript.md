@@ -134,9 +134,37 @@ posesión. Los `future<T>` de `std/js/fetch` y compañía se esperan con `await`
 
 Catálogo actual: `types`, `number`, `string`, `boolean`, `array`, `object`,
 `map`, `set`, `promise`, `console`, `timers`, `events`, `dom`, `canvas`,
-`fetch`, `storage`, `performance`, `math` y `url`. El catálogo se escribe a
-mano en esta fase; `pengu ts-bindgen` lo regenerará desde los `.d.ts` del
-navegador.
+`fetch`, `storage`, `performance`, `math` y `url`.
+
+Además hay tres módulos **generados** con `pengu ts-bindgen`, que no se editan
+a mano (`bun run gen:std-js` los regenera y `--check` falla si están viejos):
+
+| Módulo | Tipos | Para qué |
+|--------|-------|----------|
+| `std/js/dom_generated.d.pengu` | 1 123 | todo `lib.dom.d.ts`: DOM, eventos, canvas, storage, fetch, performance |
+| `std/js/es5_generated.d.pengu` | 72 | `lib.es5.d.ts` |
+| `std/js/{fetch,storage,performance}_generated.d.pengu` | 34 / 13 / 23 | solo ese dominio, para quien quiera un archivo pequeño |
+
+Un programa con `invoke "std/js/dom_generated"` y nada más ya puede crear
+lienzos, pintar, registrar eventos, usar `localStorage` y esperar `fetch`:
+
+```pengu
+invoke "std/js/dom_generated"
+invoke "std/js/types"
+
+main = ->
+  mut lienzo = document.createElement("canvas") as js::HTMLCanvasElement
+  lienzo.width = 320
+  mut ctx = lienzo.getContext("2d").value()
+  ctx.fillStyle = "#123456"
+  ctx.fillRect(0.0, 0.0, 320.0, 200.0)
+  console.log("listo")
+```
+
+Los parches declarativos de `src/tsbindgen/overrides.ts` corrigen lo que el
+`.d.ts` no puede expresar (uniones que acaban en `js::Any`, `getElementById`
+devolviendo `js::HTMLElement?`, `setTimeout` devolviendo `int`, etc.); el
+informe de `pengu ts-bindgen --report` lista cuántos miembros se parchearon.
 
 Los **namespaces** del host (`Math`, `JSON`…) se usan con `::`:
 
