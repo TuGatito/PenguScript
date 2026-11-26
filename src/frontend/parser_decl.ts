@@ -40,6 +40,14 @@ import type {
   OpaqueDecl,
   CallbackDecl,
   MeldDecl,
+  HostGlobalDecl,
+  HostIndex,
+  HostMember,
+  HostMethod,
+  HostNamespaceDecl,
+  HostProperty,
+  HostTypeDecl,
+  HostConstructor,
 } from "./ast_decl.ts";
 import type { Program } from "./ast.ts";
 import type { ParamNode } from "./ast_param.ts";
@@ -180,6 +188,8 @@ export function parse_decl(c: Cursor): DeclNode | undefined {
       return parse_callback(c);
     case "meld":
       return parse_meld(c);
+    case "host":
+      return parse_host(c);
     case "ident":
       return parse_named_decl(c);
     default: {
@@ -344,6 +354,17 @@ function parse_named_decl(c: Cursor): DeclNode | undefined {
 
   if (at(c, "=")) {
     advance(c);
+    // `main = async -> …` es una declaración de función asíncrona, igual que
+    // `async main = …`: el azúcar de `nombre = (params) -> …` también vale
+    // con «async» delante de la lambda.
+    if (at(c, "async") && peek(c, 1).kind === "->") {
+      advance(c);
+      return parse_function_decl(c, name, false, true);
+    }
+    if (at(c, "async") && peek(c, 1).kind === "(") {
+      advance(c);
+      return parse_function_decl(c, name, false, true);
+    }
     if (is_function_start(c)) {
       return parse_function_decl(c, name, false, false);
     }
@@ -789,7 +810,8 @@ function parse_variant(c: Cursor): OmenVariant {
 
 function parse_echo_decl(c: Cursor, form: "echo" | "seal"): EchoDecl | SealDecl {
   const start = advance(c);
-  const name = expect_ident(c, `tras ${form}`);
+  // `echo js::String = string`: el alias también puede ser un nombre host.
+  const name = expect_qualified_ident(c, `tras ${form}`);
   const { sigils } = parse_sigils(c);
   expect(c, "=", `en ${form}`);
   const target = parse_type(c);
@@ -911,3 +933,182 @@ function string_literal_text(token: Token): string {
   return parts.map((part) => (part.kind === "text" ? part.text : "")).join("");
 }
 
+
+// Nombres de host: `js::Document`, `js::Array<T>`.
+// Devuelve `{text, span}` para poder usarlo como un token.
+export function expect_qualified_ident(c: Cursor, context: string): { text: string; span: Span } | undefined {
+  const first = expect_ident(c, context);
+  if (first === undefined) return undefined;
+  let text = first.text;
+  let end = first.span;
+  while (at(c, "::")) {
+    advance(c);
+    const next = expect_ident(c, "tras «::»");
+    if (next === undefined) break;
+    text = `${text}::${next.text}`;
+    end = next.span;
+  }
+  return { text, span: merge_span(first.span, end) };
+}
+
+// `host` describe un objeto del host sin código: propiedades, métodos,
+// constructores e índice. La única construcción nueva del lenguaje (T1).
+function parse_host(c: Cursor): DeclNode | undefined {
+  const start = advance(c); // host
+
+  const first = peek(c);
+  if (first.kind === "ident" && first.text === "global" && peek(c, 1).kind === "ident") {
+    advance(c);
+    const name = expect_ident(c, "tras «host global»");
+    let type: TypeNode | undefined;
+    if (eat(c, ":") !== undefined) type = parse_type(c);
+    const global: HostGlobalDecl = {
+      kind: "host_global_decl",
+      name: name?.text ?? "__error__",
+      name_span: name?.span ?? start.span,
+      type,
+      span: merge_span(start.span, type?.span ?? name?.span ?? start.span),
+    };
+    return global;
+  }
+
+  if (first.kind === "ident" && first.text === "namespace" && peek(c, 1).kind === "ident") {
+    advance(c);
+    const name = expect_ident(c, "tras «host namespace»");
+    const members = parse_host_members(c, "del namespace host");
+    const namespace: HostNamespaceDecl = {
+      kind: "host_namespace_decl",
+      name: name?.text ?? "__error__",
+      name_span: name?.span ?? start.span,
+      members,
+      span: merge_span(start.span, members[members.length - 1]?.span ?? name?.span ?? start.span),
+    };
+    return namespace;
+  }
+
+  const name = expect_qualified_ident(c, "tras «host»");
+  const { sigils } = parse_sigils(c);
+  let parent: TypeNode | undefined;
+  if (eat(c, "heir") !== undefined) parent = parse_type(c);
+  const members = parse_host_members(c, "del tipo host");
+  const decl: HostTypeDecl = {
+    kind: "host_decl",
+    name: name?.text ?? "__error__",
+    name_span: name?.span ?? start.span,
+    sigils,
+    parent,
+    members,
+    span: merge_span(start.span, members[members.length - 1]?.span ?? parent?.span ?? name?.span ?? start.span),
+  };
+  return decl;
+}
+
+function parse_host_members(c: Cursor, context: string): HostMember[] {
+  const members: HostMember[] = [];
+  if (!(at(c, "newline") && peek(c, 1).kind === "indent")) return members;
+
+  open_indented(c, context);
+  while (!at(c, "dedent") && !at(c, "eof")) {
+    if (at(c, "newline")) {
+      advance(c);
+      continue;
+    }
+    const member = parse_host_member(c);
+    if (member === undefined) {
+      synchronize(c);
+      continue;
+    }
+    members.push(member);
+    accept_line_break(c, member.span, "entre miembros host");
+  }
+  if (at(c, "dedent")) advance(c);
+  return members;
+}
+
+function parse_host_member(c: Cursor): HostMember | undefined {
+  const start = peek(c).span;
+
+  // `constructor(...)`: puede haber varias sobrecargas.
+  if (at(c, "constructor")) {
+    advance(c);
+    const params = parse_params(c);
+    const end = params[params.length - 1]?.span ?? start;
+    const constructor: HostConstructor = {
+      kind: "host_constructor",
+      params,
+      span: merge_span(start, end),
+    };
+    return constructor;
+  }
+
+  let is_static = false;
+  if (at(c, "static")) {
+    advance(c);
+    is_static = true;
+  }
+
+  let mutable = false;
+  if (at(c, "mut")) {
+    advance(c);
+    mutable = true;
+  }
+
+  // Índice: `mut [clave: int]: string`.
+  if (at(c, "[")) {
+    advance(c);
+    const key_name = expect_ident(c, "en el índice host");
+    expect(c, ":", "en el índice host");
+    const key_type = parse_type(c);
+    expect(c, "]", "en el índice host");
+    expect(c, ":", "en el índice host");
+    const value = parse_type(c);
+    const index: HostIndex = {
+      kind: "host_index",
+      key_name: key_name?.text ?? "indice",
+      key_type,
+      value,
+      mutable,
+      span: merge_span(start, value.span),
+    };
+    return index;
+  }
+
+  const name = expect_qualified_ident(c, "en un miembro host");
+  if (name === undefined) return undefined;
+  const { sigils } = parse_sigils(c);
+  const optional = eat(c, "?") !== undefined;
+
+  // Dos formas equivalentes: `nombre: (a: T) -> R` y `nombre(a: T) -> R`.
+  const colon_method = at(c, ":") && peek(c, 1).kind === "(";
+  if (colon_method) advance(c);
+  if (at(c, "(")) {
+    const params = parse_params(c);
+    expect(c, "->", "en la firma del método host");
+    const result = parse_type(c);
+    const method: HostMethod = {
+      kind: "host_method",
+      name: name.text,
+      name_span: name.span,
+      sigils,
+      params,
+      result,
+      is_static,
+      optional,
+      span: merge_span(start, result?.span ?? name.span),
+    };
+    return method;
+  }
+
+  expect(c, ":", "en la propiedad host");
+  const type = parse_type(c);
+  const property: HostProperty = {
+    kind: "host_property",
+    name: name.text,
+    name_span: name.span,
+    type,
+    mutable,
+    optional,
+    span: merge_span(start, type.span),
+  };
+  return property;
+}

@@ -252,7 +252,7 @@
       "patterns": [
         {
           "name": "storage.modifier.pengu",
-          "match": "\\b(mut|const|static|unsafe|needs|operator|constructor|destructor|parent|bits|async)\\b"
+          "match": "\\b(mut|const|static|unsafe|needs|operator|constructor|destructor|parent|bits|async|host)\\b"
         }
       ]
     },

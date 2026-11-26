@@ -1468,6 +1468,259 @@ export class PHeap {
   }
 }
 
+// --- Catalogo std/js -----------------------------------------------------
+// Funciones del navegador que necesitan comprobar tipos o convertir texto.
+// Todo lo que no esté aquí se usa tal cual: Number.parseInt, Math.sin.
+
+export function js_parse_int(texto, base) {
+  const valor = Number.parseInt(String(texto), Number(base));
+  return Number.isNaN(valor) ? NaN : valor;
+}
+
+export function js_parse_float(texto) {
+  const valor = Number.parseFloat(String(texto));
+  return Number.isNaN(valor) ? NaN : valor;
+}
+
+export function js_to_fixed(valor, digitos) {
+  return Number(valor).toFixed(Number(digitos));
+}
+
+export function js_to_precision(valor, digitos) {
+  return Number(valor).toPrecision(Number(digitos));
+}
+
+export function js_to_exponential(valor, digitos) {
+  return Number(valor).toExponential(Number(digitos));
+}
+
+export function js_number_to_string(valor) {
+  return show(Number(valor));
+}
+
+export function js_positive_infinity() {
+  return Infinity;
+}
+
+export function js_negative_infinity() {
+  return -Infinity;
+}
+
+export function js_from_char_code(codigo) {
+  return String.fromCodePoint(Number(codigo));
+}
+
+export function js_to_upper(texto) {
+  return String(texto).toUpperCase();
+}
+
+export function js_to_lower(texto) {
+  return String(texto).toLowerCase();
+}
+
+export function js_trim(texto) {
+  return String(texto).trim();
+}
+
+export function js_trim_start(texto) {
+  return String(texto).trimStart();
+}
+
+export function js_trim_end(texto) {
+  return String(texto).trimEnd();
+}
+
+export function js_char_at(texto, posicion) {
+  const indice = Number(posicion);
+  return indice < 0 || indice >= String(texto).length ? "" : String(texto)[indice];
+}
+
+export function js_includes(texto, buscado) {
+  return String(texto).includes(String(buscado));
+}
+
+export function js_starts_with(texto, buscado) {
+  return String(texto).startsWith(String(buscado));
+}
+
+export function js_ends_with(texto, buscado) {
+  return String(texto).endsWith(String(buscado));
+}
+
+export function js_index_of(texto, buscado) {
+  return String(texto).indexOf(String(buscado));
+}
+
+export function js_last_index_of(texto, buscado) {
+  return String(texto).lastIndexOf(String(buscado));
+}
+
+export function js_split(texto, separador) {
+  return String(texto).split(String(separador));
+}
+
+export function js_slice(texto, inicio, fin) {
+  return String(texto).slice(Number(inicio), Number(fin));
+}
+
+export function js_substring(texto, inicio, fin) {
+  return String(texto).substring(Number(inicio), Number(fin));
+}
+
+export function js_replace(texto, buscado, nuevo) {
+  return String(texto).replace(String(buscado), String(nuevo));
+}
+
+export function js_repeat(texto, veces) {
+  return String(texto).repeat(Number(veces));
+}
+
+export function js_pad_start(texto, largo, relleno) {
+  return String(texto).padStart(Number(largo), String(relleno));
+}
+
+export function js_pad_end(texto, largo, relleno) {
+  return String(texto).padEnd(Number(largo), String(relleno));
+}
+
+export function js_encode_uri_component(texto) {
+  return encodeURIComponent(String(texto));
+}
+
+export function js_decode_uri_component(texto) {
+  return decodeURIComponent(String(texto));
+}
+
+export function js_boolean_to_string(valor) {
+  return valor === true ? "true" : "false";
+}
+
+export function js_boolean_from_number(valor) {
+  return Number(valor) !== 0;
+}
+
+// Copia explícita en la frontera (decisión D10): el arreglo de PenguScript y
+// el del host nunca son el mismo objeto, así que la posesión no se comparte.
+export function js_array_from(origen) {
+  return Array.from(origen ?? [], (valor) => clone(valor));
+}
+
+export function js_to_vector(origen) {
+  return Array.from(origen ?? [], (valor) => clone(valor));
+}
+
+export function js_array_of_size(largo) {
+  return new Array(Number(largo)).fill(null);
+}
+
+export function js_is_array(valor) {
+  return Array.isArray(valor);
+}
+
+export function js_array_from_text(texto) {
+  return Array.from(String(texto));
+}
+
+export function js_object_keys(objeto) {
+  return Object.keys(objeto ?? {});
+}
+
+export function js_object_values(objeto) {
+  return Object.values(objeto ?? {});
+}
+
+export function js_object_entries(objeto) {
+  return Object.entries(objeto ?? {});
+}
+
+export function js_has_key(objeto, clave) {
+  return Object.prototype.hasOwnProperty.call(objeto ?? {}, String(clave));
+}
+
+export function js_from_entries(entradas) {
+  return Object.fromEntries(entradas ?? []);
+}
+
+export function js_freeze(objeto) {
+  return Object.freeze(objeto);
+}
+
+export function js_json_parse(texto) {
+  return JSON.parse(String(texto));
+}
+
+export function js_json_stringify(valor) {
+  return JSON.stringify(valor);
+}
+
+export function js_map_new() {
+  return new Map();
+}
+
+export function js_set_new() {
+  return new Set();
+}
+
+export function js_promise_resolve(valor) {
+  return Promise.resolve(valor);
+}
+
+export function js_promise_reject(motivo) {
+  return Promise.reject(motivo);
+}
+
+export function js_promise_all(promesas) {
+  return Promise.all(promesas ?? []);
+}
+
+export function js_promise_all_settled(promesas) {
+  return Promise.allSettled(promesas ?? []);
+}
+
+export function js_promise_race(promesas) {
+  return Promise.race(promesas ?? []);
+}
+
+export function js_promise_any(promesas) {
+  return Promise.any(promesas ?? []);
+}
+
+export function js_set_timeout(funcion, milisegundos) {
+  return setTimeout(funcion, Number(milisegundos));
+}
+
+export function js_set_interval(funcion, milisegundos) {
+  return setInterval(funcion, Number(milisegundos));
+}
+
+export function js_clear_timeout(identificador) {
+  clearTimeout(Number(identificador));
+}
+
+export function js_clear_interval(identificador) {
+  clearInterval(Number(identificador));
+}
+
+export function js_request_animation_frame(funcion) {
+  return requestAnimationFrame(funcion);
+}
+
+export function js_cancel_animation_frame(identificador) {
+  cancelAnimationFrame(Number(identificador));
+}
+
+export function js_queue_microtask(funcion) {
+  queueMicrotask(funcion);
+}
+
+export function js_fetch(url) {
+  return fetch(String(url));
+}
+
+export function js_fetch_with(url, opciones) {
+  return fetch(String(url), opciones);
+}
+
 // --- Opcionales ---------------------------------------------------------
 
 export function unwrap(value) {

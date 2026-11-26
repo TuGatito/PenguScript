@@ -3355,6 +3355,38 @@ valor = match modo
 An `async main` is allowed: the JavaScript launcher awaits it with top-level
 `await`, so the process exits with its return value as usual.
 
+## Host objects (browser APIs)
+
+`std/js/*` describes objects that only exist in a JavaScript host. The `host`
+declaration is the only new construct, and it compiles in `--target js` only:
+using any `std/js/*` module with `--target cpp` reports **E0518**.
+
+```pengu
+invoke "std/js/types"
+invoke "std/js/dom"
+
+main = ->
+  document.title = "Hola"            -- `mut` in the host block: writable
+  mut lienzo = document.createElement("canvas") as js::HTMLCanvasElement
+  lienzo.width = 320
+```
+
+| Piece | Shape | Notes |
+| --- | --- | --- |
+| `host js::Thing` | members + `constructor(...)` | The `js::` prefix is mandatory (E0208). |
+| `mut name: T` | writable property | Without `mut` it is read-only (E0406). |
+| `name: (params) -> T` | method | Also `name: (params) -> T` inside a block. |
+| `static name: ...` | static member | `js::URL::createObjectURL(x)`. |
+| `heir js::Base` | host inheritance | Members are visible through the chain. |
+| `host global document: js::Document` | global object | Used unqualified. |
+| `host namespace Math` | global namespace | `Math::max(1.0, 2.0)`. |
+| `echo js::String = string` | alias | Native literals pass without conversion. |
+
+Host values are references: they are never cloned, never boxed in `any`, and
+`new`/method calls are emitted as written. Casting between host types is
+always allowed (`as js::HTMLCanvasElement`) because the browser owns the real
+type; the compiler trusts the programmer, like it does with `unsafe`.
+
 ## Type Conversions
 ---
 

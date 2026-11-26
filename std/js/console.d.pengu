@@ -1,0 +1,20 @@
+-- Consola del navegador. Para salida de programa se usa `std/io`.
+
+realm js_console
+invoke "std/js/types"
+
+host js::Console
+  log: (...partes: any) -> void
+  info: (...partes: any) -> void
+  warn: (...partes: any) -> void
+  error: (...partes: any) -> void
+  debug: (...partes: any) -> void
+  table: (datos: any) -> void
+  group: (etiqueta: string) -> void
+  group_end: () -> void
+  time: (etiqueta: string) -> void
+  time_end: (etiqueta: string) -> void
+  assert: (condicion: bool, ...partes: any) -> void
+  clear: () -> void
+
+host global console: js::Console

@@ -84,10 +84,12 @@ Los comandos `build`, `run` y `check` aceptan `--target <cpp|js>`: el backend
 por defecto es C++20. El backend JavaScript (ES2022/ESM) emite un `.mjs` por
 `realm` más `pengu_rt.mjs` (runtime) e `index.mjs` (lanzador) en
 `.pengu-cache/js-<hash>/`, o en el directorio que indique `--out`; el código se
-ejecuta con `bun` o `node`. Cubre por ahora el núcleo del lenguaje (funciones,
-constantes, números, texto, control de flujo y la parte de `std` que ya
-traduce) y avanza por fases según `scratch/plan_codegen_js.md`; lo que aún no
-traduce se diagnostica con `E0807`.
+ejecuta con `bun` o `node`. Cubre el lenguaje completo y la stdlib de
+`--target js` (backend terminado según `scratch/plan_codegen_js.md`).
+
+Los módulos `std/js/*` describen objetos del navegador (DOM, Canvas,
+`localStorage`, `fetch`…) y solo existen con `--target js`: compilar con
+`--target cpp` un programa que los invoque informa `E0518`.
 
 ## Si el LSP marca errores que `pengu check` no ve
 

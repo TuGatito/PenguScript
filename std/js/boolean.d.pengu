@@ -1,0 +1,12 @@
+-- Booleanos de JavaScript.
+--
+-- `bool` es `bool` (alias en `std/js/types`), así que `true` y `false`
+-- se pasan directo. En JavaScript no hay *truthiness* implícito en PenguScript:
+-- las APIs se llaman siempre con un `bool`.
+
+realm js_boolean
+invoke "std/js/types"
+
+declare
+  to_string = (valor: bool) -> string
+  from_number = (valor: double) -> bool

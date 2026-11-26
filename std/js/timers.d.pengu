@@ -1,0 +1,17 @@
+-- Temporizadores del navegador.
+--
+-- El runtime de JavaScript es síncrono: `sleep_millis` de `std/time` bloquea
+-- el hilo. Aquí los callbacks se ejecutan cuando el navegador quiera; si el
+-- programa espera algo, se hace con `await` sobre una `future<T>`.
+
+realm js_timers
+invoke "std/js/types"
+
+declare
+  set_timeout = (funcion: function<() -> void>, milisegundos: int) -> int
+  set_interval = (funcion: function<() -> void>, milisegundos: int) -> int
+  clear_timeout = (identificador: int) -> void
+  clear_interval = (identificador: int) -> void
+  request_animation_frame = (funcion: function<(double) -> void>) -> int
+  cancel_animation_frame = (identificador: int) -> void
+  queue_microtask = (funcion: function<() -> void>) -> void

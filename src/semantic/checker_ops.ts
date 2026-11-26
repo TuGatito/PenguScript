@@ -80,6 +80,7 @@ import { shared_type, unique_type, weak_type } from "./types.ts";
 import { find_echo_method, find_rune_field, find_rune_method, is_heir_of, resolve_type_node } from "./type_env.ts";
 import { rune_lookup, rune_method_of } from "./rune_lookup.ts";
 import type { TypeEnv } from "./type_env.ts";
+import { is_host_name } from "./host_types.ts";
 import type { OmenInfo } from "./type_env.ts";
 import {
   builtin_index_result,
@@ -374,6 +375,13 @@ export function infer_cast(ctx: CheckContext, node: Extract<ExprNode, { kind: "c
 // nunca pierde información. Todo lo demás exige `unsafe`.
 export function is_safe_cast(source: PenguType, target: PenguType, env?: TypeEnv): boolean {
   if (type_equals(source, target)) return true;
+
+  // Entre objetos del host el reparto de tipos lo pone el navegador:
+  // `getElementById` da `HTMLElement?` y el programa sabe si es un `canvas`
+  // o un `input`. No hay nada que verificar en tiempo de compilación.
+  if (source.kind === "named" && target.kind === "named" && is_host_name(source.name) && is_host_name(target.name)) {
+    return true;
+  }
 
   const source_int = integer_shape(source);
   const target_int = integer_shape(target);

@@ -1,0 +1,48 @@
+-- Tipos base del host de JavaScript.
+--
+-- `js::String`, `js::Number` y `js::Boolean` son alias de los tipos nativos,
+-- así que un literal (`"rojo"`, `0.0`, `true`) se pasa directo a una API del
+-- navegador sin conversiones. El resto son referencias opacas: el emisor JS
+-- escribe su nombre tal cual (`js::Document` → `Document`) y nunca las clona.
+
+realm js_types
+
+-- Primitivos: alias de los tipos del lenguaje (decisión D5).
+echo js::String = string
+echo js::Number = double
+echo js::Boolean = bool
+
+-- Cualquier valor de JavaScript (`JSON.parse`, `localStorage.getItem`…).
+echo js::Any = any
+
+-- Objetos del host sin miembros declarados: la identidad la pone el runtime.
+host js::Array<T>
+  mut length: int
+  [indice: int]: T
+  push: (valor: T) -> int
+  pop: () -> T?
+  join: (separador: js::String) -> string
+  indexOf: (valor: T) -> int
+  includes: (valor: T) -> bool
+  slice: (inicio: int, fin: int) -> js::Array<T>
+  map: (funcion: function<(T, int) -> T>) -> js::Array<T>
+  forEach: (funcion: function<(T, int) -> void>) -> void
+
+host js::Object
+  [clave: string]: js::Any
+
+host js::Function
+
+host js::ArrayBuffer
+
+host js::Uint8Array
+  [indice: int]: int
+  mut length: int
+
+host js::Error
+  mut message: string
+  mut name: string
+
+host js::Iterable<T>
+
+host js::Promise<T>

@@ -1,0 +1,21 @@
+-- `performance`: tiempos de alta resolución del navegador.
+
+realm js_performance
+invoke "std/js/types"
+
+host js::PerformanceEntry
+  mut name: string
+  entryType: string
+  startTime: double
+  duration: double
+
+host js::Performance
+  timeOrigin: double
+  now: () -> double
+  mark: (nombre: string) -> void
+  measure: (nombre: string, inicio: string?, fin: string?) -> void
+  getEntries: () -> js::Array<js::PerformanceEntry>
+  getEntriesByName: (nombre: string) -> js::Array<js::PerformanceEntry>
+  clearMarks: (nombre: string) -> void
+
+host global performance: js::Performance

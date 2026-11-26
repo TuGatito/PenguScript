@@ -25,6 +25,7 @@ import type { PenguType } from "./types.ts";
 import { UNKNOWN, VOID, any_type, function_type, future_type, generic_type, named, type_display } from "./types.ts";
 import type { AliasInfo, FieldInfo, MethodInfo, OmenInfo, RuneInfo, TypeEnv } from "./type_env.ts";
 import { make_type_env, resolve_type_node } from "./type_env.ts";
+import { register_host_decl } from "./host_types.ts";
 import type { EnchantedType } from "./type_env.ts";
 import { enchant_key, enchant_target_of, enchant_target_names, type_pattern_arity } from "./enchant_targets.ts";
 import { suggest_name } from "../util/suggest.ts";
@@ -152,6 +153,9 @@ export function collect_module(
       case "opaque_decl":
       case "callback_decl":
       case "enchanting_decl":
+      case "host_decl":
+      case "host_global_decl":
+      case "host_namespace_decl":
         break;
       case "extern_decl":
         for (const declared of decl.declares) register_extern(declared, env, functions, sink);
@@ -189,6 +193,11 @@ function register_type_decl(decl: DeclNode, env: TypeEnv, sink: DiagnosticSink):
       env.opaques.set(decl.name, { kind: "opaque", name: decl.name, span: decl.name_span });
       break;
     }
+    case "host_decl":
+    case "host_global_decl":
+    case "host_namespace_decl":
+      register_host_decl(decl, env, sink);
+      break;
     case "callback_decl": {
       if (env.callbacks.has(decl.name) || env.runes.has(decl.name) || env.omens.has(decl.name) || env.aliases.has(decl.name)) {
         duplicate(sink, decl.name, decl.name_span);

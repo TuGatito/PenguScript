@@ -91,6 +91,13 @@ import {
   member_of_builtin,
   sequence_element,
 } from "./builtin_members.ts";
+import {
+  host_global_of,
+  host_global_type_of,
+  host_index_of,
+  host_index_value_type,
+  host_type_of,
+} from "./host_types.ts";
 import { check_statement } from "./checker_stmt.ts";
 import { infer_call, infer_construction, infer_declared, literal_element } from "./checker_call.ts";
 import { infer_member, infer_path, rune_operator_method } from "./checker_member.ts";
@@ -190,6 +197,11 @@ function infer_expr_impl(ctx: CheckContext, node: ExprNode): PenguType {
     case "index": {
       const object = infer_expr(ctx, node.object);
       infer_expr(ctx, node.index);
+      const host = host_type_of(ctx, object);
+      if (host !== undefined) {
+        const index = host_index_of(ctx, host);
+        if (index !== undefined) return host_index_value_type(ctx, index);
+      }
       const result = builtin_index_result(object);
       if (result !== undefined) return result;
       const user_index = rune_operator_method(ctx, object, "[]");
@@ -363,6 +375,10 @@ function infer_ident(ctx: CheckContext, name: string, span: Span): PenguType {
     const type = symbol_type_of(selective.module, selective.name);
     if (type !== undefined) return type;
   }
+
+  // `document`, `window`, `performance`… los declara `host global`.
+  const host = host_global_of(ctx, name);
+  if (host !== undefined) return host_global_type_of(ctx, host);
 
   const suggestion = suggest_name(name, known_names(ctx));
   const hint = suggestion === undefined ? "" : `; ¿quisiste decir «${suggestion}»?`;

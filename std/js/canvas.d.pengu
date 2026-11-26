@@ -1,0 +1,62 @@
+-- Contexto 2D de `canvas`.
+
+realm js_canvas
+invoke "std/js/types"
+invoke "std/js/dom"
+
+host js::HTMLCanvasElement heir js::HTMLElement
+  mut width: int
+  mut height: int
+  getContext: (tipo: string) -> js::CanvasRenderingContext2D
+  toDataURL: (tipo: string) -> string
+
+host js::ImageData
+  mut width: int
+  mut height: int
+  mut data: js::Array<int>
+
+host js::CanvasRenderingContext2D
+  mut fillStyle: string
+  mut strokeStyle: string
+  mut lineWidth: double
+  mut lineCap: string
+  mut lineJoin: string
+  mut font: string
+  mut textAlign: string
+  mut textBaseline: string
+  mut globalAlpha: double
+  mut globalCompositeOperation: string
+  mut shadowBlur: double
+  mut shadowColor: string
+  canvas: any
+  fillRect: (x: double, y: double, ancho: double, alto: double) -> void
+  strokeRect: (x: double, y: double, ancho: double, alto: double) -> void
+  clearRect: (x: double, y: double, ancho: double, alto: double) -> void
+  beginPath: () -> void
+  closePath: () -> void
+  moveTo: (x: double, y: double) -> void
+  lineTo: (x: double, y: double) -> void
+  bezierCurveTo: (c1x: double, c1y: double, c2x: double, c2y: double, x: double, y: double) -> void
+  quadraticCurveTo: (cx: double, cy: double, x: double, y: double) -> void
+  arc: (x: double, y: double, radio: double, inicio: double, fin: double) -> void
+  arcTo: (x1: double, y1: double, x2: double, y2: double, radio: double) -> void
+  rect: (x: double, y: double, ancho: double, alto: double) -> void
+  fill: () -> void
+  stroke: () -> void
+  clip: () -> void
+  save: () -> void
+  restore: () -> void
+  translate: (x: double, y: double) -> void
+  rotate: (radianes: double) -> void
+  scale: (x: double, y: double) -> void
+  setTransform: (a: double, b: double, c: double, d: double, e: double, f: double) -> void
+  resetTransform: () -> void
+  fillText: (texto: string, x: double, y: double) -> void
+  strokeText: (texto: string, x: double, y: double) -> void
+  measureText: (texto: string) -> any
+  createLinearGradient: (x0: double, y0: double, x1: double, y1: double) -> any
+  createRadialGradient: (x0: double, y0: double, r0: double, x1: double, y1: double, r1: double) -> any
+  createPattern: (imagen: any, repeticion: string) -> any
+  drawImage: (imagen: any, x: double, y: double, ancho: double, alto: double) -> void
+  getImageData: (x: double, y: double, ancho: double, alto: double) -> js::ImageData
+  putImageData: (datos: js::ImageData, x: double, y: double) -> void

@@ -5,6 +5,7 @@ import type { DiagnosticSink } from "../diagnostics/sink.ts";
 import { make_sink } from "../diagnostics/sink.ts";
 import type { Diagnostic } from "../diagnostics/diagnostic.ts";
 import { load_graph } from "../project/module_graph.ts";
+import { merge_host_types } from "../semantic/host_types.ts";
 import type { ParseCache } from "../project/module_graph.ts";
 import { same_method_signature } from "../semantic/module_info.ts";
 import type { EnchantedType } from "../semantic/type_env.ts";
@@ -100,6 +101,9 @@ export function analyze_project(source_path: string, options: AnalyzeOptions = {
     // los símbolos de los realms reabiertos en varios archivos.
     const module = loaded.info;
     const external = { modules: external_modules, selective, enchants };
+    // Los `host` de los módulos invocados quedan visibles aquí: el programa
+    // usa `document` y `js::Document` sin declararlos (T1).
+    merge_host_types(module.env, external_modules.values());
     check_loaded_module(module, loaded.program, sink, {
       types,
       member_targets,

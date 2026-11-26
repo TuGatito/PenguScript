@@ -168,6 +168,36 @@ main = -> int
   });
 });
 
+describe("std/js en el backend C++", () => {
+  test("un programa con `std/js` no compila con --target cpp (E0518)", () => {
+    const file = project(`invoke "std/js/types"
+invoke "std/js/dom"
+
+main = ->
+  document.title = "hola"
+`);
+    const result = compile_file(file, {});
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics.map((item) => item.code)).toContain("E0518");
+  });
+
+  test("el mismo programa compila con --target js", () => {
+    const file = project(`invoke "std/js/types"
+invoke "std/js/dom"
+
+main = ->
+  document.title = "hola"
+`);
+    const result = compile_file(file, { target: "js" });
+    expect(result.ok).toBe(true);
+  });
+
+  test("sin `std/js`, el backend C++ sigue funcionando", () => {
+    const file = project(HELLO);
+    expect(compile_file(file, {}).ok).toBe(true);
+  });
+});
+
 describe("punto de entrada", () => {
   test("importa el módulo del realm y no filtra rutas absolutas", () => {
     const file = project(HELLO);

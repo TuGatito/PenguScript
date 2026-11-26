@@ -16,6 +16,7 @@ import { make_diagnostic } from "../diagnostics/diagnostic.ts";
 import { CODES } from "../diagnostics/codes.ts";
 import { make_sink } from "../diagnostics/sink.ts";
 import { analyze_graph } from "./analyze.ts";
+import { validate_target } from "./target_check.ts";
 import { generate_program, collect_type_realms } from "../codegen/cpp_module.ts";
 import type { ProgramUnit } from "../codegen/cpp_module.ts";
 import { check_program } from "../semantic/checker.ts";
@@ -95,6 +96,11 @@ function compile_cpp_file(path: string, options: CompileOptions): CompileResult 
   const units = analysis.units;
   const entry_module = analysis.entry_module;
   if (entry_module === undefined) {
+    return { ok: false, target: "cpp", diagnostics: sink.diagnostics, output: "", source_path };
+  }
+  // El backend C++ no puede emitir `host` ni `std/js/*` (T1).
+  validate_target(units, "cpp", sink);
+  if (sink.has_errors()) {
     return { ok: false, target: "cpp", diagnostics: sink.diagnostics, output: "", source_path };
   }
   // Los módulos pueden declarar sus bibliotecas con `link "..."`; se

@@ -86,6 +86,7 @@ Formato: `archivo:línea:columna: severidad[código]: mensaje`.
 | E0515 | `not_first_class` | Se guarda como valor una función `unsafe`, una función con parámetros `mut` o un método `mut`. |
 | E0516 | `await_outside_async` | `await` en una función o lambda que no es `async`. |
 | E0517 | `async_not_allowed` | `async` donde no cabe (campo de `rune`, `declare`, operador libre…). |
+| E0518 | `host_unsupported_target` | El programa invoca `std/js/*` (objetos del navegador) y se compila con `--target cpp`. |
 
 ## Memoria (E06xx)
 

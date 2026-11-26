@@ -41,6 +41,34 @@ export const HOST_NATIVE_TYPES: ReadonlySet<string> = new Set<string>();
 // Convención de los futuros `std/js/*`: sus tipos se llaman `js::Algo`.
 export const HOST_NATIVE_PREFIX = "js::";
 
+// Nombre del objeto del host en JavaScript: `js::Document` → `Document`.
+export function host_js_name(name: string): string {
+  const cut = name.indexOf(HOST_NATIVE_PREFIX);
+  const bare = cut === 0 ? name.slice(HOST_NATIVE_PREFIX.length) : name;
+  const separator = bare.lastIndexOf("::");
+  return separator < 0 ? bare : bare.slice(separator + 2);
+}
+
+// Tipo del host tal cual se escribe en JavaScript, con sus contenedores.
+export function host_type_text(type: PenguType, mode: Int64Mode = DEFAULT_INT64_MODE): string {
+  if (type.kind !== "named") return js_type(type, mode);
+  const bare = host_js_name(type.name);
+  const args = type.args;
+  if (bare === "Any" || bare === "any") return "any";
+  if (bare === "Array" || bare === "ReadonlyArray") {
+    const element = args[0];
+    return `${element === undefined ? "any" : js_type(element, mode)}[]`;
+  }
+  if (bare === "Map" || bare === "WeakMap" || bare === "ReadonlyMap") {
+    return `${bare.startsWith("Weak") ? "WeakMap" : "Map"}<${args.map((arg) => js_type(arg, mode)).join(", ")}>`;
+  }
+  if (bare === "Set" || bare === "WeakSet" || bare === "ReadonlySet") {
+    return `${bare.startsWith("Weak") && bare !== "WeakSet" ? "Set" : bare.replace("Readonly", "")}<${args.map((arg) => js_type(arg, mode)).join(", ")}>`;
+  }
+  if (args.length === 0) return bare;
+  return `${bare}<${args.map((arg) => js_type(arg, mode)).join(", ")}>`;
+}
+
 export function is_host_native(type: PenguType): boolean {
   if (type.kind !== "named") return false;
   if (HOST_NATIVE_TYPES.has(type.name) || type.name.startsWith(HOST_NATIVE_PREFIX)) return true;
@@ -103,6 +131,7 @@ export function js_type(type: PenguType, mode: Int64Mode = DEFAULT_INT64_MODE): 
       return "number";
     }
     case "named": {
+      if (type.name.startsWith(HOST_NATIVE_PREFIX)) return host_type_text(type, mode);
       if (type.name === "Ordering") return "number";
       if (type.name === "future") {
         return `Promise<${js_type(type.args[0] ?? any_type("future"), mode)}>`;

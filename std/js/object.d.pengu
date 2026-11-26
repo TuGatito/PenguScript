@@ -1,0 +1,14 @@
+-- Objetos planos de JavaScript (`Object`, `JSON`, `Reflect`).
+
+realm js_object
+invoke "std/js/types"
+
+declare
+  keys = (objeto: any) -> vector<string>
+  values = (objeto: any) -> vector<any>
+  entries = (objeto: any) -> vector<vector<any>>
+  has_key = (objeto: any, clave: string) -> bool
+  from_entries = (entradas: vector<vector<any>>) -> any
+  freeze = (objeto: any) -> any
+  json_parse = (texto: string) -> any
+  json_stringify = (valor: any) -> string

@@ -1,0 +1,32 @@
+-- `fetch` y respuestas HTTP.
+
+realm js_fetch
+invoke "std/js/types"
+
+host js::Headers
+  get: (nombre: string) -> string?
+  has: (nombre: string) -> bool
+  set: (nombre: string, valor: string) -> void
+
+host js::Response
+  status: int
+  statusText: string
+  ok: bool
+  url: string
+  headers: js::Headers
+  text: () -> future<string>
+  json: () -> future<any>
+  arrayBuffer: () -> future<js::ArrayBuffer>
+
+host js::RequestInit
+  method: string
+  headers: js::Headers?
+  body: any
+  mode: string
+  cache: string
+  credentials: string
+  signal: any
+
+declare
+  fetch = (url: string) -> future<js::Response>
+  fetch_with = (url: string, opciones: js::RequestInit) -> future<js::Response>

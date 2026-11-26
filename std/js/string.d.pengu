@@ -1,0 +1,31 @@
+-- Textos de JavaScript.
+--
+-- `string` es `string` (alias en `std/js/types`), así que `"hola"` entra
+-- directo en cualquier API del navegador. Estas funciones envuelven los
+-- métodos de `String` que no cubre `std/string`.
+
+realm js_string
+invoke "std/js/types"
+
+declare
+  from_char_code = (codigo: int) -> string
+  to_upper = (texto: string) -> string
+  to_lower = (texto: string) -> string
+  trim = (texto: string) -> string
+  trim_start = (texto: string) -> string
+  trim_end = (texto: string) -> string
+  char_at = (texto: string, posicion: int) -> string
+  includes = (texto: string, buscado: string) -> bool
+  starts_with = (texto: string, buscado: string) -> bool
+  ends_with = (texto: string, buscado: string) -> bool
+  index_of = (texto: string, buscado: string) -> int
+  last_index_of = (texto: string, buscado: string) -> int
+  split = (texto: string, separador: string) -> vector<string>
+  slice = (texto: string, inicio: int, fin: int) -> string
+  substring = (texto: string, inicio: int, fin: int) -> string
+  replace = (texto: string, buscado: string, nuevo: string) -> string
+  repeat_text = (texto: string, veces: int) -> string
+  pad_start = (texto: string, largo: int, relleno: string) -> string
+  pad_end = (texto: string, largo: int, relleno: string) -> string
+  encode_uri_component = (texto: string) -> string
+  decode_uri_component = (texto: string) -> string

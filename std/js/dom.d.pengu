@@ -1,0 +1,94 @@
+-- Documento, nodos y elementos del DOM.
+
+realm js_dom
+invoke "std/js/types"
+invoke "std/js/events"
+invoke "std/js/string"
+invoke "std/js/timers"
+
+host js::Node heir js::EventTarget
+  nodeName: string
+  nodeType: int
+  parentNode: js::Node?
+  childNodes: js::Array<js::Node>
+  firstChild: js::Node?
+  lastChild: js::Node?
+  mut textContent: string
+  appendChild: (hijo: js::Node) -> js::Node
+  removeChild: (hijo: js::Node) -> js::Node
+  insertBefore: (nuevo: js::Node, referencia: js::Node?) -> js::Node
+  replaceChild: (nuevo: js::Node, viejo: js::Node) -> js::Node
+  contains: (otro: js::Node?) -> bool
+  cloneNode: (profundo: bool) -> js::Node
+
+host js::Element heir js::Node
+  mut id: string
+  mut className: string
+  tagName: string
+  mut innerHTML: string
+  mut outerHTML: string
+  getAttribute: (nombre: string) -> string?
+  setAttribute: (nombre: string, valor: string) -> void
+  removeAttribute: (nombre: string) -> void
+  hasAttribute: (nombre: string) -> bool
+  querySelector: (selector: string) -> js::Element?
+  querySelectorAll: (selector: string) -> js::Array<js::Element>
+  getBoundingClientRect: () -> any
+  scrollIntoView: (alinear: bool) -> void
+  focus: () -> void
+  blur: () -> void
+  click: () -> void
+
+host js::HTMLElement heir js::Element
+  mut title: string
+  mut lang: string
+  mut hidden: bool
+  mut tabIndex: int
+  mut style: any
+  mut dataset: any
+  mut innerText: string
+  offsetWidth: int
+  offsetHeight: int
+
+host js::HTMLInputElement heir js::HTMLElement
+  mut value: string
+  mut placeholder: string
+  mut type: string
+  mut name: string
+  mut disabled: bool
+  mut checked: bool
+  mut readOnly: bool
+  mut maxLength: int
+  select: () -> void
+
+host js::HTMLImageElement heir js::HTMLElement
+  mut src: string
+  mut alt: string
+  mut width: int
+  mut height: int
+  naturalWidth: int
+  naturalHeight: int
+  complete: bool
+
+host js::Text heir js::Node
+  mut data: string
+  mut length: int
+
+host js::Document heir js::Node
+  mut title: string
+  mut cookie: string
+  readyState: string
+  documentElement: js::HTMLElement
+  body: js::HTMLElement
+  head: js::HTMLElement?
+  getElementById: (identificador: string) -> js::HTMLElement?
+  getElementsByClassName: (clases: string) -> js::Array<js::Element>
+  getElementsByTagName: (etiqueta: string) -> js::Array<js::Element>
+  querySelector: (selector: string) -> js::Element?
+  querySelectorAll: (selector: string) -> js::Array<js::Element>
+  createElement: (etiqueta: string) -> js::HTMLElement
+  createElementNS: (espacio: string, etiqueta: string) -> js::Element
+  createTextNode: (texto: string) -> js::Text
+  createDocumentFragment: () -> js::Node
+
+host global document: js::Document

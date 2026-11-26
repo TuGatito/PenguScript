@@ -12,6 +12,7 @@ import { make_source as source_of, span_from } from "../util/span.ts";
 import { analyze_graph } from "../driver/analyze.ts";
 import { generate_js_program } from "../codegen/js_module.ts";
 import { parse_target } from "../driver/target.ts";
+import { validate_target } from "../driver/target_check.ts";
 import { make_sink } from "../diagnostics/sink.ts";
 import { render_diagnostics } from "../diagnostics/render.ts";
 import { make_source } from "../util/span.ts";
@@ -54,8 +55,12 @@ export function run_check(
     sources.set(absolute, source);
     const sink = make_sink({ max: 200 });
     const analysis = analyze_graph(absolute, sink);
-    // Con `--target js` se comprueba además lo que el emisor JavaScript no
-    // sabe representar (FFI, `meld`, enlaces con C…), sin escribir archivos.
+    // Con un `--target` explícito se comprueba además lo que ese backend no
+    // sabe representar: `std/js/*` en C++ (E0518) y FFI/`meld` en JavaScript
+    // (E0807), sin escribir archivos.
+    if (choice.target === "cpp" && !sink.has_errors()) {
+      validate_target(analysis.units, "cpp", sink);
+    }
     if (choice.target === "js" && !sink.has_errors() && analysis.entry_module !== undefined) {
       const entry = analysis.units.find((unit) => unit.module === analysis.entry_module);
       if (entry !== undefined) generate_js_program(analysis.units, entry, sink, {});

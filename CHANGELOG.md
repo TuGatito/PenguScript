@@ -4,6 +4,46 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+## ts-bindgen T1: `host`, tipos del navegador y catálogo `std/js`
+
+- **Construcción `host` en el lenguaje.** `host js::Document`, `host global
+  document` y `host namespace Math` describen objetos que solo existen en un
+  host JavaScript. Las propiedades escribibles se marcan con `mut` (sin `mut`
+  son de solo lectura, E0406), los métodos se escriben `nombre: (params) -> T`
+  o `nombre(params) -> T`, se admite `constructor(...)`, `static`, índices
+  (`[clave: string]: js::Any`) y herencia con `heir` (los miembros se heredan
+  por la cadena).
+- **Resolución perezosa de los tipos de miembro.** `host_types.ts` guarda los
+  `TypeNode` y los resuelve al usarlos, con los sigilos del tipo sustituidos
+  por sus argumentos (`js::Array<T>`); así `dom.d.pengu` puede referirse a
+  `js::String` aunque el alias se registre en `types.d.pengu` (los `echo js::*`
+  se fusionan entre módulos).
+- **Emisor JavaScript**: `js::Point(1.0, 2.0)` → `new Point(1, 2)`,
+  `p.scale(2.0)` → `p.scale(2)`, `document.title = "x"` tal cual,
+  `Math::max(1.0, 2.0)` → `Math.max(1, 2)`. Los valores del host nunca se
+  clonan ni se cajan en `any`. Las conversiones entre tipos del host
+  (`as js::HTMLCanvasElement`) son libres: el tipo real lo pone el navegador.
+- **Catálogo `std/js/`** (17 módulos, realms `js_<dominio>`): `types`,
+  `number`, `string`, `boolean`, `array`, `object`, `map`, `set`, `promise`,
+  `console`, `timers`, `events`, `dom`, `canvas`, `fetch`, `storage` y
+  `performance`, con `document`, `console`, `localStorage`, `performance` como
+  globales. `js::String`/`js::Number`/`js::Boolean` son `echo` sobre `string`/
+  `double`/`bool`, así que los literales nativos pasan sin conversión.
+- **Intrínsecos del catálogo**: tabla `CATALOG_JS` + funciones `rt.js_*` en el
+  runtime (`parse_int`, `to_fixed`, `slice`, `array_from`, `json_parse`,
+  `promise_all`, `set_timeout`, `fetch`…). `js_array_from`/`js_to_vector`
+  copian explícitamente en la frontera para no compartir la posesión.
+- **`--target cpp` rechaza `std/js`** con el código nuevo **E0518
+  `host_unsupported_target`**, señalando el `invoke` del módulo y sugiriendo
+  `--target js`; `pengu check --target cpp` también lo reporta.
+- **Mock del DOM** (`tests/fixtures/js/dom_mock.mjs`) y tests nuevos:
+  `tests/checker/host.test.ts` (29 casos), `tests/codegen/js_host.test.ts`
+  (8 casos), `tests/e2e/js_dom.test.ts` (7 casos: DOM, canvas, temporizadores,
+  `fetch` con `await`) y 3 casos de E0518 en `tests/cli/js_target.test.ts`.
+- **Deuda C++ reparada**: el runtime generado escribía bytes NUL reales dentro
+  de `'\0'` (los convertía el template literal de TypeScript), lo que hacía que
+  g++ avisara en cada compilación; ahora el escape llega intacto al `.hpp`.
+
 ## ts-bindgen T0: lector de `.d.ts` y `.d.ts` comprometidos
 
 - **Lector de `.d.ts` propio** (`src/tsbindgen/`): `dts_type.ts` (IR de tipos con

@@ -4,6 +4,8 @@
 // contra ella.
 
 import type { DiagnosticSink } from "../diagnostics/sink.ts";
+import type { HostGlobalInfo, HostNamespaceInfo, HostTypeInfo } from "./host_types.ts";
+import { HOST_PREFIX } from "./host_types.ts";
 import { CODES } from "../diagnostics/codes.ts";
 import { check_key_requirements } from "./key_types.ts";
 import { error as make_error } from "../diagnostics/diagnostic.ts";
@@ -158,6 +160,11 @@ export interface TypeEnv {
   // Nombres cualificados de tipos importados (`result::Result`): el
   // alias del módulo no forma parte del tipo, solo ayuda a encontrarlo.
   readonly qualified: Map<string, string>;
+  // Objetos del host declarados con `host` (T1): tipos, globales y
+  // namespaces. Solo el backend JS sabe emitirlos.
+  readonly host_types: Map<string, HostTypeInfo>;
+  readonly host_globals: Map<string, HostGlobalInfo>;
+  readonly host_namespaces: Map<string, HostNamespaceInfo>;
 }
 
 export function make_type_env(): TypeEnv {
@@ -171,6 +178,9 @@ export function make_type_env(): TypeEnv {
     enchants: new Map(),
     pending_types: [],
     qualified: new Map(),
+    host_types: new Map(),
+    host_globals: new Map(),
+    host_namespaces: new Map(),
   };
 }
 
@@ -292,6 +302,35 @@ export function resolve_named_type(
       return UNKNOWN;
     }
     return future_type(args[0] as PenguType);
+  }
+
+  // Tipos del host (`js::Document`): los declara un `host` de algún módulo
+  // invocado. Sin registro local se aceptan igual: el emisor JS comprueba el
+  // catálogo y el backend C++ los rechaza con E0518.
+  if (name.startsWith(HOST_PREFIX)) {
+    const host = env.host_types.get(name);
+    if (host === undefined) {
+      sink.add(
+        make_error(
+          CODES.unknown_type,
+          `no existe el tipo del host «${name}»`,
+          span,
+          "invoca el módulo de «std/js» que lo declara o usa un tipo del host ya declarado",
+        ),
+      );
+      return UNKNOWN;
+    }
+    if (host.sigils.length !== args.length) {
+      sink.add(
+        make_error(
+          CODES.wrong_arity,
+          `«${name}» necesita ${host.sigils.length} argumento(s) de tipo`,
+          span,
+        ),
+      );
+      return UNKNOWN;
+    }
+    return named(name, args);
   }
 
   // Un tipo cualificado (`result::Result`) es el mismo tipo que su

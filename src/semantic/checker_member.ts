@@ -20,6 +20,14 @@ import type { Span } from "../util/span.ts";
 import type { ParamNode } from "../frontend/ast_param.ts";
 import { suggest_name } from "../util/suggest.ts";
 import { declare, lookup } from "./scopes.ts";
+import {
+  host_constructor_type_of,
+  host_member_of,
+  host_member_type_of,
+  host_method_type_of,
+  host_namespace_of,
+  host_type_of,
+} from "./host_types.ts";
 import type { CheckContext } from "./checker_context.ts";
 import { with_scope } from "./checker_context.ts";
 import { symbol_type_of } from "./external.ts";
@@ -104,6 +112,56 @@ export function infer_path(
   const first = segments[0];
   const second = segments[1];
   if (first === undefined) return UNKNOWN;
+
+  // Tipos del host: `js::URL(...)` construye y `js::URL::createObjectURL`
+  // llama a un miembro estático.
+  if (first === "js" && second !== undefined) {
+    const host = host_type_of(ctx, { kind: "named", name: `js::${second}`, args: [] });
+    if (host !== undefined) {
+      const args = type_args.map((node) => resolve_type_node(node, ctx.module.env, ctx.sink));
+      if (host.sigils.length !== args.length) {
+        report_error(
+          ctx,
+          CODES.wrong_arity,
+          `«${host.name}» necesita ${host.sigils.length} argumento(s) de tipo`,
+          span,
+        );
+        return UNKNOWN;
+      }
+      const third = segments[2];
+      if (third !== undefined) {
+        const member = host_member_of(ctx, host, third);
+        if (member === undefined) {
+          report_error(ctx, CODES.unknown_field, `«${host.name}» no tiene el miembro «${third}»`, span);
+          return UNKNOWN;
+        }
+        return host_member_type_of(ctx, member, host, args);
+      }
+      const call = host_constructor_type_of(ctx, host, args);
+      if (call === undefined) {
+        report_error(
+          ctx,
+          CODES.not_callable,
+          `«${host.name}» no declara constructor`,
+          span,
+          ["el bloque «host» puede declarar «constructor(...)» o usar una función que lo construya"],
+        );
+        return UNKNOWN;
+      }
+      return call;
+    }
+  }
+
+  // Namespaces del host: `Math::sin(x)`, `JSON::parse(texto)`.
+  const namespace = host_namespace_of(ctx, first);
+  if (namespace !== undefined && second !== undefined) {
+    const member = namespace.members.get(second);
+    if (member === undefined) {
+      report_error(ctx, CODES.unknown_identifier, `el namespace «${first}» no tiene «${second}»`, span);
+      return UNKNOWN;
+    }
+    return host_member_type_of(ctx, member);
+  }
 
   // Módulos importados con `invoke "ruta"`: `alias::simbolo`.
   const imported_module = ctx.external?.modules.get(first);
@@ -234,6 +292,22 @@ export function infer_member(
   }
 
   if (object.kind === "named") {
+    // Objetos del host (`js::Document`): propiedades y métodos sin cuerpo.
+    const host = host_type_of(ctx, object);
+    if (host !== undefined) {
+      const member = host_member_of(ctx, host, name);
+      if (member === undefined) {
+        report_error(
+          ctx,
+          CODES.unknown_field,
+          `«${object.name}» no tiene el miembro «${name}»`,
+          span,
+          ["consulta los miembros que declara el bloque «host» de std/js"],
+        );
+        return UNKNOWN;
+      }
+      return host_member_type_of(ctx, member, host, object.args);
+    }
     const lookup = rune_lookup(ctx, object.name);
     if (lookup !== undefined) {
       const field = find_rune_field(lookup.env, lookup.rune, name);

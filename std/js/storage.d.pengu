@@ -1,0 +1,15 @@
+-- `localStorage` y `sessionStorage` del navegador.
+
+realm js_storage
+invoke "std/js/types"
+
+host js::Storage
+  length: int
+  getItem: (clave: string) -> string?
+  setItem: (clave: string, valor: string) -> void
+  removeItem: (clave: string) -> void
+  clear: () -> void
+  key: (indice: int) -> string?
+
+host global localStorage: js::Storage
+host global sessionStorage: js::Storage

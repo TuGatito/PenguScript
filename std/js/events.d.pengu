@@ -1,0 +1,15 @@
+-- Eventos del DOM.
+
+realm js_events
+invoke "std/js/types"
+
+host js::Event
+  type: string
+  target: any
+  prevent_default: () -> void
+  stop_propagation: () -> void
+
+host js::EventTarget
+  addEventListener: (tipo: string, listener: function<(js::Event) -> void>) -> void
+  removeEventListener: (tipo: string, listener: function<(js::Event) -> void>) -> void
+  dispatchEvent: (evento: js::Event) -> bool

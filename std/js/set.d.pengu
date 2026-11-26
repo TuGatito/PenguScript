@@ -1,0 +1,15 @@
+-- Conjuntos de JavaScript (`Set`), distintos de `std/set` (que es ordenado).
+
+realm js_set
+invoke "std/js/types"
+
+host js::Set<T>
+  size: int
+  add: (valor: T) -> void
+  has: (valor: T) -> bool
+  delete: (valor: T) -> bool
+  clear: () -> void
+  values: () -> js::Iterable<T>
+
+declare
+  set_new = () -> js::Set<any>

@@ -26,6 +26,13 @@ import { js_identifier } from "./js_names.ts";
 import { is_bigint_type, js_int_normalizer, js_integer_kind } from "./js_types.ts";
 import { needs_clone } from "./js_types.ts";
 import { emit_expr } from "./js_expr.ts";
+import {
+  emit_host_construction,
+  emit_host_member_call,
+  emit_host_namespace_call,
+  emit_host_static_call,
+  host_namespace_info,
+} from "./js_host.ts";
 import { builtin_js_target } from "./builtins_emit_js.ts";
 import { ensure_function, ensure_constant, ensure_type, rune_is_class } from "./js_module.ts";
 import { omen_methods_of } from "../semantic/module_info.ts";
@@ -55,6 +62,9 @@ export function emit_call(g: JsContext, node: CallNode, expected?: PenguType): s
     const segments = callee.segments;
     const realm = segments[0];
     const name = segments[1];
+    // Host: `js::URL(x)`, `js::URL::createObjectURL(b)`, `Math::sin(v)`.
+    const host = emit_host_path_call(g, segments, node);
+    if (host !== undefined) return host;
     const variant = emit_variant_call(g, segments, node);
     if (variant !== undefined) return variant;
     if (segments.length === 2 && realm !== undefined && name !== undefined) {
@@ -546,6 +556,27 @@ function emit_variant_call(g: JsContext, segments: readonly string[], node: Call
   return `${name}.${js_identifier(variant)}(${emit_args(g, info.payload, false, node.args)})`;
 }
 
+// `js::URL(x)`, `js::URL::createObjectURL(b)` y `Math::sin(v)`.
+function emit_host_path_call(
+  g: JsContext,
+  segments: readonly string[],
+  node: CallNode,
+): string | undefined {
+  const [first, second, third] = segments;
+  if (first === undefined) return undefined;
+  if (first === "js" && second !== undefined) {
+    const type = g.host_index.types.get(`js::${second}`);
+    if (type === undefined) return undefined;
+    if (third !== undefined) return emit_host_static_call(g, type, third, node);
+    return emit_host_construction(g, type, node);
+  }
+  const namespace = host_namespace_info(g, first);
+  if (namespace !== undefined && second !== undefined) {
+    return emit_host_namespace_call(g, namespace, second, node);
+  }
+  return undefined;
+}
+
 // Llamada a un método: los métodos de un rune son métodos de su clase; los de
 // `enchanting` sobre tipos incorporados son funciones libres (fase P3).
 function emit_member_call(
@@ -554,6 +585,9 @@ function emit_member_call(
   node: CallNode,
 ): string {
   const object_type = receiver_type(g, member.object);
+  // Miembro de un objeto del host: `canvas.getContext("2d")`.
+  const host = emit_host_member_call(g, member.object, unwrap_borrow(object_type), member.name, node);
+  if (host !== undefined) return host;
   const object = emit_expr(g, member.object);
   const name = js_identifier(member.name);
   void name;

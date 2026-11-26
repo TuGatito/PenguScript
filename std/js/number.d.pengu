@@ -1,0 +1,26 @@
+-- Números de JavaScript (`Number`, `parseInt`, `parseFloat`).
+--
+-- `double` es `double` (alias en `std/js/types`): el motor de JavaScript
+-- sólo tiene IEEE 754 de 64 bits. Las conversiones a enteros de PenguScript
+-- se hacen con `as int` / `as int64_t` o con los métodos de `std/int`.
+
+realm js_number
+invoke "std/js/types"
+
+declare
+  parse_int = (texto: string, base: int) -> double
+  parse_float = (texto: string) -> double
+  is_nan = (valor: double) -> bool
+  is_finite = (valor: double) -> bool
+  is_integer = (valor: double) -> bool
+  is_safe_integer = (valor: double) -> bool
+  to_fixed = (valor: double, digitos: int) -> string
+  to_precision = (valor: double, digitos: int) -> string
+  to_exponential = (valor: double, digitos: int) -> string
+  to_string = (valor: double) -> string
+  max_value = () -> double
+  min_value = () -> double
+  epsilon = () -> double
+  max_safe_integer = () -> double
+  positive_infinity = () -> double
+  negative_infinity = () -> double

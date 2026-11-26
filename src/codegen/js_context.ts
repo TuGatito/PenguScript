@@ -16,6 +16,8 @@ import type { TypeNode } from "../frontend/ast_type.ts";
 import { error as diagnostic_error } from "../diagnostics/diagnostic.ts";
 import { CODES } from "../diagnostics/codes.ts";
 import type { ProgramUnit } from "./cpp_module.ts";
+import type { HostIndex } from "./js_host.ts";
+import { EMPTY_HOST_INDEX } from "./js_host.ts";
 import type { PenguType } from "../semantic/types.ts";
 import { UNKNOWN } from "../semantic/types.ts";
 import type { Span } from "../util/span.ts";
@@ -85,6 +87,8 @@ export interface JsContext {
   readonly class_runes: ReadonlySet<string>;
   // Runas con `destructor` declarado: obligan a `try/finally`.
   readonly destructor_runes: ReadonlySet<string>;
+  // Tipos, globales y namespaces del host (`host`), de todos los módulos.
+  readonly host_index: HostIndex;
   // Tipo con el que se declaró cada variable local (para conversiones).
   local_types: Map<string, PenguType>;
   // Base del `enchanting` que se está emitiendo (`string`, `optional`…), para
@@ -99,6 +103,7 @@ export interface JsContextOptions {
   readonly units?: ReadonlyMap<string, ProgramUnit>;
   readonly class_runes?: ReadonlySet<string>;
   readonly destructor_runes?: ReadonlySet<string>;
+  readonly host_index?: HostIndex;
 }
 
 export function make_js_context(
@@ -129,6 +134,7 @@ export function make_js_context(
     await_seen: 0,
     await_depth: 0,
     class_runes: options.class_runes ?? new Set(),
+    host_index: options.host_index ?? EMPTY_HOST_INDEX,
     enchant_base: undefined,
     destructor_runes: options.destructor_runes ?? new Set(),
     local_types: new Map(),

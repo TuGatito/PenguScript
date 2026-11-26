@@ -25,6 +25,7 @@ import {
   UNKNOWN,
 } from "./types.ts";
 import { literal_fits_type } from "./literal_fit.ts";
+import { host_is_ancestor, is_host_name } from "./host_types.ts";
 import type { IntegerShape } from "./types.ts";
 import type { ExternalImports } from "./external.ts";
 import type { LocalSymbol } from "./symbols.ts";
@@ -310,6 +311,13 @@ export function can_assign(
   const target_float = float_rank(target);
   if (target_float !== undefined) {
     return float_assignable(target_float, source_int !== undefined, float_rank(source));
+  }
+
+  // Un objeto del host encaja en el tipo del host del que hereda
+  // (`HTMLElement` en un parámetro `js::Node`). El reparto de tipos lo pone
+  // el navegador, no el compilador.
+  if (target.kind === "named" && source.kind === "named" && is_host_name(target.name) && is_host_name(source.name)) {
+    if (host_is_ancestor(env, target.name, source.name)) return true;
   }
 
   // `ref<Dog>` no es `ref<Animal>`: el upcast debe ser explícito con

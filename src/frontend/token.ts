@@ -38,6 +38,7 @@ export const KEYWORDS = [
   "unsafe",
   "async",
   "await",
+  "host",
   "needs",
   "operator",
   "true",

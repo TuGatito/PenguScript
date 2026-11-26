@@ -1,0 +1,17 @@
+-- Promesas de JavaScript.
+--
+-- En PenguScript se espera con `await`: el equivalente a `then` es
+-- `const r = await promesa`. `js::Promise<T>` existe para interoperar con
+-- APIs que devuelven promesas; para escribir funciones asíncronas propias se
+-- usa `async`/`future<T>` del lenguaje.
+
+realm js_promise
+invoke "std/js/types"
+
+declare
+  resolve = (valor: any) -> future<any>
+  reject = (motivo: any) -> future<any>
+  all = (promesas: vector<future<any>>) -> future<vector<any>>
+  all_settled = (promesas: vector<future<any>>) -> future<vector<any>>
+  race = (promesas: vector<future<any>>) -> future<any>
+  any_of = (promesas: vector<future<any>>) -> future<any>

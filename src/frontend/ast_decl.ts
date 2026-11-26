@@ -25,7 +25,10 @@ export type DeclNode =
   | LinkDecl
   | OpaqueDecl
   | CallbackDecl
-  | MeldDecl;
+  | MeldDecl
+  | HostTypeDecl
+  | HostGlobalDecl
+  | HostNamespaceDecl;
 
 export interface RealmDecl {
   readonly kind: "realm_decl";
@@ -163,6 +166,86 @@ export interface SealDecl {
   readonly name_span: Span;
   readonly sigils: readonly string[];
   readonly target: TypeNode;
+  readonly span: Span;
+}
+
+// Enlaces al host (`host js::Document`): describen objetos de JavaScript
+// (DOM, Canvas, `Storage`, …) sin código. Solo existen en el backend JS.
+//
+//   host js::Node heir js::EventTarget
+//     nodeName: string
+//     mut id: string
+//     appendChild<T>(nodo: T) -> T
+//     constructor(x: double)
+//     [indice: int]: string
+//     static from(x: double) -> js::Node
+export interface HostProperty {
+  readonly kind: "host_property";
+  readonly name: string;
+  readonly name_span: Span;
+  readonly type: TypeNode;
+  readonly mutable: boolean;
+  // `nombre?: tipo`: puede faltar (se tipa `T?`).
+  readonly optional: boolean;
+  readonly span: Span;
+}
+
+export interface HostMethod {
+  readonly kind: "host_method";
+  readonly name: string;
+  readonly name_span: Span;
+  readonly sigils: readonly string[];
+  readonly params: readonly ParamNode[];
+  readonly result: TypeNode | undefined;
+  readonly is_static: boolean;
+  readonly optional: boolean;
+  readonly span: Span;
+}
+
+export interface HostConstructor {
+  readonly kind: "host_constructor";
+  readonly params: readonly ParamNode[];
+  readonly span: Span;
+}
+
+export interface HostIndex {
+  readonly kind: "host_index";
+  readonly key_name: string;
+  readonly key_type: TypeNode;
+  readonly value: TypeNode;
+  readonly mutable: boolean;
+  readonly span: Span;
+}
+
+export type HostMember = HostProperty | HostMethod | HostConstructor | HostIndex;
+
+export interface HostTypeDecl {
+  readonly kind: "host_decl";
+  // Nombre cualificado tal cual: `js::Document`.
+  readonly name: string;
+  readonly name_span: Span;
+  readonly sigils: readonly string[];
+  // `heir js::Node`: el tipo base del host (se emite como `extends`).
+  readonly parent: TypeNode | undefined;
+  readonly members: readonly HostMember[];
+  readonly span: Span;
+}
+
+// `host global document: js::Document`: un objeto o función global.
+export interface HostGlobalDecl {
+  readonly kind: "host_global_decl";
+  readonly name: string;
+  readonly name_span: Span;
+  readonly type: TypeNode | undefined;
+  readonly span: Span;
+}
+
+// `host namespace Math`: funciones y constantes estáticas del host.
+export interface HostNamespaceDecl {
+  readonly kind: "host_namespace_decl";
+  readonly name: string;
+  readonly name_span: Span;
+  readonly members: readonly HostMember[];
   readonly span: Span;
 }
 

@@ -102,6 +102,41 @@ aritmética dinámica: el backend JavaScript prioriza legibilidad y corrección
 semántica sobre velocidad en bucles calientes. Para código intensivo en
 cómputo, `--target cpp`.
 
+## Navegador: `std/js/*`
+
+Los módulos `std/js/*` describen objetos que solo existen en un host
+JavaScript (DOM, Canvas, `localStorage`, `fetch`…). Se declaran con `host` y
+solo compilan con `--target js`; usar cualquiera de ellos con `--target cpp`
+informa **E0518** antes de generar código.
+
+```pengu
+invoke "std/js/types"
+invoke "std/js/dom"
+invoke "std/js/canvas"
+invoke "std/js/console"
+
+main = ->
+  document.title = "Hola, DOM"
+  mut lienzo = document.createElement("canvas") as js::HTMLCanvasElement
+  lienzo.width = 320
+  mut ctx = lienzo.getContext("2d")
+  ctx.fillStyle = "rojo"
+  ctx.fillRect(0.0, 0.0, 10.0, 10.0)
+  console.log(lienzo.width)
+```
+
+Se emite exactamente lo que se escribe (`new Point(...)`, `document.title = …`,
+`Math.max(...)`): los objetos del host nunca se clonan ni se cajan en `any`.
+`js::String`, `js::Number` y `js::Boolean` son `echo` sobre `string`, `double` y
+`bool`, así que los literales nativos pasan sin conversión; `js_array_from` y
+`js_to_vector` copian explícitamente en la frontera para no compartir la
+posesión. Los `future<T>` de `std/js/fetch` y compañía se esperan con `await`.
+
+Catálogo actual: `types`, `number`, `string`, `boolean`, `array`, `object`,
+`map`, `set`, `promise`, `console`, `timers`, `events`, `dom`, `canvas`,
+`fetch`, `storage` y `performance`. El catálogo se escribe a mano en esta fase;
+`pengu ts-bindgen` lo regenerará desde los `.d.ts` del navegador.
+
 ## Opciones
 
 | Opción | Efecto |

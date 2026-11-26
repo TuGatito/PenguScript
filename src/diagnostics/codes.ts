@@ -56,6 +56,7 @@ export const CODES = {
   not_display: "E0512",
   invalid_any_cast: "E0514",
   not_first_class: "E0515",
+  host_unsupported_target: "E0518",
   await_outside_async: "E0516",
   async_not_allowed: "E0517",
 

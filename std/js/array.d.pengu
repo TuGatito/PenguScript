@@ -1,0 +1,16 @@
+-- Arreglos de JavaScript.
+--
+-- Una función de JavaScript que devuelve un arreglo da `js::Array<T>`, que se
+-- emite como `T[]`. Para no compartir el arreglo con el host sin querer,
+-- `array_from` copia y `to_vector` copia (decisión D10: la *Law of
+-- Exclusivity* se mantiene en la frontera).
+
+realm js_array
+invoke "std/js/types"
+
+declare
+  array_from = (origen: ref<vector<any>>) -> vector<any>
+  to_vector = (origen: js::Array<any>) -> vector<any>
+  of_size = (largo: int) -> vector<any>
+  is_array = (valor: any) -> bool
+  from_text = (texto: string) -> vector<string>

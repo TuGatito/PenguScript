@@ -1129,7 +1129,7 @@ inline std::string sha256_hex(const std::string& text) {
   std::string message = text;
   const std::uint64_t bit_length = static_cast<std::uint64_t>(message.size()) * 8u;
   message.push_back(static_cast<char>(0x80));
-  while (message.size() % 64u != 56u) message.push_back('\0');
+  while (message.size() % 64u != 56u) message.push_back('\\0');
   for (int shift = 56; shift >= 0; shift -= 8) {
     message.push_back(static_cast<char>((bit_length >> shift) & 0xffu));
   }
@@ -1794,7 +1794,7 @@ inline char* cstring_ptr(const std::vector<char>& data) {
 
 inline std::string cstring_text(const std::vector<char>& data) {
   std::size_t length = 0;
-  while (length < data.size() && data[length] != '\0') ++length;
+  while (length < data.size() && data[length] != '\\0') ++length;
   return std::string(data.data(), length);
 }
 
@@ -1805,13 +1805,13 @@ inline std::string cstring_read(const char* text) {
 inline void cstring_write(char* destination, const std::string& text) {
   if (destination == nullptr) return;
   std::memcpy(destination, text.c_str(), text.size());
-  destination[text.size()] = '\0';
+  destination[text.size()] = '\\0';
 }
 
 inline std::vector<char> cstring_from_text(const std::string& text, std::size_t capacity) {
   std::vector<char> out(text.begin(), text.end());
-  out.push_back('\0');
-  if (out.size() < capacity + 1) out.resize(capacity + 1, '\0');
+  out.push_back('\\0');
+  if (out.size() < capacity + 1) out.resize(capacity + 1, '\\0');
   return out;
 }
 

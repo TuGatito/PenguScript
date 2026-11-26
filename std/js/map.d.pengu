@@ -1,0 +1,17 @@
+-- Mapas de JavaScript (`Map`), distintos de `std/map` (que es ordenado).
+
+realm js_map
+invoke "std/js/types"
+
+host js::Map<K, V>
+  size: int
+  get: (clave: K) -> V?
+  set: (clave: K, valor: V) -> void
+  has: (clave: K) -> bool
+  delete: (clave: K) -> bool
+  clear: () -> void
+  keys: () -> js::Iterable<K>
+  values: () -> js::Iterable<V>
+
+declare
+  map_new = () -> js::Map<any, any>

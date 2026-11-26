@@ -21,6 +21,7 @@ import {
   type JsFile,
 } from "./js_context.ts";
 import { emit_constants, emit_function } from "./js_decl.ts";
+import { collect_host_index } from "./js_host.ts";
 import {
   collect_class_runes,
   collect_destructor_runes,
@@ -64,6 +65,7 @@ export function generate_js_program(
     units: by_realm,
     class_runes: collect_class_runes([...by_realm.values()]),
     destructor_runes: collect_destructor_runes([...by_realm.values()]),
+    host_index: collect_host_index([...by_realm.values()].map((unit) => unit.module.env)),
   });
 
   const main = entry.module.functions.get("main");

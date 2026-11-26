@@ -10,6 +10,7 @@ import { CODES } from "../diagnostics/codes.ts";
 import { error as make_error } from "../diagnostics/diagnostic.ts";
 import type { Span } from "../util/span.ts";
 import type { CheckContext } from "./checker_context.ts";
+import { host_index_value_type, host_member_of, host_property_type_of, host_type_of } from "./host_types.ts";
 import { ensure_not_borrowed } from "./checker_context.ts";
 import { can_assign, check_initialization, record_local, report_type_mismatch, with_block_span } from "./checker_context.ts";
 import { declare, lookup } from "./scopes.ts";
@@ -182,6 +183,10 @@ function require_mutable_root(ctx: CheckContext, target: ExprNode, action: strin
   return false;
 }
 
+function named_args(type: PenguType): readonly PenguType[] {
+  return type.kind === "named" ? type.args : [];
+}
+
 function assign_target(
   ctx: CheckContext,
   target: ExprNode,
@@ -236,6 +241,42 @@ function assign_target(
     }
     case "member": {
       const object = infer_expr(ctx, target.object);
+      // Propiedad de un objeto del host: solo se escribe si se declaró `mut`.
+      const host = host_type_of(ctx, object);
+      if (host !== undefined) {
+        const member = host_member_of(ctx, host, target.name);
+        if (member === undefined) {
+          report_error(ctx, CODES.unknown_field, `«${host.name}» no tiene la propiedad «${target.name}»`, target.span);
+          return;
+        }
+        if (member.kind === "method") {
+          report_error(ctx, CODES.invalid_assignment, `«${target.name}» es un método: no se puede asignar`, target.span);
+          return;
+        }
+        if (member.kind === "index") {
+          report_error(ctx, CODES.invalid_assignment, `«${target.name}» es el índice de «${host.name}»`, target.span);
+          return;
+        }
+        if (!member.mutable) {
+          report_error(
+            ctx,
+            CODES.mutable_required,
+            `«${target.name}» es de solo lectura en «${host.name}»: declárala con «mut» en el bloque «host»`,
+            target.span,
+          );
+          return;
+        }
+        if (!require_mutable_root(ctx, target, "modificar")) return;
+        check_initialization(
+          ctx,
+          host_property_type_of(ctx, member, host, named_args(object)),
+          value,
+          node.value.span,
+          `al asignar a «${target.name}»`,
+          node.value,
+        );
+        return;
+      }
       if (!require_mutable_root(ctx, target, "modificar")) return;
       const expected = member_of_builtin(object, target.name);
       if (expected === undefined) {
@@ -257,6 +298,26 @@ function assign_target(
     }
     case "index": {
       const object = infer_expr(ctx, target.object);
+      // Índice de un objeto del host: `storage[clave] = valor`.
+      const host = host_type_of(ctx, object);
+      if (host !== undefined) {
+        if (host.index === undefined) {
+          report_error(ctx, CODES.cannot_infer, `«${host.name}» no tiene índice`, target.span);
+          return;
+        }
+        if (!host.index.mutable) {
+          report_error(
+            ctx,
+            CODES.mutable_required,
+            `el índice de «${host.name}» es de solo lectura: decláralo con «mut» en el bloque «host»`,
+            target.span,
+          );
+          return;
+        }
+        infer_expr(ctx, target.index);
+        check_initialization(ctx, host_index_value_type(ctx, host.index, host, named_args(object)), value, node.value.span, "al asignar al índice", node.value);
+        return;
+      }
       if (!require_mutable_root(ctx, target, "modificar")) return;
       infer_expr(ctx, target.index);
       const expected = index_value_type(

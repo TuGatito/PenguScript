@@ -46,6 +46,7 @@ import {
   emit_switch_value,
 } from "./js_expr_control.ts";
 import { ensure_constant, ensure_function, ensure_realm } from "./js_module.ts";
+import { emit_host_global } from "./js_host.ts";
 import {
   free_method_export,
   operator_method_name,
@@ -225,6 +226,9 @@ function emit_ident(g: JsContext, name: string, span: ExprNode["span"]): string 
     ensure_function(g, realm, name);
     return cross_reference(g, realm, name);
   }
+  // `document`, `window`, `performance`…: globales del host.
+  const host = emit_host_global(g, name);
+  if (host !== undefined) return host;
   js_error(g, `no se encontró el símbolo «${name}» al emitir JavaScript`, span);
   return "undefined";
 }
