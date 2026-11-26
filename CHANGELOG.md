@@ -4,6 +4,32 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+## ts-bindgen T2: namespaces, construcción y futuros del host
+
+- **Namespaces del host con `::`**: `Math::sqrt(144.0)` → `Math.sqrt(144)`,
+  `Math::PI` → `Math.PI`. Hasta ahora una ruta `Namespace::miembro` se
+  confundía con un símbolo de módulo (emitía un `import { PI }`).
+- **Catálogo nuevo**: `std/js/math.d.pengu` (`host namespace Math` con las 8
+  constantes y 37 funciones de JavaScript) y `std/js/url.d.pengu`
+  (`js::URL` y `js::URLSearchParams`, con `constructor(url, base?)`,
+  `createObjectURL`/`revokeObjectURL`/`canParse` estáticos y los miembros en
+  camelCase del navegador: `searchParams`, `toString`, `toJSON`).
+- **Construcción**: `js::URL("https://…")` se emite como `new URL("…")`; los
+  constructores del host aceptan parámetros `T?` (opcionales sin valor por
+  defecto) sin exigir el argumento.
+- **`js::Promise<T>`** gana `then`, `catch` y `finally`, y `std/js/timers`
+  añade `delay(ms) -> future<void>` para que un programa `async` pueda ceder el
+  turno y dejar correr los temporizadores.
+- **Futuros del host**: `await js_promise::resolve(7)` devuelve `7`. Los
+  intrínsecos de `std/js/*` reciben y devuelven valores de JavaScript sin
+  cajas: antes un `js::Any` se envolvía en `rt.box(...)` y el `await` entregaba
+  `{ __pengu_box: "int", value: 7 }`.
+- **Un objeto del host no exige `mut` para mutar**: `u.searchParams.set("y",
+  "2")` ya no da E0406 (el objeto vive en el navegador y la variable guarda una
+  referencia; el `mut` protege a los valores del lenguaje).
+- Tests: `tests/e2e/js_t2.test.ts` (6 casos con el mock del DOM: `Math`,
+  `js::URL`, miembro estático, temporizadores, futuros y `console`).
+
 ## ts-bindgen T1: `host`, tipos del navegador y catálogo `std/js`
 
 - **Construcción `host` en el lenguaje.** `host js::Document`, `host global

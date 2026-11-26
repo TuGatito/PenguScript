@@ -439,7 +439,10 @@ function parent_name(node: { kind: string; name?: string }): string | undefined 
 function required_count(params: readonly ParamNode[]): number {
   let required = 0;
   for (const param of params) {
-    if (param.default_value !== undefined || param.variadic) break;
+    // Un parámetro con tipo `T?` es opcional aunque no declare valor por
+    // defecto (`constructor(url: string, base: string?)`).
+    const optional = param.type?.kind === "optional_type";
+    if (param.default_value !== undefined || param.variadic || optional) break;
     required += 1;
   }
   return required;

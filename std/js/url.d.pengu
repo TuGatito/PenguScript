@@ -1,0 +1,35 @@
+-- Direcciones y parámetros de consulta del host (`URL`, `URLSearchParams`).
+
+realm js_url
+invoke "std/js/types"
+
+host js::URLSearchParams
+  get: (clave: string) -> string?
+  getAll: (clave: string) -> js::Array<string>
+  has: (clave: string) -> bool
+  set: (clave: string, valor: string) -> void
+  append: (clave: string, valor: string) -> void
+  delete: (clave: string) -> void
+  sort: () -> void
+  toString: () -> string
+  constructor()
+
+host js::URL
+  mut href: string
+  mut protocol: string
+  mut host: string
+  mut hostname: string
+  mut port: string
+  mut pathname: string
+  mut search: string
+  mut hash: string
+  origin: string
+  username: string
+  password: string
+  searchParams: js::URLSearchParams
+  toString: () -> string
+  toJSON: () -> string
+  constructor(url: string, base: string?)
+  static createObjectURL: (objeto: js::Any) -> string
+  static revokeObjectURL: (url: string) -> void
+  static canParse: (url: string) -> bool

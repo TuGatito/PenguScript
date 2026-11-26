@@ -282,6 +282,7 @@ const CATALOG_JS: Readonly<Record<string, string>> = {
   "js_timers::request_animation_frame": "rt.js_request_animation_frame",
   "js_timers::cancel_animation_frame": "rt.js_cancel_animation_frame",
   "js_timers::queue_microtask": "rt.js_queue_microtask",
+  "js_timers::delay": "rt.js_delay",
   "js_fetch::fetch": "rt.js_fetch",
   "js_fetch::fetch_with": "rt.js_fetch_with",
 };

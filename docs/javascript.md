@@ -134,8 +134,21 @@ posesión. Los `future<T>` de `std/js/fetch` y compañía se esperan con `await`
 
 Catálogo actual: `types`, `number`, `string`, `boolean`, `array`, `object`,
 `map`, `set`, `promise`, `console`, `timers`, `events`, `dom`, `canvas`,
-`fetch`, `storage` y `performance`. El catálogo se escribe a mano en esta fase;
-`pengu ts-bindgen` lo regenerará desde los `.d.ts` del navegador.
+`fetch`, `storage`, `performance`, `math` y `url`. El catálogo se escribe a
+mano en esta fase; `pengu ts-bindgen` lo regenerará desde los `.d.ts` del
+navegador.
+
+Los **namespaces** del host (`Math`, `JSON`…) se usan con `::`:
+
+```pengu
+const raiz: double = Math::sqrt(144.0)   -- Math.sqrt(144)
+const pi: double = Math::PI              -- Math.PI
+```
+
+Construir un objeto del host es llamar a su tipo (`js::URL("...")`), que se
+emite como `new URL(...)`; los `future<T>` de `std/js/fetch` y `std/js/timers`
+se esperan con `await`, y los callbacks (`set_timeout(() -> …, 10)`) se pasan
+como funciones de JavaScript sin envolver.
 
 ## Opciones
 

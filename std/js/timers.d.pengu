@@ -15,3 +15,4 @@ declare
   request_animation_frame = (funcion: function<(double) -> void>) -> int
   cancel_animation_frame = (identificador: int) -> void
   queue_microtask = (funcion: function<() -> void>) -> void
+  delay = (milisegundos: int) -> future<void>

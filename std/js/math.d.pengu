@@ -1,0 +1,48 @@
+-- Funciones y constantes matemáticas del host (`Math`).
+
+realm js_math
+
+host namespace Math
+  PI: double
+  E: double
+  LN2: double
+  LN10: double
+  LOG2E: double
+  LOG10E: double
+  SQRT1_2: double
+  SQRT2: double
+  abs: (x: double) -> double
+  acos: (x: double) -> double
+  acosh: (x: double) -> double
+  asin: (x: double) -> double
+  asinh: (x: double) -> double
+  atan: (x: double) -> double
+  atan2: (y: double, x: double) -> double
+  atanh: (x: double) -> double
+  cbrt: (x: double) -> double
+  ceil: (x: double) -> double
+  clz32: (x: double) -> double
+  cos: (x: double) -> double
+  cosh: (x: double) -> double
+  exp: (x: double) -> double
+  expm1: (x: double) -> double
+  floor: (x: double) -> double
+  fround: (x: double) -> double
+  hypot: (x: double, y: double) -> double
+  imul: (a: double, b: double) -> double
+  log: (x: double) -> double
+  log1p: (x: double) -> double
+  log10: (x: double) -> double
+  log2: (x: double) -> double
+  max: (a: double, b: double) -> double
+  min: (a: double, b: double) -> double
+  pow: (base: double, exponente: double) -> double
+  random: () -> double
+  round: (x: double) -> double
+  sign: (x: double) -> double
+  sin: (x: double) -> double
+  sinh: (x: double) -> double
+  sqrt: (x: double) -> double
+  tan: (x: double) -> double
+  tanh: (x: double) -> double
+  trunc: (x: double) -> double

@@ -23,7 +23,7 @@ import {
   type JsContext,
 } from "./js_context.ts";
 import { js_identifier } from "./js_names.ts";
-import { is_bigint_type, js_int_normalizer, js_integer_kind } from "./js_types.ts";
+import { host_js_name, is_bigint_type, js_int_normalizer, js_integer_kind } from "./js_types.ts";
 import { needs_clone } from "./js_types.ts";
 import { emit_expr } from "./js_expr.ts";
 import {
@@ -32,6 +32,7 @@ import {
   emit_host_namespace_call,
   emit_host_static_call,
   host_namespace_info,
+  is_host_module_path,
 } from "./js_host.ts";
 import { builtin_js_target } from "./builtins_emit_js.ts";
 import { ensure_function, ensure_constant, ensure_type, rune_is_class } from "./js_module.ts";
@@ -119,7 +120,8 @@ function emit_named_call(
       );
       return "undefined";
     }
-    return `${target}(${emit_args(g, info.params.map((param) => param.type), info.variadic, node.args)})`;
+    const hostIntrinsic = unit !== undefined && is_host_module_path(unit.module.file);
+    return `${target}(${emit_args(g, info.params.map((param) => param.type), info.variadic, node.args, hostIntrinsic)})`;
   }
 
   if (info !== undefined) {
@@ -389,6 +391,7 @@ function emit_args(
   params: readonly PenguType[] | undefined,
   variadic: boolean,
   args: readonly ArgNode[],
+  host = false,
 ): string {
   const last = params?.[params.length - 1];
   return args
@@ -397,6 +400,9 @@ function emit_args(
       const expected = declared ?? type_of(g, arg.expr);
       const code = emit_expr(g, arg.expr, expected);
       const spread = arg.spread ? "..." : "";
+      // Una función del host recibe el valor tal cual: `js::Any` ahí es un
+      // valor de JavaScript, no un `any` del lenguaje que haya que presentar.
+      if (host) return `${spread}${code}`;
       if (expected !== undefined && is_any(expected) && is_numeric(type_of(g, arg.expr))) {
         runtime_name(g);
         return `${spread}rt.box(${code}, "${box_kind(type_of(g, arg.expr))}")`;
@@ -423,6 +429,16 @@ export function emit_path_reference(g: JsContext, segments: readonly string[], s
   const realm = segments[0];
   const name = segments[1];
   if (segments.length === 2 && realm !== undefined && name !== undefined) {
+    // Un namespace del host (`Math::PI`) se emite con su objeto real.
+    const namespace = host_namespace_info(g, realm);
+    const member = namespace?.members.get(name);
+    if (namespace !== undefined && member !== undefined) {
+      const target = `${host_js_name(namespace.name)}.${js_identifier(name)}`;
+      if (member.kind === "property" || member.kind === "index") {
+        return target;
+      }
+      return target;
+    }
     // `Color::Red` y `Ordering::Less`: variantes de una `omen` unitaria.
     const unit = current_unit(g);
     const omen = unit.module.env.omens.get(realm);

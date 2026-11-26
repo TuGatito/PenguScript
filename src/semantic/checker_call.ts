@@ -27,6 +27,7 @@ import { with_scope } from "./checker_context.ts";
 import { symbol_type_of } from "./external.ts";
 import { literal_fits_type } from "./literal_fit.ts";
 import { has_enchanted_method, resolve_enchanted_call } from "./checker_enchants.ts";
+import { is_host_name } from "./host_types.ts";
 import {
   add_borrow,
   ensure_not_iterating,
@@ -357,6 +358,9 @@ export function check_mut_receiver(
   const receiver = infer_expr(ctx, callee.object);
   // `atomic` y los mutex tienen mutabilidad interior: no exigen `mut`.
   if (receiver.kind === "named" && INTERIOR_MUTABLE.has(receiver.name)) return;
+  // Un objeto del host es una referencia del navegador: modificar sus campos
+  // (`url.search_params.set(...)`) no depende de que la variable sea `mut`.
+  if (receiver.kind === "named" && is_host_name(receiver.name)) return;
   const mutating =
     (receiver.kind === "named" && is_mutating_method(ctx, receiver, callee.name)) ||
     (receiver.kind === "named" && MUTATING_MEMBERS.has(callee.name)) ||

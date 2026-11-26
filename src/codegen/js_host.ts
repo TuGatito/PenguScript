@@ -211,3 +211,9 @@ export function host_type_name(type: HostTypeInfo): string {
 export function expression_host_type(g: JsContext, node: ExprNode): HostTypeInfo | undefined {
   return host_type_info(g, expression_type(g, node));
 }
+
+// Los módulos de `std/js/*` describen el host: sus `declare` reciben y
+// devuelven valores de JavaScript tal cual (sin cajas ni clones).
+export function is_host_module_path(path: string): boolean {
+  return path.startsWith("std/js/") || path.includes("/std/js/");
+}

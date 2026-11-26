@@ -937,7 +937,9 @@ function string_literal_text(token: Token): string {
 // Nombres de host: `js::Document`, `js::Array<T>`.
 // Devuelve `{text, span}` para poder usarlo como un token.
 export function expect_qualified_ident(c: Cursor, context: string): { text: string; span: Span } | undefined {
-  const first = expect_ident(c, context);
+  // El nombre de un miembro del host puede coincidir con una palabra clave
+  // (`host`, `delete`): en esa posición siempre es un nombre.
+  const first = at(c, "ident") || is_keyword(peek(c).text) ? expect_name(c, context) : expect_ident(c, context);
   if (first === undefined) return undefined;
   let text = first.text;
   let end = first.span;

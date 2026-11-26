@@ -1709,6 +1709,12 @@ export function js_cancel_animation_frame(identificador) {
   cancelAnimationFrame(Number(identificador));
 }
 
+export function js_delay(milisegundos) {
+  return new Promise((resolver) => {
+    setTimeout(() => resolver(null), Number(milisegundos));
+  });
+}
+
 export function js_queue_microtask(funcion) {
   queueMicrotask(funcion);
 }
