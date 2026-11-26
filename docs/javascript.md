@@ -187,6 +187,10 @@ gl.drawArrays(gl.TRIANGLES, 0, 3)
 Para tenerlo hará falta un `.d.ts` externo (`@webgpu/types`) en
 `third_party/dts`; es la única pieza del navegador que queda fuera del catálogo.
 
+La referencia de cada módulo del catálogo (tipos, miembros, globales) está en
+[`stdlib_js.md`](stdlib_js.md), generada desde los `.d.pengu` con
+`bun run gen:std-js-docs`.
+
 Los parches declarativos de `src/tsbindgen/overrides.ts` corrigen lo que el
 `.d.ts` no puede expresar (uniones que acaban en `js::Any`, `getElementById`
 devolviendo `js::HTMLElement?`, `setTimeout` devolviendo `int`, etc.); el

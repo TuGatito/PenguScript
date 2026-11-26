@@ -21,7 +21,8 @@
     "dts:prepare": "bun run scripts/fetch_dts.ts",
     "dts:check": "bun run scripts/fetch_dts.ts --check",
     "ts-bindgen": "bun run src/main.ts ts-bindgen",
-    "gen:std-js": "bun scripts/gen_std_js.ts"
+    "gen:std-js": "bun scripts/gen_std_js.ts",
+    "gen:std-js-docs": "bun scripts/gen_stdlib_js_docs.ts"
   },
   "devDependencies": {
     "@types/bun": "^1.4.5",

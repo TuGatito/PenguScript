@@ -4,6 +4,28 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+## ts-bindgen T6: referencia del catálogo del navegador
+
+- **`docs/stdlib_js.md`** (nuevo, generado): documenta los 24 módulos de
+  `std/js/` —19 escritos a mano y 5 generados, 1 265 tipos y 10 539 miembros—
+  con realm, `invoke`s, alias, omens, globales, namespaces, `declare` y los
+  miembros de cada tipo del host. Los módulos generados listan sus tipos con el
+  número de miembros y recortan las listas largas, porque la referencia completa
+  es el propio `.d.pengu`.
+- **`scripts/gen_stdlib_js_docs.ts`** (nuevo) y `bun run gen:std-js-docs`: el
+  documento se escribe desde el código con el parser real, así que un `.d.pengu`
+  del catálogo que no parsee rompe el generador en vez de documentarse mal.
+  `--check` falla si el documento se desincroniza.
+- **`docs/stdlib_api.md` sigue sin incluir `std/js/`** (decisión §10.8): el
+  catálogo del navegador tiene su propia referencia, y ahora `docs/stdlib.md`,
+  `README.md` y `docs/javascript.md` la enlazan.
+- **`tests/std/docs.test.ts`** gana dos casos: `docs/stdlib_js.md` al día y
+  cobertura del catálogo (todo archivo de `std/js/` tiene su sección, y el
+  documento avisa del E0518 que da `--target cpp`).
+- **Deuda reparada**: la tabla de `scripts/README.md` listaba `fetch_dts.ts` dos
+  veces; ahora cada script aparece una vez, con los cuatro generadores
+  (`embed_std`, `gen_std_js`, `gen_stdlib_docs`, `gen_stdlib_js_docs`).
+
 ## ts-bindgen T5: WebGL, WebAudio y E2E de navegador
 
 - **Catálogo autoconsistente**: el generador sustituye por `js::Any` cualquier

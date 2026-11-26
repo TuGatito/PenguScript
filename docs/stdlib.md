@@ -3,7 +3,9 @@
 
 La **referencia exacta** (módulo → runes, métodos y firmas) se genera desde el
 código en [`stdlib_api.md`](stdlib_api.md) con `bun run scripts/gen_stdlib_docs.ts`;
-las tablas de este documento resumen qué ofrece cada capa.
+las tablas de este documento resumen qué ofrece cada capa. El catálogo del
+navegador (`std/js/`, solo con `--target js`) tiene su propia referencia en
+[`stdlib_js.md`](stdlib_js.md), generada con `bun run gen:std-js-docs`.
 
 Every stdlib module must be imported with `invoke`. There are no builtins. Each module is one or two files:
 

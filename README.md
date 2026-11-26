@@ -142,7 +142,8 @@ Sin manifiesto, la raíz es el directorio del archivo y una importación desde
 
 La biblioteca estándar se escribe en `std/*.pengu` (con un bloque `declare`
 para lo intrínseco); las firmas generadas se documentan en
-`docs/stdlib_api.md`.
+`docs/stdlib_api.md`; el catálogo del navegador tiene la suya en
+`docs/stdlib_js.md`.
 (el runtime en C++ las implementa). `io`, `format` y `log` son módulos
 `.pengu` que envuelven intrínsecos sobre `vector<any>`: las funciones
 variádicas aceptan cualquier valor que implemente `Display`.
@@ -307,9 +308,11 @@ Estos enlaces describen objetos de JavaScript: compilar un archivo que invoque
 - [`docs/cheatsheet.md`](docs/cheatsheet.md): referencia del lenguaje.
 - [`docs/stdlib.md`](docs/stdlib.md): biblioteca estándar por capas.
 - [`docs/stdlib_api.md`](docs/stdlib_api.md): referencia generada desde el código (firmas exactas).
+- [`docs/stdlib_js.md`](docs/stdlib_js.md): catálogo del navegador (`std/js/`), también generado.
 - [`docs/ffi.md`](docs/ffi.md): enlaces con C, ABI, `.d.pengu` y `pengu bindgen`.
 - [`docs/lsp.md`](docs/lsp.md): capacidades del servidor LSP y ajustes de la extensión.
 - [`docs/javascript.md`](docs/javascript.md): backend JavaScript (`--target js`), forma del código emitido y diferencias con C++20.
+- [`docs/cheatsheet.md`](docs/cheatsheet.md): chuleta del lenguaje, con las secciones de objetos del host y de funciones `async`.
 - `docs/errors.md`: catálogo de códigos de diagnóstico.
 - [`scratch/plan_typescript.md`](scratch/plan_typescript.md): plan por fases.
 - [`scratch/plan_extension_vscode.md`](scratch/plan_extension_vscode.md): auditoría y fases de la extensión.
