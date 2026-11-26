@@ -394,5 +394,48 @@
       "const ${1:caja} = ${2:shared<Punto>}(Punto(0, 0))"
     ],
     "description": "Memoria compartida (shared/unique/weak)"
+  },
+  "host-tipo": {
+    "prefix": "host-tipo",
+    "body": [
+      "host ${1:js::Document} heir ${2:js::Node}",
+      "  ${3:mut title}: ${4:string}",
+      "",
+      "  ${5:createElement}: (${6:tagName}: string) -> ${7:js::HTMLElement}"
+    ],
+    "description": "Declara un tipo del host (navegador) para --target js; quita «heir» si no hereda"
+  },
+  "host-global": {
+    "prefix": "host-global",
+    "body": [
+      "host global ${1:document}: ${2:js::Document}"
+    ],
+    "description": "Declara un global del host, como document o console"
+  },
+  "host-namespace": {
+    "prefix": "host-namespace",
+    "body": [
+      "host namespace ${1:Math}",
+      "  ${2:PI}: double",
+      "",
+      "  ${3:sqrt}: (${4:x}: double) -> double"
+    ],
+    "description": "Declara un namespace del host, como Math o URL"
+  },
+  "funcion-async": {
+    "prefix": "funcion-async",
+    "body": [
+      "async ${1:cargar} = (${2:url}: ${3:string}) -> ${4:int}",
+      "  ${5:const respuesta = await js_fetch::fetch(url)}",
+      "  ${6:0}"
+    ],
+    "description": "Función asíncrona: devuelve future<T>"
+  },
+  "await": {
+    "prefix": "await",
+    "body": [
+      "${1:const respuesta = }await ${2:js_fetch::fetch(url)}"
+    ],
+    "description": "Espera un future<T> o un js::Promise<T>"
   }
 }

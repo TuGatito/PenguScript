@@ -16,7 +16,7 @@
       ")"
     ]
   ],
-  "wordPattern": "(-?\\d*\\.?\\d+)|([A-Za-z_][A-Za-z0-9_]*)",
+  "wordPattern": "(@?\\d*\\.?\\d+)|(@?[A-Za-z_][A-Za-z0-9_]*)",
   "autoCloseBefore": ";:.,=}])> \n\t",
   "autoClosingPairs": [
     {
@@ -71,7 +71,7 @@
     ]
   ],
   "indentationRules": {
-    "increaseIndentPattern": "(->|then|else|do|match|switch|enchanting|rune|omen|seal|echo|extern|declare|flags)\\s*$|^\\s*(if|unless|while|until|for|repeat)\\b|^\\s*(rune|omen|echo|seal|enchanting|flags|declare|extern|switch|match)\\b.*$|^\\s*when\\b.*\\bthen\\s*$",
+    "increaseIndentPattern": "(->|then|else|do|match|switch|enchanting|rune|omen|seal|echo|extern|declare|flags|namespace|constructor|destructor)\\s*$|^\\s*(if|unless|while|until|for|repeat)\\b|^\\s*(rune|omen|echo|seal|enchanting|flags|declare|extern|switch|match|host|meld|callback)\\b.*$|^\\s*when\\b.*\\bthen\\s*$",
     "decreaseIndentPattern": "^\\s*(else|when|until)\\b"
   },
   "onEnterRules": [
@@ -83,6 +83,12 @@
     },
     {
       "beforeText": "^\\s*--\\s",
+      "action": {
+        "indent": "indent"
+      }
+    },
+    {
+      "beforeText": "^\\s*(?:mut\\s+|static\\s+)?(?:[a-z_][A-Za-z0-9_]*):\\s*\\(.*\\)\\s*->\\s*\\S+\\s*$",
       "action": {
         "indent": "indent"
       }

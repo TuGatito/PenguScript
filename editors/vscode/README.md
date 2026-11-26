@@ -19,17 +19,21 @@ absoluta (`Ctrl+,` → busca «pengu.executable»).
 
 - **Resaltado** (`syntaxes/pengu.tmLanguage.json`) para todo el lenguaje:
   palabras clave, tipos primitivos y contenedores, declaraciones de `rune`,
-  `omen`, `echo`, `seal`, `enchanting`, funciones, parámetros, `@campo`, `#xs`,
-  `realm::simbolo`, interpolación `#{…}`, números hex/bin/octal/float y todos
-  los operadores.
+  `omen`, `echo`, `seal`, `enchanting`, tipos y globales del host (`host`,
+  `host global`, `host namespace`), definiciones y **llamadas** a funciones,
+  variables, parámetros, campos, propiedades (`obj.campo`), `@campo`, `#xs`,
+  `realm::simbolo` (`io::println`), variantes de `omen` (`Color::Red`),
+  `js::Tipo`, interpolación `#{…}`, números hex/bin/octal/float y todos los
+  operadores. La tabla de scopes está más abajo.
 - **Diagnósticos en tiempo real** del servidor LSP y, opcionalmente,
   `pengu check --json` al guardar (`pengu.check.onSave`).
 - **IntelliSense completo** (ver más abajo), incluidos los métodos de
   `enchanting`, los tipos del proyecto y `std/`.
 - **Tamaños medidos** del símbolo bajo el cursor en la barra de estado y
   comando «Mostrar tamaño del símbolo».
-- **Snippets** (`snippets/penguscript.code-snippets`): 49 plantillas para
-  `main`, `invoke`, `rune`, `omen`, `match`, `for`, `unsafe`, operadores, etc.
+- **Snippets** (`snippets/penguscript.code-snippets`): 54 plantillas para
+  `main`, `invoke`, `rune`, `omen`, `match`, `for`, `unsafe`, operadores,
+  `host`, `host global`, `host namespace` y funciones `async` con `await`.
 - **Comandos** (paleta con `Ctrl+Shift+P`, menú contextual del editor y del
   explorador):
 
@@ -65,6 +69,47 @@ Ejemplo de `tasks.json`:
 - **Barra de estado** con la versión del ejecutable o un aviso si no se
   encuentra.
 
+
+## Colores y scopes
+
+La gramática usa los scopes estándar de TextMate, así que cualquier tema
+(Default Dark+, Light+, One Dark, Solarized…) la colorea sin configuración
+extra. Si quieres afinar algún color, en `settings.json`:
+
+```jsonc
+"editor.tokenColorCustomizations": {
+  "textMateRules": [
+    { "scope": "support.constant.omen.pengu", "settings": { "foreground": "#e5c07b" } },
+    { "scope": "entity.name.function.call.pengu", "settings": { "fontStyle": "underline" } }
+  ]
+}
+```
+
+| Construcción | Scope |
+| --- | --- |
+| `rune Punto`, `omen Color`, `echo`, `seal`, `enchanting` | `keyword.declaration.type.pengu` + `entity.name.type.pengu` |
+| `host js::URL`, `host global document`, `host namespace Math` | `keyword.declaration.host.pengu`, `entity.name.type.host.pengu`, `entity.name.variable.global.pengu`, `entity.name.namespace.pengu` |
+| `mut`, `const`, `static`, `async`, `operator`, `bits` | `storage.modifier.pengu` |
+| `if`, `match`, `when`, `then`, `for`, `await` | `keyword.control.pengu` |
+| `and`, `or`, `not` | `keyword.operator.word.pengu` |
+| `nombre = (…) -> T` | `entity.name.function.pengu` |
+| `nombre: (…) -> T` y `mut nombre: …` en un bloque `host` | `entity.name.function.method.pengu` |
+| `saludar(…)`, `obj.metodo(…)`, `realm::fn(…)` | `entity.name.function.call.pengu` |
+| `Punto(…)`, `Shape::Circle(…)` | `entity.name.function.constructor-call.pengu` |
+| `mut total = …`, `for i in …` | `variable.other.definition.pengu` |
+| parámetros y campos (`x: double`) | `variable.parameter.pengu` |
+| `obj.campo` | `variable.other.property.pengu` |
+| `@campo` | `variable.language.self.pengu` + `variable.other.property.self.pengu` |
+| `io::println` | `entity.name.namespace.realm.pengu` + `entity.name.function.call.pengu` |
+| `Color::Red`, `Ordering::Less` | `entity.name.type.pengu` + `support.constant.omen.pengu` |
+| `js::Document` | `support.type.host.pengu` |
+| `int`, `vector<T>`, `string` | `support.type.primitive.pengu`, `support.type.container.pengu`, `support.type.string.pengu` |
+| `"texto #{expr}"` | `string.quoted.double.pengu` + `meta.interpolation.pengu` |
+| `-- comentario` | `comment.line.double-dash.pengu` |
+
+Los scopes llevan el sufijo `.pengu` para no chocar con otros lenguajes, pero
+los temas los reconocen igual porque la coincidencia es por prefijo
+(`entity.name.function.call.pengu` cuenta como `entity.name.function`).
 
 ## IntelliSense
 

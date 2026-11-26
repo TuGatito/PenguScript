@@ -18,7 +18,16 @@
       "include": "#declarations"
     },
     {
+      "include": "#host"
+    },
+    {
       "include": "#functions"
+    },
+    {
+      "include": "#variables"
+    },
+    {
+      "include": "#fields"
     },
     {
       "include": "#storage"
@@ -30,7 +39,16 @@
       "include": "#constants"
     },
     {
+      "include": "#paths"
+    },
+    {
+      "include": "#calls"
+    },
+    {
       "include": "#types"
+    },
+    {
+      "include": "#properties"
     },
     {
       "include": "#operators"
@@ -141,8 +159,20 @@
     "declarations": {
       "patterns": [
         {
+          "name": "meta.cast.pengu",
+          "match": "\\b(as)\\b(\\s+)((?:[A-Za-z_][A-Za-z0-9_]*::)*[A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.import.pengu"
+            },
+            "3": {
+              "name": "entity.name.type.cast.pengu"
+            }
+          }
+        },
+        {
           "name": "meta.realm.pengu",
-          "match": "^(\\s*)(realm)(\\s+)([A-Za-z_][A-Za-z0-9_]*)",
+          "match": "^(\\s*)(realm)(\\s+)([A-Za-z_][A-Za-z0-9_\\/]*)",
           "captures": {
             "2": {
               "name": "keyword.declaration.realm.pengu"
@@ -156,6 +186,27 @@
           }
         },
         {
+          "name": "meta.enchanting-builtin.pengu",
+          "match": "\\b(enchanting)\\b(\\s+)(unordered_map|unordered_set|priority_queue|vector|deque|list|array|map|set|string|optional|future|any|int|double|float|bool|char|long)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.type.pengu"
+            }
+          }
+        },
+        {
+          "name": "meta.extern-abi.pengu",
+          "match": "(\\bextern)\\b(\\s+)(\"[^\"]*\")",
+          "captures": {
+            "1": {
+              "name": "keyword.other.declare.pengu"
+            },
+            "3": {
+              "name": "string.quoted.double.abi.pengu"
+            }
+          }
+        },
+        {
           "name": "keyword.control.import.pengu",
           "match": "\\b(invoke|from|as)\\b"
         },
@@ -165,7 +216,7 @@
         },
         {
           "name": "meta.type-declaration.pengu",
-          "match": "\\b(rune|omen|echo|seal|enchanting|meld|opaque|callback|heir|flags)\\b(\\s+)([A-Z][A-Za-z0-9_]*)",
+          "match": "\\b(rune|omen|echo|seal|enchanting|meld|opaque|callback)\\b(\\s+)((?:[A-Za-z_][A-Za-z0-9_]*::)*[A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": {
               "name": "keyword.declaration.type.pengu"
@@ -176,8 +227,29 @@
           }
         },
         {
-          "name": "meta.type-parameter.pengu",
-          "match": "(<)([A-Z][A-Za-z0-9_]*)(>)",
+          "name": "meta.heir.pengu",
+          "match": "\\b(heir)\\b(\\s+)((?:[A-Za-z_][A-Za-z0-9_]*::)*[A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.heir.pengu"
+            },
+            "3": {
+              "name": "entity.name.type.pengu"
+            }
+          }
+        },
+        {
+          "name": "meta.flags.pengu",
+          "match": "\\b(flags)\\b",
+          "captures": {
+            "1": {
+              "name": "storage.modifier.flags.pengu"
+            }
+          }
+        },
+        {
+          "name": "meta.type-parameter-list.pengu",
+          "match": "(<)([A-Z][A-Za-z0-9_]*(?:\\s*,\\s*[A-Z][A-Za-z0-9_]*)*)(>)",
           "captures": {
             "1": {
               "name": "punctuation.definition.typeparameters.begin.pengu"
@@ -192,16 +264,105 @@
         }
       ]
     },
+    "host": {
+      "patterns": [
+        {
+          "name": "meta.host-global.pengu",
+          "match": "^(\\s*)(host)(\\s+)(global)(\\s+)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "2": {
+              "name": "keyword.declaration.host.pengu"
+            },
+            "4": {
+              "name": "storage.modifier.global.pengu"
+            },
+            "6": {
+              "name": "entity.name.variable.global.pengu"
+            }
+          }
+        },
+        {
+          "name": "meta.host-namespace.pengu",
+          "match": "^(\\s*)(host)(\\s+)(namespace)(\\s+)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "2": {
+              "name": "keyword.declaration.host.pengu"
+            },
+            "4": {
+              "name": "storage.modifier.namespace.pengu"
+            },
+            "6": {
+              "name": "entity.name.namespace.pengu"
+            }
+          }
+        },
+        {
+          "name": "meta.host-type.pengu",
+          "match": "^(\\s*)(host)(\\s+)((?:[A-Za-z_][A-Za-z0-9_]*::)*[A-Za-z_][A-Za-z0-9_]*)(\\s*)(<[^<>]*>)?",
+          "captures": {
+            "2": {
+              "name": "keyword.declaration.host.pengu"
+            },
+            "4": {
+              "name": "entity.name.type.host.pengu"
+            },
+            "6": {
+              "name": "entity.name.type.parameter.pengu"
+            }
+          }
+        }
+      ]
+    },
     "functions": {
       "patterns": [
         {
-          "name": "meta.function.pengu",
-          "begin": "^(\\s*)([a-z_][A-Za-z0-9_]*)(\\s*)(=)(?=\\s*(?:->|\\(|<))",
-          "beginCaptures": {
+          "name": "meta.method-definition.pengu",
+          "match": "^(\\s*)((?:mut|static)\\s+)([a-z_][A-Za-z0-9_]*)(\\s*)(:)(\\s*)(?=\\()",
+          "captures": {
             "2": {
-              "name": "entity.name.function.pengu"
+              "name": "storage.modifier.pengu"
+            },
+            "3": {
+              "name": "entity.name.function.method.pengu"
+            }
+          }
+        },
+        {
+          "name": "meta.host-method-definition.pengu",
+          "match": "^(\\s*)([a-z_][A-Za-z0-9_]*)(\\s*)(:)(\\s*)(?=\\()",
+          "captures": {
+            "2": {
+              "name": "entity.name.function.method.pengu"
+            }
+          }
+        },
+        {
+          "name": "meta.static-method-definition.pengu",
+          "match": "^(\\s*)(static)(\\s+)([A-Za-z_][A-Za-z0-9_]*)(\\s*)(\\()",
+          "captures": {
+            "2": {
+              "name": "storage.modifier.pengu"
             },
             "4": {
+              "name": "entity.name.function.method.pengu"
+            }
+          }
+        },
+        {
+          "name": "meta.function.definition.pengu",
+          "begin": "^(\\s*)((?:(?:async|unsafe|mut)\\s+)*)([a-z_][A-Za-z0-9_]*)(\\s*)(=)(\\s*)(?=\\([^()]*\\)\\s*->|<[^<>]*>\\s*\\([^()]*\\)\\s*->|->)",
+          "beginCaptures": {
+            "2": {
+              "patterns": [
+                {
+                  "include": "#storage"
+                }
+              ]
+            },
+            "3": {
+              "name": "entity.name.function.pengu"
+            },
+            "5": {
               "name": "keyword.operator.assignment.pengu"
             }
           },
@@ -217,20 +378,16 @@
               "include": "#numbers"
             },
             {
-              "include": "#storage"
-            },
-            {
-              "include": "#constants"
-            },
-            {
               "include": "#types"
             },
             {
-              "include": "#operators"
+              "include": "#paths"
             },
             {
-              "name": "variable.parameter.pengu",
-              "match": "\\b([a-z_][A-Za-z0-9_]*)\\s*(?=:)"
+              "include": "#fields"
+            },
+            {
+              "include": "#operators"
             },
             {
               "include": "#punctuation"
@@ -238,11 +395,72 @@
           ]
         },
         {
-          "name": "variable.other.member.pengu",
-          "match": "^(\\s*)([a-z_][A-Za-z0-9_]*)(\\s*)(:)(?=\\s*[A-Za-z_])",
+          "name": "meta.constructor.pengu",
+          "match": "\\b(constructor)\\b(\\s*)(\\()",
+          "captures": {
+            "1": {
+              "name": "entity.name.function.constructor.pengu"
+            },
+            "3": {
+              "name": "punctuation.section.parameters.begin.pengu"
+            }
+          }
+        },
+        {
+          "name": "meta.destructor.pengu",
+          "match": "\\b(destructor)\\b",
+          "captures": {
+            "1": {
+              "name": "entity.name.function.destructor.pengu"
+            }
+          }
+        }
+      ]
+    },
+    "variables": {
+      "patterns": [
+        {
+          "name": "meta.variable-declaration.pengu",
+          "match": "^(\\s*)((?:mut|const|static)\\s+)([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "2": {
-              "name": "variable.other.member.pengu"
+              "name": "storage.modifier.pengu"
+            },
+            "3": {
+              "name": "variable.other.definition.pengu"
+            }
+          }
+        },
+        {
+          "name": "meta.assignment.pengu",
+          "match": "^(\\s*)([a-zA-Z_][A-Za-z0-9_]*)(\\s*)((?:<=>|<<=|>>=|[-+*\\/%&|^]=))",
+          "captures": {
+            "2": {
+              "name": "variable.other.assign.pengu"
+            },
+            "4": {
+              "name": "keyword.operator.assignment.pengu"
+            }
+          }
+        },
+        {
+          "name": "meta.multi-assignment.pengu",
+          "match": "^(\\s*)(\\[)([^\\]]+)(\\])(\\s*)(=)",
+          "captures": {
+            "3": {
+              "name": "variable.other.definition.pengu"
+            },
+            "6": {
+              "name": "keyword.operator.assignment.pengu"
+            }
+          }
+        },
+        {
+          "name": "meta.for-binding.pengu",
+          "match": "(?<=\\bfor\\s)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "variable.other.definition.pengu"
             }
           }
         }
@@ -252,12 +470,27 @@
       "patterns": [
         {
           "name": "storage.modifier.pengu",
-          "match": "\\b(mut|const|static|unsafe|needs|operator|constructor|destructor|parent|bits|async|host)\\b"
+          "match": "\\b(mut|const|static|unsafe|needs|operator|constructor|destructor|parent|bits|async|host|global|namespace)\\b"
         }
       ]
     },
     "control": {
       "patterns": [
+        {
+          "name": "meta.for-binding.pengu",
+          "match": "\\b(for)\\b(\\s+)([A-Za-z_][A-Za-z0-9_]*)(\\s*)(,)?(\\s*)([A-Za-z_][A-Za-z0-9_]*)?",
+          "captures": {
+            "1": {
+              "name": "keyword.control.pengu"
+            },
+            "3": {
+              "name": "variable.other.definition.pengu"
+            },
+            "7": {
+              "name": "variable.other.definition.pengu"
+            }
+          }
+        },
         {
           "name": "keyword.control.pengu",
           "match": "\\b(if|unless|else|then|switch|when|match|do|while|until|repeat|for|in|break|continue|return|pass|await)\\b"
@@ -276,7 +509,101 @@
         },
         {
           "name": "variable.language.self.pengu",
-          "match": "@"
+          "match": "(@)([a-z_][A-Za-z0-9_]*)?",
+          "captures": {
+            "1": {
+              "name": "variable.language.self.pengu"
+            },
+            "2": {
+              "name": "variable.other.property.self.pengu"
+            }
+          }
+        }
+      ]
+    },
+    "paths": {
+      "patterns": [
+        {
+          "name": "meta.host-type-reference.pengu",
+          "match": "\\b(js)(::)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "entity.name.namespace.js.pengu"
+            },
+            "2": {
+              "name": "punctuation.accessor.namespace.pengu"
+            },
+            "3": {
+              "name": "support.type.host.pengu"
+            }
+          }
+        },
+        {
+          "name": "meta.omen-variant.pengu",
+          "match": "\\b([A-Z][A-Za-z0-9_]*)(::)([A-Z][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "entity.name.type.pengu"
+            },
+            "2": {
+              "name": "punctuation.accessor.namespace.pengu"
+            },
+            "3": {
+              "name": "support.constant.omen.pengu"
+            }
+          }
+        },
+        {
+          "name": "meta.namespace-call.pengu",
+          "match": "\\b([a-z_][A-Za-z0-9_]*)(::)([a-z_][A-Za-z0-9_]*)(?=\\s*\\()",
+          "captures": {
+            "1": {
+              "name": "entity.name.namespace.realm.pengu"
+            },
+            "2": {
+              "name": "punctuation.accessor.namespace.pengu"
+            },
+            "3": {
+              "name": "entity.name.function.call.pengu"
+            }
+          }
+        },
+        {
+          "name": "meta.namespace-member.pengu",
+          "match": "\\b([a-z_][A-Za-z0-9_]*)(::)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "entity.name.namespace.realm.pengu"
+            },
+            "2": {
+              "name": "punctuation.accessor.namespace.pengu"
+            },
+            "3": {
+              "name": "variable.other.namespace-member.pengu"
+            }
+          }
+        }
+      ]
+    },
+    "calls": {
+      "patterns": [
+        {
+          "name": "meta.call.constructor.pengu",
+          "match": "\\b([A-Z][A-Za-z0-9_]*)(\\s*)(?=\\()",
+          "captures": {
+            "1": {
+              "name": "entity.name.function.constructor-call.pengu"
+            }
+          }
+        },
+        {
+          "name": "meta.call.pengu",
+          "match": "\\b([a-z_][A-Za-z0-9_]*)(\\s*)(?=\\()",
+          "captures": {
+            "1": {
+              "name": "entity.name.function.call.pengu"
+            }
+          }
         }
       ]
     },
@@ -300,7 +627,96 @@
         },
         {
           "name": "support.type.container.pengu",
-          "match": "\\b(unordered_multimap|unordered_multiset|unordered_map|unordered_set|forward_list|priority_queue|condition_variable|shared_mutex|shared_mutex|multimap|multiset|deque|array|bitset|complex|atomic|mutex|thread|vector|list|span|pair|tuple|map|set|stack|queue|unique|shared|weak|ref|raw|optional|variant|any|function|init_list|Ordering)\\b"
+          "match": "\\b(unordered_multimap|unordered_multiset|unordered_map|unordered_set|forward_list|priority_queue|condition_variable|shared_mutex|multimap|multiset|deque|array|bitset|complex|atomic|mutex|thread|vector|list|span|pair|tuple|map|set|stack|queue|unique|shared|weak|ref|raw|optional|variant|any|function|init_list|Ordering|future)\\b"
+        },
+        {
+          "name": "meta.cast-type.pengu",
+          "match": "(?<=\\bas\\s)((?:[A-Za-z_][A-Za-z0-9_]*::)*[A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "entity.name.type.cast.pengu"
+            }
+          }
+        },
+        {
+          "name": "meta.return-type.pengu",
+          "match": "(->)(\\s+)((?:[A-Za-z_][A-Za-z0-9_]*::)*[A-Z][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.operator.pengu"
+            },
+            "3": {
+              "name": "entity.name.type.pengu"
+            }
+          }
+        }
+      ]
+    },
+    "fields": {
+      "patterns": [
+        {
+          "name": "meta.index-signature.pengu",
+          "match": "\\b(mut)?(\\s*)(\\[)([A-Za-z_][A-Za-z0-9_]*)(\\s*)(:)(?!:)",
+          "captures": {
+            "1": {
+              "name": "storage.modifier.pengu"
+            },
+            "3": {
+              "name": "punctuation.section.brackets.begin.pengu"
+            },
+            "4": {
+              "name": "variable.parameter.index.pengu"
+            }
+          }
+        },
+        {
+          "name": "meta.bitfield.pengu",
+          "match": "\\b(bits)(\\s+)(\\d+)",
+          "captures": {
+            "1": {
+              "name": "storage.modifier.bits.pengu"
+            },
+            "3": {
+              "name": "constant.numeric.integer.pengu"
+            }
+          }
+        },
+        {
+          "name": "meta.field-name.pengu",
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(\\s*)(?=:(?!:))",
+          "captures": {
+            "1": {
+              "name": "variable.parameter.pengu"
+            }
+          }
+        }
+      ]
+    },
+    "properties": {
+      "patterns": [
+        {
+          "name": "meta.method-call.pengu",
+          "match": "(\\.)(\\s*)([A-Za-z_][A-Za-z0-9_]*)(\\s*)(?=\\()",
+          "captures": {
+            "1": {
+              "name": "punctuation.accessor.property.pengu"
+            },
+            "3": {
+              "name": "entity.name.function.call.pengu"
+            }
+          }
+        },
+        {
+          "name": "meta.property-access.pengu",
+          "match": "(\\.)(\\s*)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "punctuation.accessor.property.pengu"
+            },
+            "3": {
+              "name": "variable.other.property.pengu"
+            }
+          }
         }
       ]
     },

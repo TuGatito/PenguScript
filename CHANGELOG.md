@@ -4,6 +4,36 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+## Extensión de VS Code: resaltado completo del lenguaje
+
+- **Gramática reescrita** (`editors/vscode/syntaxes/pengu.tmLanguage.json`): la
+  versión anterior solo pintaba palabras sueltas. Ahora distingue
+  definiciones de funciones (`entity.name.function`), **llamadas**
+  (`entity.name.function.call`), constructores de rune y de variantes
+  (`Punto(…)`, `Shape::Circle(…)`), variables (`variable.other.definition`),
+  parámetros y campos (`variable.parameter`), propiedades (`obj.campo`),
+  `@campo`, ámbitos (`realm::simbolo`, `io::println`, `js::Tipo`), variantes de
+  `omen` (`Color::Red`, `Ordering::Less`), tipos y globales del host (`host`,
+  `host global`, `host namespace`), tipos de retorno y de `as`.
+- **Palabras clave completas**: se añadieron `global`, `namespace`, y se
+  reorganizaron los grupos para que `constructor`, `destructor`, `parent`,
+  `bits`, `async`, `await`, `host`, `meld`, `opaque`, `callback` y `flags`
+  tengan scope propio. `tests/extension/grammar.test.ts` comprueba que toda
+  palabra clave, tipo y operador del compilador tiene patrón.
+- **Scopes estándar para los temas**: la tabla de `editors/vscode/README.md`
+  documenta qué scope usa cada construcción y cómo retocarlo con
+  `editor.tokenColorCustomizations`; los temas lo reconocen por prefijo.
+- **Simulador de TextMate en las pruebas**: además de comprobar que existe un
+  patrón, el test recorre la gramática en el orden del editor y verifica el
+  scope del token concreto en 37 construcciones reales (llamadas, ámbitos,
+  variantes, campos, parámetros, `host`, `for`, comentarios…).
+- **Configuración del lenguaje**: la indentación automática reconoce los
+  bloques `host`, `host namespace`, `meld`, `callback`, `constructor` y
+  `destructor`, y las propiedades-función de los bloques `host`;
+  `wordPattern` incluye `@campo`.
+- **Snippets**: 5 nuevos (`host-tipo`, `host-global`, `host-namespace`,
+  `funcion-async`, `await`) hasta 54, todos verificados por el parser.
+
 ## ts-bindgen T6: referencia del catálogo del navegador
 
 - **`docs/stdlib_js.md`** (nuevo, generado): documenta los 24 módulos de

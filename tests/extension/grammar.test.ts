@@ -103,4 +103,123 @@ describe("gramática de PenguScript", () => {
     const constants = regexes_of("constants").map((source) => new RegExp(source));
     expect(constants.some((pattern) => pattern.test("ref(@campo)"))).toBe(true);
   });
+
+  // Las pruebas de arriba solo comprueban que existe *algún* patrón capaz de
+  // pintar cada palabra. Estas comprueban el resultado: se recorre la gramática
+  // en el mismo orden que usa el editor (gana el patrón que empieza antes y, en
+  // empate, el que aparece antes) y se mira el scope del token concreto.
+  test("cada construcción se pinta con su scope", () => {
+    const cases: readonly [string, string, string][] = [
+      ["  const total = 3", "total", "variable.other.definition.pengu"],
+      ["  const total = 3", "const", "storage.modifier.pengu"],
+      ["  mut vidas: int = 3", "vidas", "variable.other.definition.pengu"],
+      ["  cadena += \"m\"", "cadena", "variable.other.assign.pengu"],
+      ["saludar(\"hola\")", "saludar", "entity.name.function.call.pengu"],
+      ["  io::println(\"x\")", "io", "entity.name.namespace.realm.pengu"],
+      ["  io::println(\"x\")", "println", "entity.name.function.call.pengu"],
+      ["  math::pi", "pi", "variable.other.namespace-member.pengu"],
+      ["  Color::Red", "Red", "support.constant.omen.pengu"],
+      ["  Ordering::Less", "Ordering", "entity.name.type.pengu"],
+      ["  Shape::Circle(2.0)", "Circle", "support.constant.omen.pengu"],
+      ["  js::Document", "Document", "support.type.host.pengu"],
+      ["  document.title = \"x\"", "title", "variable.other.property.pengu"],
+      ["  document.getElementById(\"a\")", "getElementById", "entity.name.function.call.pengu"],
+      ["  letras.push(c)", "push", "entity.name.function.call.pengu"],
+      ["  const p = Punto(1.0, 2.0)", "Punto", "entity.name.function.constructor-call.pengu"],
+      ["main = ->", "main", "entity.name.function.pengu"],
+      ["  pedir = (n: int) -> int", "pedir", "entity.name.function.pengu"],
+      ["  pedir = (n: int) -> int", "n", "variable.parameter.pengu"],
+      ["  mut translate: (dx: double) -> void", "translate", "entity.name.function.method.pengu"],
+      ["  mut[indice: int]: string", "indice", "variable.parameter.index.pengu"],
+      ["  mut[indice: int]: string", "mut", "storage.modifier.pengu"],
+      ["  for i in 0..<3", "i", "variable.other.definition.pengu"],
+      ["  for clave, valor in mapa", "valor", "variable.other.definition.pengu"],
+      ["rune Punto heir Base", "Punto", "entity.name.type.pengu"],
+      ["rune Punto heir Base", "Base", "entity.name.type.pengu"],
+      ["host global document", "document", "entity.name.variable.global.pengu"],
+      ["host namespace Math", "Math", "entity.name.namespace.pengu"],
+      ["host js::URL", "js::URL", "entity.name.type.host.pengu"],
+      ["  const x = valor as Punto", "Punto", "entity.name.type.cast.pengu"],
+      ["  pedir = () -> Punto", "Punto", "entity.name.type.pengu"],
+      ["  constructor(x: double)", "constructor", "entity.name.function.constructor.pengu"],
+      ["  mut @x = 3", "@", "variable.language.self.pengu"],
+      ["  -- un comentario", "-- un comentario", "comment.line.double-dash.pengu"],
+      ["  return suma(1, 2)", "return", "keyword.control.pengu"],
+      ["  if not vacio then", "not", "keyword.operator.word.pengu"],
+      ["  match forma", "match", "keyword.control.pengu"],
+    ];
+    for (const [line, text, expected] of cases) {
+      const found = scopes_of(line, text);
+      expect({ line, text, found: found.includes(expected) }).toEqual({ line, text, found: true });
+    }
+  });
 });
+
+// --- Simulador mínimo del motor de TextMate ------------------------------
+//
+// Recorre el texto como el editor: en cada paso gana el patrón que empieza
+// antes y, si empatan, el que se declara primero. No modela las regiones
+// `begin`/`end` (cadenas y comentarios) más allá de su comienzo, que es lo que
+// necesitan las comprobaciones de arriba.
+
+interface RawPattern {
+  readonly name?: string;
+  readonly match?: string;
+  readonly begin?: string;
+  readonly captures?: Readonly<Record<string, { readonly name?: string }>>;
+  readonly beginCaptures?: Readonly<Record<string, { readonly name?: string }>>;
+  readonly patterns?: readonly RawPattern[];
+}
+
+interface OrderedPattern {
+  readonly pattern: RawPattern;
+}
+
+function ordered_patterns(): OrderedPattern[] {
+  const repository = grammar.repository as Record<string, RawPattern>;
+  const ordered: OrderedPattern[] = [];
+  const walk = (patterns: readonly RawPattern[] | undefined): void => {
+    for (const pattern of patterns ?? []) {
+      ordered.push({ pattern });
+      walk(pattern.patterns);
+    }
+  };
+  for (const entry of grammar.patterns as { include: string }[]) {
+    const group = repository[entry.include.slice(1)];
+    if (group === undefined) throw new Error(`grupo «${entry.include}» no existe`);
+    if (group.patterns === undefined) ordered.push({ pattern: group });
+    else walk(group.patterns);
+  }
+  return ordered;
+}
+
+const ordered = ordered_patterns();
+
+function scopes_of(line: string, text: string): string[] {
+  const scopes: string[] = [];
+  let rest = line;
+  let guard = 0;
+  while (rest.length > 0 && guard++ < 200) {
+    let best: { index: number; pattern: RawPattern; match: RegExpMatchArray } | undefined;
+    for (const { pattern } of ordered) {
+      const source = pattern.match ?? pattern.begin;
+      if (source === undefined) continue;
+      const match = new RegExp(source).exec(rest);
+      if (match === null) continue;
+      if (best === undefined || match.index < best.index) best = { index: match.index, pattern, match };
+    }
+    if (best === undefined) break;
+    const matched = best.match[0];
+    if (matched.length === 0) break;
+    const captures = { ...(best.pattern.beginCaptures ?? {}), ...(best.pattern.captures ?? {}) };
+    let captured = false;
+    for (const [index, capture] of Object.entries(captures)) {
+      if (best.match[Number(index)]?.trim() !== text || capture.name === undefined) continue;
+      scopes.push(capture.name);
+      captured = true;
+    }
+    if (!captured && best.pattern.name !== undefined && matched.trim() === text) scopes.push(best.pattern.name);
+    rest = rest.slice(best.index + matched.length);
+  }
+  return scopes;
+}
