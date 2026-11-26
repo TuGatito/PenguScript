@@ -19,7 +19,9 @@
     "vsix": "bash scripts/vsix.sh",
     "embed:std": "bun run scripts/embed_std.ts",
     "dts:prepare": "bun run scripts/fetch_dts.ts",
-    "dts:check": "bun run scripts/fetch_dts.ts --check"
+    "dts:check": "bun run scripts/fetch_dts.ts --check",
+    "ts-bindgen": "bun run src/main.ts ts-bindgen",
+    "gen:std-js": "bun scripts/gen_std_js.ts"
   },
   "devDependencies": {
     "@types/bun": "^1.4.5",

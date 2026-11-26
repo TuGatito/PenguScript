@@ -8,7 +8,23 @@ export interface ParsedArgs {
 }
 
 // Flags que esperan un valor en el argumento siguiente (`--out ruta`).
-const VALUE_FLAGS = new Set(["out", "realm", "link", "clang", "lib", "entry", "target", "int64", "type", "compiler", "base", "base-realm", "base-module"]);
+const VALUE_FLAGS = new Set([
+  "out",
+  "realm",
+  "link",
+  "clang",
+  "lib",
+  "entry",
+  "target",
+  "int64",
+  "type",
+  "compiler",
+  "base",
+  "base-realm",
+  "base-module",
+  "only",
+  "ts",
+]);
 
 // Estos flags aceptan valores que empiezan por `-` (`--link -lraylib`).
 const DASHED_VALUE_FLAGS = new Set(["link", "lib"]);

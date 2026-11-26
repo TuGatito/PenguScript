@@ -15,5 +15,9 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts"]
+  "include": ["src/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts"],
+  // Los `.d.ts` de `tests/fixtures/` son datos de prueba para ts-bindgen, no
+  // parte del programa: si se compilaran, sus `declare`/`namespace` pisarían
+  // tipos globales de TypeScript (`URL`, `Element`…).
+  "exclude": ["tests/fixtures/**/*.d.ts"]
 }

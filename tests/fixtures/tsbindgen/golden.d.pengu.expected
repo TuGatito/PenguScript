@@ -1,0 +1,54 @@
+-- Enlaces generados por «pengu ts-bindgen» desde golden.d.ts.
+-- No edites este archivo a mano: vuelve a ejecutar el generador.
+
+realm js_demo
+invoke "std/js/types"
+
+host js::Element
+  mut id: string
+  tagName: string
+  mut className: string
+  mut childElementCount: int
+  mut width: int
+  appendChild: (child: js::Node) -> js::Node
+  querySelector: (selectors: string) -> js::Element?
+  getAttribute: (name: string) -> string?
+  setAttribute: (name: string, value: string) -> void
+  remove: () -> void
+  mut[indice: int]: js::Element
+
+host js::Node
+  mut nodeType: int
+  mut textContent: string?
+  mut parentNode: js::Node?
+
+host js::HTMLElement heir js::Element
+  mut title: string
+  mut hidden: bool
+  click: () -> void
+  mut nodeType: int
+  mut textContent: string?
+  mut parentNode: js::Node?
+
+host js::Document
+  mut title: string
+  mut body: js::HTMLElement
+  createElement: (tagName: string, options: js::ElementCreationOptions?) -> js::HTMLElement
+  getElementById: (id: string) -> js::HTMLElement?
+  querySelectorAll: (selectors: string) -> js::NodeList
+
+host js::Blob
+  size: int
+  mut type: string
+
+host namespace URL
+  createObjectURL: (blob: js::Blob) -> string
+  canParse: bool
+
+omen js::NodeKind
+  Element = 1
+  Text = 3
+host global document: js::Document
+
+declare
+  setTimeout = (handler: function<() -> void>, timeout: double?) -> double

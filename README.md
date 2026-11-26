@@ -76,6 +76,7 @@ están en [editors/vscode/README.md](editors/vscode/README.md).
 | `pengu lsp` | Servidor LSP por stdin/stdout |
 | `pengu size [archivo]` | Bytes y alineación medidos (`--json`, `--type`, `--fields`) |
 | `pengu bindgen <cabecera>` | Genera `*.d.pengu` desde una cabecera C/C++ |
+| `pengu ts-bindgen <archivo.d.ts>` | Genera `*.d.pengu` desde tipos de TypeScript (`--realm`, `--out`, `--check`, `--report`) |
 | `pengu init [dir] [nombre]` | Crea un proyecto con `pengu.toml` |
 | `pengu doctor` | Toolchain y huella de la stdlib; avisa si el proyecto tiene otra (`--json`) |
 | `pengu clean` | Borra las cachés `.pengu-cache` |
@@ -275,6 +276,27 @@ reutiliza otra cabecera: sus tipos se cualifican (`raylib::Rectangle`) y no se
 repiten, así que `raygui.d.pengu` solo declara las 61 funciones `Gui*` y sus 6
 constantes. Los ejemplos `17_raylib` y `18_raygui` los usan; el segundo
 necesita el objeto de raygui con `-DRAYGUI_IMPLEMENTATION`.
+
+## Enlaces con TypeScript
+
+`ts-bindgen` es el hermano del anterior para el navegador: parte de un `.d.ts`
+y produce un `.d.pengu` con bloques `host`.
+
+```bash
+pengu ts-bindgen third_party/dts/lib.dom.d.ts --realm js_dom --out dom.d.pengu
+pengu ts-bindgen mi-libreria.d.ts --realm js_mi_lib --check   # en la suite
+```
+
+Traduce interfaces y clases a `host js::Nombre` (con `heir` para la herencia,
+`mut` para las propiedades escribibles, `constructor`, `static` e índices),
+`declare var` a `host global`, `declare namespace` a `host namespace`,
+`declare function` a `declare`, y los typedefs simples a `echo`/`seal`. Lo que
+no se puede escribir se omite con motivo (`--report` o `--json` lo detallan) y
+las sobrecargas se colapsan en la primera firma. La salida es determinista, así
+que `--check` sirve para el catálogo comprometido (`bun run gen:std-js`).
+
+Estos enlaces describen objetos de JavaScript: compilar un archivo que invoque
+`std/js/*` (o un catálogo generado) con `--target cpp` da **E0518**.
 
 ## Documentación
 

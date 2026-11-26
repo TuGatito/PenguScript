@@ -4,6 +4,38 @@ Todos los cambios relevantes de este proyecto se documentan aquí. El formato
 sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa
 [versionado semántico](https://semver.org/lang/es/).
 
+## ts-bindgen T3: el generador `.d.ts` → `.d.pengu`
+
+- **`pengu ts-bindgen`**: lee un `.d.ts` con la Compiler API de TypeScript y
+  escribe un `.d.pengu` con bloques `host`. Traduce interfaces y clases a
+  `host js::Nombre` (herencia con `heir`, `mut` para lo escribible,
+  `constructor`, `static`, índices `[indice: int]: T`), `declare var` a
+  `host global`, `declare namespace` a `host namespace`, `declare function` a
+  `declare`, y los typedefs simples a `echo`/`seal`; los enums son `omen`.
+- **Informe honesto**: cada omisión lleva su motivo (`--report` para leerlo,
+  `--json` para la suite) y las sobrecargas se colapsan en la primera firma.
+  Se omiten las tuplas, las uniones de varios tipos, los nombres no escribibles
+  (`annotation-xml`, `0`, `$1`) y los alias a tipos de otro módulo (los `echo`
+  se resuelven al registrar el módulo, así que no pueden cruzar archivos).
+- **Tipos**: `number` → `double` salvo en miembros enteros conocidos
+  (`width`, `height`, `length`, `index`…), `string`/`boolean`/`bigint`
+  directos, unión con `null` → `T?`, diccionarios → `js::Object`, `T[]` →
+  `js::Array<T>`, `Record<K,V>`/`ArrayLike`/`PromiseLike`/`Function` con alias.
+- **CLI**: `--realm`, `-o/--out` (archivo o directorio), `--only <dominio>`,
+  `--check` (E0905/E0906), `--report`, `--json`. Determinista: mismo `.d.ts`,
+  mismo texto.
+- **Catálogo generado**: `bun run gen:std-js` escribe
+  `std/js/dom_generated.d.pengu` (1123 tipos, 9534 miembros, 170 globales) y
+  `std/js/es5_generated.d.pengu` desde `third_party/dts`; `bun run gen:std-js
+  --check` los verifica en la suite. El archivo generado de `lib.dom.d.ts`
+  (1,1 MB) se vuelve a parsear **sin diagnósticos** y compila un programa que
+  escribe en `document.title` y lee `document.body`.
+- **Trampa reparada en la suite**: los `.d.ts` de `tests/fixtures` entraban en
+  el `tsconfig.json` y declaraban `interface Element`/`namespace URL` globales,
+  que rompían el typecheck del propio compilador. Ahora se excluyen.
+- **Argumentos**: `--only` y `--ts` son flags con valor (`--only canvas` antes
+  valía `true`).
+
 ## ts-bindgen T2: namespaces, construcción y futuros del host
 
 - **Namespaces del host con `::`**: `Math::sqrt(144.0)` → `Math.sqrt(144)`,

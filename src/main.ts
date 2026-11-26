@@ -9,6 +9,7 @@ import { run_clean } from "./cli/clean_command.ts";
 import { run_fmt } from "./cli/fmt_command.ts";
 import { run_lsp } from "./cli/lsp_command.ts";
 import { run_bindgen } from "./cli/bindgen_command.ts";
+import { run_ts_bindgen } from "./cli/tsbindgen_command.ts";
 import { run_size } from "./cli/size_command.ts";
 import { run_doctor } from "./cli/doctor_command.ts";
 import { LANGUAGE_NAME, LANGUAGE_VERSION } from "./version.ts";
@@ -93,6 +94,12 @@ function main(argv: readonly string[]): number {
     }
     case "bindgen": {
       const result = run_bindgen(args);
+      if (result.exit_code === 0) print(result.output);
+      else print_error(result.output);
+      return result.exit_code;
+    }
+    case "ts-bindgen": {
+      const result = run_ts_bindgen(args);
       if (result.exit_code === 0) print(result.output);
       else print_error(result.output);
       return result.exit_code;

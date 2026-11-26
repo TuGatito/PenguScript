@@ -323,6 +323,22 @@ function read_members(
       const name = member_name(state, member.name);
       if (name === undefined) continue;
       state.stats.members += 1;
+      // `mapa: <U>(f: (valor: T) => U) => U[]` es una propiedad de tipo
+      // función con parámetros de tipo propios: se emite como método para no
+      // perder `<U>`.
+      if (member.type !== undefined && ts.isFunctionTypeNode(member.type)) {
+        out.push({
+          kind: "method",
+          name,
+          type_params: (member.type.typeParameters ?? []).map((param) => param.name.text),
+          params: read_params(state, member.type.parameters),
+          result: read_return(state, member.type.type),
+          optional: has_question_token(member),
+          span: span_of(state, member),
+          ...doc_of(member),
+        });
+        continue;
+      }
       out.push({
         kind: "property",
         name,

@@ -1,0 +1,794 @@
+-- Enlaces generados por «pengu ts-bindgen» desde lib.es5.d.ts.
+-- No edites este archivo a mano: vuelve a ejecutar el generador.
+
+realm js_es5_generated
+invoke "std/js/types"
+
+host js::Symbol
+  toString: () -> string
+  valueOf: () -> js::Any
+
+host js::PropertyDescriptor
+  mut configurable?: bool
+  mut enumerable?: bool
+  mut value?: js::Any
+  mut writable?: bool
+  get: () -> js::Any
+  set: (v: js::Any) -> void
+
+host js::PropertyDescriptorMap
+  mut[indice: js::PropertyKey]: js::PropertyDescriptor
+
+host js::Object
+  mut constructor: js::Function
+  toString: () -> string
+  toLocaleString: () -> string
+  valueOf: () -> js::Object
+  hasOwnProperty: (v: js::PropertyKey) -> bool
+  isPrototypeOf: (v: js::Object) -> bool
+  propertyIsEnumerable: (v: js::PropertyKey) -> bool
+
+host js::ObjectConstructor
+  constructor(value: js::Any?)
+  prototype: js::Object
+  getPrototypeOf: (o: js::Any) -> js::Any
+  getOwnPropertyDescriptor: (o: js::Any, p: js::PropertyKey) -> js::PropertyDescriptor?
+  getOwnPropertyNames: (o: js::Any) -> js::Array<string>
+  create: (o: js::Any?) -> js::Any
+  defineProperty<T>: (o: T, p: js::PropertyKey, attributes: js::PropertyDescriptor) -> T
+  defineProperties<T>: (o: T, properties: js::PropertyDescriptorMap) -> T
+  seal<T>: (o: T) -> T
+  freeze<T>: (f: T) -> T
+  preventExtensions<T>: (o: T) -> T
+  isSealed: (o: js::Any) -> bool
+  isFrozen: (o: js::Any) -> bool
+  isExtensible: (o: js::Any) -> bool
+  keys: (o: js::Any) -> js::Array<string>
+
+host js::Function
+  apply: (this: js::Function, thisArg: js::Any, argArray: js::Any?) -> js::Any
+  call: (this: js::Function, thisArg: js::Any, ...argArray: js::Any) -> js::Any
+  bind: (this: js::Function, thisArg: js::Any, ...argArray: js::Any) -> js::Any
+  toString: () -> string
+  mut prototype: js::Any
+  length: int
+  mut arguments: js::Any
+  mut caller: js::Function
+
+host js::FunctionConstructor
+  constructor(...args: string)
+  prototype: js::Function
+
+host js::CallableFunction heir js::Function
+  apply<T, R>: (this: function<(T) -> R>, thisArg: T) -> R
+  call<T, A, R>: (this: function<(T, A) -> R>, thisArg: T, ...args: A) -> R
+  bind<T>: (this: T, thisArg: js::ThisParameterType<T>) -> js::OmitThisParameter<T>
+
+host js::NewableFunction heir js::Function
+  apply<T>: (this: function<() -> T>, thisArg: T) -> void
+  call<T, A>: (this: function<(A) -> T>, thisArg: T, ...args: A) -> void
+  bind<T>: (this: T, thisArg: js::Any) -> T
+
+host js::IArguments
+  mut[indice: int]: js::Any
+  mut length: int
+  mut callee: js::Function
+
+host js::String
+  toString: () -> string
+  charAt: (pos: double) -> string
+  charCodeAt: (index: int) -> double
+  concat: (...strings: string) -> string
+  indexOf: (searchString: string, position: double?) -> double
+  lastIndexOf: (searchString: string, position: double?) -> double
+  localeCompare: (that: string) -> double
+  match: (regexp: js::Any) -> js::RegExpMatchArray?
+  replace: (searchValue: js::Any, replaceValue: string) -> string
+  search: (regexp: js::Any) -> double
+  slice: (start: double?, end: double?) -> string
+  split: (separator: js::Any, limit: double?) -> js::Array<string>
+  substring: (start: double, end: double?) -> string
+  toLowerCase: () -> string
+  toLocaleLowerCase: (locales: js::Any?) -> string
+  toUpperCase: () -> string
+  toLocaleUpperCase: (locales: js::Any?) -> string
+  trim: () -> string
+  length: int
+  substr: (from_: double, length: int?) -> string
+  valueOf: () -> string
+  [indice: int]: string
+
+host js::StringConstructor
+  constructor(value: js::Any?)
+  prototype: js::String
+  fromCharCode: (...codes: double) -> string
+
+host js::Boolean
+  valueOf: () -> bool
+
+host js::BooleanConstructor
+  constructor(value: js::Any?)
+  prototype: js::Boolean
+
+host js::Number
+  toString: (radix: double?) -> string
+  toFixed: (fractionDigits: double?) -> string
+  toExponential: (fractionDigits: double?) -> string
+  toPrecision: (precision: double?) -> string
+  valueOf: () -> double
+
+host js::NumberConstructor
+  constructor(value: js::Any?)
+  prototype: js::Number
+  MAX_VALUE: double
+  MIN_VALUE: double
+  NaN: double
+  NEGATIVE_INFINITY: double
+  POSITIVE_INFINITY: double
+
+host js::TemplateStringsArray heir js::ReadonlyArray
+  raw: js::Any
+
+host js::ImportCallOptions
+  mut assert?: js::ImportAssertions
+  mut with?: js::ImportAttributes
+
+host js::ImportAssertions
+  mut[indice: string]: string
+
+host js::ImportAttributes
+  mut[indice: string]: string
+
+host js::Math
+  E: double
+  LN10: double
+  LN2: double
+  LOG2E: double
+  LOG10E: double
+  PI: double
+  SQRT1_2: double
+  SQRT2: double
+  abs: (x: double) -> double
+  acos: (x: double) -> double
+  asin: (x: double) -> double
+  atan: (x: double) -> double
+  atan2: (y: double, x: double) -> double
+  ceil: (x: double) -> double
+  cos: (x: double) -> double
+  exp: (x: double) -> double
+  floor: (x: double) -> double
+  log: (x: double) -> double
+  max: (...values: double) -> double
+  min: (...values: double) -> double
+  pow: (x: double, y: double) -> double
+  random: () -> double
+  round: (x: double) -> double
+  sin: (x: double) -> double
+  sqrt: (x: double) -> double
+  tan: (x: double) -> double
+
+host js::Date
+  toString: () -> string
+  toDateString: () -> string
+  toTimeString: () -> string
+  toLocaleString: () -> string
+  toLocaleDateString: () -> string
+  toLocaleTimeString: () -> string
+  valueOf: () -> double
+  getTime: () -> double
+  getFullYear: () -> double
+  getUTCFullYear: () -> double
+  getMonth: () -> double
+  getUTCMonth: () -> double
+  getDate: () -> double
+  getUTCDate: () -> double
+  getDay: () -> double
+  getUTCDay: () -> double
+  getHours: () -> double
+  getUTCHours: () -> double
+  getMinutes: () -> double
+  getUTCMinutes: () -> double
+  getSeconds: () -> double
+  getUTCSeconds: () -> double
+  getMilliseconds: () -> double
+  getUTCMilliseconds: () -> double
+  getTimezoneOffset: () -> double
+  setTime: (time: double) -> double
+  setMilliseconds: (ms: double) -> double
+  setUTCMilliseconds: (ms: double) -> double
+  setSeconds: (sec: double, ms: double?) -> double
+  setUTCSeconds: (sec: double, ms: double?) -> double
+  setMinutes: (min: double, sec: double?, ms: double?) -> double
+  setUTCMinutes: (min: double, sec: double?, ms: double?) -> double
+  setHours: (hours: double, min: double?, sec: double?, ms: double?) -> double
+  setUTCHours: (hours: double, min: double?, sec: double?, ms: double?) -> double
+  setDate: (date: double) -> double
+  setUTCDate: (date: double) -> double
+  setMonth: (month: double, date: double?) -> double
+  setUTCMonth: (month: double, date: double?) -> double
+  setFullYear: (year: double, month: double?, date: double?) -> double
+  setUTCFullYear: (year: double, month: double?, date: double?) -> double
+  toUTCString: () -> string
+  toISOString: () -> string
+  toJSON: (key: js::Any?) -> string
+
+host js::DateConstructor
+  constructor()
+  prototype: js::Date
+  parse: (s: string) -> double
+  UTC: (year: double, monthIndex: double, date: double?, hours: double?, minutes: double?, seconds: double?, ms: double?) -> double
+  now: () -> double
+
+host js::RegExpMatchArray heir js::Array
+  mut index?: int
+  mut input?: string
+
+host js::RegExpExecArray heir js::Array
+  mut index: int
+  mut input: string
+
+host js::RegExp
+  exec: (string: string) -> js::RegExpExecArray?
+  test: (string: string) -> bool
+  source: string
+  global: bool
+  ignoreCase: bool
+  multiline: bool
+  mut lastIndex: double
+  compile: (pattern: string, flags_: string?) -> js::Any
+
+host js::RegExpConstructor
+  constructor(pattern: js::Any)
+  prototype: js::RegExp
+  mut input: string
+  mut lastMatch: string
+  mut lastParen: string
+  mut leftContext: string
+  mut rightContext: string
+
+host js::Error
+  mut name: string
+  mut message: string
+  mut stack?: string
+
+host js::ErrorConstructor
+  constructor(message: string?)
+  prototype: js::Error
+
+host js::EvalErrorConstructor heir js::ErrorConstructor
+  constructor(message: string?)
+  prototype: js::EvalError
+
+host js::RangeErrorConstructor heir js::ErrorConstructor
+  constructor(message: string?)
+  prototype: js::RangeError
+
+host js::ReferenceErrorConstructor heir js::ErrorConstructor
+  constructor(message: string?)
+  prototype: js::ReferenceError
+
+host js::SyntaxErrorConstructor heir js::ErrorConstructor
+  constructor(message: string?)
+  prototype: js::SyntaxError
+
+host js::TypeErrorConstructor heir js::ErrorConstructor
+  constructor(message: string?)
+  prototype: js::TypeError
+
+host js::URIErrorConstructor heir js::ErrorConstructor
+  constructor(message: string?)
+  prototype: js::URIError
+
+host js::JSON
+  parse: (text: string, reviver: function<(js::Any, string, js::Any) -> js::Any>?) -> js::Any
+  stringify: (value: js::Any, replacer: function<(js::Any, string, js::Any) -> js::Any>?, space: js::Any?) -> string
+
+host js::ReadonlyArray<T>
+  length: int
+  toString: () -> string
+  toLocaleString: () -> string
+  concat: (...items: js::ConcatArray<T>) -> js::Array<T>
+  join: (separator: string?) -> string
+  slice: (start: double?, end: double?) -> js::Array<T>
+  indexOf: (searchElement: T, fromIndex: double?) -> double
+  lastIndexOf: (searchElement: T, fromIndex: double?) -> double
+  every<S>: (predicate: function<(T, int, js::Any) -> bool>, thisArg: js::Any?) -> bool
+  some: (predicate: function<(T, int, js::Any) -> js::Any>, thisArg: js::Any?) -> bool
+  forEach: (callbackfn: function<(T, int, js::Any) -> void>, thisArg: js::Any?) -> void
+  map<U>: (callbackfn: function<(T, int, js::Any) -> U>, thisArg: js::Any?) -> js::Array<U>
+  filter<S>: (predicate: function<(T, int, js::Any) -> bool>, thisArg: js::Any?) -> js::Array<S>
+  reduce: (callbackfn: function<(T, T, double, js::Any) -> T>) -> T
+  reduceRight: (callbackfn: function<(T, T, double, js::Any) -> T>) -> T
+  [indice: int]: T
+
+host js::ConcatArray<T>
+  length: int
+  [indice: int]: T
+  join: (separator: string?) -> string
+  slice: (start: double?, end: double?) -> js::Array<T>
+
+host js::Array<T>
+  mut length: int
+  toString: () -> string
+  toLocaleString: () -> string
+  pop: () -> T?
+  push: (...items: T) -> double
+  concat: (...items: js::ConcatArray<T>) -> js::Array<T>
+  join: (separator: string?) -> string
+  reverse: () -> js::Array<T>
+  shift: () -> T?
+  slice: (start: double?, end: double?) -> js::Array<T>
+  sort: (compareFn: function<(T, T) -> double>?) -> js::Any
+  splice: (start: double, deleteCount: double?) -> js::Array<T>
+  unshift: (...items: T) -> double
+  indexOf: (searchElement: T, fromIndex: double?) -> double
+  lastIndexOf: (searchElement: T, fromIndex: double?) -> double
+  every<S>: (predicate: function<(T, int, js::Array<T>) -> bool>, thisArg: js::Any?) -> bool
+  some: (predicate: function<(T, int, js::Array<T>) -> js::Any>, thisArg: js::Any?) -> bool
+  forEach: (callbackfn: function<(T, int, js::Array<T>) -> void>, thisArg: js::Any?) -> void
+  map<U>: (callbackfn: function<(T, int, js::Array<T>) -> U>, thisArg: js::Any?) -> js::Array<U>
+  filter<S>: (predicate: function<(T, int, js::Array<T>) -> bool>, thisArg: js::Any?) -> js::Array<S>
+  reduce: (callbackfn: function<(T, T, double, js::Array<T>) -> T>) -> T
+  reduceRight: (callbackfn: function<(T, T, double, js::Array<T>) -> T>) -> T
+  mut[indice: int]: T
+
+host js::ArrayConstructor
+  constructor(arrayLength: double?)
+  isArray: (arg: js::Any) -> bool
+  prototype: js::Array<js::Any>
+
+host js::TypedPropertyDescriptor<T>
+  mut enumerable?: bool
+  mut configurable?: bool
+  mut writable?: bool
+  mut value?: T
+  get: () -> T
+  set: (value: T) -> void
+
+host js::PromiseLike<T>
+  then<TResult1, TResult2>: (onfulfilled: function<(T) -> js::Any>??, onrejected: function<(js::Any) -> js::Any>??) -> js::Promise<js::Any>
+
+host js::Promise<T>
+  then<TResult1, TResult2>: (onfulfilled: function<(T) -> js::Any>??, onrejected: function<(js::Any) -> js::Any>??) -> js::Promise<js::Any>
+  catch<TResult>: (onrejected: function<(js::Any) -> js::Any>??) -> js::Promise<js::Any>
+
+host js::ArrayLike<T>
+  length: int
+  [indice: int]: T
+
+host js::WeakKeyTypes
+  mut object: js::Any
+
+host js::ArrayBuffer
+  byteLength: double
+  slice: (begin: double?, end: double?) -> js::ArrayBuffer
+
+host js::ArrayBufferTypes
+  mut ArrayBuffer: js::ArrayBuffer
+
+host js::ArrayBufferConstructor
+  prototype: js::ArrayBuffer
+  constructor(byteLength: double)
+  isView: (arg: js::Any) -> bool
+
+host js::ArrayBufferView<TArrayBuffer>
+  buffer: TArrayBuffer
+  byteLength: double
+  byteOffset: double
+
+host js::DataView<TArrayBuffer>
+  buffer: TArrayBuffer
+  byteLength: double
+  byteOffset: double
+  getFloat32: (byteOffset: double, littleEndian: bool?) -> double
+  getFloat64: (byteOffset: double, littleEndian: bool?) -> double
+  getInt8: (byteOffset: double) -> double
+  getInt16: (byteOffset: double, littleEndian: bool?) -> double
+  getInt32: (byteOffset: double, littleEndian: bool?) -> double
+  getUint8: (byteOffset: double) -> double
+  getUint16: (byteOffset: double, littleEndian: bool?) -> double
+  getUint32: (byteOffset: double, littleEndian: bool?) -> double
+  setFloat32: (byteOffset: double, value: double, littleEndian: bool?) -> void
+  setFloat64: (byteOffset: double, value: double, littleEndian: bool?) -> void
+  setInt8: (byteOffset: double, value: double) -> void
+  setInt16: (byteOffset: double, value: double, littleEndian: bool?) -> void
+  setInt32: (byteOffset: double, value: double, littleEndian: bool?) -> void
+  setUint8: (byteOffset: double, value: double) -> void
+  setUint16: (byteOffset: double, value: double, littleEndian: bool?) -> void
+  setUint32: (byteOffset: double, value: double, littleEndian: bool?) -> void
+
+host js::DataViewConstructor
+  prototype: js::DataView<js::ArrayBufferLike>
+  constructor(buffer: js::TArrayBuffer, byteOffset: double?, byteLength: double?)
+
+host js::Int8Array<TArrayBuffer>
+  BYTES_PER_ELEMENT: double
+  buffer: TArrayBuffer
+  byteLength: double
+  byteOffset: double
+  copyWithin: (target: double, start: double, end: double?) -> js::Any
+  every: (predicate: function<(double, int, js::Any) -> js::Any>, thisArg: js::Any?) -> bool
+  fill: (value: double, start: double?, end: double?) -> js::Any
+  filter: (predicate: function<(double, int, js::Any) -> js::Any>, thisArg: js::Any?) -> js::Int8Array<js::ArrayBuffer>
+  find: (predicate: function<(double, int, js::Any) -> bool>, thisArg: js::Any?) -> double?
+  findIndex: (predicate: function<(double, int, js::Any) -> bool>, thisArg: js::Any?) -> double
+  forEach: (callbackfn: function<(double, int, js::Any) -> void>, thisArg: js::Any?) -> void
+  indexOf: (searchElement: double, fromIndex: double?) -> double
+  join: (separator: string?) -> string
+  lastIndexOf: (searchElement: double, fromIndex: double?) -> double
+  length: int
+  map: (callbackfn: function<(double, int, js::Any) -> double>, thisArg: js::Any?) -> js::Int8Array<js::ArrayBuffer>
+  reduce: (callbackfn: function<(double, double, double, js::Any) -> double>) -> double
+  reduceRight: (callbackfn: function<(double, double, double, js::Any) -> double>) -> double
+  reverse: () -> js::Any
+  set: (array: js::Array<double>, offset: int?) -> void
+  slice: (start: double?, end: double?) -> js::Int8Array<js::ArrayBuffer>
+  some: (predicate: function<(double, int, js::Any) -> js::Any>, thisArg: js::Any?) -> bool
+  sort: (compareFn: function<(double, double) -> double>?) -> js::Any
+  subarray: (begin: double?, end: double?) -> js::Int8Array<TArrayBuffer>
+  toLocaleString: () -> string
+  toString: () -> string
+  valueOf: () -> js::Any
+  mut[indice: int]: double
+
+host js::Int8ArrayConstructor
+  prototype: js::Int8Array<js::ArrayBufferLike>
+  constructor(length: int)
+  BYTES_PER_ELEMENT: double
+  of: (...items: double) -> js::Int8Array<js::ArrayBuffer>
+  from: (arrayLike: js::Array<double>) -> js::Int8Array<js::ArrayBuffer>
+
+host js::Uint8Array<TArrayBuffer>
+  BYTES_PER_ELEMENT: double
+  buffer: TArrayBuffer
+  byteLength: double
+  byteOffset: double
+  copyWithin: (target: double, start: double, end: double?) -> js::Any
+  every: (predicate: function<(double, int, js::Any) -> js::Any>, thisArg: js::Any?) -> bool
+  fill: (value: double, start: double?, end: double?) -> js::Any
+  filter: (predicate: function<(double, int, js::Any) -> js::Any>, thisArg: js::Any?) -> js::Uint8Array<js::ArrayBuffer>
+  find: (predicate: function<(double, int, js::Any) -> bool>, thisArg: js::Any?) -> double?
+  findIndex: (predicate: function<(double, int, js::Any) -> bool>, thisArg: js::Any?) -> double
+  forEach: (callbackfn: function<(double, int, js::Any) -> void>, thisArg: js::Any?) -> void
+  indexOf: (searchElement: double, fromIndex: double?) -> double
+  join: (separator: string?) -> string
+  lastIndexOf: (searchElement: double, fromIndex: double?) -> double
+  length: int
+  map: (callbackfn: function<(double, int, js::Any) -> double>, thisArg: js::Any?) -> js::Uint8Array<js::ArrayBuffer>
+  reduce: (callbackfn: function<(double, double, double, js::Any) -> double>) -> double
+  reduceRight: (callbackfn: function<(double, double, double, js::Any) -> double>) -> double
+  reverse: () -> js::Any
+  set: (array: js::Array<double>, offset: int?) -> void
+  slice: (start: double?, end: double?) -> js::Uint8Array<js::ArrayBuffer>
+  some: (predicate: function<(double, int, js::Any) -> js::Any>, thisArg: js::Any?) -> bool
+  sort: (compareFn: function<(double, double) -> double>?) -> js::Any
+  subarray: (begin: double?, end: double?) -> js::Uint8Array<TArrayBuffer>
+  toLocaleString: () -> string
+  toString: () -> string
+  valueOf: () -> js::Any
+  mut[indice: int]: double
+
+host js::Uint8ArrayConstructor
+  prototype: js::Uint8Array<js::ArrayBufferLike>
+  constructor(length: int)
+  BYTES_PER_ELEMENT: double
+  of: (...items: double) -> js::Uint8Array<js::ArrayBuffer>
+  from: (arrayLike: js::Array<double>) -> js::Uint8Array<js::ArrayBuffer>
+
+host js::Uint8ClampedArray<TArrayBuffer>
+  BYTES_PER_ELEMENT: double
+  buffer: TArrayBuffer
+  byteLength: double
+  byteOffset: double
+  copyWithin: (target: double, start: double, end: double?) -> js::Any
+  every: (predicate: function<(double, int, js::Any) -> js::Any>, thisArg: js::Any?) -> bool
+  fill: (value: double, start: double?, end: double?) -> js::Any
+  filter: (predicate: function<(double, int, js::Any) -> js::Any>, thisArg: js::Any?) -> js::Uint8ClampedArray<js::ArrayBuffer>
+  find: (predicate: function<(double, int, js::Any) -> bool>, thisArg: js::Any?) -> double?
+  findIndex: (predicate: function<(double, int, js::Any) -> bool>, thisArg: js::Any?) -> double
+  forEach: (callbackfn: function<(double, int, js::Any) -> void>, thisArg: js::Any?) -> void
+  indexOf: (searchElement: double, fromIndex: double?) -> double
+  join: (separator: string?) -> string
+  lastIndexOf: (searchElement: double, fromIndex: double?) -> double
+  length: int
+  map: (callbackfn: function<(double, int, js::Any) -> double>, thisArg: js::Any?) -> js::Uint8ClampedArray<js::ArrayBuffer>
+  reduce: (callbackfn: function<(double, double, double, js::Any) -> double>) -> double
+  reduceRight: (callbackfn: function<(double, double, double, js::Any) -> double>) -> double
+  reverse: () -> js::Any
+  set: (array: js::Array<double>, offset: int?) -> void
+  slice: (start: double?, end: double?) -> js::Uint8ClampedArray<js::ArrayBuffer>
+  some: (predicate: function<(double, int, js::Any) -> js::Any>, thisArg: js::Any?) -> bool
+  sort: (compareFn: function<(double, double) -> double>?) -> js::Any
+  subarray: (begin: double?, end: double?) -> js::Uint8ClampedArray<TArrayBuffer>
+  toLocaleString: () -> string
+  toString: () -> string
+  valueOf: () -> js::Any
+  mut[indice: int]: double
+
+host js::Uint8ClampedArrayConstructor
+  prototype: js::Uint8ClampedArray<js::ArrayBufferLike>
+  constructor(length: int)
+  BYTES_PER_ELEMENT: double
+  of: (...items: double) -> js::Uint8ClampedArray<js::ArrayBuffer>
+  from: (arrayLike: js::Array<double>) -> js::Uint8ClampedArray<js::ArrayBuffer>
+
+host js::Int16Array<TArrayBuffer>
+  BYTES_PER_ELEMENT: double
+  buffer: TArrayBuffer
+  byteLength: double
+  byteOffset: double
+  copyWithin: (target: double, start: double, end: double?) -> js::Any
+  every: (predicate: function<(double, int, js::Any) -> js::Any>, thisArg: js::Any?) -> bool
+  fill: (value: double, start: double?, end: double?) -> js::Any
+  filter: (predicate: function<(double, int, js::Any) -> js::Any>, thisArg: js::Any?) -> js::Int16Array<js::ArrayBuffer>
+  find: (predicate: function<(double, int, js::Any) -> bool>, thisArg: js::Any?) -> double?
+  findIndex: (predicate: function<(double, int, js::Any) -> bool>, thisArg: js::Any?) -> double
+  forEach: (callbackfn: function<(double, int, js::Any) -> void>, thisArg: js::Any?) -> void
+  indexOf: (searchElement: double, fromIndex: double?) -> double
+  join: (separator: string?) -> string
+  lastIndexOf: (searchElement: double, fromIndex: double?) -> double
+  length: int
+  map: (callbackfn: function<(double, int, js::Any) -> double>, thisArg: js::Any?) -> js::Int16Array<js::ArrayBuffer>
+  reduce: (callbackfn: function<(double, double, double, js::Any) -> double>) -> double
+  reduceRight: (callbackfn: function<(double, double, double, js::Any) -> double>) -> double
+  reverse: () -> js::Any
+  set: (array: js::Array<double>, offset: int?) -> void
+  slice: (start: double?, end: double?) -> js::Int16Array<js::ArrayBuffer>
+  some: (predicate: function<(double, int, js::Any) -> js::Any>, thisArg: js::Any?) -> bool
+  sort: (compareFn: function<(double, double) -> double>?) -> js::Any
+  subarray: (begin: double?, end: double?) -> js::Int16Array<TArrayBuffer>
+  toLocaleString: () -> string
+  toString: () -> string
+  valueOf: () -> js::Any
+  mut[indice: int]: double
+
+host js::Int16ArrayConstructor
+  prototype: js::Int16Array<js::ArrayBufferLike>
+  constructor(length: int)
+  BYTES_PER_ELEMENT: double
+  of: (...items: double) -> js::Int16Array<js::ArrayBuffer>
+  from: (arrayLike: js::Array<double>) -> js::Int16Array<js::ArrayBuffer>
+
+host js::Uint16Array<TArrayBuffer>
+  BYTES_PER_ELEMENT: double
+  buffer: TArrayBuffer
+  byteLength: double
+  byteOffset: double
+  copyWithin: (target: double, start: double, end: double?) -> js::Any
+  every: (predicate: function<(double, int, js::Any) -> js::Any>, thisArg: js::Any?) -> bool
+  fill: (value: double, start: double?, end: double?) -> js::Any
+  filter: (predicate: function<(double, int, js::Any) -> js::Any>, thisArg: js::Any?) -> js::Uint16Array<js::ArrayBuffer>
+  find: (predicate: function<(double, int, js::Any) -> bool>, thisArg: js::Any?) -> double?
+  findIndex: (predicate: function<(double, int, js::Any) -> bool>, thisArg: js::Any?) -> double
+  forEach: (callbackfn: function<(double, int, js::Any) -> void>, thisArg: js::Any?) -> void
+  indexOf: (searchElement: double, fromIndex: double?) -> double
+  join: (separator: string?) -> string
+  lastIndexOf: (searchElement: double, fromIndex: double?) -> double
+  length: int
+  map: (callbackfn: function<(double, int, js::Any) -> double>, thisArg: js::Any?) -> js::Uint16Array<js::ArrayBuffer>
+  reduce: (callbackfn: function<(double, double, double, js::Any) -> double>) -> double
+  reduceRight: (callbackfn: function<(double, double, double, js::Any) -> double>) -> double
+  reverse: () -> js::Any
+  set: (array: js::Array<double>, offset: int?) -> void
+  slice: (start: double?, end: double?) -> js::Uint16Array<js::ArrayBuffer>
+  some: (predicate: function<(double, int, js::Any) -> js::Any>, thisArg: js::Any?) -> bool
+  sort: (compareFn: function<(double, double) -> double>?) -> js::Any
+  subarray: (begin: double?, end: double?) -> js::Uint16Array<TArrayBuffer>
+  toLocaleString: () -> string
+  toString: () -> string
+  valueOf: () -> js::Any
+  mut[indice: int]: double
+
+host js::Uint16ArrayConstructor
+  prototype: js::Uint16Array<js::ArrayBufferLike>
+  constructor(length: int)
+  BYTES_PER_ELEMENT: double
+  of: (...items: double) -> js::Uint16Array<js::ArrayBuffer>
+  from: (arrayLike: js::Array<double>) -> js::Uint16Array<js::ArrayBuffer>
+
+host js::Int32Array<TArrayBuffer>
+  BYTES_PER_ELEMENT: double
+  buffer: TArrayBuffer
+  byteLength: double
+  byteOffset: double
+  copyWithin: (target: double, start: double, end: double?) -> js::Any
+  every: (predicate: function<(double, int, js::Any) -> js::Any>, thisArg: js::Any?) -> bool
+  fill: (value: double, start: double?, end: double?) -> js::Any
+  filter: (predicate: function<(double, int, js::Any) -> js::Any>, thisArg: js::Any?) -> js::Int32Array<js::ArrayBuffer>
+  find: (predicate: function<(double, int, js::Any) -> bool>, thisArg: js::Any?) -> double?
+  findIndex: (predicate: function<(double, int, js::Any) -> bool>, thisArg: js::Any?) -> double
+  forEach: (callbackfn: function<(double, int, js::Any) -> void>, thisArg: js::Any?) -> void
+  indexOf: (searchElement: double, fromIndex: double?) -> double
+  join: (separator: string?) -> string
+  lastIndexOf: (searchElement: double, fromIndex: double?) -> double
+  length: int
+  map: (callbackfn: function<(double, int, js::Any) -> double>, thisArg: js::Any?) -> js::Int32Array<js::ArrayBuffer>
+  reduce: (callbackfn: function<(double, double, double, js::Any) -> double>) -> double
+  reduceRight: (callbackfn: function<(double, double, double, js::Any) -> double>) -> double
+  reverse: () -> js::Any
+  set: (array: js::Array<double>, offset: int?) -> void
+  slice: (start: double?, end: double?) -> js::Int32Array<js::ArrayBuffer>
+  some: (predicate: function<(double, int, js::Any) -> js::Any>, thisArg: js::Any?) -> bool
+  sort: (compareFn: function<(double, double) -> double>?) -> js::Any
+  subarray: (begin: double?, end: double?) -> js::Int32Array<TArrayBuffer>
+  toLocaleString: () -> string
+  toString: () -> string
+  valueOf: () -> js::Any
+  mut[indice: int]: double
+
+host js::Int32ArrayConstructor
+  prototype: js::Int32Array<js::ArrayBufferLike>
+  constructor(length: int)
+  BYTES_PER_ELEMENT: double
+  of: (...items: double) -> js::Int32Array<js::ArrayBuffer>
+  from: (arrayLike: js::Array<double>) -> js::Int32Array<js::ArrayBuffer>
+
+host js::Uint32Array<TArrayBuffer>
+  BYTES_PER_ELEMENT: double
+  buffer: TArrayBuffer
+  byteLength: double
+  byteOffset: double
+  copyWithin: (target: double, start: double, end: double?) -> js::Any
+  every: (predicate: function<(double, int, js::Any) -> js::Any>, thisArg: js::Any?) -> bool
+  fill: (value: double, start: double?, end: double?) -> js::Any
+  filter: (predicate: function<(double, int, js::Any) -> js::Any>, thisArg: js::Any?) -> js::Uint32Array<js::ArrayBuffer>
+  find: (predicate: function<(double, int, js::Any) -> bool>, thisArg: js::Any?) -> double?
+  findIndex: (predicate: function<(double, int, js::Any) -> bool>, thisArg: js::Any?) -> double
+  forEach: (callbackfn: function<(double, int, js::Any) -> void>, thisArg: js::Any?) -> void
+  indexOf: (searchElement: double, fromIndex: double?) -> double
+  join: (separator: string?) -> string
+  lastIndexOf: (searchElement: double, fromIndex: double?) -> double
+  length: int
+  map: (callbackfn: function<(double, int, js::Any) -> double>, thisArg: js::Any?) -> js::Uint32Array<js::ArrayBuffer>
+  reduce: (callbackfn: function<(double, double, double, js::Any) -> double>) -> double
+  reduceRight: (callbackfn: function<(double, double, double, js::Any) -> double>) -> double
+  reverse: () -> js::Any
+  set: (array: js::Array<double>, offset: int?) -> void
+  slice: (start: double?, end: double?) -> js::Uint32Array<js::ArrayBuffer>
+  some: (predicate: function<(double, int, js::Any) -> js::Any>, thisArg: js::Any?) -> bool
+  sort: (compareFn: function<(double, double) -> double>?) -> js::Any
+  subarray: (begin: double?, end: double?) -> js::Uint32Array<TArrayBuffer>
+  toLocaleString: () -> string
+  toString: () -> string
+  valueOf: () -> js::Any
+  mut[indice: int]: double
+
+host js::Uint32ArrayConstructor
+  prototype: js::Uint32Array<js::ArrayBufferLike>
+  constructor(length: int)
+  BYTES_PER_ELEMENT: double
+  of: (...items: double) -> js::Uint32Array<js::ArrayBuffer>
+  from: (arrayLike: js::Array<double>) -> js::Uint32Array<js::ArrayBuffer>
+
+host js::Float32Array<TArrayBuffer>
+  BYTES_PER_ELEMENT: double
+  buffer: TArrayBuffer
+  byteLength: double
+  byteOffset: double
+  copyWithin: (target: double, start: double, end: double?) -> js::Any
+  every: (predicate: function<(double, int, js::Any) -> js::Any>, thisArg: js::Any?) -> bool
+  fill: (value: double, start: double?, end: double?) -> js::Any
+  filter: (predicate: function<(double, int, js::Any) -> js::Any>, thisArg: js::Any?) -> js::Float32Array<js::ArrayBuffer>
+  find: (predicate: function<(double, int, js::Any) -> bool>, thisArg: js::Any?) -> double?
+  findIndex: (predicate: function<(double, int, js::Any) -> bool>, thisArg: js::Any?) -> double
+  forEach: (callbackfn: function<(double, int, js::Any) -> void>, thisArg: js::Any?) -> void
+  indexOf: (searchElement: double, fromIndex: double?) -> double
+  join: (separator: string?) -> string
+  lastIndexOf: (searchElement: double, fromIndex: double?) -> double
+  length: int
+  map: (callbackfn: function<(double, int, js::Any) -> double>, thisArg: js::Any?) -> js::Float32Array<js::ArrayBuffer>
+  reduce: (callbackfn: function<(double, double, double, js::Any) -> double>) -> double
+  reduceRight: (callbackfn: function<(double, double, double, js::Any) -> double>) -> double
+  reverse: () -> js::Any
+  set: (array: js::Array<double>, offset: int?) -> void
+  slice: (start: double?, end: double?) -> js::Float32Array<js::ArrayBuffer>
+  some: (predicate: function<(double, int, js::Any) -> js::Any>, thisArg: js::Any?) -> bool
+  sort: (compareFn: function<(double, double) -> double>?) -> js::Any
+  subarray: (begin: double?, end: double?) -> js::Float32Array<TArrayBuffer>
+  toLocaleString: () -> string
+  toString: () -> string
+  valueOf: () -> js::Any
+  mut[indice: int]: double
+
+host js::Float32ArrayConstructor
+  prototype: js::Float32Array<js::ArrayBufferLike>
+  constructor(length: int)
+  BYTES_PER_ELEMENT: double
+  of: (...items: double) -> js::Float32Array<js::ArrayBuffer>
+  from: (arrayLike: js::Array<double>) -> js::Float32Array<js::ArrayBuffer>
+
+host js::Float64Array<TArrayBuffer>
+  BYTES_PER_ELEMENT: double
+  buffer: TArrayBuffer
+  byteLength: double
+  byteOffset: double
+  copyWithin: (target: double, start: double, end: double?) -> js::Any
+  every: (predicate: function<(double, int, js::Any) -> js::Any>, thisArg: js::Any?) -> bool
+  fill: (value: double, start: double?, end: double?) -> js::Any
+  filter: (predicate: function<(double, int, js::Any) -> js::Any>, thisArg: js::Any?) -> js::Float64Array<js::ArrayBuffer>
+  find: (predicate: function<(double, int, js::Any) -> bool>, thisArg: js::Any?) -> double?
+  findIndex: (predicate: function<(double, int, js::Any) -> bool>, thisArg: js::Any?) -> double
+  forEach: (callbackfn: function<(double, int, js::Any) -> void>, thisArg: js::Any?) -> void
+  indexOf: (searchElement: double, fromIndex: double?) -> double
+  join: (separator: string?) -> string
+  lastIndexOf: (searchElement: double, fromIndex: double?) -> double
+  length: int
+  map: (callbackfn: function<(double, int, js::Any) -> double>, thisArg: js::Any?) -> js::Float64Array<js::ArrayBuffer>
+  reduce: (callbackfn: function<(double, double, double, js::Any) -> double>) -> double
+  reduceRight: (callbackfn: function<(double, double, double, js::Any) -> double>) -> double
+  reverse: () -> js::Any
+  set: (array: js::Array<double>, offset: int?) -> void
+  slice: (start: double?, end: double?) -> js::Float64Array<js::ArrayBuffer>
+  some: (predicate: function<(double, int, js::Any) -> js::Any>, thisArg: js::Any?) -> bool
+  sort: (compareFn: function<(double, double) -> double>?) -> js::Any
+  subarray: (begin: double?, end: double?) -> js::Float64Array<TArrayBuffer>
+  toLocaleString: () -> string
+  toString: () -> string
+  valueOf: () -> js::Any
+  mut[indice: int]: double
+
+host js::Float64ArrayConstructor
+  prototype: js::Float64Array<js::ArrayBufferLike>
+  constructor(length: int)
+  BYTES_PER_ELEMENT: double
+  of: (...items: double) -> js::Float64Array<js::ArrayBuffer>
+  from: (arrayLike: js::Array<double>) -> js::Float64Array<js::ArrayBuffer>
+
+host js::String
+  localeCompare: (that: string, locales: js::Any?, options: js::CollatorOptions?) -> double
+
+host js::Number
+  toLocaleString: (locales: js::Any?, options: js::NumberFormatOptions?) -> string
+
+host js::Date
+  toLocaleString: (locales: js::Any?, options: js::DateTimeFormatOptions?) -> string
+  toLocaleDateString: (locales: js::Any?, options: js::DateTimeFormatOptions?) -> string
+  toLocaleTimeString: (locales: js::Any?, options: js::DateTimeFormatOptions?) -> string
+
+host namespace Intl
+  Collator: any
+  NumberFormat: any
+  DateTimeFormat: any
+host global NaN: double
+host global Infinity: double
+host global Object: js::ObjectConstructor
+host global Function: js::FunctionConstructor
+host global String: js::StringConstructor
+host global Boolean: js::BooleanConstructor
+host global Number: js::NumberConstructor
+host global Math: js::Math
+host global Date: js::DateConstructor
+host global RegExp: js::RegExpConstructor
+host global Error: js::ErrorConstructor
+host global EvalError: js::EvalErrorConstructor
+host global RangeError: js::RangeErrorConstructor
+host global ReferenceError: js::ReferenceErrorConstructor
+host global SyntaxError: js::SyntaxErrorConstructor
+host global TypeError: js::TypeErrorConstructor
+host global URIError: js::URIErrorConstructor
+host global JSON: js::JSON
+host global Array: js::ArrayConstructor
+host global ArrayBuffer: js::ArrayBufferConstructor
+host global DataView: js::DataViewConstructor
+host global Int8Array: js::Int8ArrayConstructor
+host global Uint8Array: js::Uint8ArrayConstructor
+host global Uint8ClampedArray: js::Uint8ClampedArrayConstructor
+host global Int16Array: js::Int16ArrayConstructor
+host global Uint16Array: js::Uint16ArrayConstructor
+host global Int32Array: js::Int32ArrayConstructor
+host global Uint32Array: js::Uint32ArrayConstructor
+host global Float32Array: js::Float32ArrayConstructor
+host global Float64Array: js::Float64ArrayConstructor
+
+declare
+  eval = (x: string) -> any
+  parseInt = (string: string, radix: double?) -> double
+  parseFloat = (string: string) -> double
+  isNaN = (number: double) -> bool
+  isFinite = (number: double) -> bool
+  decodeURI = (encodedURI: string) -> string
+  decodeURIComponent = (encodedURIComponent: string) -> string
+  encodeURI = (uri: string) -> string
+  encodeURIComponent = (uriComponent: any) -> string
+  escape = (string: string) -> string
+  unescape = (string: string) -> string
